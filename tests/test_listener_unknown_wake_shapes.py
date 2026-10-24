@@ -41,12 +41,12 @@ def _relay(body, canonical=None):
 
 
 def test_a_known_shape_is_still_relayed():
-    relayed, out, _err = _relay({"event": "ser_escalation", "ser_id": "ser_1"})
+    relayed, out, _err = _relay({"event": "platform_dispatch_ready", "dispatch_id": "d_1"})
 
     assert relayed is True
     emitted = json.loads(out.strip())
-    assert emitted["event_type"] == "ser_escalation"
-    assert emitted["ser_id"] == "ser_1"
+    assert emitted["event_type"] == "platform_dispatch_ready"
+    assert emitted["dispatch_id"] == "d_1"
     assert emitted["via"] == "push_relay"
 
 
@@ -58,7 +58,7 @@ def test_an_unknown_shape_is_reported_on_stderr():
     assert out == "", "and nothing is emitted into the session"
     assert "UNHANDLED" in err
     assert "totally_unknown_shape" in err, "name the shape, or the log cannot be acted on"
-    assert "ser_escalation" in err, "list what IS known, so the gap is legible"
+    assert "platform_dispatch_ready" in err, "list what IS known, so the gap is legible"
 
 
 def test_proposal_events_do_not_warn():
@@ -92,7 +92,7 @@ def test_a_body_with_no_event_key_does_not_warn():
 def test_recipient_gate_still_rejects_a_body_that_names_other_targets():
     """Defense-in-depth ahead of the tag filter — must survive the change."""
     relayed, out, _err = _relay(
-        {"event": "ser_escalation", "target_claudes": ["empirica.david.empirica-cortex"]},
+        {"event": "platform_dispatch_ready", "target_claudes": ["empirica.david.empirica-cortex"]},
         canonical="empirica.david.empirica",
     )
 
@@ -102,7 +102,7 @@ def test_recipient_gate_still_rejects_a_body_that_names_other_targets():
 
 def test_the_allowlist_is_still_an_allowlist():
     """If this ever becomes 'relay anything', the reaction protocol is undefined."""
-    assert "ser_escalation" in _NON_PROPOSAL_WAKE_SHAPES
+    assert "platform_dispatch_ready" in _NON_PROPOSAL_WAKE_SHAPES
     assert "some_shape_nobody_declared" not in _NON_PROPOSAL_WAKE_SHAPES
 
 
@@ -134,16 +134,16 @@ def test_a_body_with_neither_event_nor_proposal_id_is_audible():
     missing or null took neither branch and vanished in total silence — the one
     case least diagnosable from either side.
 
-    Found by cortex 2026-08-06 tracing why zero `ser_escalation` events had ever
+    Found by cortex 2026-08-06 tracing why zero events of one relayed shape had ever
     relayed: 819 audible drops across 9 listeners, not one naming that shape. An
     audible-drop mechanism that cannot report a MISSING key leaves exactly one
     hypothesis untestable, and it was the live one.
     """
-    relayed, _out, err = _relay({"ser_id": "ser_x", "escalation": True})
+    relayed, _out, err = _relay({"widget_id": "w_x", "escalation": True})
 
     assert relayed is False
     assert "no 'event' key" in err
-    assert "ser_id" in err, "the body's keys must be surfaced — the shape is unidentifiable without them"
+    assert "widget_id" in err, "the body's keys must be surfaced — the shape is unidentifiable without them"
 
 
 def test_the_proposal_doorbell_stays_silent():
@@ -206,7 +206,7 @@ def test_the_warning_keys_on_recoverability_not_on_the_shape_name():
 
 def test_a_body_with_neither_event_nor_proposal_id_names_its_keys():
     """Unidentifiable shapes are only actionable if the line says what arrived."""
-    _, _, err = _relay({"ser_id": "ser_x", "escalation": True})
+    _, _, err = _relay({"widget_id": "w_x", "escalation": True})
 
     assert "no 'event' key" in err
-    assert "ser_id" in err and "escalation" in err
+    assert "widget_id" in err and "escalation" in err

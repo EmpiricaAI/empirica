@@ -2,7 +2,7 @@
 
 Per `docs/architecture/MESH_CONTENT.md (not in this repo)`. This module is the empirica-side
 home for the helpers + contract that every mesh-citizen primitive
-(Source today, SER and future types tomorrow) implements:
+(Source today; further types later) implements:
 
 1. **Canonical address** — `<org>.<tenant>.<practice>~<type>_<uuid>`.
    Separator `~` chosen per cortex's pushback on `#` (HTTP fragment
@@ -20,8 +20,10 @@ ships immediately so the canonical-address thread can land without
 blocking other work.
 
 Storage stays primitive-specific. Source rows stay in
-`epistemic_sources`; SER records stay in cortex storage. This module
-is contract + helpers, not data.
+`epistemic_sources`. This module is contract + helpers, not data.
+
+The `ser` type (Shared Epistemic Record, cortex-side) was retired 2026-10-24; its address token stays
+registered so addresses already written down still parse.
 """
 
 from __future__ import annotations
@@ -56,14 +58,14 @@ __all__ = [
 # Add new entries here when a new primitive joins the substrate.
 MESH_CONTENT_TYPES: tuple[str, ...] = (
     "src",  # Source (empirica-side, epistemic_sources)
-    "ser",  # Shared Epistemic Record (cortex-side)
+    "ser",  # Shared Epistemic Record, RETIRED 2026-10-24: kept so existing addresses still parse
     # Future: "dec" (shared decision), "les" (shared lesson), ...
 )
 
 
 # Render size cap matches the daemon `GET /api/v1/sources/{id}/content`
 # endpoint (shipped earlier). Per `prop_3u54utxe` discussion, the same
-# cap covers SER reports too (they're typically much smaller).
+# cap covers other rendered content too.
 DEFAULT_RENDER_SIZE_CAP = 10 * 1024 * 1024  # 10 MB
 
 

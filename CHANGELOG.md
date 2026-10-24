@@ -65,6 +65,16 @@ Rename this heading to the release version and date at the cut: `scripts/release
   completed reason), so a rebuild keeps why a goal was abandoned. `doctor --reconcile-notes` repairs older notes, and restamping the
   same action twice no longer repeats a lineage entry.
 
+### Removed
+
+- **Shared Epistemic Record (SER) support** (cortex stage 2, 2026-10-24; David confirmed: remove outright, keep the tables). Cortex closed
+  all 104 SERs and refuses `create_ser`; the replacement for "is every target done" is one multi-target proposal with a per-target ack.
+  Gone from core: the `empirica mailbox sers` verb; the POSTFLIGHT SER ack-debt check (an HTTP call to cortex on every POSTFLIGHT, and
+  its `ser_ack_check` / `ser_acks_owed_*` keys); the catch-up step that fetched `/v1/sers` on every listener poll to recover dropped
+  escalations (`EscalationEvent`, `reconcile_ser_escalations`); the listener's relay of `ser_escalation` wakes; and the docstrings and
+  the `epistemic-gardening` skill text that told callers to use `create_ser`. The database tables and the `ser` mesh-content address
+  token stay, so old rows and addresses still read. Comments that cite an old SER by id as design history are left alone.
+
 ### Fixed
 
 - **A test that wrote findings into the checkout's real git notes** now runs from a directory that is not a repository.

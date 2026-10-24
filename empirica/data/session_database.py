@@ -3073,11 +3073,11 @@ class SessionDatabase:
         """Log a bead v0 coordination-record (delegates to BreadcrumbRepository).
 
         RETIRED 2026-06-02 (empirica 1.11.2). The v0 bead concept retired
-        three-way (cortex/empirica/extension) 2026-06-01; cross-practitioner
-        coordination state lives in cortex-resident SER now — see
-        `empirica-cortex/docs/architecture/SHARED_EPISTEMIC_RECORD.md`.
-        Kept as an inert legacy path for backward read of pre-retirement
-        rows. New callers should use `cortex_propose(payload.action='create_ser')`.
+        three-way (cortex/empirica/extension) 2026-06-01. Cross-practitioner
+        "is every target done" is one multi-target proposal with a per-target
+        ack (cortex 97820077); the interim SER record type was itself retired
+        2026-10-24. Kept as an inert legacy path for backward read of
+        pre-retirement rows; nothing new should call it.
         """
         return self.breadcrumbs.log_bead(
             project_id,

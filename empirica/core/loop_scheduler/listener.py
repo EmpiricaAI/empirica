@@ -366,9 +366,10 @@ def _is_real_event(ntfy_message: dict[str, Any]) -> bool:
 # proposal-store row, so the proposal-only catch-up (content_poll) can never
 # reconstruct them — the doorbell body is the only possible LIVE delivery.
 # Extensible allowlist: each shape added here also needs a durable store the
-# catch-up can reconcile from on a dropped doorbell (ser_escalation → /v1/sers).
-# `platform_dispatch_ready` is the ONE entry here that DOES have a proposal
-# row, so unlike ser_escalation it is not unrecoverable without this relay —
+# catch-up can reconcile from on a dropped doorbell. (The one shape that lacked such a store, the SER
+# escalation, was retired with SERs on 2026-10-24.)
+# `platform_dispatch_ready` is an entry that DOES have a proposal
+# row, so it is not unrecoverable without this relay —
 # with `accepted_pending_dispatch` now in EMISSION_STATUSES_OUTBOX the catch-up
 # reconstructs it. This entry is the LATENCY path, and the status filter is the
 # RECOVERY path; the bug needed both because it had neither.
@@ -381,7 +382,7 @@ def _is_real_event(ntfy_message: dict[str, Any]) -> bool:
 # `platform_decisions[X].dispatch_id` — a double-delivered doorbell plus an
 # unconditional dispatch is a duplicate live social post, which is unrecoverable
 # in a way a missed one is not. Delivered-twice-and-suppressed beats exactly-once.
-_NON_PROPOSAL_WAKE_SHAPES = frozenset({"ser_escalation", "platform_dispatch_ready"})
+_NON_PROPOSAL_WAKE_SHAPES = frozenset({"platform_dispatch_ready"})
 
 
 def _relay_non_proposal_wake(msg: dict, instance_id: str, loop_name: str, canonical, output_stream, err_stream) -> bool:
@@ -390,7 +391,7 @@ def _relay_non_proposal_wake(msg: dict, instance_id: str, loop_name: str, canoni
     Returns True if a fires line was written. Recipient gating is already done by
     the ntfy tag-filter subscription (``?tags=<canonical>``); we additionally
     honor an explicit ``target_claudes`` in the body when present. The AI's
-    documented reaction protocol re-pulls the durable state (the SER projection)
+    documented reaction protocol re-pulls the durable state
     before acting, so relaying the doorbell body is a wake TRIGGER, not authority
     — the ECO-gated-autonomy property is preserved.
     """
@@ -445,8 +446,8 @@ def _relay_non_proposal_wake(msg: dict, instance_id: str, loop_name: str, canoni
             # An earlier version made the shape warning conditional on `event`
             # being present — the very field whose absence it needed to report —
             # so a body with `event` missing or null vanished in total silence.
-            # Found by cortex 2026-08-06 while tracing why zero `ser_escalation`
-            # events had ever been relayed: 819 audible drops across 9 listeners,
+            # Found by cortex 2026-08-06 while tracing why zero events of one
+            # relayed shape had ever arrived: 819 audible drops across 9 listeners,
             # not one naming that shape. An audible-drop mechanism that cannot
             # report a MISSING key leaves exactly one hypothesis untestable, and
             # it was the live one.
@@ -459,7 +460,7 @@ def _relay_non_proposal_wake(msg: dict, instance_id: str, loop_name: str, canoni
             else:
                 # Keys are surfaced because the shape is unidentifiable without
                 # them — "a body arrived with no event key" is not actionable;
-                # "…and it had ser_id, escalation, target_claudes" names the
+                # "…and it had <these keys>" names the
                 # sender's intent.
                 err_stream.write(
                     f"listener: DROPPED a wake body with no 'event' key and no proposal_id — "
@@ -1135,7 +1136,7 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
                     err_stream.write(
                         f"listener: ntfy event arrived (id={msg.get('id', '?')[:12]}) → running catch-up\n"
                     )
-                    # Relay allowlisted non-proposal wake shapes (ser_escalation)
+                    # Relay allowlisted non-proposal wake shapes
                     # from the push body FIRST — they have no proposal-store row,
                     # so the proposal-only catch-up below can't reconstruct them.
                     _relay_non_proposal_wake(msg, instance_id, loop_name, tag_filter, output_stream, err_stream)

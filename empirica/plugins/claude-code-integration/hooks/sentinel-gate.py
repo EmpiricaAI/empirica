@@ -870,10 +870,6 @@ EMPIRICA_TIER1_PREFIXES = (
     "empirica mailbox show",  # Read one proposal body (pure read)
     # The rest of the mesh's reads, left gated because only the verbs that existed when the receive
     # side was classified were listed. Each was read in its handler, not judged from its name:
-    # One HTTP GET of /v1/sers. Like `mailbox poll` and `show` beside it, it resolves its bearer through
-    # cortex_bearer, which refreshes the seat's expiring OAuth token and persists the rotated refresh token.
-    # That is the same side effect those two already carry; `auth token` is kept out for being that and nothing else.
-    "empirica mailbox sers",
     "empirica mesh tail",  # Spawns `tail` on loop_fires.log and prints it
     # Lists the mirrored agreements from the local registry. `sync` beside it writes and stays gated.
     # Opening the workspace store runs its schema init, which migrates an old database in place (it adds

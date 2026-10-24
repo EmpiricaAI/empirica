@@ -21,7 +21,7 @@ PREFLIGHT ──► CHECK ──► POSTFLIGHT ──► POST-TEST ──► COM
 
 > **Verified at 1.11.0.** The three core verbs (`preflight-submit`, `check-submit`, `postflight-submit`) remain present and behave as documented. Notable additions since this doc was first written:
 > - **`work_type`** declarations expand the gate-relaxation tuple — `code`/`infra`/`research`/`release`/`debug`/`config`/`docs`/`data`/`comms`/`design`/`audit`/`remote-ops` (`remote-ops` recognises SSH/rsync/scp paths the local sentinel can't observe; calibration returns `ungrounded_remote_ops`)
-> - **Bead artifact type** (1.10.5, retired in 1.11) — the v0 bead concept has been replaced by Shared Epistemic Records (SERs) at the cortex layer; see [MESH_CONCEPTS.md](../../human/end-users/MESH_CONCEPTS.md) for the conceptual framing and the [SER spec](https://github.com/getempirica/empirica-cortex/blob/main/docs/architecture/SHARED_EPISTEMIC_RECORD.md) for the data model
+> - **Bead artifact type** (1.10.5, retired in 1.11) — the v0 bead concept was replaced at the cortex layer, first by Shared Epistemic Records (retired 2026-10-24) and now by multi-target proposals with per-target acks; see [MESH_CONCEPTS.md](../../human/end-users/MESH_CONCEPTS.md) for the conceptual framing
 > - **Edge metadata persistence fix** (1.10.5) — per-edge `metadata` JSON on typed-edge relations now persists correctly through `log-artifacts` (originally fixed for the retired bead edges; the underlying bug fix is independently useful for any artifact edge carrying metadata)
 > - **The artifact graph + commit-context walker** for finding what you logged — see [LOGGING_AND_FINDING.md](../../human/end-users/LOGGING_AND_FINDING.md)
 >

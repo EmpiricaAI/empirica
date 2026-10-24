@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.13
-**Generated:** 2026-10-24 18:05:28 UTC
+**Generated:** 2026-10-24 18:11:23 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -3768,20 +3768,6 @@ Archive a proposal (soft-delete from inbox view) — POST /v1/orchestration/<id>
   Optional archive reason (audit trail)
 - `--ai-id` — optional
   WHOSE mailbox to archive from, as the canonical 3-form. Required by cortex when more than one of your practices participates in the proposal — it refuses to guess, because archiving all of them hides the thread from practitioners that never acted. Defaults to this practice's canonical id.
-- `--output` — optional · type=`choice` · choices={human, json} · default=`json`
-  Output format (default: json)
-
-
-##### `empirica mailbox sers`
-
-List the SERs this practice participates in — GET /v1/sers. Pass a ser_id to show one, including participant rows so required-tier holders are named. Read-only: transitions and acks go through cortex_propose payload actions.
-
-**Arguments:**
-
-- `ser_id` — **required**
-  Optional SER id (ser_…). Omit to list this practice's participation.
-- `--ai-id` — optional
-  Canonical 3-form to query for (default: this project's ai_id)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format (default: json)
 

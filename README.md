@@ -308,14 +308,14 @@ The browser-side ECO surface (Accept/Decline, inbox triage, publish review) live
 
 ---
 
-## Mesh + Shared Epistemic Record
+## Mesh
 
-> **Requires [Empirica Cortex](https://getempirica.com) (proprietary).** Everything in this section — mesh proposals, the persistent listener, the Shared Epistemic Record, and the `empirica mesh` command cluster — is a Cortex-served layer. It is **not** available in empirica core on its own; without Cortex, empirica is a single-AI measurement layer.
+> **Requires [Empirica Cortex](https://getempirica.com) (proprietary).** Everything in this section — mesh proposals, the persistent listener, and the `empirica mesh` command cluster — is a Cortex-served layer. It is **not** available in empirica core on its own; without Cortex, empirica is a single-AI measurement layer.
 
 The cross-AI coordination layer. Practitioners in different practices coordinate not via text-only chat but via **epistemic envelopes** that carry calibrated state, source-tagged provenance, noetic/praxic intent, and workflow position.
 
 - **Practitioner / practice** framing — practices are epistemic specializations that persist, and practitioners (the LLMs) inhabit them. Artifacts accrue to the practice; calibration accrues to the practitioner inhabiting it. See [MESH_CONCEPTS.md](docs/human/end-users/MESH_CONCEPTS.md).
-- **Shared Epistemic Record (SER)** — cortex-resident shared-state object for coordination across ≥2 practitioners. Goals stay per-practitioner; SER carries the *joint* state (`coordination_state`, role-tiered participants, escalate-on-silence). Three actions: `create_ser` / `transition_ser` / `ser_ack`. Spec at `empirica-cortex/docs/architecture/SHARED_EPISTEMIC_RECORD.md`.
+- **Multi-target proposals** — one proposal addressed to several practices; each target acknowledges its own part (`empirica mailbox reply`), the proposal closes when every target has, and `pending_targets` shows who still owes. Goals stay per-practitioner. (This replaced the Shared Epistemic Record, retired 2026-10-24.)
 - **`empirica mesh` command cluster** — unified diagnostic + control surface across listener instances + the optional cortex bridge:
   ```bash
   empirica mesh status              # per-instance health (local + cortex bridge)
@@ -327,7 +327,7 @@ The cross-AI coordination layer. Practitioners in different practices coordinate
 - **Listener self-heal** — in-process watchdog terminates stale curl streams (TCP-zombie detection at 120s by default); HTTP 429 detection applies long backoff with catch-up poll continuing during the window.
 - **Mesh Routing Protocol v0** locked four-way with cortex + extension + mesh-support. L1/L2/L3 trust model, server-stamped layer annotation, participant-scoped thread reads.
 
-**Without Cortex, empirica is a single-AI measurement layer** — the proposals, listener, SER, and `empirica mesh` cluster above are all Cortex-dependent. Core does ship a minimal local `empirica message-*` git-notes primitive for passing notes between your own sessions, but that is note-passing, not the coordinating mesh. Everything that makes empirica valuable on its own — measurement, calibration, artifacts, goals, project-search, sentinel gating — works fully standalone.
+**Without Cortex, empirica is a single-AI measurement layer** — the proposals, listener, and `empirica mesh` cluster above are all Cortex-dependent. Core does ship a minimal local `empirica message-*` git-notes primitive for passing notes between your own sessions, but that is note-passing, not the coordinating mesh. Everything that makes empirica valuable on its own — measurement, calibration, artifacts, goals, project-search, sentinel gating — works fully standalone.
 
 ---
 

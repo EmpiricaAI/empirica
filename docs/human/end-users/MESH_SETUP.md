@@ -13,7 +13,7 @@
 - **Push-wake on inbox events** — idle sessions wake the moment a peer's proposal is accepted, not on next user prompt
 - **Cross-project artifact serving** — semantic search across every project you've worked in
 - **Browser-side ECO triage UI** — Accept/Decline proposals on phone or desktop without having to type into a terminal
-- **Shared Epistemic Records (SERs)** — sustained multi-practitioner coordination state with role tiers, escalate-on-silence wake, and a graduation pipeline from collab discussion to ECO-gated proposals (see [`empirica-cortex/docs/architecture/SHARED_EPISTEMIC_RECORD.md`](https://github.com/getempirica/empirica-cortex/blob/main/docs/architecture/SHARED_EPISTEMIC_RECORD.md))
+- **Multi-target proposals** — one proposal addressed to several practices, acknowledged per target (`empirica mailbox reply`); it closes when every target has acked, and `pending_targets` shows who still owes. This replaced Shared Epistemic Records, retired 2026-10-24.
 
 The mesh layer is delivered by [Empirica Cortex](https://getempirica.com) (a proprietary serving layer), an optional [browser extension](https://getempirica.com), and an [ntfy](https://ntfy.sh) push bridge. None of these are required for Empirica core; **everything in this doc is opt-in**.
 
@@ -44,7 +44,7 @@ If you want them, read on.
 │  EXTENSION (browser UI)  (chrome.google.com or getempirica.com)  │
 │  • ECO triage — Accept/Decline proposals from phone or desktop   │
 │  • Artifacts pane (reads local daemon at localhost:8000)         │
-│  • Reports tab (Shared Epistemic Records — coordination state)   │
+│  • Reports tab (closed SER history; SERs retired 2026-10-24)     │
 │  • System tab — cross-org governance events                      │
 └────────────────────┬─────────────────────────────────────────────┘
                      │ optional ↓
@@ -138,7 +138,7 @@ empirica diagnose
 
 ## Step 3 — Install the Browser Extension
 
-The [Empirica Extension](https://getempirica.com) provides the ECO triage UI (Accept/Decline proposals), the Artifacts pane (reads your local daemon), and the **Reports tab** — the human-readable view of every Shared Epistemic Record (SER) the user's practices are participants in.
+The [Empirica Extension](https://getempirica.com) provides the ECO triage UI (Accept/Decline proposals), the Artifacts pane (reads your local daemon), and the **Reports tab** — the human-readable history of the Shared Epistemic Records (SERs) the user's practices took part in. SERs were retired 2026-10-24, so it shows closed records only.
 
 **Chrome / Chromium browsers:**
 - Install from the Chrome Web Store via the link at [getempirica.com](https://getempirica.com)
@@ -356,7 +356,7 @@ A reminder, because users sometimes assume the mesh is required:
 - Per-project entity graph (`entity-list`, `entity-walk`, `entity-search`)
 - The commit-context walker
 - The artifact graph + typed edges
-- `bd` issue tracker integration (per-project dependency-graph + ready-work filtering for goal decomposition) — completely separate concept from cross-practitioner SERs
+- `bd` issue tracker integration (per-project dependency-graph + ready-work filtering for goal decomposition) — completely separate concept from cross-practitioner coordination
 - Calibration breadcrumbs + the compliance loop
 - The Claude Code plugin (hooks + skills)
 - The TUI cockpit (`empirica cockpit` or `empirica tui`)
@@ -366,8 +366,8 @@ A reminder, because users sometimes assume the mesh is required:
 - Cross-AI proposal pipeline (peer AIs requesting work from each other)
 - ECO trust gating with phone/desktop accept/decline
 - Push-wake on inbox events
-- Shared Epistemic Records (the cross-practitioner shared-state primitive)
-- The Reports tab in the extension (human-readable SER renders)
+- Multi-target proposals with per-target acks (the cross-practitioner "is everyone done" primitive; they replaced Shared Epistemic Records, retired 2026-10-24)
+- The Reports tab in the extension (closed SER history only; SERs were retired 2026-10-24)
 - The System tab (cross-org governance events)
 
 ---

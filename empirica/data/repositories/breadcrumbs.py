@@ -1428,14 +1428,13 @@ class BreadcrumbRepository(BaseRepository):
 
         RETIRED 2026-06-02 (empirica 1.11.2). The v0 bead-as-graph-node
         concept retired three-way (cortex/empirica/extension) on
-        2026-06-01; cross-practitioner coordination state now lives in
-        cortex-resident SER (Shared Epistemic Record) — see
-        `empirica-cortex/docs/architecture/SHARED_EPISTEMIC_RECORD.md`.
+        2026-06-01. Cross-practitioner "is every target done" is one
+        multi-target proposal with a per-target ack (cortex 97820077); the
+        interim Shared Epistemic Record type was itself retired 2026-10-24.
 
         This method is kept as an inert legacy path so any pre-retirement
-        bead rows stay readable, but no current code path calls it. New
-        callers should use `cortex_propose(payload.action='create_ser')`
-        via the `/cortex-mailbox-send` skill.
+        bead rows stay readable, but no current code path calls it. Nothing
+        new should call it.
 
         State machine (v0, frozen): open ↔ in_progress ↔ blocked,
         any → closed.

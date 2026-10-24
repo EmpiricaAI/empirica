@@ -48,7 +48,7 @@ A normal message system carries text plus envelope metadata (sender, timestamp, 
 | **Intent** | `collab` (noetic — share/ask/discuss) or `propose` (praxic — actionable request) | Receiver knows whether to think or to act |
 | **Provenance** | Source-tagged: intuition vs search vs mixed; URLs/refs to specific reads | Receiver can ground-check the claim before acting on it |
 | **Calibration** | Sender's vectors at send time (know, uncertainty, context, etc.) | Receiver knows how much epistemic weight to give the message |
-| **Workflow arc** | `parent_id`, `thread_root_id`, `ser_id` (when attached to sustained shared work) | Receiver sees the conversation arc, not a context-free ping |
+| **Workflow arc** | `parent_id`, `thread_root_id` | Receiver sees the conversation arc, not a context-free ping |
 | **Trust gate** | `action_category` (REFLEX / OPERATIONAL / TACTICAL / STRATEGIC / IRREVERSIBLE) | Higher categories route through an ECO trust gate before the receiver wakes |
 | **Coordination state** | When attached to ongoing work: `open` / `in_progress` / `blocked` / `closed` + role tags on participants | The mesh knows who's waiting on whom; can wake them on state changes |
 
@@ -145,7 +145,7 @@ Coordination primitives available without cortex:
 | AI #1 wants to tell AI #2 about something | `empirica message-send --to-ai-id <ai_id> --subject "..." --body "..."` |
 | AI #2 checks for new messages | `empirica message-inbox` (or auto-poll via local listener) |
 | Reply to a message | `empirica message-reply --message-id <id> --body "..."` |
-| Coordinate sustained work across both | Each practice creates its own `empirica goals-create` (status: `planned` / `in_progress` / `blocked` / `completed`); cross-practice messages reference each other's goal IDs by hand. (Shared cross-practitioner state lives in cortex's SER — see layer 2 below for the upgrade path.) |
+| Coordinate sustained work across both | Each practice creates its own `empirica goals-create` (status: `planned` / `in_progress` / `blocked` / `completed`); cross-practice messages reference each other's goal IDs by hand. (For "is every practice done", send ONE multi-target proposal: each target acks its own part and it closes when all have — see layer 2 below for the upgrade path.) |
 | AI #1 wants to pick up where AI #3 left off | `empirica goals-resume <goal_id>` — loads goal context + linked artifacts |
 | Cross-project search of work artifacts | `empirica project-search --task "..." --global` (walks workspace.db across all projects on this machine) |
 | See who's working on what right now | `empirica status --all` (TUI cockpit) |

@@ -17,7 +17,7 @@ This document covers *what it can say, and to whom*.
 | Transport | **git notes** (`refs/notes/empirica/messages/…`) | HTTPS to Cortex `/v1/orchestration/*` |
 | Needs Cortex | **No** | **Yes** |
 | Needs a network | Only a git remote — works offline, delivers on push | Yes |
-| Verbs | `message-send`, `message-inbox`, `message-read`, `message-reply`, `message-thread`, `message-channels`, `message-cleanup` | `mailbox poll`, `mailbox show`, `mailbox reply`, `mailbox archive`, `mailbox sers` |
+| Verbs | `message-send`, `message-inbox`, `message-read`, `message-reply`, `message-thread`, `message-channels`, `message-cleanup` | `mailbox poll`, `mailbox show`, `mailbox reply`, `mailbox archive` |
 | Carries | A message — sent, read, replied to | A **proposal**: a typed request that someone *act* |
 | Gating | None. Peers exchange text. | ECO Accept/Decline before the target acts |
 | Durability | Travels with the repo; survives clone | Cortex-side, queryable across practices |

@@ -221,8 +221,8 @@ lesson — `lesson-create` with `sharing_policy` `org` or `public` in the payloa
 
 1. Register the discipline: `empirica source-add --title "Epistemic gardening pass" --visibility shared --noetic`
 2. FYI the mesh when you finish a pass — `/cortex-mailbox-send`, Flavor 1, canonical 3-form target.
-3. For a coordinated fleet sweep with named owners, graduate to an SER via
-   `cortex_propose(payload.action='create_ser')`.
+3. For a coordinated fleet sweep with named owners, send ONE multi-target `cortex_propose`; each owner acks its own
+   target with `empirica mailbox reply`, and the row closes when all have (`pending_targets` shows who still owes).
 4. **Never garden a peer's graph.** Only the practitioner inhabiting a practice knows whether
    a finding is truly superseded. Propose the pass; never reach into their DB with
    `--project-id` to prune.

@@ -40,9 +40,6 @@ def _safe(gate, command: str) -> bool:
 READS = [
     "empirica auth status",
     "empirica auth status --output json",
-    "empirica mailbox sers",
-    "empirica mailbox sers --output json",
-    "empirica mailbox sers prop_abc --output json",
     "empirica mesh tail",
     "empirica mesh tail --instance empirica",
     "empirica mesh-agreements list",
@@ -80,7 +77,7 @@ def test_the_write_beside_it_is_still_gated(gate, command):
     [
         "empirica auth status && rm -rf /tmp/x",
         "empirica auth status; empirica auth token",
-        "empirica mailbox sers > ~/.bashrc",
+        "empirica mesh tail > ~/.bashrc",
         "empirica mesh tail | tee /tmp/x",
     ],
 )
