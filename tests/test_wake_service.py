@@ -171,6 +171,23 @@ def test_the_service_is_built_when_asked_for(value):
     assert build_wake_service("proj", env={"EMPIRICA_LISTENER_WAKE": value}) is not None
 
 
+def test_waking_over_a_suggestion_is_a_separate_opt_in(monkeypatch):
+    from empirica.core.cockpit import wake_service as ws
+
+    calls = []
+    monkeypatch.setattr(
+        ws,
+        "wake_instance",
+        lambda pane, **kw: calls.append((pane, kw)) or WakeResult(pane, True, "sent", "tmux-send-keys"),
+    )
+    off = build_wake_service("proj", env={"EMPIRICA_LISTENER_WAKE": "1"})
+    on = build_wake_service("proj", env={"EMPIRICA_LISTENER_WAKE": "1", "EMPIRICA_WAKE_OVER_SUGGESTION": "1"})
+    assert off is not None and on is not None
+    off._raw_wake("tmux_1")
+    on._raw_wake("tmux_2")
+    assert calls == [("tmux_1", {"allow_suggestion": False}), ("tmux_2", {"allow_suggestion": True})]
+
+
 # ── the listener feeds it ────────────────────────────────────────────────────
 
 

@@ -205,22 +205,78 @@ _PANE_SPINNER = re.compile(r"…\s*\(\d+[ms]")  # "Zesting… (12s", "Cogitating
 _PANE_BUSY_HINTS = ("esc to interrupt", "Running…")
 _PANE_CHOICE = re.compile(r"^\s*❯\s*\d+\.\s")  # "❯ 1. Yes": a dialog's selected option
 _PANE_TAIL_LINES = 14
+_SGR = re.compile(r"\x1b\[([0-9;]*)m")
 
 
-def pane_is_idle(screen: str) -> tuple[bool, str]:
-    """Whether a Claude Code pane is waiting for input, from the text of `tmux capture-pane`; (False, why) otherwise.
+def _all_visible_text_is_dim(raw_lines: list[str]) -> bool:
+    """Whether every visible character in these lines is drawn dim (SGR 2). The first line is read from after its `❯`.
+
+    This is what separates Claude Code's greyed prompt suggestion from text the user typed: `tmux capture-pane -e` keeps the
+    styling, and a suggestion is wrapped in dim while typed text is not. Extended-colour parameters (`38;5;n`, `38;2;r;g;b`) are
+    skipped as units, because the `2` inside a truecolour sequence is not the dim attribute.
+    """
+    seen = False
+    for n, line in enumerate(raw_lines):
+        dim, pos, started = False, 0, n > 0
+        for m in [*_SGR.finditer(line), None]:
+            chunk = line[pos : m.start() if m else len(line)]
+            if not started:
+                cut = chunk.find("❯")
+                if cut >= 0:
+                    chunk, started = chunk[cut + 1 :], True
+                else:
+                    chunk = ""
+            if chunk.strip():
+                if not dim:
+                    return False
+                seen = True
+            if m is None:
+                break
+            pos = m.end()
+            params = [p for p in m.group(1).split(";") if p != ""] or ["0"]
+            i = 0
+            while i < len(params):
+                code = params[i]
+                if code in ("38", "48", "58"):
+                    i += (
+                        3
+                        if i + 1 < len(params) and params[i + 1] == "5"
+                        else 5
+                        if i + 1 < len(params) and params[i + 1] == "2"
+                        else 1
+                    )
+                    continue
+                if code == "0":
+                    dim = False
+                elif code == "2":
+                    dim = True
+                elif code == "22":
+                    dim = False
+                i += 1
+    return seen
+
+
+def pane_is_idle(screen: str, *, allow_suggestion: bool = False) -> tuple[bool, str]:
+    """Whether a Claude Code pane is waiting for input, from the text of `tmux capture-pane -e`; (False, why) otherwise.
 
     Fails closed. A pane is idle only when it positively shows an EMPTY prompt inside the input box (the last `❯` line between
     two rules), with no spinner or running-tool line above it. Three things look alike to a keystroke and none may be written to:
     a running turn (its prompt box is empty too, so the spinner is what tells them apart), a half-typed draft (a Space and an
     Enter would submit it), and a permission dialog (Enter accepts the default option; its selected `❯ 1.` option is refused by
-    name, and it has no empty prompt box, which the idle test requires). Only the bottom of the screen is read: the spinner and the box are always there, and
-    older scrollback must not be able to hold a pane busy.
+    name, and it has no empty prompt box, which the idle test requires). Only the bottom of the screen is read: the spinner and
+    the box are always there, and older scrollback must not be able to hold a pane busy.
+
+    Text at the prompt is told apart by its styling when the capture carries it: dim text is Claude Code's greyed suggestion,
+    anything else is a draft. A suggestion is refused unless `allow_suggestion` (what Space+Enter does to one is being measured, not
+    assumed); a draft is always refused.
     """
-    lines = [line.rstrip() for line in screen.splitlines()]
+    raw = screen.splitlines()
+    lines = [_SGR.sub("", line).rstrip() for line in raw]
     while lines and not lines[-1].strip():
         lines.pop()
-    tail = lines[-_PANE_TAIL_LINES:]
+        raw.pop()
+    start = max(len(lines) - _PANE_TAIL_LINES, 0)
+    tail, raw_tail = lines[start:], raw[start : len(lines)]
     if not tail:
         return False, "the pane is empty"
     for line in tail:
@@ -243,11 +299,15 @@ def pane_is_idle(screen: str) -> tuple[bool, str]:
     else:
         return False, "the prompt is not inside the input box"
     if any(line.strip() for line in box):
-        return False, "something is at the prompt (a draft, or a suggestion shown there)"
+        if _all_visible_text_is_dim(raw_tail[i : i + len(box)]):
+            if allow_suggestion:
+                return True, ""
+            return False, "a suggestion is shown at the prompt"
+        return False, "a draft is typed at the prompt"
     return True, ""
 
 
-def wake_instance(instance_id: str, *, require_idle: bool = True) -> WakeResult:
+def wake_instance(instance_id: str, *, require_idle: bool = True, allow_suggestion: bool = False) -> WakeResult:
     """Nudge an idle Claude Code session to submit a turn — the remote-Enter.
 
     Sends a Space + Enter to the target pane via `tmux send-keys`. That
@@ -269,7 +329,8 @@ def wake_instance(instance_id: str, *, require_idle: bool = True) -> WakeResult:
     The pane is read first and keys are sent only to one that is waiting for input (`pane_is_idle`): Space+Enter into a
     permission dialog accepts its default option, and into a half-typed draft it submits the draft. A pane that is busy,
     mid-draft, on a dialog, or cannot be read is refused (`method="refused"`), never written to. A refused wake is cheap: the
-    queued state surfaces on that session's next prompt anyway. `require_idle=False` keeps the old unconditional send.
+    queued state surfaces on that session's next prompt anyway. `require_idle=False` keeps the old unconditional send; `allow_suggestion` lets a pane showing only
+    Claude Code's dim prompt suggestion be woken (see `pane_is_idle`).
     """
     if not instance_id:
         raise ValueError("instance_id required")
@@ -295,7 +356,7 @@ def wake_instance(instance_id: str, *, require_idle: bool = True) -> WakeResult:
     if require_idle:
         try:
             shot = subprocess.run(
-                ["tmux", "capture-pane", "-p", "-t", f"%{pane_n}"],
+                ["tmux", "capture-pane", "-e", "-p", "-t", f"%{pane_n}"],
                 capture_output=True,
                 text=True,
                 timeout=3,
@@ -307,7 +368,7 @@ def wake_instance(instance_id: str, *, require_idle: bool = True) -> WakeResult:
         if shot.returncode != 0:
             why = (shot.stderr or "").strip() or "<no stderr>"
             return WakeResult(instance_id, False, f"not woken: the pane cannot be read ({why})", "refused")
-        idle, reason = pane_is_idle(shot.stdout or "")
+        idle, reason = pane_is_idle(shot.stdout or "", allow_suggestion=allow_suggestion)
         if not idle:
             return WakeResult(instance_id, False, f"not woken: {reason}", "refused")
 

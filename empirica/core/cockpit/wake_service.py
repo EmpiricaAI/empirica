@@ -33,6 +33,7 @@ from empirica.core.cockpit.wake_scheduler import WakeScheduler
 from empirica.core.cockpit.wake_targets import wakeable_panes
 
 ENABLE_VAR = "EMPIRICA_LISTENER_WAKE"
+OVER_SUGGESTION_VAR = "EMPIRICA_WAKE_OVER_SUGGESTION"
 TICK_S = 60.0
 PANES_TTL_S = 120.0
 POLL_TIMEOUT_S = 20
@@ -165,10 +166,25 @@ class WakeService:
             self._thread.join(timeout)
 
 
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def build_wake_service(ai_id: str, env: Mapping[str, str] | None = None, err_stream=sys.stderr) -> WakeService | None:
-    """The practice's wake service, or None when `EMPIRICA_LISTENER_WAKE` is not set to a true value."""
-    value = ((env if env is not None else os.environ).get(ENABLE_VAR) or "").strip().lower()
-    if value not in {"1", "true", "yes", "on"}:
+    """The practice's wake service, or None when `EMPIRICA_LISTENER_WAKE` is not set to a true value.
+
+    `EMPIRICA_WAKE_OVER_SUGGESTION` additionally lets a wake land on a pane that shows only Claude Code's dim prompt suggestion. It
+    is separate and off by default: a suggestion is the commonest idle state after a turn, so without it many panes are skipped, but
+    what Space+Enter does to one is still being measured.
+    """
+    source = env if env is not None else os.environ
+    if not _truthy(source.get(ENABLE_VAR)):
         return None
+    over_suggestion = _truthy(source.get(OVER_SUGGESTION_VAR))
     state = Path.home() / ".empirica" / f"wake_surfaced_{ai_id}.json"
-    return WakeService(ai_id, watch=InboxWatch(ai_id, state), err_stream=err_stream)
+    return WakeService(
+        ai_id,
+        watch=InboxWatch(ai_id, state),
+        wake=lambda pane: wake_instance(pane, allow_suggestion=over_suggestion),
+        err_stream=err_stream,
+    )

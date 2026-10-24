@@ -20,7 +20,9 @@ Rename this heading to the release version and date at the cut: `scripts/release
 - **`/artifact-graph`, `/practice-model`, `/authoring-guidance`**: the constitution split by the moment each part is needed.
 - **`wake_instance` only types into a pane that is waiting for input.** It reads the pane first (`pane_is_idle`) and refuses a running
   turn, a half-typed draft, a permission dialog or an unreadable pane, because Space+Enter accepts a dialog's default option and
-  submits a draft. The Events button reports a refusal instead of a failure; `require_idle=False` keeps the old unconditional send.
+  submits a draft. The Events button reports a refusal instead of a failure; `require_idle=False` keeps the old unconditional send. The pane is read with its
+  styling, so Claude Code's dim prompt suggestion is named as a suggestion and a typed draft as a draft; a wake lands over a suggestion
+  only with `allow_suggestion` (`EMPIRICA_WAKE_OVER_SUGGESTION=1` for the listener service), never over a draft.
 - **A wake turn polls the inbox.** On a blank prompt (what a wake submits) `tool-router` injects the practice's pending mesh messages
   and a reminder to re-arm an expired Monitor; any other prompt costs nothing extra.
 - **An opt-in wake service in the listener** (`EMPIRICA_LISTENER_WAKE=1`, off by default). On a mesh event, and every two hours when

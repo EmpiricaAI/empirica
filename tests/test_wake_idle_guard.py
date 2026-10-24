@@ -97,9 +97,11 @@ class _Tmux:
     """Answers `tmux capture-pane` with a screen and records every `tmux send-keys`."""
 
     def __init__(self, screen: str | None, capture_rc: int = 0):
-        self.screen, self.capture_rc, self.sent = screen, capture_rc, []
+        self.screen, self.capture_rc, self.sent, self.calls = screen, capture_rc, [], []
 
     def run(self, args, **kw):
+        self.calls.append(args)
+
         class _R:
             returncode, stdout, stderr = 0, "", ""
 
@@ -151,3 +153,75 @@ def test_require_idle_false_keeps_the_old_unconditional_wake(tmux):
     fake = tmux(BUSY)
     assert ia.wake_instance("tmux_5", require_idle=False).success is True
     assert len(fake.sent) == 1
+
+
+# ── a dim suggestion is not a draft (goal 87772ac4, live trial 2026-10-24) ──
+#
+# The first live trial woke nothing: the event reached the listener and the guard refused this seat's own idle pane because "something
+# is at the prompt". Claude Code shows a greyed suggestion there after a turn, so the commonest idle state looked like a draft.
+# `capture-pane -e` keeps the styling: a suggestion is wrapped in dim (SGR 2), typed text is not. The guard now tells them apart in
+# its reason, and a wake may be allowed over a suggestion only when asked (allow_suggestion), because what Space+Enter does to a
+# suggestion is being measured, not assumed.
+
+DIM, OFF = "\x1b[2m", "\x1b[0m"
+SUGGESTION = _screen("● Done.", "", prompt=f"❯ {DIM}run the failing test again{OFF}")
+SUGGESTION_WRAPPED = "\n".join(
+    [
+        "● Done.",
+        "",
+        RULE,
+        f"❯ {DIM}a longer suggestion that wraps onto{OFF}",
+        f"  {DIM}a second line{OFF}",
+        RULE,
+        STATUS,
+    ]
+)
+DRAFT_AFTER_DIM = _screen("● Done.", "", prompt=f"❯ {DIM}suggestion{OFF} and then typed text")
+STYLED_DRAFT = _screen("● Done.", "", prompt="❯ \x1b[39mplain typed text\x1b[0m")
+
+
+def test_a_suggestion_is_named_as_one_and_still_refused_by_default():
+    idle, reason = ia.pane_is_idle(SUGGESTION)
+    assert not idle and "suggestion" in reason
+
+
+@pytest.mark.parametrize(
+    ("name", "screen"),
+    [("a typed draft", DRAFT), ("a styled typed draft", STYLED_DRAFT), ("dim then typed", DRAFT_AFTER_DIM)],
+)
+def test_typed_text_is_named_as_a_draft_never_as_a_suggestion(name, screen):
+    idle, reason = ia.pane_is_idle(screen)
+    assert not idle and "draft" in reason and "suggestion" not in reason, name
+
+
+def test_a_wrapped_suggestion_is_a_suggestion_only_when_every_line_is_dim():
+    assert "suggestion" in ia.pane_is_idle(SUGGESTION_WRAPPED)[1]
+    half_dim = SUGGESTION_WRAPPED.replace(f"  {DIM}a second line{OFF}", "  typed second line")
+    assert "draft" in ia.pane_is_idle(half_dim)[1]
+
+
+def test_allow_suggestion_lets_pane_is_idle_pass_a_pure_suggestion_and_nothing_else():
+    assert ia.pane_is_idle(SUGGESTION, allow_suggestion=True)[0] is True
+    assert ia.pane_is_idle(SUGGESTION_WRAPPED, allow_suggestion=True)[0] is True
+    for screen in (DRAFT, STYLED_DRAFT, DRAFT_AFTER_DIM, BUSY, DIALOG):
+        assert ia.pane_is_idle(screen, allow_suggestion=True)[0] is False
+
+
+def test_escape_codes_do_not_change_the_other_verdicts():
+    assert ia.pane_is_idle(IDLE.replace("● Done.", "\x1b[32m● Done.\x1b[0m"))[0] is True
+    assert ia.pane_is_idle(BUSY.replace("Zesting", "\x1b[33mZesting\x1b[0m"))[0] is False
+
+
+def test_wake_instance_wakes_over_a_suggestion_only_when_allowed(tmux):
+    fake = tmux(SUGGESTION)
+    refused = ia.wake_instance("tmux_5")
+    assert refused.method == "refused" and "suggestion" in refused.detail and fake.sent == []
+    allowed = ia.wake_instance("tmux_5", allow_suggestion=True)
+    assert allowed.success is True and len(fake.sent) == 1
+
+
+def test_wake_instance_reads_the_pane_with_its_styling(tmux):
+    fake = tmux(IDLE)
+    ia.wake_instance("tmux_5")
+    capture = next(a for a in fake.calls if a[1] == "capture-pane")
+    assert "-e" in capture, "without -e the dim styling that identifies a suggestion is gone"
