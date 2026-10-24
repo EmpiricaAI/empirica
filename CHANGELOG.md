@@ -36,6 +36,12 @@ Rename this heading to the release version and date at the cut: `scripts/release
 
 ### Changed
 
+- **`get_tty_key` is computed once per parent pid and read from `/proc`** (ecodex, measured on core 1.14.13): it spawned a `ps` per
+  ancestor on every call and one session-init called it 74 times. On the box that ran this, 74 calls took 3,077 ms and now take 0.04 ms
+  after a 0.15 ms first call, and a praxic PreToolUse gate ran in 295-368 ms and now runs in 110-112 ms (in-process, same payload,
+  import path forced). The cache is keyed on `os.getppid()` so a reparented listener or MCP server walks again, and a transient failure
+  is never cached. Anything `/proc` cannot name falls back to `ps`; macOS is unchanged. Parity with the old walk was checked on four
+  real chains.
 - **`mailbox reply` acknowledges a multi-target parent for your own target** instead of skipping completion (cortex 97820077). The
   client stopgap that left a fan-out request open is gone: it calls `/complete` with your canonical `ai_id`, reports
   `parent_acked`, `pending_targets` and `target_acks`, and archives your own copy once your ack is recorded. `parent_closed` now means

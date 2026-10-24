@@ -336,6 +336,90 @@ def is_headless() -> bool:
 # =============================================================================
 
 
+_PROC_ROOT = Path("/proc")
+_TTY_CACHE: dict[int, str | None] = {}
+
+
+class _Unrecognised:
+    """A device whose /proc number cannot be turned into the name ps prints: ask ps instead of guessing."""
+
+
+_UNRECOGNISED = _Unrecognised()
+_TTY_WALK_LEVELS = 5
+
+
+def reset_tty_key_cache() -> None:
+    """Forget every cached answer (tests, and any caller that knows its process tree just changed)."""
+    _TTY_CACHE.clear()
+
+
+def _decode_tty_nr(tty_nr: int) -> str | None | _Unrecognised:
+    """The name `ps` prints for a Linux device number: `pts-N`, `ttyN`, `ttySN`; None for no tty; _UNRECOGNISED otherwise."""
+    if tty_nr == 0:
+        return None
+    major = (tty_nr >> 8) & 0xFFF
+    minor = (tty_nr & 0xFF) | ((tty_nr >> 12) & 0xFFF00)
+    if 136 <= major <= 143:  # devpts: eight majors of 256 minors each
+        return f"pts-{(major - 136) * 256 + minor}"
+    if major == 4:
+        return f"tty{minor}" if minor < 64 else f"ttyS{minor - 64}"
+    return _UNRECOGNISED
+
+
+def _proc_step(pid: int) -> tuple[str | None, int] | None:
+    """(tty or None, ppid) from /proc/<pid>/stat, or None when /proc cannot answer for this pid (absent, unreadable, unknown device)."""
+    try:
+        data = (_PROC_ROOT / str(pid) / "stat").read_text()
+        # comm (field 2) may hold spaces and parentheses, so split after the LAST ')': state ppid pgrp session tty_nr ...
+        fields = data[data.rindex(")") + 2 :].split()
+        ppid, tty = int(fields[1]), _decode_tty_nr(int(fields[4]))
+    except (OSError, ValueError, IndexError):
+        return None
+    return None if isinstance(tty, _Unrecognised) else (tty, ppid)
+
+
+def _ps_step(pid: int) -> tuple[str | None, int | None] | None:
+    """(tty or None, ppid or None) from one `ps`, or None when ps could not answer. Timeouts and OS errors propagate."""
+    result = subprocess.run(["ps", "-p", str(pid), "-o", "tty=,ppid="], capture_output=True, text=True, timeout=2)
+    if result.returncode != 0:
+        return None
+    parts = result.stdout.strip().split()
+    if not parts:
+        return None
+    tty = parts[0]
+    # macOS ps returns '??' for no-TTY processes (not '?' like Linux)
+    if tty and not tty.startswith("?"):
+        return tty.replace("/", "-"), None
+    try:
+        return None, int(parts[1]) if len(parts) > 1 else None
+    except ValueError:
+        return None, None
+
+
+def _walk_for_tty(pid: int) -> tuple[str | None, bool]:
+    """Walk up from `pid`; returns (tty or None, whether the answer is definitive and may be cached).
+
+    Definitive: a tty was found, or the chain really ends without one (pid 1 reached, or the level limit). Not definitive: a process
+    could not be read or ps failed, which can be transient.
+    """
+    use_proc = _PROC_ROOT.is_dir()
+    for _ in range(_TTY_WALK_LEVELS):
+        if pid <= 1:
+            return None, True
+        step = _proc_step(pid) if use_proc else None
+        if step is None:  # no /proc (macOS), or it cannot answer for this pid: ps is the source of truth
+            step = _ps_step(pid)
+            if step is None:
+                return None, False
+        tty, ppid = step
+        if tty:
+            return tty, True
+        if ppid is None:
+            return None, False
+        pid = ppid
+    return None, True
+
+
 def get_tty_key() -> str | None:
     """Get a TTY-based key for session isolation. Returns None if no TTY.
 
@@ -348,40 +432,22 @@ def get_tty_key() -> str | None:
     CRITICAL: No PPID fallback. If TTY detection fails, return None to signal
     that instance isolation cannot be guaranteed. Callers must handle None
     by failing safely rather than risking cross-instance bleed.
+
+    The answer is cached per process, keyed on the parent pid: it cannot change while the parent is the same, a reparented
+    long-lived process (listener, MCP server) has a new key and walks again, and a transient failure is never cached. Before
+    this, one session-init called it 74 times and each call spawned a `ps` per ancestor (measured: 74 calls = 3,077 ms). On
+    Linux the walk reads /proc/<pid>/stat; anything it cannot name is asked of `ps`.
     """
     try:
-        # Walk up process tree looking for a TTY
-        pid = os.getppid()
-        for _ in range(5):  # Max 5 levels up
-            if pid <= 1:
-                break
-
-            result = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "tty=,ppid="], capture_output=True, text=True, timeout=2
-            )
-            if result.returncode != 0:
-                break
-
-            parts = result.stdout.strip().split()
-            if not parts:
-                break
-
-            tty = parts[0]
-            # macOS ps returns '??' for no-TTY processes (not '?' like Linux)
-            if tty and not tty.startswith("?"):
-                return tty.replace("/", "-")
-
-            # Move to parent
-            if len(parts) > 1:
-                try:
-                    pid = int(parts[1])
-                except ValueError:
-                    break
-            else:
-                break
+        parent = os.getppid()
+        if parent in _TTY_CACHE:
+            return _TTY_CACHE[parent]
+        tty, definitive = _walk_for_tty(parent)
+        if definitive:
+            _TTY_CACHE[parent] = tty
+        return tty
     except Exception:
-        pass
-    return None  # No fallback - fail safely
+        return None  # No fallback - fail safely
 
 
 def get_tty_session(warn_if_stale: bool = True) -> dict[str, Any] | None:
