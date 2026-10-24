@@ -36,6 +36,10 @@ Rename this heading to the release version and date at the cut: `scripts/release
 
 ### Changed
 
+- **The listener and practitioner heartbeats outlast a cortex restart** (cortex, 2026-10-23: cortex now QUEUES connections for the ~5 s a
+  restart takes instead of refusing them). Their post timeout is 12 s, up from exactly 5.0 s, and the practitioner emitter stops its
+  cycle at the first no-answer instead of timing out once per live session, then retries on the next interval. The liveness probe (8 s
+  timeout, exits only after 240 s without a success) and the catch-up fetch (10 s) already complied.
 - **`provision-practice` and the cockpit work for practices that do not run Claude** (ecodex, David's rulings 2026-10-24).
   `--dry-run` narration (`[dry-run] would run:` and `would patch`) goes to stderr, so `--output json` stdout is exactly the JSON.
   New `--launch` and `--resume` (they need `--cockpit-profile` and are refused without it, not ignored) say what the pane runs and how

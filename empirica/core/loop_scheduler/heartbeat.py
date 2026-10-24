@@ -40,7 +40,9 @@ logger = logging.getLogger(__name__)
 
 _HEARTBEAT_ENDPOINT_PATH = "/v1/listeners/heartbeat"
 _DEFAULT_INTERVAL_SEC = 45.0
-_DEFAULT_TIMEOUT_SEC = 5.0
+# Above cortex's ~5 s restart queue (it holds its socket under systemd and QUEUES connections during a restart or deploy), and below
+# the interval so a hung post cannot run into the next beat. A missed beat is harmless: cortex's TTL is about two minutes.
+_DEFAULT_TIMEOUT_SEC = 12.0
 
 
 def _default_post(url: str, body: bytes, headers: dict, timeout: float) -> int:

@@ -50,7 +50,9 @@ logger = logging.getLogger(__name__)
 
 _HEARTBEAT_ENDPOINT_PATH = "/v1/practitioners/heartbeat"
 _DEFAULT_INTERVAL_SEC = 60.0
-_DEFAULT_TIMEOUT_SEC = 5.0
+# Above cortex's ~5 s restart queue (it holds its socket under systemd and QUEUES connections during a restart or deploy), and below
+# the interval so a hung post cannot run into the next beat. A missed beat is harmless: cortex's TTL is about two minutes.
+_DEFAULT_TIMEOUT_SEC = 12.0
 
 
 def _default_post(url: str, body: bytes, headers: dict, timeout: float) -> int:
@@ -414,6 +416,16 @@ class PractitionerHeartbeatEmitter:
             except Exception as e:
                 logger.warning("practitioner-heartbeat: emit failed for %s: %s", sid, e)
                 results[sid] = -1
+            if results[sid] == -1:
+                # No answer at all (timeout or refused). One per session would hold the cycle for N x timeout against a cortex that is
+                # down or restarting; stop here and retry on the next interval, which is also the backoff. An HTTP status is an answer
+                # and does not stop the cycle.
+                logger.warning(
+                    "practitioner-heartbeat: no answer from cortex; stopping this cycle after %d of %d",
+                    len(results),
+                    len(records),
+                )
+                break
         return results
 
     def _loop(self) -> None:
