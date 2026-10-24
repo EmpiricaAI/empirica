@@ -81,7 +81,7 @@ Falls back to erroring with a clear message if neither is available.
         "--resume",
         metavar="CMD",
         help="What `cockpit refresh` runs to bring a dead pane back with its conversation. Needs --cockpit-profile. "
-        "Default: the launch with --continue for claude, `<prog> resume --last` for codex and ecodex",
+        "Default: the launch with --continue for claude, `<prog> resume --last` for codex and ecodex (flag-only launches; give --resume for a launch that ends in a prompt or is wrapped in a shell)",
     )
     p.add_argument("--dry-run", action="store_true", help="Print planned actions (to stderr) without executing")
     p.add_argument("--output", choices=["human", "json"], default="human", help="Output format")

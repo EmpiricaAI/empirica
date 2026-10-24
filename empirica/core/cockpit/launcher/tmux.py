@@ -855,7 +855,9 @@ def resume_command(proj) -> str:
     program = _launch_program(proj.launch)
     if program in _RESUME_LAST_PROGRAMS:
         # codex and ecodex bring the last conversation back with a subcommand, not a flag. A launch that already says `resume`
-        # is the user's choice and is kept. Not exercised against the real binaries: the form is ecodex's, from its own pane.
+        # is the user's choice and is kept. Checked by ecodex against its v0.164.1 source: right for flag-only launches. NOT right for a launch
+        # ending in a prompt (`ecodex "go"` would become `ecodex "go" resume --last`), and a shell-wrapped launch is not detected (only the
+        # first word is read); both need an explicit `resume:`, which wins.
         try:
             tokens = shlex.split(proj.launch)
         except ValueError:

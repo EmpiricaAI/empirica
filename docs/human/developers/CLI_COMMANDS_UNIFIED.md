@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.13
-**Generated:** 2026-10-24 18:03:21 UTC
+**Generated:** 2026-10-24 18:05:28 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1774,7 +1774,7 @@ Create + register a new local practice/practitioner in one command
 - `--launch` — optional
   What the cockpit pane runs (default: claude). Needs --cockpit-profile. For a codex or ecodex practice: --launch ecodex
 - `--resume` — optional
-  What `cockpit refresh` runs to bring a dead pane back with its conversation. Needs --cockpit-profile. Default: the launch with --continue for claude, `<prog> resume --last` for codex and ecodex
+  What `cockpit refresh` runs to bring a dead pane back with its conversation. Needs --cockpit-profile. Default: the launch with --continue for claude, `<prog> resume --last` for codex and ecodex (flag-only launches; give --resume for a launch that ends in a prompt or is wrapped in a shell)
 - `--dry-run` — optional · flag
   Print planned actions (to stderr) without executing
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
