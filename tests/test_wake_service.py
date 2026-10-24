@@ -149,6 +149,20 @@ def test_a_new_message_wakes_again_at_the_next_heartbeat(tmp_path):
     assert rig.wakes == ["tmux_3", "tmux_3"]
 
 
+def test_every_wake_log_line_carries_a_utc_timestamp(tmp_path):
+    """Listener stderr goes to a file, not journald, and a line without a time cannot be compared with armed_at or with a message's
+    arrival. Live trial 2026-10-24: mesh-support could not find the wake time. The lines now start with an ISO UTC stamp."""
+    import re
+
+    rig = Rig(tmp_path)
+    out = io.StringIO()
+    rig.service._err = out
+    rig.service.note_event()
+    rig.service.tick_once()
+    line = out.getvalue().splitlines()[0]
+    assert re.match(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z listener: wake event tmux_3: sent$", line), line
+
+
 def test_a_service_failure_never_escapes_tick_once(tmp_path):
     rig = Rig(tmp_path)
     rig.watch.has_pending = lambda: (_ for _ in ()).throw(RuntimeError("boom"))  # type: ignore[method-assign]

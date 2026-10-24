@@ -26,6 +26,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 
 from empirica.core.cockpit.instance_actions import WakeResult, wake_instance
@@ -38,6 +39,11 @@ TICK_S = 60.0
 PANES_TTL_S = 120.0
 POLL_TIMEOUT_S = 20
 SURFACED_KEEP = 500
+
+
+def _stamp() -> str:
+    """Wall-clock UTC for a log line. The listener's stderr is a file, not journald, so a line carries its own time."""
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 class InboxWatch:
@@ -141,11 +147,11 @@ class WakeService:
                 outcomes = self._scheduler.tick()
             for o in outcomes:
                 self._err.write(
-                    f"listener: wake {o.reason} {o.pane}: {'sent' if o.result.success else o.result.detail}\n"
+                    f"{_stamp()} listener: wake {o.reason} {o.pane}: {'sent' if o.result.success else o.result.detail}\n"
                 )
         except Exception as e:
             try:
-                self._err.write(f"listener: wake tick failed (non-fatal): {type(e).__name__}: {e}\n")
+                self._err.write(f"{_stamp()} listener: wake tick failed (non-fatal): {type(e).__name__}: {e}\n")
             except Exception:  # noqa: S110 - a broken log stream must not take the listener down
                 pass
 

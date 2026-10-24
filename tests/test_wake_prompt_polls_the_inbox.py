@@ -140,3 +140,18 @@ def test_the_router_and_the_wake_agree_on_the_marker():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     assert mod._WAKE_MARKER == WAKE_MARKER
+
+
+def test_the_wake_text_names_the_actions_and_says_to_stop(box):
+    """Live resume trial, 2026-10-24: the woken outreach session did the two things asked and then kept going for 59 s (git status
+    on another repo, a finding, a full status report). A wake is meant to be cheap, so the block spells out the actions (mesh-support
+    asked for this too: a resumed pane may not still hold the arm text) and ends the turn."""
+    box([_prop(1)])
+    ctx = _context(box.run("[wake]"))
+    assert "empirica listener on --dry-run" in ctx and "empirica listener arm" in ctx, (
+        "the arm steps are named, not left to session-start text"
+    )
+    assert "empirica mailbox poll" in ctx
+    low = ctx.lower()
+    assert "then stop" in low, "the turn must end after the asked actions"
+    assert "status report" in low, "an unasked status report was the main waste"

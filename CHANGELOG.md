@@ -25,7 +25,10 @@ Rename this heading to the release version and date at the cut: `scripts/release
   only with `allow_suggestion` (`EMPIRICA_WAKE_OVER_SUGGESTION=1` for the listener service), never over a draft.
 - **A wake turn polls the inbox.** `wake_instance` types a short visible marker, `[wake]`, and Enter (a blank Space+Enter starts no turn:
   tmux reports success and Claude Code ignores it, measured live), and on that prompt `tool-router` injects the practice's pending mesh messages
-  and a reminder to re-arm an expired Monitor; any other prompt costs nothing extra.
+  and spells out three steps (react to the messages, re-arm the Monitor via `listener on --dry-run` and `listener arm`, poll once more),
+  then tells the session to stop: a woken session otherwise keeps working (measured: 59 s of unrequested work). Any other prompt costs
+  nothing extra. Wake log lines carry a UTC timestamp, because the listener's stderr is a file and an untimed line cannot be compared
+  with `armed_at`.
 - **An opt-in wake service in the listener** (`EMPIRICA_LISTENER_WAKE=1`, off by default). On a mesh event, and every two hours when
   the inbox holds mail it has not already surfaced, it wakes the practice's idle panes (a busy pane, a draft or a dialog is refused),
   and the woken turn polls the inbox. Each message causes at most one successful wake; the listener's per-event cost with the flag off

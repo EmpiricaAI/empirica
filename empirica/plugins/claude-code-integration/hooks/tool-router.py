@@ -1030,9 +1030,12 @@ _WAKE_MARKER = (
 
 _WAKE_HEADER = """## ⏰ Wake turn — this prompt was a wake, not a request
 
-The listener service gave you this turn because your practice has mail. Read the messages below and react per the mailbox protocol.
-Your mesh Monitor expires after 30 minutes: if it is not running, re-arm it (the arm instruction is in your session-start context),
-then run `empirica mailbox poll` once more, because events written while it was down are not delivered to it.
+The listener service gave you this turn because your practice has mail. Do these, in order, then stop:
+1. Read and react to the pending messages below per the mailbox protocol (`empirica mailbox show <id>`, `empirica mailbox reply`).
+2. If your mesh Monitor is not running (it expires after 30 minutes), re-arm it: run `empirica listener on --dry-run --output json`,
+   start the Monitor with the `next_step` args it returns, then `empirica listener arm <monitor_task_id>`.
+3. Run `empirica mailbox poll` once more: events written while no Monitor was running are not delivered to a new one.
+Then stop. A wake is meant to be cheap: do not start unrelated work and do not write a status report.
 """
 
 
