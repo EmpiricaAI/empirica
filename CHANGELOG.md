@@ -33,6 +33,10 @@ Rename this heading to the release version and date at the cut: `scripts/release
 
 ### Changed
 
+- **`mailbox reply` acknowledges a multi-target parent for your own target** instead of skipping completion (cortex 97820077). The
+  client stopgap that left a fan-out request open is gone: it calls `/complete` with your canonical `ai_id`, reports
+  `parent_acked`, `pending_targets` and `target_acks`, and archives your own copy once your ack is recorded. `parent_closed` now means
+  every target has acked. `parent_close_skipped` no longer exists.
 - **The Monitor arm text no longer says nothing is lost in the gap.** The arm command is `tail -F -n 0`, which starts at the end of
   the log, so events written while no Monitor was running are never delivered to the session (measured: two gap lines missed, the
   next line seen). The hook, the listener registration note and the `inbox-listener` skill now say to run `empirica mailbox poll`

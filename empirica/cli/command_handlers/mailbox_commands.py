@@ -128,24 +128,19 @@ class ParentFetchError(Exception):
         self.retryable = retryable
 
 
-def _multi_target_reason(parent: dict) -> str | None:
-    """Why a reply must NOT complete this parent, or None when it may.
+def _is_multi_target(parent: dict) -> bool:
+    """Whether the parent is addressed to more than one distinct seat.
 
-    Completion is per proposal, archive is per recipient. A parent addressed to several seats was completed for all of them by
-    the first seat to reply (prop_k4odsdilz, three targets, measured on Philipp's box), which removed the other two seats' open
-    ask from the source's outbox as done. Distinct targets are counted, so the same seat listed twice is one; a parent without a
-    target list (an older shape) is closed as before.
+    Cortex completes such a proposal per target (97820077, 2026-10-24): `/complete` acknowledges ONE target and the row stays
+    accepted until every target has acked, so a seat that did the work acks it instead of leaving the source's outbox stalled.
+    Distinct targets are counted, so the same seat listed twice is one; a parent without a target list (an older shape) is not
+    multi-target. Cortex needs to be told WHICH target is acking only when the caller owns more than one, and only this count
+    decides whether we send `ai_id`.
     """
     targets = parent.get("target_claudes")
     if not isinstance(targets, list):
-        return None
-    distinct = {str(t).strip().lower() for t in targets if str(t).strip()}
-    if len(distinct) <= 1:
-        return None
-    return (
-        f"parent is addressed to {len(distinct)} targets and completion is per proposal, so one seat's reply would close it "
-        "for all of them; left open and un-archived"
-    )
+        return False
+    return len({str(t).strip().lower() for t in targets if str(t).strip()}) > 1
 
 
 def _default_fetch_parent(cortex_url: str, api_key: str, parent_id: str, timeout: float = 5.0) -> dict | None:
@@ -615,17 +610,12 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
         sys.stderr.write(f"mailbox reply: cortex_propose returned no proposal_id: {propose_resp}\n")
         return 1
 
-    # Step 2: cortex_complete_proposal (unless --no-close)
-    parent_closed = False
+    # Step 2: cortex_complete_proposal (unless --no-close). On a multi-target parent this acknowledges OUR target only.
+    parent_closed = False  # terminal: every target has acked
+    parent_acked = False  # our own ack is recorded (true for a terminal close too)
     complete_resp: dict = {}
     no_close = bool(getattr(args, "no_close", False))
-    close_skipped = None if no_close else _multi_target_reason(parent)
-    if close_skipped:
-        sys.stderr.write(
-            f"mailbox reply: {close_skipped}. Close it deliberately with cortex_complete_proposal once every target "
-            "has answered; `empirica mailbox archive` clears only your own copy.\n"
-        )
-    if not no_close and not close_skipped:
+    if not no_close:
         complete_url = f"{cortex_url.rstrip('/')}/v1/orchestration/{parent_id}/complete"
         complete_body = {
             "api_key": api_key,
@@ -635,6 +625,16 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
         commit_sha = getattr(args, "commit_sha", None)
         if commit_sha:
             complete_body["commit_sha"] = commit_sha
+        if _is_multi_target(parent):
+            # Same canonical-form requirement as the archive leg below: a bare slug is a guaranteed participant mismatch, so an
+            # unresolvable seat omits the key (cortex infers it when exactly one target is ours) rather than sending a wrong one.
+            ack_ai_id = (
+                source_claude
+                if source_claude.count(".") >= 2
+                else _resolve_canonical_ai_id(cortex_url, api_key, source_claude, _default_http_get)
+            )
+            if ack_ai_id:
+                complete_body["ai_id"] = ack_ai_id
         c_status, complete_resp = _http_post(complete_url, complete_body, api_key, 10.0)
         # Cortex returns 2xx on completion success (response shape varies).
         complete_ok = (
@@ -651,16 +651,25 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
             )
             # Propose succeeded — surface the partial result rather than fail hard
         else:
-            parent_closed = True
+            parent_acked = True
+            note = complete_resp.get("note")
+            pending = complete_resp.get("pending_targets")
+            if note == "acked_waiting_for_other_targets" or (isinstance(pending, list) and pending):
+                parent_closed = False
+            elif note == "already_acked":
+                parent_closed = pending == []
+            else:
+                parent_closed = True
 
-    # Step 3: cortex_archive_proposal on the parent (unless --no-archive or close failed)
+    # Step 3: cortex_archive_proposal on the parent (unless --no-archive or our ack failed)
     # Once the parent is completed, archiving removes it from cortex_inbox_poll's
     # status filters — keeps the AI's inbox view focused on un-actioned work.
     # Opt-out via --no-archive if you want the parent to stay visible in
     # status=accepted polls for audit/review purposes.
+    # Archive is per recipient (archived_by[]), so clearing our copy after OUR ack does not hide the open ask from the other targets.
     parent_archived = False
     no_archive = bool(getattr(args, "no_archive", False))
-    if parent_closed and not no_archive:
+    if parent_acked and not no_archive:
         archive_url = f"{cortex_url.rstrip('/')}/v1/orchestration/{parent_id}/archive"
         archive_body = {
             "api_key": api_key,
@@ -736,20 +745,23 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
         "idempotent_replay": _replay,
         "parent_id": parent_id,
         "parent_closed": parent_closed,
+        "parent_acked": parent_acked,
+        "pending_targets": complete_resp.get("pending_targets") if isinstance(complete_resp, dict) else None,
+        "target_acks": complete_resp.get("target_acks") if isinstance(complete_resp, dict) else None,
         "parent_archived": parent_archived,
-        "result": (getattr(args, "result", None) or "shipped") if not (no_close or close_skipped) else None,
+        "result": (getattr(args, "result", None) or "shipped") if not no_close else None,
         "target_claudes": target_claudes,
         "title": title,
     }
-    if close_skipped:
-        result["parent_close_skipped"] = close_skipped
-
     fmt = getattr(args, "output", "json")
     if fmt == "human":
         if no_close:
             action = "kept-open (--no-close)"
-        elif close_skipped:
-            action = "kept-open (multi-target parent)"
+        elif parent_acked and not parent_closed:
+            waiting = len(result["pending_targets"] or [])
+            action = f"acked, {waiting} other target(s) still owe an ack" if waiting else "acked (already acked)"
+            if parent_archived:
+                action += " +archived (own copy)"
         elif parent_closed:
             tag = "+archived" if parent_archived else (" (archive-failed)" if not no_archive else "")
             action = f"closed (result={result['result']}){tag}"

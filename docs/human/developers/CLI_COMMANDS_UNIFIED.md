@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.13
-**Generated:** 2026-10-23 09:13:04 UTC
+**Generated:** 2026-10-24 10:04:58 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -3688,7 +3688,7 @@ Cortex AI mesh interaction — atomic reply with auto-close (distinct from messa
 
 ##### `empirica mailbox reply`
 
-Atomic propose + complete in one call — fixes the AI ack-discipline gap (skip the second cortex_complete_proposal step). A parent addressed to more than one seat is NOT completed: completion is per proposal, so it stays open (see parent_close_skipped)
+Atomic propose + complete in one call — fixes the AI ack-discipline gap (skip the second cortex_complete_proposal step). A parent addressed to more than one seat is acknowledged for YOUR target only; it closes when every target has acked (see pending_targets)
 
 **Arguments:**
 
@@ -3711,7 +3711,7 @@ Atomic propose + complete in one call — fixes the AI ack-discipline gap (skip 
 - `--commit-sha` — optional
   Optional commit_sha attached to parent completion
 - `--no-close` — optional · flag
-  Send reply WITHOUT closing parent (follow-up question case). Implied for a multi-target parent
+  Send reply WITHOUT acknowledging the parent (follow-up question case)
 - `--no-archive` — optional · flag
   Close the parent but do NOT archive it. Default behaviour archives the parent after close to keep your inbox view focused on un-actioned work. Use --no-archive when you want the parent to stay visible in audit / status=accepted polls.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
