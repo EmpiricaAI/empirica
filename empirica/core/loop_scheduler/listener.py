@@ -612,6 +612,23 @@ def _paused_listener_names(instance_id: str) -> list[str]:
         return []
 
 
+# Wake services by practice (ai_id): the listener tells the one for its practice about every emitted event. The service is opt-in
+# (EMPIRICA_LISTENER_WAKE) and is looked up here rather than passed down because every event path returns through
+# _emit_catchup_events.
+_WAKE_SERVICES: dict[str, Any] = {}
+
+
+def _notify_wake(instance_id: str) -> None:
+    """Tell the practice's wake service an event was emitted. Best-effort: a failure here must never reach the event path."""
+    service = _WAKE_SERVICES.get(instance_id)
+    if service is None:
+        return
+    try:
+        service.note_event()
+    except Exception as e:
+        logger.debug(f"wake service notify failed (non-fatal): {e}")
+
+
 def _emit_catchup_events(
     instance_id: str,
     loop_name: str,
@@ -695,6 +712,8 @@ def _emit_catchup_events(
     # Poll succeeded (fetch returned, state written) — mark healthy so a
     # prior `degraded` marker clears and recovery is visible.
     _clear_fail_heartbeat(instance_id, loop_name)
+    if events:
+        _notify_wake(instance_id)
     return len(events)
 
 
@@ -944,6 +963,20 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
     except Exception as e:
         err_stream.write(f"listener: liveness probe start failed (non-fatal): {e}\n")
 
+    # The wake service (opt-in) must be registered BEFORE the initial catch-up, so mail that piled up while the listener was down
+    # wakes the practice's panes too.
+    wake_service = None
+    try:
+        from empirica.core.cockpit.wake_service import build_wake_service
+
+        wake_service = build_wake_service(instance_id, err_stream=err_stream)
+        if wake_service is not None:
+            _WAKE_SERVICES[instance_id] = wake_service
+            wake_service.start()
+            err_stream.write(f"listener: wake service started for ai_id={instance_id} (EMPIRICA_LISTENER_WAKE)\n")
+    except Exception as e:
+        err_stream.write(f"listener: wake service start failed (non-fatal): {e}\n")
+
     if _initial_catchup:
         # Catch-up on listener startup. Handles the gap between systemd
         # service start and the first ntfy message.
@@ -1157,6 +1190,12 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
         err_stream.write(f"listener: unexpected exit: {type(e).__name__}: {e}\n")
         return 1
     finally:
+        if wake_service is not None:
+            _WAKE_SERVICES.pop(instance_id, None)
+            try:
+                wake_service.stop(timeout=2.0)
+            except Exception as e:
+                err_stream.write(f"listener: wake service stop failed (non-fatal): {e}\n")
         if heartbeat is not None:
             try:
                 heartbeat.stop(timeout=2.0)

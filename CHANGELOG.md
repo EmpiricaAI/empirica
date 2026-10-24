@@ -22,8 +22,11 @@ Rename this heading to the release version and date at the cut: `scripts/release
   turn, a half-typed draft, a permission dialog or an unreadable pane, because Space+Enter accepts a dialog's default option and
   submits a draft. The Events button reports a refusal instead of a failure; `require_idle=False` keeps the old unconditional send.
 - **A wake turn polls the inbox.** On a blank prompt (what a wake submits) `tool-router` injects the practice's pending mesh messages
-  and a reminder to re-arm an expired Monitor; any other prompt costs nothing extra. `WakeScheduler` (not yet wired into the
-  listener) decides which panes to wake on an event and on a two-hour heartbeat, waking only when the inbox has mail.
+  and a reminder to re-arm an expired Monitor; any other prompt costs nothing extra.
+- **An opt-in wake service in the listener** (`EMPIRICA_LISTENER_WAKE=1`, off by default). On a mesh event, and every two hours when
+  the inbox holds mail it has not already surfaced, it wakes the practice's idle panes (a busy pane, a draft or a dialog is refused),
+  and the woken turn polls the inbox. Each message causes at most one successful wake; the listener's per-event cost with the flag off
+  is a dictionary lookup.
 
 ### Changed
 
