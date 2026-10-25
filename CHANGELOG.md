@@ -5,6 +5,33 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.17] - 2026-10-25
+
+### Highlights
+
+- **CHECK no longer reports `1 - uncertainty` as a confidence.** The old `confidence` equalled `1 - uncertainty` in 1,933 of 1,933 recorded rows, so it added nothing to the uncertainty vector. `check-submit` stops writing it, and reports `claim_confidence` instead.
+- **`claim_confidence` carries something the vectors do not: how well grounded the claims are.** It is the product of the declared claims' hold rates by grounding (`read` 97.4%, `ran` 95.5%, `retrieved` 82.4%, `assumed` 70.0%, over 1,768 claims). It takes no uncertainty input, so it cannot be derived from it: the same claims give the same figure whether uncertainty was 0.2 or 0.6.
+- **It labels what it is.** The figure is self-graded (the verdicts are the practitioner's own), assumes the claims are independent, excludes claims never adjudicated, and says per grounding whether its rate is the prior, a blend or the practice's own, with the prior's weight. It is null when no claim was declared, never a neutral number.
+- **`empirica check --confidence 0.75` now does something.** The flag was documented and registered, and was read nowhere: accepted and discarded. It is read now, and a value outside 0 to 1 (or `nan`) is refused as bad input.
+
+### Changed
+
+- **`check-submit` no longer writes `confidence`** into the checkpoint metadata, the `CHECK_COMPLETE` event or the snapshot summary, and its result gains `claim_confidence` (the labelled block, or null) beside the claims echo. Rows recorded before this keep their old key. The gate itself is unchanged: it decides on uncertainty, and never read the old key.
+- **The legacy `check` command echoes `confidence` only when the caller supplied one.** It still decides on the supplied figure, else `1 - uncertainty`, as before; it just stops reporting the derived number as a measurement. `check_config.json` no longer lists `confidence` as required.
+- **A rejected input is filed as bad input.** `InvalidInputError` (a `ValueError`) is auto-captured at LOW, like a rejected session id, instead of HIGH, which is what `release.py --prepare` blocks on.
+- **A rate is shrunk toward its prior**, `(held + 20 * prior) / (decided + 20)`, so a few verdicts cannot replace a prior built from 1,768 and a rate never reaches exactly 0 or 1.
+
+### Fixed
+
+- **`--confidence` was ignored** (see Highlights). `0.0` counts as a value.
+- **`hold_rates` counted `Read` and `read` as two groups**, the second silently overwriting the first; groundings are normalised first.
+
+### Known, not changed
+
+- The PREFLIGHT snapshot summary and POSTFLIGHT's `postflight_confidence` are the same `1 - uncertainty` relabelling. POSTFLIGHT's has 23 consumers and is on the hot path, so it is queued as its own audited change.
+- CHECK's `gaps` list counts a low uncertainty as a gap (`uncertainty: 0.20`), though low is the good direction. Nothing reads the list.
+- The prior hold rates were measured on one project, so a new practice starts from that practitioner's own self-grading until it has verdicts of its own; the figure says so.
+
 ## [1.14.16] - 2026-10-25
 
 ### Highlights
