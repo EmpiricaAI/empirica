@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.14.16
-**Generated:** 2026-10-25 21:30:13 UTC
+**Framework version:** 1.14.17
+**Generated:** 2026-10-25 22:42:32 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -261,7 +261,7 @@ Run an epistemic check WITHOUT submitting it as the gate decision. Use this to p
 - `--remaining-unknowns` — optional
   Alias for --unknowns (legacy compatibility shim).
 - `--confidence` — optional · type=`float`
-  Overall confidence score 0.0–1.0 (legacy mode). The gate prefers the per-vector breakdown in the config payload; --confidence is a flat-scalar fallback for old callers.
+  Caller-asserted confidence 0.0–1.0 (legacy `check` only); it wins over a `confidence` in the payload and is echoed back as `confidence`. Without it the command decides on 1 - uncertainty and reports no `confidence`. `check-submit` ignores it and reports `claim_confidence` instead.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format (default: json — AI-friendly, machine-parsable). Use `human` when reading by eye at the terminal.
 - `--verbose` — optional · flag

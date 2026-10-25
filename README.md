@@ -437,20 +437,19 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.14.16
+## What's New in 1.14.17
 
-- **A vector nobody assessed is stored as "not assessed", not as 0.5.** `store_vectors` filled every missing vector with 0.5, and every reader then took the 0.5 for a measurement. Measured on this project's last 60 days: PREFLIGHT and POSTFLIGHT supply all 13 vectors, but CHECK supplies 7.0 on average (as few as 2), and all 53 CHECKs with missing vectors had the gaps stored as 0.5.
-- **Every reader of those columns was audited first, and the ones that broke are fixed.** Two read-only audits covered about 80 read sites, and three independent reviews of the change found the ones they missed. The writer change was applied last, after the readers could take a NULL.
-- **A missing value no longer turns into a permissive recommendation.** A handoff for a CHECK that skipped uncertainty said "Ready for execution"; it now asks for uncertainty to be assessed. The dashboard gate fails closed when the latest check did not assess uncertainty, and stagnation is no longer detected from values nobody assessed.
-- **Where a value is needed, the last value actually recorded is used.** Session end, session create's auto-close, the pre-compact snapshot, the statusline and the dashboard take each vector's newest recorded value instead of a default. The auto-close also stopped rewriting a genuine 0.0 to a default.
-- **Commands that crashed on a sparse CHECK now work:** `goals-ready`, the compact analysis, the text form of `epistemics-show`, `project-bootstrap` after an auto-closed session, and `handoff-create`.
+- **CHECK no longer reports `1 - uncertainty` as a confidence.** The old `confidence` equalled `1 - uncertainty` in 1,933 of 1,933 recorded rows, so it added nothing to the uncertainty vector. `check-submit` stops writing it, and reports `claim_confidence` instead.
+- **`claim_confidence` carries something the vectors do not: how well grounded the claims are.** It is the product of the declared claims' hold rates by grounding (`read` 97.4%, `ran` 95.5%, `retrieved` 82.4%, `assumed` 70.0%, over 1,768 claims). It takes no uncertainty input, so it cannot be derived from it: the same claims give the same figure whether uncertainty was 0.2 or 0.6.
+- **It labels what it is.** The figure is self-graded (the verdicts are the practitioner's own), assumes the claims are independent, excludes claims never adjudicated, and says per grounding whether its rate is the prior, a blend or the practice's own, with the prior's weight. It is null when no claim was declared, never a neutral number.
+- **`empirica check --confidence 0.75` now does something.** The flag was documented and registered, and was read nowhere: accepted and discarded. It is read now, and a value outside 0 to 1 (or `nan`) is refused as bad input.
 
-All 12 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 9 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.14.16** — A vector nobody assessed is stored as "not assessed", not as 0.5. `store_vectors` filled every missing vector with 0.5, and every reader then took the 0.5…
 - **1.14.15** — A code-review sweep of the data layer, hooks and mailbox is fixed. Each defect was reproduced on the current code before the fix and has a test that failed…
-- **1.14.14** — Idle sessions can be woken (opt-in). A listener flag nudges a practice's idle tmux panes when mail arrives and every two hours while mail waits.
 
 ## What's Coming
 
