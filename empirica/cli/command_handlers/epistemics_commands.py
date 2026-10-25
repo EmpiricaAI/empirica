@@ -83,6 +83,11 @@ def handle_epistemics_search_command(args):
         sys.exit(1)
 
 
+def _fmt(value: float | None) -> str:
+    """A vector for display; NULL means "not assessed", which prints as n/a rather than failing the whole trajectory."""
+    return "n/a" if value is None else f"{value:.2f}"
+
+
 def handle_epistemics_stats_command(args):
     """
     Show detailed epistemic trajectory for a session (epistemics-show).
@@ -211,8 +216,8 @@ def handle_epistemics_stats_command(args):
                 print(f"{i}. Phase: {reflex['phase']}")
                 print(f"   Time: {reflex['timestamp']}")
                 vectors = reflex["vectors"]
-                print(f"   Know: {vectors['know']:.2f}, Uncertainty: {vectors['uncertainty']:.2f}")
-                print(f"   Context: {vectors['context']:.2f}, Completion: {vectors['completion']:.2f}")
+                print(f"   Know: {_fmt(vectors['know'])}, Uncertainty: {_fmt(vectors['uncertainty'])}")
+                print(f"   Context: {_fmt(vectors['context'])}, Completion: {_fmt(vectors['completion'])}")
                 if reflex["reasoning"]:
                     print(f"   Reasoning: {reflex['reasoning'][:80]}...")
                 print()

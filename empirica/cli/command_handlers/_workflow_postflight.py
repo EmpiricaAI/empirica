@@ -941,7 +941,10 @@ def _calculate_postflight_deltas(logger_instance, vectors, preflight_session_id)
                     "impact",
                     "uncertainty",
                 ]
-                preflight_vectors = {name: preflight_row[i] for i, name in enumerate(vector_names)}
+                # NULL = not assessed at PREFLIGHT: leave it out, so no delta is computed against an invented value
+                preflight_vectors = {
+                    name: preflight_row[i] for i, name in enumerate(vector_names) if preflight_row[i] is not None
+                }
             else:
                 preflight_vectors = None
         elif "vectors" in preflight_checkpoint:

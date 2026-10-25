@@ -216,6 +216,11 @@ def get_session_quality_metrics(db_path: Path, session_id: str) -> dict:
     }
 
 
+def _delta(after: float | None, before: float | None) -> float | None:
+    """after - before, or None when either was not assessed (NULL): a delta against an invented 0 is not a delta."""
+    return round(after - before, 3) if after is not None and before is not None else None
+
+
 def analyze_compact_events(include_tests: bool = False, min_findings: int = 0, limit: int = 20) -> list[dict]:
     """
     Analyze compact events by matching pre-compact snapshots to post-compact sessions.
@@ -303,19 +308,20 @@ def analyze_compact_events(include_tests: bool = False, min_findings: int = 0, l
             }
 
             if post_check:
-                post_ck_know = post_check.get("know", 0)
-                post_ck_unc = post_check.get("uncertainty", 0)
-                post_ck_ctx = post_check.get("context", 0)
+                # No default: a key present with a NULL value is "not assessed", and .get(k, 0) would not have replaced it anyway.
+                post_ck_know = post_check.get("know")
+                post_ck_unc = post_check.get("uncertainty")
+                post_ck_ctx = post_check.get("context")
 
                 event["post_check_vectors"] = {"know": post_ck_know, "uncertainty": post_ck_unc, "context": post_ck_ctx}
                 event["recovery"] = {
-                    "know": round(post_ck_know - post_pf_know, 3),
-                    "uncertainty": round(post_ck_unc - post_pf_unc, 3),
+                    "know": _delta(post_ck_know, post_pf_know),
+                    "uncertainty": _delta(post_ck_unc, post_pf_unc),
                     "context": round(post_ck_ctx - post_pf_ctx, 3) if post_ck_ctx and post_pf_ctx else None,
                 }
                 event["net_loss"] = {
-                    "know": round(post_ck_know - pre_know, 3),
-                    "uncertainty": round(post_ck_unc - pre_unc, 3),
+                    "know": _delta(post_ck_know, pre_know),
+                    "uncertainty": _delta(post_ck_unc, pre_unc),
                     "context": round(post_ck_ctx - pre_ctx, 3) if post_ck_ctx and pre_ctx else None,
                 }
 

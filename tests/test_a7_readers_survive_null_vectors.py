@@ -168,3 +168,95 @@ def test_goals_ready_says_not_ready_when_know_was_never_recorded(db):
     put(db, sid, "CHECK", {"clarity": 0.9}, ts=2000.0)
     ready = _ready(db, sid)
     assert ready[0]["epistemic_ready"] is False and "recorded" in ready[0].get("why_not_ready", "").lower()
+
+
+# ── U3: the compact analysis subtracted None ──
+
+
+def test_the_compact_analysis_leaves_a_delta_unknown_when_the_first_check_did_not_assess_it(monkeypatch):
+    """`post_check.get("know", 0)` returns None when the key is present with a NULL value, and `round(None - x)` aborted the whole
+    analysis. A delta that cannot be computed is None, not a crash and not a delta against an invented 0."""
+    import empirica.cli.command_handlers.compact_analysis as ca
+
+    monkeypatch.setattr(ca, "get_ref_docs_path", lambda: Path("/nonexistent"))
+    monkeypatch.setattr(
+        ca,
+        "load_pre_compact_snapshots",
+        lambda _p: [
+            {
+                "timestamp": "2026-10-01T10-00-00",
+                "session_id": "pre",
+                "vectors_canonical": {"know": 0.8, "uncertainty": 0.2, "context": 0.7},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        ca,
+        "get_post_compact_sessions",
+        lambda _db, _t: [{"session_id": "post", "ai_id": "real-ai", "know": 0.6, "uncertainty": 0.3, "context": 0.5}],
+    )
+    monkeypatch.setattr(ca, "is_test_session", lambda _a: False)
+    monkeypatch.setattr(
+        ca,
+        "get_session_quality_metrics",
+        lambda _d, _s: {"duration_seconds": 10**6, "findings_count": 3, "unknowns_count": 0, "has_work_evidence": True},
+    )
+    # A first CHECK that assessed context only: know and uncertainty are NULL (not assessed).
+    monkeypatch.setattr(
+        ca,
+        "get_post_check_vectors",
+        lambda _d, _s: {"know": None, "uncertainty": None, "context": 0.6, "timestamp": 1.0},
+    )
+    monkeypatch.setattr("empirica.config.path_resolver.get_session_db_path", lambda: Path("/nonexistent.db"))
+    events = ca.analyze_compact_events(include_tests=True)
+    assert len(events) == 1
+    event = events[0]
+    assert event["recovery"]["know"] is None and event["recovery"]["uncertainty"] is None
+    assert event["net_loss"]["know"] is None and event["net_loss"]["uncertainty"] is None
+    assert event["recovery"]["context"] == pytest.approx(0.1), "what WAS assessed is still computed"
+
+
+# ── U6: the postflight delta read a PREFLIGHT row that holds NULL ──
+
+
+def test_the_postflight_delta_skips_a_vector_the_preflight_never_recorded(db, monkeypatch):
+    import empirica.cli.command_handlers._workflow_postflight as wp
+
+    sid = db.create_session(ai_id="a7-delta")
+    put(db, sid, "PREFLIGHT", {"know": 0.5, "clarity": 0.4}, ts=1000.0)  # every other vector NULL
+
+    class _NoCheckpoint:
+        def get_last_checkpoint(self, phase=None):
+            return None
+
+    monkeypatch.setattr(wp, "_get_db_for_session", lambda _sid: SessionDatabase(db_path=db.db_path))
+    _pre, deltas, _issues = wp._calculate_postflight_deltas(
+        _NoCheckpoint(), {"impact": 0.8, "know": 0.9, "clarity": 0.7}, sid
+    )
+    # `impact` comes FIRST on purpose: the TypeError is swallowed by an outer except, so a NULL met early silently drops every delta
+    # after it, while one met last would leave the earlier deltas intact and let this test pass by accident.
+    assert deltas == {"know": 0.4, "clarity": 0.3}, deltas
+    assert "impact" not in deltas, "no PREFLIGHT value, so no delta against an invented one"
+
+
+# ── U4: epistemics-show in text mode formatted None with :.2f ──
+
+
+def test_epistemics_show_prints_n_a_for_a_vector_that_was_not_assessed(db, monkeypatch, capsys):
+    """`f"{None:.2f}"` raised, and the outer handler turned it into {"ok": false} with exit 1, so the whole trajectory of a session
+    that had one sparse CHECK could not be shown."""
+    import types
+
+    import empirica.cli.command_handlers.epistemics_commands as ec
+
+    sid = db.create_session(ai_id="a7-show")
+    put(db, sid, "PREFLIGHT", FULL, ts=1000.0)
+    put(db, sid, "CHECK", {"know": 0.91, "uncertainty": 0.11}, ts=2000.0)  # context and completion NULL
+    db.conn.row_factory = __import__("sqlite3").Row
+    monkeypatch.setattr(ec, "SessionDatabase", lambda *a, **k: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    ec.handle_epistemics_stats_command(types.SimpleNamespace(session_id=sid, phase=None, output="human"))
+    out = capsys.readouterr().out
+    assert "Total Reflexes: 2" in out, out
+    assert "Know: 0.91, Uncertainty: 0.11" in out
+    assert "Context: n/a, Completion: n/a" in out
