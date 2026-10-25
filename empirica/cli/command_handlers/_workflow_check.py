@@ -725,26 +725,27 @@ def _check_detect_diminishing_returns(previous_check_vectors, know, uncertainty)
     if len(previous_check_vectors) < 2:
         return diminishing_returns
 
-    # Compute deltas between consecutive rounds (newest first)
+    # Compute deltas between consecutive rounds (newest first). A delta needs a value on BOTH sides: a CHECK that did not assess
+    # know or uncertainty (NULL) used to be read as 0.5, and rounds of unassessed values looked like stagnation.
+    def _delta(newer, older):
+        return None if newer is None or older is None else newer - older
+
     for i in range(len(previous_check_vectors)):
         if i == 0:
-            prev_know = previous_check_vectors[i].get("know", 0.5)
-            prev_uncertainty = previous_check_vectors[i].get("uncertainty", 0.5)
-            delta_know = know - prev_know
-            delta_uncertainty = uncertainty - prev_uncertainty
+            newer_know, newer_unc = know, uncertainty
+        else:
+            newer_know = previous_check_vectors[i - 1].get("know")
+            newer_unc = previous_check_vectors[i - 1].get("uncertainty")
+        delta_know = _delta(newer_know, previous_check_vectors[i].get("know"))
+        delta_uncertainty = _delta(newer_unc, previous_check_vectors[i].get("uncertainty"))
+        if delta_know is not None:
             diminishing_returns["know_deltas"].append(delta_know)
-            diminishing_returns["uncertainty_deltas"].append(delta_uncertainty)
-        elif i < len(previous_check_vectors):
-            curr = previous_check_vectors[i - 1]
-            prev = previous_check_vectors[i]
-            delta_know = curr.get("know", 0.5) - prev.get("know", 0.5)
-            delta_uncertainty = curr.get("uncertainty", 0.5) - prev.get("uncertainty", 0.5)
-            diminishing_returns["know_deltas"].append(delta_know)
+        if delta_uncertainty is not None:
             diminishing_returns["uncertainty_deltas"].append(delta_uncertainty)
 
     diminishing_returns["rounds_analyzed"] = len(previous_check_vectors) + 1
 
-    if len(diminishing_returns["know_deltas"]) >= 2:
+    if len(diminishing_returns["know_deltas"]) >= 2 and len(diminishing_returns["uncertainty_deltas"]) >= 2:
         recent_know_deltas = diminishing_returns["know_deltas"][:2]
         recent_uncertainty_deltas = diminishing_returns["uncertainty_deltas"][:2]
 

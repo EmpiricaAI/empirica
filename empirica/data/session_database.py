@@ -1182,6 +1182,10 @@ class SessionDatabase:
         """Get latest epistemic vectors for session (delegates to VectorRepository)"""
         return self.vectors.get_latest_vectors(session_id, phase)
 
+    def get_last_recorded_vectors(self, session_id: str) -> dict[str, float]:
+        """Each vector's newest recorded value over the whole session (delegates to VectorRepository)"""
+        return self.vectors.get_last_recorded_vectors(session_id)
+
     # =========================================================================
     # Goal and Subtask Management (for decision quality + continuity + audit)
     # =========================================================================

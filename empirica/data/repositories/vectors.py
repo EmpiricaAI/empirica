@@ -165,6 +165,25 @@ class VectorRepository(BaseRepository):
         self.commit()
         return cursor.lastrowid or 0
 
+    def get_last_recorded_vectors(self, session_id: str) -> dict[str, float]:
+        """Each vector's newest RECORDED value over all of a session's rows, whatever the phase.
+
+        A CHECK commonly assesses only some of the 13, leaving the rest NULL ("not assessed"), so the newest row alone is sparse; a
+        reader that needs a complete picture takes the last value each vector was actually recorded with instead of inventing one."""
+        names = (
+            "engagement", "know", "do", "context", "clarity", "coherence", "signal",
+            "density", "state", "change", "completion", "impact", "uncertainty",
+        )  # fmt: skip
+        cursor = self._execute(
+            f"SELECT {', '.join(names)} FROM reflexes WHERE session_id = ? ORDER BY timestamp DESC", (session_id,)
+        )
+        recorded: dict[str, float] = {}
+        for row in cursor.fetchall():
+            for offset, name in enumerate(names):
+                if name not in recorded and row[offset] is not None:
+                    recorded[name] = row[offset]
+        return recorded
+
     def get_latest_vectors(self, session_id: str, phase: str | None = None) -> dict | None:
         """
         Get the latest epistemic vectors for a session from the reflexes table

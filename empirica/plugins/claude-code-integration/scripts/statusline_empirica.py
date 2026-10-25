@@ -169,7 +169,7 @@ def get_open_counts(db: SessionDatabase, session_id: str, project_id: str | None
         """
         SELECT completion
         FROM reflexes
-        WHERE session_id = ?
+        WHERE session_id = ? AND completion IS NOT NULL
         ORDER BY timestamp DESC
         LIMIT 1
     """,
@@ -352,7 +352,7 @@ def get_active_goal(db: SessionDatabase, session_id: str) -> dict | None:
         """
         SELECT completion
         FROM reflexes
-        WHERE session_id = ?
+        WHERE session_id = ? AND completion IS NOT NULL
         ORDER BY timestamp DESC
         LIMIT 1
     """,

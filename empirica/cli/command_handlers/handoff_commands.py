@@ -12,6 +12,17 @@ from ..cli_utils import handle_cli_error
 logger = logging.getLogger(__name__)
 
 
+def _deltas_summary(deltas: dict) -> str:
+    """KNOW / CONTEXT / STATE deltas for the one-line summary; a delta that was not computed (a vector not assessed on both sides
+    is left out of the report) prints n/a rather than a measured-looking +0.00."""
+
+    def one(label: str, key: str) -> str:
+        value = deltas.get(key)
+        return f"{label} n/a" if value is None else f"{label} {value:+.2f}"
+
+    return f"{one('KNOW', 'know')}, {one('CONTEXT', 'context')}, {one('STATE', 'state')}"
+
+
 def _handoff_read_config(args):
     """Read config data from file/stdin or return None for legacy mode."""
     import os
@@ -237,9 +248,7 @@ def _handoff_format_output(args, session_id, handoff_type, handoff, sync_result,
             print(f"   Calibration: {handoff.get('calibration_status', 'N/A')}")
             if handoff.get("epistemic_deltas"):
                 deltas = handoff["epistemic_deltas"]
-                print(
-                    f"   Epistemic deltas: KNOW {deltas.get('know', 0):+.2f}, CONTEXT {deltas.get('context', 0):+.2f}, STATE {deltas.get('state', 0):+.2f}"
-                )
+                print(f"   Epistemic deltas: {_deltas_summary(deltas)}")
         else:
             print("   Type: Documentation-only (no CASCADE workflow assessments)")
 

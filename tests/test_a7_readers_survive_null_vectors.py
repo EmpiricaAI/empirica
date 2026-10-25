@@ -510,3 +510,74 @@ def test_the_heuristic_does_not_certify_calibration_it_cannot_assess():
     assert gen._heuristic_calibration_check({"know": 0.3})["status"] == "not_assessable"
     assert gen._heuristic_calibration_check({})["status"] == "not_assessable"
     assert gen._heuristic_calibration_check({"know": 0.3, "uncertainty": -0.3})["status"] == "well_calibrated"
+
+
+# ── a third review: the same class in four more places ──
+
+
+def test_stagnation_is_not_detected_from_values_nobody_assessed():
+    """Earlier CHECKs that skipped know and uncertainty were read as 0.5 each, so a current CHECK at know 0.5 / uncertainty 0.45 looked
+    stagnant and the gate said 'proceed' at an uncertainty above its own 0.35 threshold. A delta needs a value on both sides."""
+    from empirica.cli.command_handlers._workflow_check import _check_detect_diminishing_returns
+
+    earlier = [
+        {"clarity": 0.9},
+        {"clarity": 0.9},
+        {"clarity": 0.9},
+    ]  # dicts as the readers return them: NULLs are dropped
+    result = _check_detect_diminishing_returns(earlier, 0.5, 0.45)
+    assert result["detected"] is False and result["recommend_proceed"] is False
+
+
+def test_real_stagnation_is_still_detected():
+    """Control: three assessed rounds that really did not move are still diminishing returns."""
+    from empirica.cli.command_handlers._workflow_check import _check_detect_diminishing_returns
+
+    earlier = [{"know": 0.5, "uncertainty": 0.45}] * 3
+    result = _check_detect_diminishing_returns(earlier, 0.5, 0.45)
+    assert result["detected"] is True
+
+
+def test_the_pre_compact_snapshot_takes_each_vector_from_its_last_recorded_value(db):
+    """The continuation PREFLIGHT is built from the newest row, usually a sparse CHECK; a missing uncertainty then became 0.3 + 0.05 and
+    a missing state 0.7, numbers nobody assessed, and post-compact deltas were measured against them."""
+    from empirica.cli.command_handlers.session_commands import _compact_vectors_to_save
+
+    sid = db.create_session(ai_id="a7-compact")
+    put(db, sid, "PREFLIGHT", FULL | {"uncertainty": 0.4, "state": 0.55}, ts=1000.0)
+    put(db, sid, "CHECK", {"know": 0.91, "uncertainty": 0.12}, ts=2000.0)
+    vectors = _compact_vectors_to_save(db, sid, None)
+    assert vectors["know"] == 0.91 and vectors["uncertainty"] == 0.12
+    assert vectors["state"] == 0.55, "an unassessed vector keeps its last recorded value"
+    assert set(vectors) == set(NAMES)
+
+
+def test_hook_supplied_current_vectors_win_over_history(db):
+    from empirica.cli.command_handlers.session_commands import _compact_vectors_to_save
+
+    sid = db.create_session(ai_id="a7-compact2")
+    put(db, sid, "PREFLIGHT", FULL, ts=1000.0)
+    assert _compact_vectors_to_save(db, sid, {"know": 0.7}) == {"know": 0.7}
+
+
+def test_the_handoff_summary_line_says_n_a_for_a_delta_that_was_not_computed():
+    from empirica.cli.command_handlers.handoff_commands import _deltas_summary
+
+    line = _deltas_summary({"know": 0.3, "context": -0.1})
+    assert "KNOW +0.30" in line and "CONTEXT -0.10" in line and "STATE n/a" in line
+    assert "STATE +0.00" not in line
+
+
+def test_the_statusline_completion_is_the_last_recorded_one_not_zero(db):
+    """get_open_counts and get_active_goal read the newest row's completion and turned NULL into 0.0, so the bar contradicted the
+    vectors segment (which now fills from the last recorded value)."""
+    spec = importlib.util.spec_from_file_location("statusline_a7c", SCRIPTS / "statusline_empirica.py")
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    sid = db.create_session(ai_id="a7-comp")
+    put(db, sid, "PREFLIGHT", FULL | {"completion": 0.7}, ts=1000.0)
+    put(db, sid, "CHECK", {"know": 0.9}, ts=2000.0)
+    assert mod.get_open_counts(db, sid)["completion"] == 0.7
+    goal = mod.get_active_goal(db, sid)
+    assert goal is None or goal["completion"] == 0.7

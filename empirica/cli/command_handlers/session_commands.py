@@ -420,6 +420,21 @@ def handle_sessions_export_command(args):
 # handle_session_end_command removed - use handoff-create instead
 
 
+def _compact_vectors_to_save(db, session_id, current_vectors):
+    """The vectors a pre-compact checkpoint records: the hook's current ones, else each vector's last RECORDED value.
+
+    The newest row is usually a CHECK that assessed only some of the 13; the continuation PREFLIGHT built from it then invented
+    numbers for the rest (uncertainty 0.3 + 0.05, state 0.7) and post-compact deltas were measured against them."""
+    if current_vectors:
+        logger.info("Using current_vectors from hook input (accurate pre-compact state)")
+        return current_vectors
+    recorded = db.get_last_recorded_vectors(session_id)
+    if recorded:
+        logger.warning("Using the last recorded vectors (no current_vectors provided)")
+        return recorded
+    return None
+
+
 def _compact_create_continuation(db, session_id, ai_id, project_id, compact_mode, vectors_to_save, output):
     """Create continuation session with PREFLIGHT checkpoint for memory compact."""
     from empirica.core.canonical.git_enhanced_reflex_logger import GitEnhancedReflexLogger
@@ -553,14 +568,7 @@ def handle_memory_compact_command(args):
         vectors_to_save = None
         if checkpoint_current:
             logger.info("Creating pre-compact checkpoint...")
-            if current_vectors:
-                vectors_to_save = current_vectors
-                logger.info("Using current_vectors from hook input (accurate pre-compact state)")
-            else:
-                latest_vectors_result = db.get_latest_vectors(session_id)
-                if latest_vectors_result:
-                    vectors_to_save = latest_vectors_result.get("vectors", {})
-                    logger.warning("Using historical vectors (no current_vectors provided)")
+            vectors_to_save = _compact_vectors_to_save(db, session_id, current_vectors)
 
             if vectors_to_save:
                 from empirica.core.canonical.git_enhanced_reflex_logger import GitEnhancedReflexLogger
