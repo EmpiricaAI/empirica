@@ -56,11 +56,10 @@ def _profile_base_thresholds(loader) -> dict:
     `ready_confidence_threshold` (cascade_styles.yaml marks it the deprecated alias). Reading the new name alone missed for every
     non-default profile, applied a hardcoded 0.70, and logged it as the profile's own value.
     """
-    know = loader.get("cascade.ready_know_threshold", None)
-    if know is None:
-        know = loader.get("cascade.ready_confidence_threshold", 0.70)
+    from empirica.config.threshold_loader import ready_know_bar
+
     return {
-        "ready_know_threshold": know,
+        "ready_know_threshold": ready_know_bar(loader, 0.70),
         "ready_uncertainty_threshold": loader.get("cascade.ready_uncertainty_threshold", 0.35),
     }
 

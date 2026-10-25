@@ -438,6 +438,19 @@ class ThresholdLoader:
 
 
 # Global instance accessor
+def ready_know_bar(loader: Any, default: float = 0.70) -> Any:
+    """The know bar of the profile `loader` has loaded.
+
+    Only the `default` profile defines `ready_know_threshold`; every other profile carries the bar under its legacy name,
+    `ready_confidence_threshold` (cascade_styles.yaml marks it the deprecated alias), so reading the new name alone fell back to a
+    hardcoded value for all of them. One definition, because three readers (CHECK, the dynamic thresholds, the monitor's hooks) had
+    each hand-written the lookup and one fix to one of them is how the others stay wrong."""
+    know = loader.get("cascade.ready_know_threshold", None)
+    if know is None:
+        know = loader.get("cascade.ready_confidence_threshold", default)
+    return know
+
+
 def get_threshold_config() -> ThresholdLoader:
     """
     Get global ThresholdLoader instance.

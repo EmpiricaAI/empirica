@@ -129,10 +129,6 @@ empirica preflight-submit \
     "overestimate_tendency": ["do", "state"],
     "underestimate_tendency": ["density", "uncertainty"],
     "note": "Directional feedback — drift patterns from deterministic proxies, not ground truth"
-  },
-  "sentinel": {
-    "enabled": true,
-    "decision": "proceed"
   }
 }
 ```
@@ -197,10 +193,6 @@ EOF
     "readiness_gate": "know>=0.70 AND uncertainty<=0.35",
     "gate_passed": true
   },
-  "sentinel": {
-    "enabled": true,
-    "decision": "proceed"
-  },
   "blindspots": {
     "count": 0
   }
@@ -218,7 +210,7 @@ EOF
 - Creates CHECK checkpoint snapshot
 - Evaluates readiness gate
 - Checks for blindspots
-- Sentinel may override decision
+- The decision is the readiness gate's alone (no override step; the results carry no `sentinel` key since 1.14.15)
 
 ---
 

@@ -2267,6 +2267,29 @@ def handle_goals_get_stale_command(args):
         handle_cli_error(e, "Get stale goals", getattr(args, "verbose", False))
 
 
+def _goal_miss_reason(goal_id: str, expected_status: str, cursor=None) -> str:
+    """Why a goal id selected nothing to change: too short, ambiguous, absent, or present but in the wrong state.
+
+    The repository methods answer a bare False for all four, and the handlers said "not found or not in 'planned' status" for each,
+    which sends a user with an ambiguous prefix looking for a goal that exists. The id resolver already knows the reason."""
+    from empirica.data.id_guard import resolve_id_prefix
+
+    own = None
+    try:
+        if cursor is None:
+            from empirica.data.session_database import SessionDatabase
+
+            own = SessionDatabase()
+            cursor = own.conn.cursor()
+        _full, why = resolve_id_prefix(cursor, "goals", "id", goal_id)
+    finally:
+        if own is not None:
+            own.close()
+    if why:
+        return f"Goal {goal_id}: {why}"
+    return f"Goal {goal_id} is not in '{expected_status}' status"
+
+
 def handle_goals_activate_command(args):
     """Handle goals-activate command — transition a planned goal to in_progress.
 
@@ -2342,7 +2365,7 @@ def handle_goals_activate_command(args):
                     "goals-create framed on the current work."
                 )
             else:
-                error = f"Goal {goal_id} not found or not in 'planned' status"
+                error = _goal_miss_reason(goal_id, "planned")
             print(json.dumps({"ok": False, "error": error}))
             sys.exit(1)
 
@@ -2415,7 +2438,7 @@ def handle_goals_reopen_command(args):
                     "   live problem for attention."
                 )
         else:
-            result = {"ok": False, "error": f"Goal {goal_id} not found or not in 'completed' status"}
+            result = {"ok": False, "error": _goal_miss_reason(goal_id, "completed")}
             print(json.dumps(result))
             sys.exit(1)
 

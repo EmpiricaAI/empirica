@@ -59,15 +59,12 @@ def _load_calibration_config() -> dict:
     Falls back to hardcoded values if MCO config unavailable.
     """
     try:
-        from empirica.config.threshold_loader import ThresholdLoader
+        from empirica.config.threshold_loader import ThresholdLoader, ready_know_bar
 
         loader = ThresholdLoader.get_instance()
         return {
             "baselines": {
-                "ready_know_threshold": loader.get(
-                    "cascade.ready_know_threshold",
-                    _FALLBACK_BASELINES["ready_know_threshold"],
-                ),
+                "ready_know_threshold": ready_know_bar(loader, _FALLBACK_BASELINES["ready_know_threshold"]),
                 "ready_uncertainty_threshold": loader.get(
                     "cascade.ready_uncertainty_threshold",
                     _FALLBACK_BASELINES["ready_uncertainty_threshold"],

@@ -499,12 +499,12 @@ def _load_readiness_thresholds() -> dict[str, float]:
 
     # Priority 2: Load from MCO config via ThresholdLoader
     try:
-        from empirica.config.threshold_loader import get_threshold_config
+        from empirica.config.threshold_loader import get_threshold_config, ready_know_bar
 
         config = get_threshold_config()
 
-        # Get from cascade section of current profile
-        know_threshold = config.get("cascade.ready_know_threshold")
+        # Get from cascade section of current profile (the know bar may sit under its legacy name)
+        know_threshold = ready_know_bar(config, None)
         if know_threshold is not None:
             thresholds["min_know"] = float(know_threshold)
 

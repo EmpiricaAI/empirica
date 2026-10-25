@@ -2208,19 +2208,22 @@ class WorkspaceDBRepository(BaseRepository):
         if not sets:
             return self.get_engagement(engagement_id)
         now = time.time()
-        if lifecycle_state is not None:
-            # The API reports `status` and `ended_at`; nothing wrote them after creation, so a closed engagement still read active
-            # with no end time. A lifecycle change keeps them in step: closing stamps the end and a terminal status that follows the
-            # outcome, anything else clears the end and maps the state.
-            if lifecycle_state in ENGAGEMENT_TERMINAL_STATES:
-                sets.append("ended_at = COALESCE(ended_at, ?)")
-                params.append(now)
-                sets.append("status = ?")
-                params.append(_ENGAGEMENT_CLOSED_STATUS.get(outcome or "", "completed"))
-            else:
-                sets.append("ended_at = NULL")
-                sets.append("status = ?")
-                params.append(_ENGAGEMENT_OPEN_STATUS.get(lifecycle_state, "active"))
+        # The API reports `status` and `ended_at`; nothing wrote them after creation, so a closed engagement still read active
+        # with no end time. A lifecycle OR outcome change keeps them in step, judged on the state and outcome the row will HOLD
+        # afterwards (an argument left out means the stored value stays): closing stamps the end and a terminal status that
+        # follows the outcome, anything else clears the end and maps the state. An outcome set on an open engagement moves nothing.
+        stored = self.get_engagement(engagement_id) or {}
+        state = lifecycle_state if lifecycle_state is not None else stored.get("lifecycle_state")
+        held_outcome = outcome if outcome is not None else stored.get("outcome")
+        if state in ENGAGEMENT_TERMINAL_STATES and (lifecycle_state is not None or outcome is not None):
+            sets.append("ended_at = COALESCE(ended_at, ?)")
+            params.append(now)
+            sets.append("status = ?")
+            params.append(_ENGAGEMENT_CLOSED_STATUS.get(held_outcome or "", "completed"))
+        elif lifecycle_state is not None:
+            sets.append("ended_at = NULL")
+            sets.append("status = ?")
+            params.append(_ENGAGEMENT_OPEN_STATUS.get(lifecycle_state, "active"))
         sets.append("updated_at = ?")
         params.append(now)
         params.append(engagement_id)

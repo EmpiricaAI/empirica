@@ -44,7 +44,7 @@ Empirica tracks what AI knows, gates what it does, and compounds learning across
 | **Calibrates against reality** | Three-vector model: self-assessed, observed (from deterministic checks), and AI-reasoned grounded state with rationale. Domain compliance loops iterate until all checks pass |
 | **Tracks your codebase** | Temporal entity model auto-extracts functions, classes, and imports from every file edit — the AI knows what's alive and what's stale |
 | **Forecasts, not just plans** | Directions are predictions with a confidence, the kind of evidence behind it and what would prove them wrong, graded when they ship or miss (see What's Coming below) |
-| **Keeps humans where they matter** | Questions arrive with a predicted answer, attention is routed by impact and confidence, and irreversible actions need an explicit yes |
+| **Keeps humans where they matter** | The AI is instructed to bring you a predicted answer rather than an open question, `/forecast` ranks which directions deserve your attention by impact and confidence, and proposals to peer practices wait for an explicit accept or decline |
 | **Works through natural language** | You describe tasks normally. The AI operates the measurement system automatically |
 | **Optional: coordinates with peer AIs** | Cross-AI mesh via Cortex (opt-in) — peer AIs propose work, ECO accepts/declines, completion handshakes carry commit SHAs. A persistent listener delivers inbox events to running sessions, and an opt-in wake service nudges idle ones. **Empirica core works standalone without this** — see [Cross-AI Mesh](#cross-ai-mesh-optional-ecosystem-layer) below |
 

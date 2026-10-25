@@ -323,6 +323,23 @@ def test_an_update_that_does_not_touch_the_lifecycle_leaves_ended_at_and_status_
     assert e["title"] == "Renamed" and e["ended_at"] is None and e["status"] == "active"
 
 
+def test_closing_with_no_outcome_argument_uses_the_outcome_already_stored(engagements):
+    """The status was derived from the `outcome` ARGUMENT only: an engagement recorded as lost, then closed without repeating the
+    outcome, read 'completed'."""
+    engagements.update_engagement("e1", outcome="lost")
+    assert engagements.get_engagement("e1")["status"] == "active", "an outcome on an open engagement does not close it"
+    engagements.update_engagement("e1", lifecycle_state="closed")
+    assert engagements.get_engagement("e1")["status"] == "lost"
+
+
+def test_changing_the_outcome_of_a_closed_engagement_moves_its_status(engagements):
+    engagements.update_engagement("e1", lifecycle_state="closed", outcome="won")
+    ended = engagements.get_engagement("e1")["ended_at"]
+    engagements.update_engagement("e1", outcome="lost")
+    e = engagements.get_engagement("e1")
+    assert e["status"] == "lost" and e["ended_at"] == ended
+
+
 # ── #18 the PostgreSQL schema path rewrites every SQLite-only construct ─────
 
 
@@ -808,3 +825,33 @@ def test_the_recorded_signature_comes_from_the_file_that_was_loaded_not_a_second
     monkeypatch.setattr(cls, "_find_config_file", racing_search)
     loader._load_credentials()
     assert loader._cache_signature is None, "the signature was taken from a second search"
+
+
+# ── sweep 2: a goal id that is too short or ambiguous is not reported as "not found" ──
+
+
+def _goal_rows():
+    import sqlite3
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE goals (id TEXT PRIMARY KEY)")
+    conn.executemany("INSERT INTO goals VALUES (?)", [("abcd1234-aaaa",), ("abcd1234-bbbb",), ("zzzz9999-cccc",)])
+    return conn.cursor()
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("abc", "shorter than 8"), ("abcd1234", "ambiguous"), ("nomatch99", "not found")],
+)
+def test_the_goal_miss_message_names_why_the_id_matched_nothing(raw, expected):
+    from empirica.cli.command_handlers.goal_commands import _goal_miss_reason
+
+    message = _goal_miss_reason(raw, "planned", cursor=_goal_rows())
+    assert expected in message and raw in message
+
+
+def test_a_unique_prefix_that_exists_falls_back_to_the_status_wording():
+    from empirica.cli.command_handlers.goal_commands import _goal_miss_reason
+
+    message = _goal_miss_reason("zzzz9999", "planned", cursor=_goal_rows())
+    assert "not in 'planned' status" in message

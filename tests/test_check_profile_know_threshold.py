@@ -77,3 +77,34 @@ def test_rigorous_and_exploratory_are_not_both_the_default_bar():
         n: _profile_base_thresholds(_Loader(profiles[n]))["ready_know_threshold"] for n in ("rigorous", "exploratory")
     }
     assert bars["rigorous"] == 0.85 and bars["exploratory"] == 0.60
+
+
+# ── sweep 2: the other readers of the same bar use the same lookup ──
+
+
+def test_the_dynamic_threshold_baseline_reads_the_legacy_know_key_too(monkeypatch):
+    from empirica.config import threshold_loader
+    from empirica.core.post_test.dynamic_thresholds import _load_calibration_config
+
+    loader = _Loader({"ready_confidence_threshold": 0.85, "ready_uncertainty_threshold": 0.2})
+    monkeypatch.setattr(threshold_loader.ThresholdLoader, "get_instance", classmethod(lambda cls: loader))
+    assert _load_calibration_config()["baselines"]["ready_know_threshold"] == 0.85
+
+
+def test_the_monitor_hooks_readiness_bar_reads_the_legacy_know_key_too(monkeypatch):
+    from empirica.config import threshold_loader
+    from empirica.core.canonical.empirica_git.sentinel_hooks import _load_readiness_thresholds
+
+    monkeypatch.delenv("EMPIRICA_KNOW_THRESHOLD", raising=False)
+    monkeypatch.delenv("EMPIRICA_UNCERTAINTY_THRESHOLD", raising=False)
+    loader = _Loader({"ready_confidence_threshold": 0.85, "ready_uncertainty_threshold": 0.2})
+    monkeypatch.setattr(threshold_loader, "get_threshold_config", lambda: loader)
+    assert _load_readiness_thresholds()["min_know"] == 0.85
+
+
+def test_the_shared_lookup_is_the_one_the_check_handler_uses():
+    from empirica.config.threshold_loader import ready_know_bar
+
+    assert ready_know_bar(_Loader({"ready_confidence_threshold": 0.6}), 0.7) == 0.6
+    assert ready_know_bar(_Loader({"ready_know_threshold": 0.9, "ready_confidence_threshold": 0.6}), 0.7) == 0.9
+    assert ready_know_bar(_Loader({}), 0.7) == 0.7
