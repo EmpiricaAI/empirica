@@ -520,7 +520,7 @@ class SystemDashboard(EpistemicObserver):
                 db.close()
                 return GateStatus(phase="no_preflight")
 
-            phase, _know, _uncertainty, reflex_data, _ = row
+            phase, _know, own_uncertainty, reflex_data, _ = row
             # Newest RECORDED know and uncertainty: the latest row is often a CHECK that omits one (NULL = not assessed). `x or default`
             # also read a genuine 0.0 as missing. Never recorded keeps the fail-closed defaults (know 0.0, uncertainty 1.0).
             know = self._latest_recorded(cursor, "know", 0.0)
@@ -540,7 +540,9 @@ class SystemDashboard(EpistemicObserver):
                     pass
 
             # Gate uses META UNCERTAINTY ONLY (2026-04-07).
-            gate_passed = uncertainty <= 0.35
+            # ...of the LATEST row: when it did not assess uncertainty (NULL), the last recorded value is still shown, but an older
+            # assessment cannot certify this one (before NULL it read an invented 0.5 and failed).
+            gate_passed = own_uncertainty is not None and uncertainty <= 0.35
             db.close()
 
             return GateStatus(

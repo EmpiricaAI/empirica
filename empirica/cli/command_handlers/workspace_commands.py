@@ -209,11 +209,11 @@ def _wsmap_match_empirica_projects(git_repos):
                     WHERE s.project_id = projects.id) as total_sessions,
                    (SELECT r.know FROM reflexes r
                     JOIN sessions s ON s.session_id = r.session_id
-                    WHERE s.project_id = projects.id
+                    WHERE s.project_id = projects.id AND r.know IS NOT NULL
                     ORDER BY r.timestamp DESC LIMIT 1) as latest_know,
                    (SELECT r.uncertainty FROM reflexes r
                     JOIN sessions s ON s.session_id = r.session_id
-                    WHERE s.project_id = projects.id
+                    WHERE s.project_id = projects.id AND r.uncertainty IS NOT NULL
                     ORDER BY r.timestamp DESC LIMIT 1) as latest_uncertainty
             FROM projects
             WHERE repos LIKE ?
@@ -228,8 +228,9 @@ def _wsmap_match_empirica_projects(git_repos):
                 "name": row[1],
                 "status": row[2],
                 "total_sessions": row[3],
-                "know": row[4] if row[4] else 0.5,
-                "uncertainty": row[5] if row[5] else 0.5,
+                # Newest RECORDED value; 0.5 only for a project that never recorded one. `if row[4]` also read a real 0.0 as missing.
+                "know": row[4] if row[4] is not None else 0.5,
+                "uncertainty": row[5] if row[5] is not None else 0.5,
             }
         else:
             repo["empirica_project"] = None

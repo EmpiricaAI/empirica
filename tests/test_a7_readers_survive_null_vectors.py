@@ -302,8 +302,23 @@ def test_the_dashboard_gate_shows_the_last_recorded_values_and_keeps_a_real_zero
     monkeypatch.setattr(sdb, "SessionDatabase", lambda *a, **k: db)
     monkeypatch.setattr(db, "close", lambda: None)
     gate = SystemDashboard(session_id=sid, node_id="a7")._query_gate()
-    assert gate.know == 0.8 and gate.uncertainty == 0.0 and gate.gate_passed is True
+    assert gate.know == 0.8 and gate.uncertainty == 0.0, "the last recorded values are shown, and a real 0.0 stays 0.0"
     assert gate.phase == "check"
+    # ...but the LATEST check did not assess uncertainty, so it cannot be certified as passing (before NULL it read 0.5 and failed).
+    assert gate.gate_passed is False
+
+
+def test_the_dashboard_gate_passes_when_the_latest_check_itself_assessed_uncertainty_low(db, monkeypatch):
+    import empirica.data.session_database as sdb
+    from empirica.core.system_dashboard import SystemDashboard
+
+    sid = db.create_session(ai_id="a7-dash2")
+    put(db, sid, "PREFLIGHT", FULL | {"know": 0.8, "uncertainty": 0.5}, ts=1000.0)
+    put(db, sid, "CHECK", {"know": 0.85, "uncertainty": 0.1}, ts=2000.0)
+    monkeypatch.setattr(sdb, "SessionDatabase", lambda *a, **k: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    gate = SystemDashboard(session_id=sid, node_id="a7")._query_gate()
+    assert gate.uncertainty == 0.1 and gate.gate_passed is True
 
 
 # ── flow and health scores: a POSTFLIGHT with NULLs (a restored or imported one) has no score ──
@@ -409,3 +424,89 @@ def test_the_statusline_does_not_borrow_across_transactions(db):
     put(db, sid, "CHECK", {"know": 0.91}, ts=2000.0, transaction_id="tx-new")
     _phase, vectors, _d = mod.get_latest_vectors(db, sid, None, "tx-new")
     assert vectors == {"know": 0.91}, "tx-old's values belong to another transaction and must not be shown for tx-new"
+
+
+# ── second review of the A7 delta: readers the two audits missed ──
+
+
+def test_the_workspace_map_shows_the_last_recorded_know_and_uncertainty_and_keeps_a_real_zero(db, monkeypatch):
+    """The CLI keeps its own copy of the overview's subquery: `row[4] if row[4] else 0.5` invented 0.5 for NULL and for a real 0.0."""
+    import empirica.cli.command_handlers.workspace_commands as wc
+
+    pid = db.create_project("p-wsmap")
+    db.conn.execute("UPDATE projects SET repos = ? WHERE id = ?", ('["https://example.test/r.git"]', pid))
+    sid = db.create_session(ai_id="a7-wsmap", project_id=pid)
+    put(db, sid, "PREFLIGHT", FULL | {"know": 0.0, "uncertainty": 0.1}, ts=1000.0)
+    put(db, sid, "CHECK", {"clarity": 0.9}, ts=2000.0)
+    monkeypatch.setattr("empirica.data.session_database.SessionDatabase", lambda *a, **k: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    repos = [{"path": "/x", "name": "r", "remote_url": "https://example.test/r.git", "has_remote": True}]
+    wc._wsmap_match_empirica_projects(repos)
+    project = repos[0]["empirica_project"]
+    assert project["know"] == 0.0 and project["uncertainty"] == 0.1
+
+
+def test_the_bootstrap_handoff_prints_n_a_for_a_vector_that_was_not_assessed(capsys):
+    """`vectors.get(key, "N/A")` followed by `:.2f` cannot format the string it just defaulted to, and a None cannot be formatted
+    either: an auto-closed session (completion only, every other vector NULL) crashed project-bootstrap's human output."""
+    from empirica.cli.command_handlers.project_bootstrap_formatter import _format_handoff_section
+
+    _format_handoff_section(
+        {
+            "ai_id": "x",
+            "vectors": {
+                "engagement": None,
+                "uncertainty": None,
+                "foundation": {"know": None, "do": 0.5, "context": None},
+            },
+            "deltas": {"foundation": {"know": None}},
+        }
+    )
+    out = capsys.readouterr().out
+    assert "Engagement: n/a" in out and "Uncertainty: n/a" in out
+    assert "know=n/a" in out and "do=0.50" in out and "context=n/a" in out
+
+
+def _investigation_report(db, check_vectors):
+    from empirica.core.handoff.report_generator import EpistemicHandoffReportGenerator
+
+    sid = db.create_session(ai_id="a7-report")
+    put(db, sid, "PREFLIGHT", FULL | {"uncertainty": 0.6}, ts=1000.0)
+    put(db, sid, "CHECK", check_vectors, ts=2000.0)
+    gen = EpistemicHandoffReportGenerator.__new__(EpistemicHandoffReportGenerator)
+    gen.db = db
+    return gen, gen.generate_handoff_report(sid, "task", [], [], "ctx", handoff_subtype="investigation")
+
+
+def test_an_investigation_handoff_whose_check_skipped_uncertainty_still_renders(db):
+    """`overall_confidence_delta` became None (uncertainty not assessed on both sides) and the markdown formatted it with :+.3f."""
+    _gen, report = _investigation_report(db, {"know": 0.9, "do": 0.9, "context": 0.9})
+    assert report["overall_confidence_delta"] is None
+    assert "Overall Confidence Change:** n/a" in report["markdown"]
+
+
+def test_missing_uncertainty_is_not_read_as_zero_so_the_handoff_does_not_say_ready_for_execution(db):
+    """`uncertainty = vectors.get("uncertainty", 0)` made 'not assessed' into 'no uncertainty', and a CHECK that rated know, do and
+    context at 0.9 and skipped uncertainty was told 'Ready for execution - strong epistemic foundation'. The old invented 0.5 said
+    'Continue investigation'. A NULL must not flip a decision to the permissive side."""
+    _gen, report = _investigation_report(db, {"know": 0.9, "do": 0.9, "context": 0.9})
+    steps = " | ".join(report["recommended_next_steps"])
+    assert "Ready for execution" not in steps
+    assert "uncertainty was not assessed" in steps.lower()
+
+
+def test_ready_for_execution_still_appears_when_uncertainty_was_assessed_low(db):
+    """Control: the recommendation is still given when its inputs are all there."""
+    _gen, report = _investigation_report(db, {"know": 0.9, "do": 0.9, "context": 0.9, "uncertainty": 0.1})
+    assert any("Ready for execution" in s for s in report["recommended_next_steps"])
+
+
+def test_the_heuristic_does_not_certify_calibration_it_cannot_assess():
+    """With know or uncertainty absent from the deltas both defaulted to 0.0 and the check answered 'well calibrated: knowledge gain
+    matches uncertainty reduction' about a comparison it never made."""
+    from empirica.core.handoff.report_generator import EpistemicHandoffReportGenerator
+
+    gen = EpistemicHandoffReportGenerator.__new__(EpistemicHandoffReportGenerator)
+    assert gen._heuristic_calibration_check({"know": 0.3})["status"] == "not_assessable"
+    assert gen._heuristic_calibration_check({})["status"] == "not_assessable"
+    assert gen._heuristic_calibration_check({"know": 0.3, "uncertainty": -0.3})["status"] == "well_calibrated"

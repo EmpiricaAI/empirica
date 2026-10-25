@@ -419,8 +419,15 @@ class EpistemicHandoffReportGenerator:
         1. Fallback when genuine introspection missing
         2. Validation check against AI's self-assessment
         """
-        know_delta = deltas.get("know", 0.0)
-        uncertainty_delta = -deltas.get("uncertainty", 0.0)  # Negative because uncertainty should decrease
+        if "know" not in deltas or "uncertainty" not in deltas:
+            # A comparison needs both deltas. Defaulting the missing one to 0.0 certified "knowledge gain matches uncertainty
+            # reduction" about a comparison that was never made.
+            return {
+                "status": "not_assessable",
+                "reasoning": "know or uncertainty was not assessed on both sides, so calibration cannot be judged",
+            }
+        know_delta = deltas["know"]
+        uncertainty_delta = -deltas["uncertainty"]  # Negative because uncertainty should decrease
 
         # Well-calibrated: similar magnitudes
         if abs(know_delta - uncertainty_delta) < 0.15:
@@ -550,9 +557,16 @@ class EpistemicHandoffReportGenerator:
         """
         recommendations = []
 
-        # Check if still high uncertainty
-        uncertainty = postflight_vectors.get("uncertainty", 0)
-        if uncertainty > 0.40:
+        # NULL = not assessed, which is NOT zero: `get("uncertainty", 0)` read a CHECK that skipped uncertainty as "no uncertainty" and
+        # told it "Ready for execution". A permissive recommendation needs every input it rests on.
+        uncertainty = postflight_vectors.get("uncertainty")
+        know = postflight_vectors.get("know")
+        do = postflight_vectors.get("do")
+        completion = postflight_vectors.get("completion")
+
+        if uncertainty is None:
+            recommendations.append("Uncertainty was not assessed in the latest check - assess it before acting")
+        elif uncertainty > 0.40:
             recommendations.append(f"Continue investigation - uncertainty still elevated ({uncertainty:.2f})")
 
         # Check remaining unknowns
@@ -566,14 +580,18 @@ class EpistemicHandoffReportGenerator:
             recommendations.append("Consider execution - showing underconfidence pattern")
 
         # Check if ready for next phase
-        know = postflight_vectors.get("know", 0)
-        do = postflight_vectors.get("do", 0)
-        if uncertainty < 0.30 and know > 0.80 and do > 0.80:
+        if (
+            uncertainty is not None
+            and know is not None
+            and do is not None
+            and uncertainty < 0.30
+            and know > 0.80
+            and do > 0.80
+        ):
             recommendations.append("Ready for execution - strong epistemic foundation")
 
         # Check completion
-        completion = postflight_vectors.get("completion", 0)
-        if completion >= 0.90:
+        if completion is not None and completion >= 0.90:
             recommendations.append("Task appears complete - consider POSTFLIGHT review")
 
         # Default if no specific recommendations
@@ -664,6 +682,8 @@ class EpistemicHandoffReportGenerator:
         # Calibration indicator
         cal_status = report["calibration_status"]
         cal_source = calibration.get("source", "unknown")
+        confidence_delta = report["overall_confidence_delta"]
+        confidence_change = "n/a" if confidence_delta is None else f"{confidence_delta:+.3f}"
         cal_emoji = "✅" if cal_status == "well_calibrated" else "⚠️"
 
         # Show source and any validation notes
@@ -685,7 +705,7 @@ class EpistemicHandoffReportGenerator:
 
 {delta_table}
 
-**Overall Confidence Change:** {report["overall_confidence_delta"]:+.3f}
+**Overall Confidence Change:** {confidence_change}
 **Calibration Status:** {cal_display}
 
 ---

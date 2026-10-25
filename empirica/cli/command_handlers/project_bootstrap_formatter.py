@@ -104,10 +104,15 @@ def _format_project_summary(project, last):
     safe_print()
 
 
+def _num(value):
+    """A vector for display: n/a when it was not assessed (absent or NULL). `get(k, "N/A")` followed by `:.2f` could not format
+    the string it had just defaulted to, and a NULL cannot be formatted either."""
+    return "n/a" if not isinstance(value, (int, float)) or isinstance(value, bool) else f"{value:.2f}"
+
+
 def _format_vector_with_delta(label, vectors, deltas, key, invert=False):
     """Print a single vector value with optional delta arrow."""
-    val = vectors.get(key, "N/A")
-    safe_print(f"      {label}: {val:.2f}", end="")
+    safe_print(f"      {label}: {_num(vectors.get(key))}", end="")
     if key in deltas and deltas[key] is not None:
         delta = deltas[key]
         if invert:
@@ -131,13 +136,13 @@ def _format_handoff_section(handoff):
         if "foundation" in vectors:
             f = vectors["foundation"]
             d = deltas.get("foundation", {})
-            safe_print(f"      Foundation: know={f.get('know', 'N/A'):.2f}", end="")
+            safe_print(f"      Foundation: know={_num(f.get('know'))}", end="")
             if d.get("know") is not None:
                 safe_print(f" {d['know']:+.2f}", end="")
-            safe_print(f", do={f.get('do', 'N/A'):.2f}", end="")
+            safe_print(f", do={_num(f.get('do'))}", end="")
             if d.get("do") is not None:
                 safe_print(f" {d['do']:+.2f}", end="")
-            safe_print(f", context={f.get('context', 'N/A'):.2f}", end="")
+            safe_print(f", context={_num(f.get('context'))}", end="")
             if d.get("context") is not None:
                 safe_print(f" {d['context']:+.2f}", end="")
             safe_print()
