@@ -5,6 +5,25 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`/forecast`** (26th skill): turns the question "what comes next" into graded predictions. It drafts directions with an evidence kind and a capped confidence, turns thin evidence into at most three questions (each with a predicted answer), routes human attention by impact and confidence, creates `planned` goals only after confirmation, and gardens the forecast. The schema stays in `docs/ROADMAP.yaml`; the skill does not restate it.
+- **README's What's Coming** renders `docs/ROADMAP.yaml`, a forecast whose items carry a confidence, the kind of evidence behind it (`measured`, `reviewed`, `reported`, `inferred`, which cap the confidence), a falsifier and a `horizon` release. `release.py` refuses a missing field, an over-confident item, a repeated id and any internal id (the text is public).
+- **Gardening for forecasts**: a prediction that was wrong when written is `retracted` (distinct from `dropped`), a replaced one is `superseded`, every predicted item past its `horizon` is flagged by the docs step, `steered` marks items that already had a goal when predicted (scored separately, shown as "planned"), and against the roadmap at the last release tag a changed confidence, prediction, falsifier, horizon or evidence needs a dated `revisions` entry, a resolved item cannot be rewritten, and no item can be deleted.
+- **`release.py --prepare` parses the tree under the `requires-python` floor** through `uv` (1,406 files on Python 3.10.19 when added). CI runs 3.11 and 3.13 and nothing ran 3.10. Without `uv` or the interpreter it prints `NOT VERIFIED` instead of passing silently.
+
+### Changed
+
+- **README's What's New is the release's `### Highlights`** (short lines the author writes), a counted link to the changelog for the rest, and one line each for the two releases before it. It was the first eight CHANGELOG bullets pasted verbatim: 4,905 characters, 421 to 865 each, with everything past the eighth dropped without a word. Highlights are authored for 1.14.12 to 1.14.14.
+- **`eat-the-broccoli` synced to upstream 2.11.0** (four new patterns: report older than the code it describes, check aimed at a neighbouring claim, delimiter-bounded rewrite, declared support wider than anything exercises). `/pre-publish` and its sweep brief carry the matching rules.
+
+### Fixed
+
+- **The README sync no longer eats or duplicates content** (found by an independent review): its span ended at the next `## ` or `---`, so a `# ` heading, a fenced `## `, a `---` between two sections or a curly apostrophe lost what followed or left a stale copy, and it still reported success. The span is now bounded by structure, content outside it is preserved byte for byte, and a What's Coming outside the block is refused. A `### Highlights` block with no readable bullet is an error instead of a silent fallback, and the first sentence no longer ends at "e.g." or "Dr.".
+- **An f-string that only parses on Python 3.12 broke CI on 3.11** after 1.14.14 (ruff targets py310 but parses with the newest grammar, so lint and format passed). The line is fixed and a guard flags replacement fields that need 3.12.
+
 ## [1.14.14] - 2026-10-25
 
 ### Highlights

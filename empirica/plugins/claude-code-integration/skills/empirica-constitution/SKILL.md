@@ -21,6 +21,7 @@ part of it has to be read at session start to be useful.
 | A claim you logged is stale or false; the periodic sweep | `/epistemic-gardening` |
 | Reporting finished work | `/reporting-discipline` |
 | About to push, tag or publish | `/pre-publish` |
+| Deciding what comes next; grading earlier predictions | `/forecast` |
 | Sending to or receiving from a peer | `/cortex-mailbox-send`, `/cortex-mailbox-poll` (Cortex bundle) |
 
 **Already in the system prompt, do not look for it here:** what counts as done and "CHECK certifies, it does not unlock" (THINKING

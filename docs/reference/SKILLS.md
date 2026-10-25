@@ -1,6 +1,6 @@
 # Skills — what ships, when each fires, which are load-bearing
 
-Empirica ships **25 skills** with the Claude Code plugin. They are *lazy*: a
+Empirica ships **26 skills** with the Claude Code plugin. They are *lazy*: a
 skill does nothing until it is loaded, so knowing when each one fires matters
 more than knowing what it contains.
 
@@ -73,6 +73,7 @@ ship in this plugin — they are not Cortex-gated.
 |---|---|
 | **`/reporting-discipline`** | Before writing a reply that reports finished work, a correction, a release or a mesh outcome — *not* after the user says it was too long. Converts a finished chunk into done/next bullets keyed to goal ids, and names the four ways replies grow back: narrated reasoning, narrated self-correction, narrated artifacts, and the per-notification status reply |
 | **`/pre-publish`** | About to push, tag, release or publish code other people will run. The ordered gate sequence: scope the diff, deterministic gates, an independent read-only sweep whose every finding you trace, docs and code gaps, hot-path timing, a clean re-run on the exact commit, then the cut. Carries the traps green CI hides; empirica's release steps are in its references |
+| **`/forecast`** | Deciding what comes next, preparing a release or quarter, or grading earlier predictions. Drafts directions as predictions with an evidence kind and a capped confidence, turns thin evidence into at most three questions with predicted answers, routes human attention by impact and confidence, creates planned goals only after confirmation, and gardens the forecast (retraction, horizon, planned vs unplanned, no silent edits). The schema lives in `docs/ROADMAP.yaml` |
 | **`/epistemic-persistence-protocol`** | The user pushes back on a position. Load it **before** responding, to classify the pushback type. Its five-way vocabulary is contracted on by the `UserPromptSubmit` hook — it is not decorative |
 | **`/ewm-interview`** | "set up my workflow", "create workflow protocol". Guided multi-choice interview producing `workflow-protocol.yaml`, and it provisions the practices the answers imply rather than describing them |
 | **`/dispatch-agent`** | Spawning subagents that would benefit from inherited findings and dead-ends |

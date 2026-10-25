@@ -413,6 +413,7 @@ compound — every "I'll just do it from memory" call is a calibration gap.
 {% endif %}
 | `/reporting-discipline` | **Before writing a reply that reports finished work, a correction, a release or a mesh outcome** — not after the user says it was too long. The drift is invisible from the inside: this practice held three memory entries on it and still had to be told. |
 | `/pre-publish` | About to push, tag or publish code others will run: the ordered gate sequence and the independent sweep. `/code-audit`, `/code-docs-align` for one dimension, or after a refactor that may have left drift |
+| `/forecast` | Deciding what to build next, planning a release, or grading earlier predictions: directions as graded predictions, questions only where evidence is thin |
 | `/epistemic-gardening` | **Not only a pre-release ceremony.** Load it (a) the moment PREFLIGHT/CHECK surfaces an artifact you can see is stale, superseded or FALSE — that is gardening *inside* the transaction, one `finding-resolve` away, not a separate pass; (b) before a release or periodically, for the full sweep; (c) when a peer's report makes you doubt a chunk of your graph. **Correcting one artifact you just noticed is the common case; the full pass is the rare one.** |
 | `/epistemic-persistence-protocol` | User pushes back on your position — load BEFORE responding to classify the pushback type |
 

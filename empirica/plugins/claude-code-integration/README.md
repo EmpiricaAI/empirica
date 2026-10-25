@@ -89,6 +89,7 @@ Skills load on demand when the AI recognises the situation, or by name (`/skill-
 | **epistemic-persistence-protocol** | The user disagrees or pushes back | Calibrated position-holding: classifies the pushback and chooses HOLD, SOFTEN, UPDATE or REFRAME |
 | **pre-action-grounding** | A task arrives without its why or a checkable done-condition | Investigates first, asks last, records the ungrounded residue as assumptions, emits a goal with typed criteria |
 | **pre-publish** | Before pushing, tagging or publishing code others will run | The ordered release-gate sequence with an independent, traced sweep, and the traps that green CI hides |
+| **forecast** | Deciding what comes next, preparing a release, or grading earlier predictions | Predicted directions with evidence kinds and capped confidence, questions only where evidence is thin, planned goals after confirmation, and gardening so the forecast stays honest |
 | **reporting-discipline** | Before reporting finished work, a correction or a release | Turns finished work into done/next bullets keyed to goal ids |
 | **code-audit** | `/code-audit` | Structured noetic review of code quality using ruff, radon and pyright, producing Empirica artifacts |
 | **code-docs-align** | `/code-docs-align` | Checks that documentation, docstrings and comments match the code |
