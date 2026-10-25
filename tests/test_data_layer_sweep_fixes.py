@@ -640,7 +640,9 @@ def test_an_empty_constraint_store_is_reported_as_no_signal_not_an_empty_list(db
     db.codebase_model.upsert_entity("f", "function", file_path="a.py", project_id=pid)
     context = _check_context(db, pid, monkeypatch, tmp_path)
     assert context["active_entities"] == 1
-    assert context["constraints"] is None, "[] reads as 'no constraint applies'; nothing is recorded, which is a different statement"
+    assert context["constraints"] is None, (
+        "[] reads as 'no constraint applies'; nothing is recorded, which is a different statement"
+    )
 
 
 def test_recorded_constraints_are_still_listed(db, project, monkeypatch, tmp_path):
@@ -649,3 +651,40 @@ def test_recorded_constraints_are_still_listed(db, project, monkeypatch, tmp_pat
     db.codebase_model.upsert_constraint(rule_name="no-print", description="no print()", project_id=pid)
     context = _check_context(db, pid, monkeypatch, tmp_path)
     assert [c["rule"] for c in context["constraints"]] == ["no-print"]
+
+
+# ── R2 saving cortex/ntfy config never destroys a credentials file it could not parse ──
+
+BROKEN_CREDENTIALS = "providers:\n  openai:\n    api_key: sk-keep-me\ncortex:\n  oauth:\n    refresh_token: keep-this-too\nbad: [unclosed\n"
+
+
+@pytest.mark.parametrize("saver", ["cortex", "ntfy"])
+def test_saving_into_an_unparseable_credentials_file_refuses_and_leaves_it_byte_for_byte(tmp_path, saver):
+    from empirica.config.credentials_loader import CredentialsLoader
+
+    path = tmp_path / "credentials.yaml"
+    path.write_text(BROKEN_CREDENTIALS)
+    loader = CredentialsLoader()
+    with pytest.raises(RuntimeError, match="refusing to overwrite"):
+        if saver == "cortex":
+            loader.save_cortex_config(url="https://x.example", config_path=path)
+        else:
+            loader.save_ntfy_config(topic="t", config_path=path)
+    assert path.read_text() == BROKEN_CREDENTIALS, "providers and OAuth must survive a failed save"
+
+
+@pytest.mark.parametrize("saver", ["cortex", "ntfy"])
+def test_saving_into_a_valid_file_still_merges_and_keeps_the_providers(tmp_path, saver):
+    import yaml
+
+    from empirica.config.credentials_loader import CredentialsLoader
+
+    path = tmp_path / "credentials.yaml"
+    path.write_text("providers:\n  openai:\n    api_key: sk-keep-me\n")
+    loader = CredentialsLoader()
+    if saver == "cortex":
+        loader.save_cortex_config(url="https://x.example", config_path=path)
+    else:
+        loader.save_ntfy_config(topic="t", config_path=path)
+    saved = yaml.safe_load(path.read_text())
+    assert saved["providers"]["openai"]["api_key"] == "sk-keep-me" and (saved.get("cortex") or saved.get("ntfy"))

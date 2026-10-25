@@ -364,13 +364,9 @@ class CredentialsLoader:
         target.parent.mkdir(parents=True, exist_ok=True)
 
         # Load existing (preserve providers, etc.)
-        existing: dict = {}
-        if target.exists() and YAML_AVAILABLE:
-            try:
-                existing = yaml.safe_load(target.read_text(encoding="utf-8")) or {}
-            except Exception as e:
-                logger.warning(f"save_cortex_config: existing file unreadable, overwriting: {e}")
-                existing = {}
+        # A file we cannot parse is refused, not replaced with {}: the saver's docstring promises it never touches `providers:`, and
+        # overwriting discarded every provider key and the OAuth family to record one URL.
+        existing = self._read_existing(target)
 
         cortex_block = existing.get("cortex") or {}
         if not isinstance(cortex_block, dict):
@@ -460,13 +456,9 @@ class CredentialsLoader:
             target = Path.home() / ".empirica" / "credentials.yaml"
         target.parent.mkdir(parents=True, exist_ok=True)
 
-        existing: dict = {}
-        if target.exists() and YAML_AVAILABLE:
-            try:
-                existing = yaml.safe_load(target.read_text(encoding="utf-8")) or {}
-            except Exception as e:
-                logger.warning(f"save_ntfy_config: existing file unreadable, overwriting: {e}")
-                existing = {}
+        # A file we cannot parse is refused, not replaced with {}: the saver's docstring promises it never touches `providers:`, and
+        # overwriting discarded every provider key and the OAuth family to record one URL.
+        existing = self._read_existing(target)
 
         ntfy_block = existing.get("ntfy") or {}
         if not isinstance(ntfy_block, dict):
