@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Highlights
+
+- **A code-review sweep of the data layer, hooks and mailbox is fixed.** Each defect was reproduced on the current code before the fix and has a test that failed first: resolved and retracted findings no longer come back as live knowledge, goal ids that match several goals change none, and a rebuild no longer reopens resolved findings.
+- **A credentials file you break and then repair is picked up again.** Every credentials getter re-checks the file, and saving a cortex or ntfy setting no longer replaces a file it could not parse with an empty one.
+- **`cybersec` can complete.** Its medium, high and critical levels required scanners nothing registers, so every run failed; they are now optional until a runner exists, and a test fails if a shipped domain requires an unregistered check.
+- **CHECK reports the bar the profile declares.** `rigorous` and `exploratory` showed a hard-coded 0.70 for the know bar; they now show their own, and the dead Sentinel override path is removed from the three transaction verbs.
+- **`/forecast`** is the 26th skill, and the README's What's Coming is a graded forecast that is gardened like any other artifact.
+- **A Python 3.12-only f-string can no longer break 3.11 CI**: `release.py --prepare` parses the tree under the `requires-python` floor.
+
 ### Added
 
 - **`/forecast`** (26th skill): turns the question "what comes next" into graded predictions. It drafts directions with an evidence kind and a capped confidence, turns thin evidence into at most three questions (each with a predicted answer), routes human attention by impact and confidence, creates `planned` goals only after confirmation, and gardens the forecast. The schema stays in `docs/ROADMAP.yaml`; the skill does not restate it.
@@ -16,11 +25,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`sentinel` is gone from the PREFLIGHT, CHECK and POSTFLIGHT results** (output shape change). It was always null: the Sentinel integration only ever switched on inside `empirica monitor`'s own process, and the three verbs run in separate ones. The dead override path behind it is deleted; `SentinelHooks` stays for the monitor. No reader of the key exists in the repo, plugins, API or MCP package.
+- **CHECK's `codebase_context.constraints` is `null` when no constraint store is populated**, not `[]`. Nothing writes the store, so an empty list read as "no constraint applies".
+- **New artifacts are born `local`.** Migrations 039 and 049 still ship `shared` as the column default, and seven creation paths (both goal repositories and the five extension-import inserts) omitted the column. Restore paths keep the column default on purpose; a test pins exactly that.
+- **`resolve-artifacts` and `PATCH /artifacts/{id}/resolve` refuse an unknown `resolution_kind`** (the route answers 400). They stored NULL and answered ok, which misfiled the one field that measures the kind of correction.
+- **`cybersec`'s scanner checks (`semgrep_*`, `trivy_deps`, `gitleaks`, `sbom_audit`, `threat_model_current`, `privilege_review`) moved to `optional_checks`.** They are not enforced until a runner exists; promote one in the same change that registers it.
 - **README's What's New is the release's `### Highlights`** (short lines the author writes), a counted link to the changelog for the rest, and one line each for the two releases before it. It was the first eight CHANGELOG bullets pasted verbatim: 4,905 characters, 421 to 865 each, with everything past the eighth dropped without a word. Highlights are authored for 1.14.12 to 1.14.14.
 - **`eat-the-broccoli` synced to upstream 2.11.0** (four new patterns: report older than the code it describes, check aimed at a neighbouring claim, delimiter-bounded rewrite, declared support wider than anything exercises). `/pre-publish` and its sweep brief carry the matching rules.
 
 ### Fixed
 
+- **Data layer.** Live retrieval (`get_project_findings`, which feeds CHECK, POSTFLIGHT and memory) no longer returns resolved, superseded or retracted findings (`include_resolved=True` is the history view, used by re-embedding). `investigate-merge-branches --tag-losers` no longer crashes after the merge commits. `activate_goal`, `reopen_goal`, `archive_stale_completed` and `goal_status` resolve their id to exactly one goal: an ambiguous or too-short prefix changes nothing (archive used to take every goal sharing the prefix). Abandoned goals are no longer reported as current work. The handoff pairs a POSTFLIGHT with its own transaction's PREFLIGHT instead of the session's first. The workspace overview counts sessions live (the stored counter is never incremented). Closing an engagement sets its end and status.
+- **Artifact writes are validated.** `update-artifacts` and `PATCH` stored `visibility: sharred`, `impact: 7.5` and a goal status of `banana` under `ok: true`; closed sets and ranges are checked, a refused field is reported with its reason, and a goal status change moves its completion columns. The PostgreSQL schema path rewrites `DEFAULT (datetime('now'))`, which made `epistemic_events` fail to create there.
+- **Rebuild keeps resolution.** Findings imported from git notes carry `is_resolved`, the resolution, `superseded_by` and `resolution_kind`, so a rebuild no longer reopens resolved and retracted findings. Transcript parsing keeps the assistant text after the first tool call of each turn.
+- **Mailbox.** An unresolved canonical id is an error (`ok: false`, exit 1) instead of an empty inbox, and the envelope names the id it queried (`queried_as`). The reason a credential is unusable reaches stderr. With the roster down, a reply whose parent shares your slug is refused rather than posted to yourself.
+- **Credentials.** `save_cortex_config` and `save_ntfy_config` raise on a file they cannot parse instead of replacing it with `{}`, which discarded every provider key and the OAuth family. Every getter, not just the two cortex ones, re-checks the file's modification time, and a file that failed to parse is retried once it changes.
+- **CHECK and configuration.** A non-default cascade profile's know bar is read under its legacy name too (`rigorous` reports 0.85 and `exploratory` 0.60, where every one showed 0.70); the gate itself decides on uncertainty alone, so this corrects the reported number and the dynamic thresholds. `DATABASE_URL=postgres://...` is accepted, an unset `${VAR}` in `config.yaml` and an unparseable `config.yaml` now warn instead of falling back to SQLite in silence.
+- **Domains.** One malformed domain file (`required_checks:` empty, a scalar where a list belongs, a non-numeric `max_iterations`) no longer raises out of `DomainRegistry` or turns a scalar into a tuple of characters; it is normalised or the file is logged and skipped.
+- **Memory swap.** The post-compact hook reads the harness's working directory before it changes directory, so the swap compares the right projects (it compared the active project with itself and never fired). Returning to the original project restores its memory, and a failed restore at session end is printed instead of swallowed.
+- **Migration 034** moves only subagent shell rows. A child session with reflexes, goals or findings keyed to it stays in `sessions` instead of being deleted and orphaning them.
 - **The README sync no longer eats or duplicates content** (found by an independent review): its span ended at the next `## ` or `---`, so a `# ` heading, a fenced `## `, a `---` between two sections or a curly apostrophe lost what followed or left a stale copy, and it still reported success. The span is now bounded by structure, content outside it is preserved byte for byte, and a What's Coming outside the block is refused. A `### Highlights` block with no readable bullet is an error instead of a silent fallback, and the first sentence no longer ends at "e.g." or "Dr.".
 - **An f-string that only parses on Python 3.12 broke CI on 3.11** after 1.14.14 (ruff targets py310 but parses with the newest grammar, so lint and format passed). The line is fixed and a guard flags replacement fields that need 3.12.
 

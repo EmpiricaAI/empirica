@@ -22,6 +22,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 from project_resolver import find_project_root
 
 
+def _launch_cwd() -> Path | None:
+    """The directory this hook was started in, or None if it no longer exists.
+
+    Read once, at import, BEFORE main() moves to the resolved practice: the memory swap is keyed by the harness's directory,
+    and after the chdir the cwd is the active project, whose own memory dir holds no manifest."""
+    try:
+        return Path(os.getcwd())
+    except OSError:
+        return None
+
+
+_LAUNCH_CWD = _launch_cwd()
+
+
 def get_session_state(session_id: str) -> dict:
     """
     Get session's epistemic state for POSTFLIGHT.
@@ -199,7 +213,14 @@ def _cleanup_session_files(claude_session_id: str | None):
     try:
         from empirica.utils.memory_swap import restore_if_swapped
 
-        restored = restore_if_swapped(Path.cwd())
+        if _LAUNCH_CWD is None:
+            print(
+                "memory restore skipped: the launch directory is gone, so the swapped project is unknown",
+                file=sys.stderr,
+            )
+            restored = None
+        else:
+            restored = restore_if_swapped(_LAUNCH_CWD)
         if restored and not restored.get("ok", False):
             print(f"memory restore failed: {restored.get('action')}: {restored.get('message', '')}", file=sys.stderr)
     except Exception as e:
