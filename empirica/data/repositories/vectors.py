@@ -79,7 +79,9 @@ class VectorRepository(BaseRepository):
         Args:
             session_id: Session identifier
             phase: Current phase (PREFLIGHT, CHECK, ACT, POSTFLIGHT)
-            vectors: Dictionary of 13 epistemic vectors
+            vectors: Dictionary of epistemic vectors. A vector that is absent, or not a number, is stored as NULL ("not
+                assessed"), never as an invented 0.5: CHECK commonly supplies only some of the 13, and readers must treat
+                NULL as unknown. The values actually supplied are kept in ``reflex_data``.
             cascade_id: Optional cascade identifier
             round_num: Current round number
             metadata: Optional additional metadata
@@ -113,10 +115,13 @@ class VectorRepository(BaseRepository):
             "uncertainty",
         ]
 
+        # A vector the caller did not supply, or supplied as something that is not a number, is NULL: "not assessed". It used to be
+        # an invented 0.5, which every reader then took for a measurement (53 of the last 60 CHECK rows carried some, because CHECK
+        # supplies a mean of 7 of 13). A bool is not a measurement either, though it is an int. The real values stay in reflex_data.
         vector_values = []
         for name in vector_names:
-            value = vectors.get(name, 0.5)  # Default to 0.5 if not provided
-            vector_values.append(value if isinstance(value, (int, float)) else 0.5)
+            value = vectors.get(name)
+            vector_values.append(value if isinstance(value, (int, float)) and not isinstance(value, bool) else None)
 
         # Create a reflex data entry with optional metadata
         reflex_data = {
