@@ -767,3 +767,44 @@ def test_an_unchanged_file_is_not_parsed_again(fresh_loader, monkeypatch):
         loader.get_ntfy_config()
         loader.list_providers()
     assert loads == [], "an unchanged mtime must not cost a reload"
+
+
+# ── T5 (sweep 2): the reload does not blank the cache other threads read, and the signature names the file that was loaded ──
+
+
+def test_a_reload_keeps_the_old_cache_visible_until_the_new_one_is_ready(fresh_loader, monkeypatch):
+    """_ensure_fresh set the shared cache to None before reloading, so a second thread in the serve daemon could read None between
+    the two statements and crash in get_provider_config / list_providers, which (unlike the cortex getters) do not guard it."""
+    path, cls = fresh_loader
+    _rewrite(path, "providers:\n  openai:\n    api_key: sk-old\n", mtime=1_000_000)
+    loader = cls()
+    seen_at_reload_start = []
+    real = cls._load_credentials
+
+    def watching(self):
+        seen_at_reload_start.append(self._credentials_cache)
+        return real(self)
+
+    monkeypatch.setattr(cls, "_load_credentials", watching)
+    _rewrite(path, "providers:\n  openai:\n    api_key: sk-new\n", mtime=1_000_100)
+    assert loader.get_api_key("openai") == "sk-new"
+    assert seen_at_reload_start and seen_at_reload_start[0], "the cache was blanked before the reload started"
+
+
+def test_the_recorded_signature_comes_from_the_file_that_was_loaded_not_a_second_search(fresh_loader, monkeypatch):
+    """A file created between the load's search and the signature's search left a dotfile cache signed with the new file, so nothing
+    reloaded until its mtime changed."""
+    path, cls = fresh_loader
+    loader = cls()
+    calls = []
+
+    def racing_search(self):
+        calls.append(1)
+        if len(calls) > 1:
+            _rewrite(path, "providers:\n  late:\n    api_key: k\n", mtime=1_000_000)
+            return path
+        return None
+
+    monkeypatch.setattr(cls, "_find_config_file", racing_search)
+    loader._load_credentials()
+    assert loader._cache_signature is None, "the signature was taken from a second search"

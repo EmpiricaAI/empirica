@@ -27,18 +27,31 @@ logger = logging.getLogger(__name__)
 CRITICALITY_ORDER = ("critical", "high", "medium", "low")
 
 
-def _as_tuple(value: Any) -> tuple[str, ...]:
+def _as_tuple(value: Any, field: str = "list field") -> tuple[str, ...]:
     """A YAML list-of-strings field as a tuple.
 
     `key:` with nothing after it is None (no entries), and `key: tests` is one entry;
-    `tuple()` of either would raise or split the string into characters."""
+    `tuple()` of either would raise or split the string into characters. A scalar that
+    is not text (a bare YAML `yes` is a boolean) is kept as text, so a required check
+    named that way fails as 'not registered' rather than vanishing; an entry that
+    cannot be a name (a mapping, a nested list) is dropped with a warning, because a
+    required check that silently stops being required is the failure to avoid."""
     if value is None:
         return ()
     if isinstance(value, str):
         return (value,)
-    if isinstance(value, (list, tuple)):
-        return tuple(v for v in value if isinstance(v, str))
-    return ()
+    if not isinstance(value, (list, tuple)):
+        logger.warning("Ignoring %s %r: expected a list of names", field, value)
+        return ()
+    kept: list[str] = []
+    for entry in value:
+        if isinstance(entry, str):
+            kept.append(entry)
+        elif isinstance(entry, (bool, int, float)):
+            kept.append(str(entry))
+        else:
+            logger.warning("Dropping %s entry %r: it cannot be a name", field, entry)
+    return tuple(kept)
 
 
 @dataclass(frozen=True)
@@ -277,20 +290,20 @@ class DomainRegistry:
             thresholds = level_data.get("thresholds")
             max_iterations = level_data.get("max_iterations")
             criticalities[level] = Checklist(
-                required=_as_tuple(level_data.get("required_checks")),
-                optional=_as_tuple(level_data.get("optional_checks")),
+                required=_as_tuple(level_data.get("required_checks"), "required_checks"),
+                optional=_as_tuple(level_data.get("optional_checks"), "optional_checks"),
                 thresholds=thresholds if isinstance(thresholds, dict) else {},
                 max_iterations=max_iterations
                 if isinstance(max_iterations, int) and not isinstance(max_iterations, bool) and max_iterations >= 1
                 else 5,
-                hints_to_ai=_as_tuple(level_data.get("hints_to_ai")),
+                hints_to_ai=_as_tuple(level_data.get("hints_to_ai"), "hints_to_ai"),
             )
 
         return _DomainEntry(
             name=domain_name,
             description=raw.get("description", ""),
-            applies_to_work_types=list(_as_tuple(raw.get("applies_to_work_types"))),
+            applies_to_work_types=list(_as_tuple(raw.get("applies_to_work_types"), "applies_to_work_types")),
             criticalities=criticalities,
-            hints_to_ai=_as_tuple(raw.get("hints_to_ai")),
+            hints_to_ai=_as_tuple(raw.get("hints_to_ai"), "hints_to_ai"),
             source=source,
         )

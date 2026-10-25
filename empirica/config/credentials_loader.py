@@ -156,6 +156,13 @@ class CredentialsLoader:
         if self._credentials_cache is None:
             self._load_credentials()
 
+    @staticmethod
+    def _signature_of(path: Path | None) -> tuple[Path, float] | None:
+        try:
+            return (path, path.stat().st_mtime) if path is not None else None
+        except OSError:
+            return None
+
     def _source_signature(self) -> tuple[Path, float] | None:
         """(path, mtime) of the credentials file that would be loaded now, or None.
 
@@ -163,8 +170,7 @@ class CredentialsLoader:
         after a dotfile fallback, or replaced by one higher in the precedence
         order, is noticed too."""
         try:
-            path = self._find_config_file()
-            return (path, path.stat().st_mtime) if path is not None else None
+            return self._signature_of(self._find_config_file())
         except OSError:
             return None
 
@@ -176,7 +182,8 @@ class CredentialsLoader:
         Cheap (a few stats) and best-effort: a stat failure leaves the cache intact
         rather than thrashing."""
         if self._source_signature() != self._cache_signature:
-            self._credentials_cache = None
+            # The old cache stays readable until _load_credentials assigns the new one: the serve daemon reads it from other
+            # threads, and a None in between crashed the getters that do not guard for it.
             self._load_credentials()
 
     def _find_config_file(self) -> Path | None:
@@ -217,8 +224,10 @@ class CredentialsLoader:
         config_file = self._find_config_file()
         # Recorded BEFORE parsing: a file that fails to parse is still the file
         # this cache came from, so fixing it (a new mtime) triggers a retry
-        # instead of leaving the dotfile fallback served until restart.
-        self._cache_signature = self._source_signature()
+        # instead of leaving the dotfile fallback served until restart. Taken
+        # from THIS search's file, not a second one: a file created in between
+        # would be signed into a cache that never read it.
+        self._cache_signature = self._signature_of(config_file)
 
         if config_file:
             logger.info(f"✅ Loading credentials from: {config_file}")
