@@ -35,7 +35,7 @@ def findings_for_reembed(db, project_id: str) -> list[dict]:
     asks for ``complete``. Resolved findings come back too: search drops them at query time (``_drop_resolved_memory``),
     which reads the database and so cannot go stale the way the payload's frozen ``is_resolved`` can.
     """
-    return db.get_project_findings(project_id, depth="complete")
+    return db.get_project_findings(project_id, depth="complete", include_resolved=True)
 
 
 def embed_single_memory_item(

@@ -538,3 +538,35 @@ def test_the_resolve_route_refuses_an_unknown_resolution_kind_and_applies_a_know
     assert resp.status_code == status, resp.text
     row = sqlite3.connect(str(db_path)).execute("SELECT is_resolved, resolution_kind FROM project_findings").fetchone()
     assert tuple(row) == stored
+
+
+# ── A4 resolved and retracted findings are not live retrieval ────────────────
+
+
+@pytest.fixture
+def three_findings(db, project):
+    pid, sid = project
+    open_id = db.breadcrumbs.log_finding(pid, sid, "OPEN finding about alpha", impact=0.9, subject="alpha")
+    stale_id = db.breadcrumbs.log_finding(pid, sid, "RESOLVED finding about beta", impact=0.9, subject="alpha")
+    retracted_id = db.breadcrumbs.log_finding(pid, sid, "RETRACTED finding about gamma", impact=0.9, subject="alpha")
+    db.breadcrumbs.resolve_finding(stale_id, "done", resolution_kind="stale")
+    db.breadcrumbs.resolve_finding(retracted_id, "was false", resolution_kind="retracted")
+    return pid, open_id
+
+
+@pytest.mark.parametrize("depth", ["moderate", "complete"])
+def test_resolved_and_retracted_findings_are_not_returned_by_default(db, three_findings, depth):
+    pid, open_id = three_findings
+    got = db.breadcrumbs.get_project_findings(pid, depth=depth)
+    assert [f["id"] for f in got] == [open_id], "the read path feeding CHECK, POSTFLIGHT and bootstrap returned finished and false findings"
+    assert [f["id"] for f in db.get_project_findings(pid)] == [open_id], "the SessionDatabase facade goes through the same query"
+
+
+def test_the_subject_filter_applies_the_same_rule(db, three_findings):
+    pid, open_id = three_findings
+    assert [f["id"] for f in db.breadcrumbs.get_project_findings(pid, subject="alpha")] == [open_id]
+
+
+def test_asking_for_history_returns_everything(db, three_findings):
+    pid, _ = three_findings
+    assert len(db.breadcrumbs.get_project_findings(pid, include_resolved=True)) == 3

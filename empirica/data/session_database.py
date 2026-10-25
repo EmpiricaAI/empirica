@@ -2774,6 +2774,7 @@ class SessionDatabase:
         subject: str | None = None,
         depth: str = "moderate",
         uncertainty: float | None = None,
+        include_resolved: bool = False,
     ) -> list[dict]:
         """
         Get all findings for a project with deprecation filtering.
@@ -2784,12 +2785,19 @@ class SessionDatabase:
             subject: Optional subject filter
             depth: Relevance depth ("minimal", "moderate", "full", "complete", "auto")
             uncertainty: Epistemic uncertainty for auto-depth (0.0-1.0)
+            include_resolved: History view (a refill or an audit). Live retrieval leaves resolved, superseded and retracted
+                findings out.
 
         Returns:
             Filtered list of findings
         """
         return self.breadcrumbs.get_project_findings(
-            project_id, limit=limit, subject=subject, depth=depth, uncertainty=uncertainty
+            project_id,
+            limit=limit,
+            subject=subject,
+            depth=depth,
+            uncertainty=uncertainty,
+            include_resolved=include_resolved,
         )
 
     def get_project_unknowns(

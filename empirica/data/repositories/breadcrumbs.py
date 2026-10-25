@@ -916,6 +916,7 @@ class BreadcrumbRepository(BaseRepository):
         subject: str | None = None,
         depth: str = "moderate",
         uncertainty: float | None = None,
+        include_resolved: bool = False,
     ) -> list[dict]:
         """
         Get findings for a project with deprecation filtering.
@@ -926,6 +927,8 @@ class BreadcrumbRepository(BaseRepository):
             subject: Optional subject filter
             depth: Relevance depth ("minimal", "moderate", "full", "complete", "auto")
             uncertainty: Epistemic uncertainty (for auto-depth, 0.0-1.0)
+            include_resolved: History view. Resolved, superseded and retracted findings are kept for history and dropped from live
+                retrieval by contract (resolve_finding); this read path feeds CHECK, POSTFLIGHT and bootstrap and returned them anyway.
 
         Returns:
             Filtered list of findings
@@ -935,7 +938,7 @@ class BreadcrumbRepository(BaseRepository):
                 SELECT id, session_id, goal_id, subtask_id, finding, created_timestamp,
                        finding_data, subject, impact, project_id
                 FROM project_findings
-                WHERE project_id = ? AND subject = ?
+                WHERE project_id = ? AND subject = ?{resolved_filter}
                 ORDER BY CASE
                     WHEN typeof(created_timestamp) IN ('real', 'integer')
                     THEN CAST(created_timestamp AS REAL)
@@ -950,7 +953,7 @@ class BreadcrumbRepository(BaseRepository):
                 SELECT id, session_id, goal_id, subtask_id, finding, created_timestamp,
                        finding_data, subject, impact, project_id
                 FROM project_findings
-                WHERE project_id = ?
+                WHERE project_id = ?{resolved_filter}
                 ORDER BY CASE
                     WHEN typeof(created_timestamp) IN ('real', 'integer')
                     THEN CAST(created_timestamp AS REAL)
@@ -961,6 +964,7 @@ class BreadcrumbRepository(BaseRepository):
             """
             params = (project_id,)
 
+        query = query.replace("{resolved_filter}", "" if include_resolved else " AND COALESCE(is_resolved, 0) = 0")
         cursor = self._execute(query, params)
         findings = [dict(row) for row in cursor.fetchall()]
 

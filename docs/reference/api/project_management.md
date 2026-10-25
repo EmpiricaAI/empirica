@@ -131,9 +131,9 @@ finding_id = project_repo.log_finding(
 )
 ```
 
-### `get_project_findings(self, project_id: str, limit: Optional[int] = None, subject: Optional[str] = None, depth: Optional[int] = None, uncertainty: Optional[float] = None) -> List[Dict]`
+### `get_project_findings(self, project_id: str, limit: Optional[int] = None, subject: Optional[str] = None, depth: Optional[int] = None, uncertainty: Optional[float] = None, include_resolved: bool = False) -> List[Dict]`
 
-Get all findings for a project.
+Get the live findings for a project. Resolved, superseded and retracted findings are kept for history and left out unless `include_resolved=True`.
 
 **Parameters:**
 - `project_id: str` - Project identifier
@@ -141,6 +141,7 @@ Get all findings for a project.
 - `subject: Optional[str]` - Filter by subject/topic tag
 - `depth: Optional[int]` - Graph-walk depth for related artifacts
 - `uncertainty: Optional[float]` - Filter by uncertainty threshold
+- `include_resolved: bool` - History view for a refill or an audit; default `False`
 
 There is no `since_timestamp` parameter; filter by time on the returned rows.
 
