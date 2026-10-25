@@ -85,6 +85,189 @@ def info(msg: str):
     log(f"ℹ️  {msg}", BLUE)
 
 
+# ── README's What's New and What's Coming ────────────────────────────────────
+# The section people read first. What's New is the release's author-written `### Highlights` (short lines); the detail stays in
+# CHANGELOG.md and what is left out is counted and linked, never dropped silently. What's Coming renders docs/ROADMAP.yaml, a forecast
+# whose items each carry a confidence, the evidence they rest on and the observation that would falsify them.
+
+_WHATS_NEW_FALLBACK_MAX = 6
+_WHATS_NEW_EARLIER = 2
+_SUMMARY_MAX = 160
+_ROADMAP_FIELDS = ("id", "title", "prediction", "confidence", "basis", "falsifier", "status")
+_ROADMAP_STATUSES = ("predicted", "shipped", "dropped")
+# The roadmap is public text. Ids of proposals, records, goals, tasks and commits are internal coordinates a reader cannot resolve.
+_INTERNAL_ID = re.compile(
+    r"\b(?:prop|ser)_[0-9a-z]{6,}|\b(?:goal|task) [0-9a-f]{6,}\b|\b(?=[0-9a-f]*\d)[0-9a-f]{8,}\b", re.IGNORECASE
+)
+
+
+def _changelog_entries(text: str) -> list[tuple[str, str]]:
+    """(version, body) per `## [version]` heading, newest first. The body is everything after the heading line."""
+    parts = re.split(r"^## \[([^\]]+)\][^\n]*\n", text, flags=re.MULTILINE)
+    return [(parts[i], parts[i + 1]) for i in range(1, len(parts) - 1, 2)]
+
+
+def _entry_sections(body: str) -> tuple[str, dict[str, str]]:
+    """(intro paragraph, {section name: text}) for one CHANGELOG entry."""
+    parts = re.split(r"^### (.+)$", body, flags=re.MULTILINE)
+    return parts[0].strip(), {parts[i].strip(): parts[i + 1] for i in range(1, len(parts) - 1, 2)}
+
+
+def _top_level_bullets(block: str) -> list[str]:
+    """Each `- ` bullet with its indented continuation lines joined into one line."""
+    items: list[str] = []
+    current: str | None = None
+    for raw in block.split("\n"):
+        if raw.startswith("- "):
+            if current is not None:
+                items.append(current)
+            current = raw[2:].strip()
+        elif current is not None and raw.startswith("  ") and raw.strip():
+            current += " " + raw.strip()
+        elif current is not None:
+            items.append(current)
+            current = None
+    if current is not None:
+        items.append(current)
+    return items
+
+
+def _bold_title(bullet: str) -> str | None:
+    m = re.match(r"\*\*(.+?)\*\*", bullet)
+    return m.group(1).strip().rstrip(".") if m else None
+
+
+def _first_sentence(text: str, cap: int = _SUMMARY_MAX) -> str:
+    flat = " ".join(text.split())
+    m = re.match(r"(.+?[.!?])(?:\s|$)", flat)
+    out = m.group(1) if m else flat
+    return out if len(out) <= cap else out[: cap - 1].rstrip() + "\u2026"
+
+
+def render_whats_new(changelog_text: str, version: str, earlier: int = _WHATS_NEW_EARLIER) -> str:
+    """README's `## What's New in <version>` block: the highlights, a counted link to the rest, and the releases before this one."""
+    entries = _changelog_entries(changelog_text)
+    if not entries or entries[0][0] != version:
+        top = entries[0][0] if entries else "none"
+        raise ValueError(
+            f"CHANGELOG's top entry is {top}, not {version}; README's What's New would describe the wrong release"
+        )
+    _, sections = _entry_sections(entries[0][1])
+    highlights = _top_level_bullets(sections.get("Highlights", ""))
+    detail = [
+        b
+        for name, block in sections.items()
+        if name != "Highlights"
+        for b in _top_level_bullets(block)
+        if _bold_title(b)
+    ]
+    if highlights:
+        shown, left_out = highlights, len(detail)
+    else:
+        titles = [t for t in (_bold_title(b) for b in detail) if t]
+        shown = titles[:_WHATS_NEW_FALLBACK_MAX]
+        left_out = len(titles) - len(shown)
+    if not shown:
+        raise ValueError(
+            f"No bullet items found in the CHANGELOG entry for {version}; README's What's New would be synced empty"
+        )
+
+    lines = [f"## What's New in {version}", "", *[f"- {item}" for item in shown], ""]
+    if highlights:
+        lines.append(
+            f"All {len(detail)} entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md)."
+        )
+    else:
+        lines.append(f"Plus {left_out} more entries in the [CHANGELOG](CHANGELOG.md).")
+    previous = []
+    for ver, body in entries[1 : 1 + earlier]:
+        intro, secs = _entry_sections(body)
+        first_highlight = next(iter(_top_level_bullets(secs.get("Highlights", ""))), "")
+        first_title = next(
+            (t for t in (_bold_title(b) for s, blk in secs.items() for b in _top_level_bullets(blk)) if t), ""
+        )
+        summary = _first_sentence(first_highlight or intro or first_title)
+        if summary:
+            previous.append(f"- **{ver}** \u2014 {summary}")
+    if previous:
+        lines += ["", "**Earlier releases**", "", *previous]
+    return "\n".join(lines)
+
+
+def validate_roadmap(data: object) -> dict:
+    """The forecast behind What's Coming, or ValueError naming the first thing wrong with it."""
+    if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+        raise ValueError("roadmap needs an `items` list")
+    forecast = data.get("forecast")
+    if not isinstance(forecast, dict) or not forecast.get("made_in"):
+        raise ValueError("roadmap needs `forecast.made_in`, the release the forecast was made in")
+    seen: set[str] = set()
+    for n, item in enumerate(data["items"], 1):
+        if not isinstance(item, dict):
+            raise ValueError(f"roadmap item {n} is not a mapping")
+        for field in _ROADMAP_FIELDS:
+            if item.get(field) in (None, ""):
+                raise ValueError(f"roadmap item {n}: missing {field}")
+        conf = item["confidence"]
+        if isinstance(conf, bool) or not isinstance(conf, (int, float)) or not 0 <= conf <= 1:
+            raise ValueError(f"roadmap item {n}: confidence must be a number from 0 to 1, not {conf!r}")
+        if item["status"] not in _ROADMAP_STATUSES:
+            raise ValueError(
+                f"roadmap item {n}: status must be one of {', '.join(_ROADMAP_STATUSES)}, not {item['status']!r}"
+            )
+        if item["status"] != "predicted" and not item.get("resolved_in"):
+            raise ValueError(
+                f"roadmap item {n}: a {item['status']} item needs resolved_in, the release that settled it"
+            )
+        if item["id"] in seen:
+            raise ValueError(f"roadmap item {n}: duplicate id {item['id']!r}")
+        seen.add(item["id"])
+        for key, value in item.items():
+            if isinstance(value, str) and (leak := _INTERNAL_ID.search(value)):
+                raise ValueError(
+                    f"roadmap item {n}: {key} carries an internal id ({leak.group(0)!r}); the roadmap is public text"
+                )
+    return data
+
+
+def load_roadmap(path: Path) -> dict:
+    import yaml
+
+    return validate_roadmap(yaml.safe_load(path.read_text()))
+
+
+def _cell(text: object) -> str:
+    return " ".join(str(text).split()).replace("|", "\\|")
+
+
+def render_whats_coming(roadmap: dict) -> str:
+    """README's `## What's Coming` block, or "" when the forecast has nothing open and nothing graded."""
+    validate_roadmap(roadmap)
+    items = roadmap["items"]
+    open_items = [i for i in items if i["status"] == "predicted"]
+    shipped = sum(1 for i in items if i["status"] == "shipped")
+    dropped = sum(1 for i in items if i["status"] == "dropped")
+    if not open_items and not (shipped or dropped):
+        return ""
+    lines = ["## What's Coming", ""]
+    if open_items:
+        lines += [
+            f"Empirica's own forecast, made in {roadmap['forecast']['made_in']} from its open work, the demand it has measured and its known "
+            "weak spots. Each prediction carries a confidence, the evidence behind it and the observation that would prove it wrong, and is "
+            "graded when it ships or is dropped.",
+            "",
+            "| Direction | Confidence | Why we expect it | What would change our mind |",
+            "|---|---|---|---|",
+        ]
+        for i in sorted(open_items, key=lambda it: -it["confidence"]):
+            lines.append(
+                f"| **{_cell(i['title'])}**: {_cell(i['prediction'])} | {round(i['confidence'] * 100)}% | {_cell(i['basis'])} | {_cell(i['falsifier'])} |"
+            )
+    if shipped or dropped:
+        lines += ["", f"Forecast record: {shipped} shipped, {dropped} dropped so far."]
+    return "\n".join(lines)
+
+
 class ReleaseManager:
     def __init__(
         self,
@@ -1068,70 +1251,27 @@ class ReleaseManager:
         if not changelog_path.exists() or not readme_path.exists():
             error("CHANGELOG.md or README.md not found — cannot sync README's What's New")
 
-        # Extract latest CHANGELOG entry (between first ## and second ##).
-        # verify_changelog_entry() has already established that this top entry
-        # IS self.version, so entries[1] is the right release by construction.
         changelog = changelog_path.read_text()
-        entries = re.split(r"^## ", changelog, flags=re.MULTILINE)
-        if len(entries) < 2:
-            error("Could not parse CHANGELOG entries — README's What's New would go unsynced")
+        try:
+            whats_new = render_whats_new(changelog, self.version)
+        except ValueError as e:
+            error(f"{e}")
+        roadmap_path = self.repo_root / "docs" / "ROADMAP.yaml"
+        whats_coming = ""
+        if roadmap_path.exists():
+            try:
+                whats_coming = render_whats_coming(load_roadmap(roadmap_path))
+            except ValueError as e:
+                error(f"docs/ROADMAP.yaml: {e}")
+        new_block = whats_new + ("\n\n" + whats_coming if whats_coming else "") + "\n"
 
-        # entries[0] is the header, entries[1] is the latest release
-        latest_entry = entries[1].strip()
-        # Skip the version/date header line
-        content_lines = latest_entry.split("\n")[1:]
-
-        # Extract the titled bullets (- **…), JOINING each bullet's wrapped
-        # continuation lines. CHANGELOG bullets span multiple physical lines; the
-        # old logic kept only lines starting with "- **" and silently dropped the
-        # continuations, truncating every multi-line bullet at its first physical
-        # line (this caused the 1.12.27 "What's New" split-brain truncation —
-        # "A session could display the correct" with the rest lost).
-        whats_new_items: list[str] = []
-        current: str | None = None
-        for _raw in content_lines:
-            line = _raw.strip()
-            if line.startswith("### "):
-                # section header (Added / Fixed / Changed) — closes any open bullet
-                if current:
-                    whats_new_items.append(current)
-                    current = None
-                continue
-            if line.startswith("- **"):
-                if current:
-                    whats_new_items.append(current)
-                current = line
-            elif current is not None:
-                if line:
-                    current += " " + line  # wrapped continuation / nested sub-bullet
-                else:
-                    whats_new_items.append(current)  # blank line ends the bullet
-                    current = None
-        if current:
-            whats_new_items.append(current)
-
-        if not whats_new_items:
-            error(
-                f"No `- **…` bullet items found in the CHANGELOG entry for {self.version} — "
-                f"README's What's New would be synced empty"
-            )
-
-        # Build the new What's New section
-        new_whats_new = f"## What's New in {self.version}\n\n"
-        new_whats_new += "\n".join(whats_new_items[:8])  # Top 8 items
-        # The pattern below stops BEFORE the next heading's newline, so without this the heading lands on the line after the last
-        # bullet with no blank line between (what 1.14.14 shipped to origin).
-        new_whats_new += "\n"
-
-        # Replace in README. Match the FIRST What's New section by capturing
-        # everything from the header up to (but not including) the next ## or
-        # ### or --- divider. Older What's New sections survive as history.
-        # Lazy `.+?` + lookahead delimiter handles multi-line bullets that the
-        # earlier `(?:- \*\*[^\n]+\n)+` pattern broke on. count=1 ensures we
-        # don't mangle older sections that happen to start with `- **`.
+        # Replace in README: from the What's New heading up to the next heading that is not What's Coming (so a previous forecast goes
+        # with it, and a roadmap that was deleted does not leave a stale one behind), or a `---` divider, or the end of the file.
+        # The span stops BEFORE the next heading's newline, so new_block carries its own trailing newline: without it the heading lands
+        # on the line after the last bullet with no blank line between.
         readme = readme_path.read_text()
         pattern = re.compile(
-            r"## What's New in [^\n]+\n.+?(?=\n## |\n### |\n---\n)",
+            r"## What's New in [^\n]+\n.+?(?=\n## (?!What's Coming)|\n---\n|\Z)",
             re.DOTALL,
         )
         if not pattern.search(readme):
@@ -1140,13 +1280,12 @@ class ReleaseManager:
                 "the sync has nothing to replace and README would keep the previous release's notes"
             )
 
-        # Replacement via lambda: `re.sub` interprets backslash escapes in a
-        # replacement STRING, so a changelog bullet containing one would be
+        # Replacement via lambda: `re.sub` interprets backslash escapes in a replacement STRING, so a bullet containing one would be
         # mangled (or raise) on the way into README.
-        readme = pattern.sub(lambda _: new_whats_new, readme, count=1)
+        readme = pattern.sub(lambda _: new_block, readme, count=1)
 
         if self.dry_run:
-            info(f"Would sync README What's New ({len(whats_new_items)} items)")
+            info(f"Would sync README What's New{" and What's Coming" if whats_coming else ''}")
             return
 
         readme_path.write_text(readme)
@@ -1158,7 +1297,9 @@ class ReleaseManager:
                 f"README's What's New still does not read `## What's New in {self.version}` after sync — "
                 f"refusing to release a README that advertises a different version than it ships"
             )
-        success(f"README What's New synced from CHANGELOG ({len(whats_new_items)} items)")
+        success(
+            f"README What's New synced from CHANGELOG{" and What's Coming from docs/ROADMAP.yaml" if whats_coming else ''}"
+        )
 
     def run_command(self, cmd: list[str], check: bool = True, cwd: str | None = None) -> subprocess.CompletedProcess:
         """Run a shell command"""

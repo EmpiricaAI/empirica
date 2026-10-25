@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.14.14] - 2026-10-25
 
+### Highlights
+
+- **Idle sessions can be woken (opt-in).** A listener flag nudges a practice's idle tmux panes when mail arrives and every two hours while mail waits. It refuses a busy pane, a half-typed draft or a dialog, and wakes at most once per message.
+- **Sessions start faster.** The terminal lookup that ran a `ps` per ancestor 74 times in one session start is now read once from `/proc`: 3,077 ms became 0.04 ms, and a gate check dropped from about 300 ms to 110 ms.
+- **"Is every target done" has one answer.** A proposal addressed to several practices closes when each has acknowledged its own part, with `pending_targets` showing who still owes. It replaces the Shared Epistemic Record, which is removed.
+- **Practices that do not run Claude work in the cockpit.** `provision-practice --launch/--resume` records what a pane runs, `cockpit refresh` resumes codex and ecodex panes instead of restarting them, and `--no-cortex` no longer asks for a tenant.
+- **Heartbeats survive a cortex restart.** A 12 s timeout replaces 5 s, so the few seconds a restart takes no longer read as an outage.
+- **`/pre-publish`** puts the release-gate sequence, including the independent sweep that found this release's defects, in one loadable skill.
+
 ### Added
 
 - **An opt-in wake service in the listener** (`EMPIRICA_LISTENER_WAKE=1`, off by default). On a mesh event, and every two hours when
@@ -101,6 +110,12 @@ refs reached the remote instead of how many, and a group of verbs that reported 
 happened. Every fix has a test that fails on the previous source; a pattern sweep of the whole diff found and closed further defects
 before this cut.
 
+### Highlights
+
+- A rebuild from git notes now restores what the notes hold: ids, creation times, resolution kinds, and a goal's lifecycle state.
+- Replication is judged by which refs reached the remote, not by how many.
+- Verbs that reported success while doing nothing now report what happened, and the always-loaded prompt is trimmed.
+
 ### Added
 
 - **A goal's lifecycle state travels in its git note.** `goals-complete`, `-activate`, `-reopen`, `-archive`, abandon, `resolve-artifacts`
@@ -150,6 +165,12 @@ commands that follow a heredoc, a comment or an unusual expansion; and a group o
 practices (listeners that went deaf after a network drop, a rebuild that dropped older findings, dead ends that came back after one)
 are fixed. Every fix has a test that fails on the previous source. Two independent bypass reviews of the Sentinel changes and one
 pattern sweep of the whole release found and closed further defects before this cut.
+
+### Highlights
+
+- Credentials no longer reach stored artifact text, git notes, Qdrant or scan snapshots, and `doctor --scrub-secrets` removes ones already stored.
+- The Sentinel no longer loses commands that follow a heredoc, a comment or an unusual expansion.
+- Listeners recover after a network drop, a rebuild keeps older findings, and a resolved dead end stays resolved.
 
 ### Security
 

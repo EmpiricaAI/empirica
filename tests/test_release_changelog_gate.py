@@ -104,8 +104,9 @@ def test_whats_new_sync_writes_the_released_version_heading(tmp_path: Path):
     readme = (tmp_path / "README.md").read_text()
     assert "## What's New in 9.9.9" in readme
     assert "## What's New in 9.9.8" not in readme
-    # wrapped continuation joined, not truncated at the first physical line
-    assert "Was broken across two physical lines." in readme
+    # no Highlights block: the bold title stands in, the detail stays in the changelog and the omission is counted
+    assert "- A thing\n" in readme
+    assert "Was broken across" not in readme
 
 
 def test_whats_new_sync_keeps_a_blank_line_before_the_next_heading(tmp_path: Path):
@@ -119,14 +120,14 @@ def test_whats_new_sync_keeps_a_blank_line_before_the_next_heading(tmp_path: Pat
     )
     _manager(tmp_path).sync_readme_whats_new()
     readme = (tmp_path / "README.md").read_text()
-    assert "- **A thing.** Fixed.\n\n## Privacy" in readme
+    assert re.search(r"\n\n## Privacy\n", readme), "a blank line must separate the last bullet from the next heading"
 
 
 def test_whats_new_sync_survives_a_backslash_in_a_bullet(tmp_path: Path):
     """`re.sub` interprets escapes in a replacement STRING — a bullet with a
     backslash would be mangled or raise on the way into README."""
     (tmp_path / "CHANGELOG.md").write_text(
-        "# Changelog\n\n## [9.9.9] - 2026-01-01\n\n### Fixed\n- **Path handling.** `C:\\\\Users\\\\x` now parses.\n"
+        "# Changelog\n\n## [9.9.9] - 2026-01-01\n\n### Highlights\n\n- Path handling: `C:\\\\Users\\\\x` now parses.\n"
     )
     (tmp_path / "README.md").write_text("# Project\n\n## What's New in 9.9.8\n\n- **Old.** Thing.\n\n---\n")
     _manager(tmp_path).sync_readme_whats_new()

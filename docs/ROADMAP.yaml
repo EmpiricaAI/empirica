@@ -1,0 +1,71 @@
+# Empirica's forecast of its own next directions. `scripts/release.py --docs` renders the open items as README's "What's Coming".
+#
+# This is a PREDICTION, not a promise, and it is graded:
+#   * every item carries a confidence (0-1), the evidence it rests on, and the observation that would prove it wrong;
+#   * when a release ships an item, set `status: shipped` and `resolved_in: <version>`; when it is abandoned, `status: dropped` and
+#     `resolved_in`. Resolved items leave the table and move into the "Forecast record" count, so the forecast's hit rate is public;
+#   * the text is public. No proposal, goal, task or commit ids, and no one else's internal state (the release script refuses them).
+#
+# Drafted from the practice's own graph (open goals, measured faults, unresolved unknowns) and confirmed by a human before it ships.
+# `basis` figures come from a command, not from memory: say which command in the commit message when you change one.
+
+forecast:
+  made_in: 1.14.14
+  made_on: 2026-10-25
+
+items:
+  - id: correctness-backlog
+    title: A run of correctness releases
+    prediction: The next two releases are mostly fixes, each with a test that fails on the old code.
+    confidence: 0.85
+    basis: A systematic sweep of the code reproduced 78 medium-or-high defects, queued as open fix goals across the data layer, the transaction handlers, sync, chat, the Sentinel and the mailbox.
+    falsifier: The next two changelogs together fix fewer than 26 of them, a third of the backlog.
+    status: predicted
+
+  - id: listener-memory
+    title: Listener memory stays flat
+    prediction: Within three releases a listener's memory stops growing with uptime, and a dead notification stream is restarted.
+    confidence: 0.7
+    basis: Measured on long-running listeners, about 30 MB an hour in one case and 1,014 MB at 29 hours in another, with a stream process that was not respawned after a drop.
+    falsifier: A listener on a release that claims the fix is above 500 MB after 24 hours.
+    status: predicted
+
+  - id: bootstrap-whole-picture
+    title: Bootstrap shows the whole picture
+    prediction: project-bootstrap lists assumptions, shows how artifacts connect, and says when it truncated or where a result came from.
+    confidence: 0.75
+    basis: Verified gaps today are assumptions missing from the output, full-depth fetches capped without saying so, and artifact relationships absent.
+    falsifier: A bootstrap run on a graph larger than its caps that does not say it was truncated.
+    status: predicted
+
+  - id: retrieval-correctness
+    title: Retrieval stops surfacing finished work
+    prediction: Resolved and abandoned artifacts stop appearing in search and bootstrap, and updates to them are validated.
+    confidence: 0.7
+    basis: Open fix goals cover resolved and abandoned items leaking into reads, goal-id prefix handling, and updates that are not validated.
+    falsifier: A resolved finding still ranks in the top results of a search that did not ask for history.
+    status: predicted
+
+  - id: harness-honest-session-start
+    title: Session start is honest outside Claude Code
+    prediction: Deploy-gap and budget checks know which harness they run under, and a skipped check is visible to the user.
+    confidence: 0.7
+    basis: They assume a Claude Code install today and misreport under a Codex-based harness, and a skipped budget persist is currently invisible.
+    falsifier: Session start under the Codex harness still reports Claude Code install gaps.
+    status: predicted
+
+  - id: cockpit-rejoin
+    title: Restarted cockpit panes rejoin the mesh unprompted
+    prediction: After a cockpit restart, resumed sessions re-arm their listener and catch up on mail without anyone typing, using the wake and inbox poll added in 1.14.14.
+    confidence: 0.65
+    basis: Measured after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. The wake pieces exist, but cockpit refresh does not call them yet.
+    falsifier: On a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes after a restart.
+    status: predicted
+
+  - id: wake-default
+    title: Wake service on by default
+    prediction: The wake service stops being opt-in once a few weeks of live use show no wake into a busy pane.
+    confidence: 0.35
+    basis: It passed a live trial on two seats and refuses busy panes, drafts and dialogs. A few edge cases are still open, such as an image-only prompt read as blank and a spinner scrolled out of view.
+    falsifier: Any wake that lands in a pane that was not idle.
+    status: predicted
