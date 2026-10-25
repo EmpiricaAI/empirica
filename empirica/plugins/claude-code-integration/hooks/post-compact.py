@@ -269,14 +269,20 @@ def _resolve_project_and_setup(claude_session_id: str) -> tuple:
     return project_root, instance_id
 
 
-def _try_memory_swap(claude_session_id: str) -> None:
-    """Attempt memory swap for cross-project CWD mismatch. Non-fatal."""
+def _try_memory_swap(claude_session_id: str, harness_cwd: str) -> None:
+    """Attempt memory swap for cross-project CWD mismatch. Non-fatal.
+
+    ``harness_cwd`` is the directory the hook was launched in, captured BEFORE
+    _resolve_project_and_setup chdir'd to the practice: after the chdir the process
+    cwd is the active project, so the swap would compare it against itself."""
     try:
         from empirica.utils.memory_swap import maybe_swap_for_active_transaction
 
-        swap_result = maybe_swap_for_active_transaction(claude_session_id=claude_session_id)
-        if swap_result.get("action") == "swapped":
-            print(f"{swap_result.get('message', '')}", file=sys.stderr)
+        swap_result = maybe_swap_for_active_transaction(
+            claude_session_id=claude_session_id, harness_cwd=Path(harness_cwd)
+        )
+        if swap_result.get("action") in ("swapped", "restored") or not swap_result.get("ok", True):
+            print(f"memory swap: {swap_result.get('action')}: {swap_result.get('message', '')}", file=sys.stderr)
     except Exception as e:
         print(f"memory swap failed (non-fatal): {e}", file=sys.stderr)
 
@@ -649,9 +655,11 @@ def main():
         print(json.dumps({"ok": True, "skipped": True, "reason": f"SessionStart source={source} is not a compaction"}))
         sys.exit(0)
 
-    # Stage 1: Resolve project and setup environment
+    # Stage 1: Resolve project and setup environment. The harness cwd must be read first:
+    # _resolve_project_and_setup chdirs away from it.
+    harness_cwd = os.getcwd()
     project_root, instance_id = _resolve_project_and_setup(claude_session_id)
-    _try_memory_swap(claude_session_id)
+    _try_memory_swap(claude_session_id, harness_cwd)
 
     # Stage 2: Find active session
     empirica_session = _get_empirica_session(claude_session_id=claude_session_id)

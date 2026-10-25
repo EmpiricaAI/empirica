@@ -197,14 +197,13 @@ def _cleanup_session_files(claude_session_id: str | None):
     # active transaction project; restoring it on session end returns the
     # CWD project's memory dir to its original contents. (KNOWN_ISSUES 11.28)
     try:
-        from empirica.utils.memory_swap import read_manifest, restore_memory
+        from empirica.utils.memory_swap import restore_if_swapped
 
-        cwd = Path.cwd().resolve()
-        manifest = read_manifest(cwd)
-        if manifest:
-            restore_memory(cwd)
-    except Exception:
-        pass
+        restored = restore_if_swapped(Path.cwd())
+        if restored and not restored.get("ok", False):
+            print(f"memory restore failed: {restored.get('action')}: {restored.get('message', '')}", file=sys.stderr)
+    except Exception as e:
+        print(f"memory restore failed: {e}", file=sys.stderr)
 
     # Clean up active_work file
     try:

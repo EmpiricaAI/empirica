@@ -129,8 +129,12 @@ def swap_memory(
     harness_cwd_project = Path(harness_cwd_project).resolve()
     active_tx_project = Path(active_tx_project).resolve()
 
-    # No-op when paths are the same — nothing to swap
+    # Same project: nothing to swap in. But if an earlier swap put ANOTHER project's files
+    # into this memory dir, the work has come back to its own project, so give it its own
+    # memory back instead of leaving the stale copy in place.
     if harness_cwd_project == active_tx_project:
+        if read_manifest(harness_cwd_project):
+            return restore_memory(harness_cwd_project)
         return {
             "ok": True,
             "action": "noop",
@@ -299,17 +303,54 @@ def restore_memory(harness_cwd_project: Path, *, _force_replace: bool = False) -
     }
 
 
+def harness_project_for(cwd: Path) -> Path:
+    """The project a harness cwd belongs to: its git root, else the directory itself."""
+    try:
+        import subprocess
+
+        result = subprocess.run(
+            ["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return Path(result.stdout.strip())
+    except Exception:
+        pass
+    return Path(cwd)
+
+
+def restore_if_swapped(harness_cwd: Path) -> dict | None:
+    """Restore the harness project's memory if a swap is active; None when there is nothing to restore.
+
+    Never raises: a failure comes back as ``{"ok": False, "action": "restore_failed", ...}`` so the
+    caller can say so. A swallowed failure leaves another project's memory under this project's name."""
+    try:
+        project = harness_project_for(harness_cwd).resolve()
+        if not read_manifest(project):
+            return None
+        return restore_memory(project)
+    except Exception as e:
+        return {"ok": False, "action": "restore_failed", "message": str(e)}
+
+
 def maybe_swap_for_active_transaction(
     claude_session_id: str | None = None,
+    harness_cwd: Path | None = None,
 ) -> dict:
     """Detect harness-CWD vs active-transaction mismatch and swap if needed.
 
     Convenience entry point for hooks. Reads the active transaction via the
-    InstanceResolver, compares against current CWD's git root, and swaps the
+    InstanceResolver, compares against the harness CWD's git root, and swaps the
     memory dir if they differ.
 
     Args:
         claude_session_id: Optional session UUID from hook input
+        harness_cwd: The directory the harness launched in. A hook that has
+            chdir'd (post-compact moves to the resolved practice) MUST capture
+            this before moving and pass it: the process cwd is no longer the
+            harness's, and comparing it against the active project always matches.
 
     Returns:
         Result dict from swap_memory() or a noop indicator
@@ -334,24 +375,8 @@ def maybe_swap_for_active_transaction(
             "message": "No active transaction project — nothing to swap",
         }
 
-    # Determine harness CWD project — try git root first, then plain CWD
-    harness_cwd = Path.cwd()
-    try:
-        import subprocess
-
-        result = subprocess.run(
-            ["git", "-C", str(harness_cwd), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            harness_cwd = Path(result.stdout.strip())
-    except Exception:
-        pass
-
     return swap_memory(
-        harness_cwd_project=harness_cwd,
+        harness_cwd_project=harness_project_for(harness_cwd if harness_cwd is not None else Path.cwd()),
         active_tx_project=Path(active_tx_project),
         claude_session_id=claude_session_id,
         transaction_id=transaction_id,
