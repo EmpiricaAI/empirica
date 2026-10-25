@@ -372,3 +372,40 @@ def test_the_delta_table_says_n_a_for_what_was_not_assessed(tmp_path):
     assert "n/a" in context_row and "+0.00" not in context_row and "0.00 | 0.00" not in context_row
     know_row = next(line for line in table.splitlines() if line.startswith("| KNOW"))
     assert "0.50" in know_row and "0.80" in know_row and "+0.30" in know_row
+
+
+# ── the statusline: a sparse CHECK must not turn K, C, S or Δ into 0% ──
+
+SCRIPTS = HOOKS.parent / "scripts"
+
+
+def test_the_statusline_fills_a_vector_the_latest_row_did_not_assess_from_its_last_recorded_value(db):
+    """The statusline shows the latest row's vectors. With the invented 0.5s gone, a CHECK that omits context shows `C` at the
+    formatter's 0.0 default: a red 0% where it used to read 50%. Both are wrong; the last value the transaction recorded is right."""
+    spec = importlib.util.spec_from_file_location("statusline_a7", SCRIPTS / "statusline_empirica.py")
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    sid = db.create_session(ai_id="a7-line")
+    put(db, sid, "PREFLIGHT", FULL | {"context": 0.66, "state": 0.55}, ts=1000.0, transaction_id="tx-1")
+    put(db, sid, "CHECK", {"know": 0.91, "uncertainty": 0.11}, ts=2000.0, transaction_id="tx-1")
+    put(
+        db, sid, "PREFLIGHT", FULL | {"context": 0.11}, ts=500.0, transaction_id="tx-other"
+    )  # another instance's: must not bleed in
+    phase, vectors, _decision = mod.get_latest_vectors(db, sid, None, "tx-1")
+    assert phase == "CHECK"
+    assert vectors["know"] == 0.91 and vectors["uncertainty"] == 0.11, "the latest row's own values win"
+    assert vectors["context"] == 0.66 and vectors["state"] == 0.55, "an unassessed vector shows its last recorded value"
+    assert len(vectors) == 13
+
+
+def test_the_statusline_does_not_borrow_across_transactions(db):
+    spec = importlib.util.spec_from_file_location("statusline_a7b", SCRIPTS / "statusline_empirica.py")
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    sid = db.create_session(ai_id="a7-line2")
+    put(db, sid, "PREFLIGHT", FULL, ts=1000.0, transaction_id="tx-old")
+    put(db, sid, "CHECK", {"know": 0.91}, ts=2000.0, transaction_id="tx-new")
+    _phase, vectors, _d = mod.get_latest_vectors(db, sid, None, "tx-new")
+    assert vectors == {"know": 0.91}, "tx-old's values belong to another transaction and must not be shown for tx-new"

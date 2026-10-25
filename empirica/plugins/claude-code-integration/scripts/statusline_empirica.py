@@ -1047,6 +1047,25 @@ def get_active_session(db: SessionDatabase, ai_id: str, stdin_claude_session_id:
     return _get_session_from_files_or_db(cursor, ai_id)
 
 
+_VECTOR_COLUMNS = (
+    "engagement", "know", "do", "context", "clarity", "coherence", "signal",
+    "density", "state", "change", "completion", "impact", "uncertainty",
+)  # fmt: skip
+
+
+def _fill_from_last_recorded(cursor, vectors: dict, session_id: str, transaction_id: str | None) -> None:
+    """Add to `vectors` each vector it lacks, taken from the newest earlier row that recorded it (scoped like the caller's query)."""
+    where, args = ("session_id = ? AND transaction_id = ?", (session_id, transaction_id)) if transaction_id else (
+        "session_id = ?", (session_id,))  # fmt: skip
+    cursor.execute(
+        f"SELECT {', '.join(_VECTOR_COLUMNS)} FROM reflexes WHERE {where} ORDER BY timestamp DESC LIMIT 20", args
+    )
+    for row in cursor.fetchall():
+        for offset, name in enumerate(_VECTOR_COLUMNS):
+            if name not in vectors and row[offset] is not None:
+                vectors[name] = row[offset]
+
+
 def get_latest_vectors(
     db: SessionDatabase, session_id: str, transaction_session_id: str | None = None, transaction_id: str | None = None
 ) -> tuple:
@@ -1121,6 +1140,12 @@ def get_latest_vectors(
 
     # Filter out None values
     vectors = {k: v for k, v in vectors.items() if v is not None}
+
+    # NULL = not assessed. A CHECK commonly assesses only some vectors; the rest show the value this session/transaction last
+    # RECORDED for them rather than a default (a missing vector used to read 0% in red, and before that an invented 50%). One extra
+    # query, only when the latest row is sparse; the transaction filter keeps another instance's values out.
+    if len(vectors) < 13:
+        _fill_from_last_recorded(cursor, vectors, lookup_session_id, transaction_id)
 
     # Extract gate decision from reflex_data (CHECK phase)
     gate_decision = None
