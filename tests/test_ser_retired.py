@@ -94,7 +94,7 @@ def test_mailbox_help_does_not_offer_sers():
 def test_the_listener_relays_only_the_wake_shapes_that_still_exist():
     from empirica.core.loop_scheduler import listener
 
-    assert listener._NON_PROPOSAL_WAKE_SHAPES == frozenset({"platform_dispatch_ready"})
+    assert frozenset({"platform_dispatch_ready"}) == listener._NON_PROPOSAL_WAKE_SHAPES
 
 
 def test_the_content_poll_has_no_ser_event_or_fetch():
