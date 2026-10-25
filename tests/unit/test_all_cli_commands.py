@@ -1,276 +1,197 @@
-#!/usr/bin/env python3
+"""CLI smoke tests: each command in the table exists, accepts its arguments, and does the one thing its row claims.
+
+These run the CLI of THIS source tree (`sys.executable -m empirica.cli` with PYTHONPATH set), in a throwaway working directory, with HOME and
+the session database under `tmp_path` and a PATH that holds only the system binaries. The first version ran a bare `empirica` from PATH in
+whatever directory pytest happened to be in, and that measured the box: 33 of 33 failed in a clean environment (`env -i`), four commands only
+passed because the repo's own `.empirica` happened to be there, and the 5-second timeouts failed under load. The timeout here (120 s) is a hang
+guard, not a performance assertion.
+
+These are INTERFACE tests. They verify that a command exists and accepts its arguments; the quality of an epistemic assessment
+(preflight / check / postflight) needs integration tests with real reasoning, so no dummy epistemic data appears here.
 """
-Unit Tests for All 55 CLI Commands
 
-Generated from comprehensive audit on 2025-12-01.
-Tests basic functionality of each CLI command.
-
-Status: 53/54 commands working (98.1%)
-Issue: 'chat' command times out (interactive mode)
-
-For Gemini/Qwen to validate bug fixes and ensure no regressions.
-"""
+from __future__ import annotations
 
 import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
+from empirica.data.session_database import SessionDatabase
 
-class TestCoreWorkflowCommands:
-    """Test Core Workflow commands (CASCADE phases)
-
-    NOTE: These are INTERFACE tests only - they verify commands exist and accept args.
-    Epistemic assessment quality (preflight/check/postflight) requires INTEGRATION tests
-    with real reasoning. DO NOT use dummy epistemic data here - AIs might think it's canonical.
-
-    Uses AI-first *-submit commands (config file or stdin JSON).
-    """
-
-    def test_check_help(self):
-        """Check command has working --help"""
-        result = subprocess.run(["empirica", "check", "--help"], capture_output=True)
-        assert result.returncode == 0
-
-    def test_preflight_submit_help(self):
-        """Preflight-submit command has working --help"""
-        result = subprocess.run(["empirica", "preflight-submit", "--help"], capture_output=True)
-        assert result.returncode == 0
-
-    def test_check_submit_help(self):
-        """Check-submit command has working --help"""
-        result = subprocess.run(["empirica", "check-submit", "--help"], capture_output=True)
-        assert result.returncode == 0
-
-    def test_postflight_submit_help(self):
-        """Postflight-submit command has working --help"""
-        result = subprocess.run(["empirica", "postflight-submit", "--help"], capture_output=True)
-        assert result.returncode == 0
+REPO_ROOT = Path(__file__).resolve().parents[2]
+HANG_GUARD_SECONDS = 120
 
 
-class TestGoalsCommands:
-    """Test Goals commands (7 commands)"""
+@pytest.fixture
+def cli(tmp_path):
+    """Run the CLI of this tree against an empty, throwaway project. Returns `run(*args) -> CompletedProcess` (text mode)."""
+    db_path = tmp_path / "sessions.db"
+    SessionDatabase(
+        db_path=str(db_path)
+    ).close()  # a real, empty database: "no database" is a failure, "no rows" is a valid listing
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "HOME": str(tmp_path),
+        "PYTHONPATH": str(REPO_ROOT),
+        "EMPIRICA_SESSION_DB": str(db_path),
+        "EMPIRICA_NO_TELEMETRY": "1",
+    }
 
-    def test_goals_create_help(self):
-        """Goals-create command has working --help"""
-        result = subprocess.run(["empirica", "goals-create", "--help"], capture_output=True)
-        assert result.returncode == 0
+    def run(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, "-m", "empirica.cli", *args],
+            capture_output=True,
+            text=True,
+            cwd=workdir,
+            env=env,
+            timeout=HANG_GUARD_SECONDS,
+        )
 
-    def test_goals_add_task_help(self):
-        """Goals-add-task command has working --help"""
-        result = subprocess.run(["empirica", "goals-add-task", "--help"], capture_output=True)
-        assert result.returncode == 0
-
-    def test_goals_complete_task_help(self):
-        """Goals-complete-task command has working --help"""
-        result = subprocess.run(["empirica", "goals-complete-task", "--help"], capture_output=True)
-        assert result.returncode == 0
-
-    def test_goals_progress_help(self):
-        """Goals-progress command has working --help"""
-        result = subprocess.run(["empirica", "goals-progress", "--help"], capture_output=True)
-        assert result.returncode == 0
-
-    def test_goals_list_execution(self):
-        """Goals-list runs without args (shows preview when no session)"""
-        result = subprocess.run(["empirica", "goals-list"], capture_output=True, timeout=5)
-        # Return 1 is OK when showing preview (design intent)
-        assert result.returncode in [0, 1]
-        assert b"Preview" in result.stdout or b"goals" in result.stdout.lower()
-
-    def test_goals_discover_execution(self):
-        """Goals-discover runs without args (discovers from git)"""
-        # Timeout 30s: discover_goals reads git notes refs (N+1 pattern),
-        # repos with many goals (800+) need more than 5s
-        result = subprocess.run(["empirica", "goals-discover"], capture_output=True, timeout=30)
-        # Return 1 is OK when no context (shows help)
-        assert result.returncode in [0, 1]
-
-    def test_goals_resume_help(self):
-        """Goals-resume command has working --help"""
-        result = subprocess.run(["empirica", "goals-resume", "--help"], capture_output=True)
-        assert result.returncode == 0
+    return run
 
 
-class TestCheckpointCommands:
-    """Test Git Checkpoint commands (4 commands)"""
-
-    def test_checkpoint_create_help(self):
-        """Checkpoint-create command has working --help"""
-        result = subprocess.run(["empirica", "checkpoint-create", "--help"], capture_output=True)
-        assert result.returncode == 0
-
-    def test_checkpoint_load_help(self):
-        """Checkpoint-load command has working --help"""
-        result = subprocess.run(["empirica", "checkpoint-load", "--help"], capture_output=True)
-        assert result.returncode == 0
-
-    def test_checkpoint_list_help(self):
-        """Checkpoint-list command has working --help"""
-        result = subprocess.run(["empirica", "checkpoint-list", "--help"], capture_output=True)
-        assert result.returncode == 0
-
-    def test_checkpoint_diff_help(self):
-        """Checkpoint-diff command has working --help"""
-        result = subprocess.run(["empirica", "checkpoint-diff", "--help"], capture_output=True)
-        assert result.returncode == 0
-
-
-class TestHandoffCommands:
-    """Test Handoff commands (2 commands)"""
-
-    def test_handoff_create_help(self):
-        """Handoff-create command has working --help"""
-        result = subprocess.run(["empirica", "handoff-create", "--help"], capture_output=True)
-        assert result.returncode == 0
-
-    def test_handoff_query_execution(self):
-        """Handoff-query runs without args (queries all handoffs)"""
-        result = subprocess.run(["empirica", "handoff-query"], capture_output=True, timeout=5)
-        # Return 1 is OK when showing results summary
-        assert result.returncode in [0, 1]
-        assert b"handoff" in result.stdout.lower() or b"Found" in result.stdout
+# Every command whose row in the old table was a bare `--help` check, grouped as the table was.
+HELP_COMMANDS = [
+    # core workflow (the AI-first *-submit commands read a config file or stdin JSON)
+    "check",
+    "preflight-submit",
+    "check-submit",
+    "postflight-submit",
+    # goals
+    "goals-create",
+    "goals-add-task",
+    "goals-complete-task",
+    "goals-progress",
+    "goals-resume",
+    # git checkpoints
+    "checkpoint-create",
+    "checkpoint-load",
+    "checkpoint-list",
+    "checkpoint-diff",
+    # handoff, sessions, identity, investigation, performance
+    "handoff-create",
+    "sessions-show",
+    "sessions-export",
+    "identity-create",
+    "identity-export",
+    "investigate",
+    "goal-analysis",
+    "efficiency-report",
+]
 
 
-class TestSessionCommands:
-    """Test Session commands (4 commands)"""
-
-    def test_sessions_list_execution(self, tmp_path):
-        """Sessions-list runs without args (lists all sessions).
-
-        Builds its database state under tmp_path instead of measuring the box.
-        The first version ran bare: green wherever a ~/.empirica existed, red in
-        CI where none does — and once error exit codes were fixed (a command
-        printing "no .empirica root found" used to exit 0), the difference
-        became visible as a CI-only failure. An empty registry IS a valid listing
-        (exit 0, zero rows); a missing database is not.
-        """
-        import os
-
-        env = {**os.environ, "HOME": str(tmp_path), "EMPIRICA_SESSION_DB": str(tmp_path / "sessions.db")}
-        result = subprocess.run(["empirica", "sessions-list"], capture_output=True, timeout=15, env=env)
-        assert result.returncode == 0
-
-    def test_sessions_show_help(self):
-        """Sessions-show command has working --help"""
-        result = subprocess.run(["empirica", "sessions-show", "--help"], capture_output=True)
-        assert result.returncode == 0
-
-    def test_sessions_export_help(self):
-        """Sessions-export command has working --help"""
-        result = subprocess.run(["empirica", "sessions-export", "--help"], capture_output=True)
-        assert result.returncode == 0
-
-    def test_sessions_resume_execution(self, tmp_path):
-        """Sessions-resume runs without args (shows available sessions).
-
-        Same box-independence fix as test_sessions_list_execution above.
-        """
-        import os
-
-        env = {**os.environ, "HOME": str(tmp_path), "EMPIRICA_SESSION_DB": str(tmp_path / "sessions.db")}
-        result = subprocess.run(["empirica", "sessions-resume"], capture_output=True, timeout=15, env=env)
-        assert result.returncode == 0
+@pytest.mark.parametrize("command", HELP_COMMANDS)
+def test_the_command_has_a_working_help_that_names_it(cli, command):
+    """Exit 0 alone passes on empty output; the usage line must name the command it documents."""
+    result = cli(command, "--help")
+    assert result.returncode == 0, result.stderr
+    assert f"empirica {command}" in result.stdout, (
+        f"--help for {command} does not say what it documents:\n{result.stdout[:300]}"
+    )
 
 
-class TestIdentityCommands:
-    """Test Identity commands (4 commands)"""
-
-    def test_identity_create_help(self):
-        """Identity-create command has working --help"""
-        result = subprocess.run(["empirica", "identity-create", "--help"], capture_output=True)
-        assert result.returncode == 0
-
-    def test_identity_list_execution(self):
-        """Identity-list runs without args (lists all identities)"""
-        result = subprocess.run(["empirica", "identity-list"], capture_output=True, timeout=5)
-        assert result.returncode == 0
-
-    def test_identity_export_help(self):
-        """Identity-export command has working --help"""
-        result = subprocess.run(["empirica", "identity-export", "--help"], capture_output=True)
-        assert result.returncode == 0
-
-    def test_identity_verify_is_gone(self):
-        """identity-verify answered every session with ok:false 'not yet implemented'
-        and exit 0; signature verification lives in checkpoint-verify. Pins the removal."""
-        result = subprocess.run(["empirica", "identity-verify", "sess-1"], capture_output=True, timeout=5)
-        assert result.returncode != 0
+# Commands that run without arguments. Each is measured against the empty database from the `cli` fixture.
+def test_goals_list_runs_against_an_empty_database(cli):
+    result = cli("goals-list")
+    assert result.returncode == 0, (result.stdout, result.stderr)
 
 
-class TestConfigurationCommands:
-    """Test Configuration commands"""
-
-    def test_config_execution(self):
-        """Config runs without args (shows current config)"""
-        result = subprocess.run(["empirica", "config"], capture_output=True, timeout=5)
-        assert result.returncode == 0
+def test_goals_discover_finds_nothing_in_a_directory_with_no_git_history(cli):
+    result = cli("goals-discover")
+    assert result.returncode == 0, result.stderr
+    assert "No goals found" in result.stdout
 
 
-class TestInvestigationCommands:
-    """Test Investigation commands (3 commands)"""
-
-    def test_investigate_help(self):
-        """Investigate command has working --help"""
-        result = subprocess.run(["empirica", "investigate", "--help"], capture_output=True)
-        assert result.returncode == 0
-
-    def test_goal_analysis_help(self):
-        """Goal-analysis command has working --help"""
-        result = subprocess.run(["empirica", "goal-analysis", "--help"], capture_output=True)
-        assert result.returncode == 0
+def test_handoff_query_runs_against_an_empty_database(cli):
+    result = cli("handoff-query")
+    assert result.returncode == 0, (result.stdout, result.stderr)
 
 
-class TestPerformanceCommands:
-    """Test Performance commands (2 commands)"""
-
-    def test_performance_verb_is_gone(self):
-        """`empirica performance` rendered a graded scorecard (score 0.75, Grade B,
-        green/yellow dimensions) from constants in a self-declared stub, exit 0.
-        The verb, the stub and the parser were removed; this pins that."""
-        result = subprocess.run(["empirica", "performance"], capture_output=True, timeout=5)
-        assert result.returncode != 0
-
-    def test_efficiency_report_help(self):
-        """Efficiency-report command has working --help"""
-        result = subprocess.run(["empirica", "efficiency-report", "--help"], capture_output=True)
-        assert result.returncode == 0
+def test_sessions_list_runs_against_an_empty_database(cli):
+    """An empty registry IS a valid listing (exit 0, zero rows); a missing database is not."""
+    result = cli("sessions-list")
+    assert result.returncode == 0, (result.stdout, result.stderr)
 
 
-class TestMonitoringCommands:
-    """Test Monitoring commands (1 command)"""
-
-    def test_monitor_verb_is_gone(self):
-        """`empirica monitor` printed a deprecation notice for adapter monitoring
-        removed long before, accepted nine flags it never read, exit 0. Removed."""
-        result = subprocess.run(["empirica", "monitor"], capture_output=True, timeout=5)
-        assert result.returncode != 0
+def test_sessions_resume_runs_against_an_empty_database(cli):
+    result = cli("sessions-resume")
+    assert result.returncode == 0, (result.stdout, result.stderr)
 
 
-# Summary test
-class TestCLISummary:
-    """Overall CLI health check"""
-
-    def test_main_help_works(self):
-        """Main empirica --help works"""
-        result = subprocess.run(["empirica", "--help"], capture_output=True)
-        assert result.returncode == 0
-        assert b"Empirica" in result.stdout
-
-    def test_total_command_count(self):
-        """Verify core commands exist in compact help output"""
-        result = subprocess.run(["empirica", "--help"], capture_output=True, text=True)
-        # Compact help shows core commands (workflow, artifacts, goals, context)
-        assert "preflight-submit" in result.stdout
-        assert "check" in result.stdout
-        assert "postflight-submit" in result.stdout
-        assert "goals-create" in result.stdout
-        assert "finding-log" in result.stdout
-        assert "project-bootstrap" in result.stdout
-        # Non-core commands available via 'empirica help'
-        result2 = subprocess.run(["empirica", "help"], capture_output=True, text=True)
-        assert "checkpoint" in result2.stdout
+def test_identity_list_finds_no_identities_under_a_fresh_home(cli):
+    result = cli("identity-list")
+    assert result.returncode == 0, result.stderr
+    assert "No identities found" in result.stdout
 
 
-if __name__ == "__main__":
-    # Run with: pytest tests/unit/test_all_cli_commands.py -v
-    pytest.main([__file__, "-v", "--tb=short"])
+def test_config_shows_the_configuration(cli):
+    result = cli("config")
+    assert result.returncode == 0, result.stderr
+    assert "Empirica Configuration" in result.stdout
+
+
+# Negative control for the whole file: a database-backed command must FAIL when there is no database, so the passes above are not vacuous.
+def test_a_database_backed_command_fails_when_there_is_no_database(tmp_path):
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "PYTHONPATH": str(REPO_ROOT), "EMPIRICA_NO_TELEMETRY": "1"}
+    workdir = tmp_path / "bare"
+    workdir.mkdir()
+    result = subprocess.run(
+        [sys.executable, "-m", "empirica.cli", "sessions-list"],
+        capture_output=True,
+        text=True,
+        cwd=workdir,
+        env=env,
+        timeout=HANG_GUARD_SECONDS,
+    )
+    assert result.returncode != 0
+    assert "Cannot determine sessions.db path" in result.stdout
+
+
+# Removed verbs: each used to answer with a fabricated result and exit 0. They must now be refused BY THE PARSER, not merely fail somehow.
+@pytest.mark.parametrize(
+    ("verb", "why"),
+    [
+        (
+            "identity-verify",
+            "answered every session with ok:false 'not yet implemented' and exit 0; verification lives in checkpoint-verify",
+        ),
+        (
+            "performance",
+            "rendered a graded scorecard (Grade B, green/yellow dimensions) from constants in a self-declared stub",
+        ),
+        (
+            "monitor",
+            "printed a deprecation notice for adapter monitoring removed long before and accepted nine flags it never read",
+        ),
+    ],
+)
+def test_a_removed_verb_is_refused_by_the_parser(cli, verb, why):
+    """`returncode != 0` also passes on a crash; the parser's 'invalid choice' is what pins the removal."""
+    result = cli(verb)
+    assert result.returncode == 2, (why, result.stdout, result.stderr)
+    assert "invalid choice" in result.stderr and verb in result.stderr
+
+
+def test_main_help_works_and_names_the_tool(cli):
+    result = cli("--help")
+    assert result.returncode == 0
+    assert "usage: empirica" in result.stdout
+
+
+def test_the_compact_help_lists_the_core_commands(cli):
+    """The compact help shows the core commands (workflow, artifacts, goals, context); the rest are under `empirica help`."""
+    compact = cli("--help").stdout
+    for command in (
+        "preflight-submit",
+        "check",
+        "postflight-submit",
+        "goals-create",
+        "finding-log",
+        "project-bootstrap",
+    ):
+        assert command in compact, f"{command} missing from the compact help"
+    assert "checkpoint" in cli("help").stdout, "non-core commands are listed by `empirica help`"
