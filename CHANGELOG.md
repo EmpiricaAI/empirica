@@ -81,6 +81,8 @@ Rename this heading to the release version and date at the cut: `scripts/release
 
 ### Fixed
 
+- **`setuptools` floor raised to 84.1.0** (build requirement and runtime dependency) for GHSA-xmj3-9gf7-h52w. A clean install already resolved
+  84.2.1 and audits clean; the floor stops a constrained environment from resolving the vulnerable 83.0.0.
 - **A test that wrote findings into the checkout's real git notes** now runs from a directory that is not a repository.
 
 ## [1.14.13] - 2026-10-23
