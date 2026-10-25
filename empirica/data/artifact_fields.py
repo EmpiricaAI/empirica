@@ -182,6 +182,44 @@ def updatable_fields(artifact_type: str) -> set[str]:
     return ARTIFACT_UPDATABLE_FIELDS.get(artifact_type, set())
 
 
+#: The statuses a goal may hold. A correction to anything else is refused, not stored (`goals.status` has no CHECK constraint).
+GOAL_STATUSES: tuple[str, ...] = ("planned", "in_progress", "blocked", "completed", "abandoned")
+
+
+def value_problems(artifact_type: str, body: dict) -> dict[str, str]:
+    """Why a correctable field's VALUE is not legal, per field (empty when every value is fine).
+
+    The field map says which columns may change, not what values are legal, and every other write path normalises. Writing the raw
+    value stored `sharred`, an impact of 7.5 and a goal status of `banana` while reporting success.
+    """
+    from empirica.data.epistemic_source import EPISTEMIC_SOURCES
+    from empirica.data.visibility import VISIBILITY_TIERS
+
+    problems: dict[str, str] = {}
+    for field, value in body.items():
+        if field not in updatable_fields(artifact_type):
+            continue
+        if field == "visibility" and value not in VISIBILITY_TIERS:
+            problems[field] = f"{value!r} is not one of {', '.join(VISIBILITY_TIERS)}"
+        elif field == "epistemic_source" and value not in EPISTEMIC_SOURCES:
+            problems[field] = f"{value!r} is not one of {', '.join(EPISTEMIC_SOURCES)}"
+        elif field in ("impact", "confidence") and (
+            isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1
+        ):
+            problems[field] = f"{value!r} is not a number from 0 to 1"
+        elif artifact_type == "goal" and field == "status" and value not in GOAL_STATUSES:
+            problems[field] = f"{value!r} is not one of {', '.join(GOAL_STATUSES)}"
+    return problems
+
+
+def sibling_updates(artifact_type: str, updates: dict, now: float) -> dict:
+    """Columns that must move with a corrected field. A goal's status and its completion columns are one fact stored twice."""
+    if artifact_type == "goal" and "status" in updates:
+        done = updates["status"] == "completed"
+        return {"is_completed": 1 if done else 0, "completed_timestamp": now if done else None}
+    return {}
+
+
 def filter_updates(artifact_type: str, body: dict) -> tuple[dict, list[str]]:
     """Split a request into (allowed updates, rejected field names).
 
@@ -192,6 +230,7 @@ def filter_updates(artifact_type: str, body: dict) -> tuple[dict, list[str]]:
     this surface exists is that corrections were failing invisibly.
     """
     allowed = updatable_fields(artifact_type)
-    updates = {k: v for k, v in body.items() if k in allowed}
-    rejected = [k for k in body if k not in allowed]
+    problems = value_problems(artifact_type, body)
+    updates = {k: v for k, v in body.items() if k in allowed and k not in problems}
+    rejected = [k for k in body if k not in allowed or k in problems]
     return updates, rejected

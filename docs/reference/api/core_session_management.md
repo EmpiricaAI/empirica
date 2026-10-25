@@ -326,7 +326,7 @@ for cascade in cascades:
 
 ## Epistemic Vector Methods
 
-### `store_vectors(self, session_id: str, phase: str, vectors: Dict[str, float], cascade_id: Optional[str] = None, round_num: int = 1, metadata: Optional[Dict] = None, reasoning: Optional[str] = None, transaction_id: Optional[str] = None)`
+### `store_vectors(self, session_id: str, phase: str, vectors: Dict[str, float], cascade_id: Optional[str] = None, round_num: int = 1, metadata: Optional[Dict] = None, reasoning: Optional[str] = None, transaction_id: Optional[str] = None, project_id: Optional[str] = None)`
 
 Store epistemic vectors in the reflexes table.
 
@@ -339,6 +339,7 @@ Store epistemic vectors in the reflexes table.
 - `metadata: Optional[Dict]` - Optional metadata dictionary
 - `reasoning: Optional[str]` - Optional reasoning explanation
 - `transaction_id: Optional[str]` - Epistemic transaction this measurement belongs to. Pass it: transactions, not sessions, are the unit a measurement window closes over, and vectors stored without it cannot be grouped back into the loop that produced them
+- `project_id: Optional[str]` - Project the measurement belongs to. Omit it and the project is detected from the session
 
 **Example:**
 ```python

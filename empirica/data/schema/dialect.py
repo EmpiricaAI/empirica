@@ -65,25 +65,19 @@ def adapt_schema_sql(sql: str, dialect: str) -> str:
         r"strftime\s*\(\s*'%s'\s*,\s*'now'\s*\)", "EXTRACT(EPOCH FROM NOW())", adapted, flags=re.IGNORECASE
     )
 
+    # 6. datetime('now') → UTC text timestamp
+    # SQLite's `created_at TEXT DEFAULT (datetime('now'))` has no PostgreSQL function of that name, so the CREATE for epistemic_events
+    # (the only residual use across ALL_SCHEMAS) failed on the postgresql dialect. The result keeps SQLite's 'YYYY-MM-DD HH:MM:SS' text form.
+    adapted = re.sub(
+        r"datetime\s*\(\s*'now'\s*\)",
+        "to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+        adapted,
+        flags=re.IGNORECASE,
+    )
+
     return adapted
 
 
 def adapt_all_schemas(schemas: list[str], dialect: str) -> list[str]:
     """Adapt a list of schema SQL strings for the target dialect."""
     return [adapt_schema_sql(sql, dialect) for sql in schemas]
-
-
-def adapt_index_sql(sql: str, dialect: str) -> str:
-    """
-    Adapt an index creation SQL for the target dialect.
-
-    Both SQLite and PostgreSQL support CREATE INDEX IF NOT EXISTS,
-    so this is mostly a pass-through. The main concern is
-    column name quoting for reserved words.
-    """
-    if dialect == "sqlite":
-        return sql
-
-    # Quote 'do' column references in indexes if present
-    # This is a rare case but handle it for completeness
-    return sql

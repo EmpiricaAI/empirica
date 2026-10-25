@@ -38,6 +38,20 @@ RESOLUTION_KIND_HELP: dict[str, str] = {
 }
 
 
+def require_resolution_kind(value: str | None) -> str | None:
+    """A valid kind, ``None`` when none was given, and ValueError for anything else.
+
+    `normalize_resolution_kind` turns a typo into ``None`` (not classified), which is right for a lenient reader and wrong for a writer:
+    the batch verb and the API stored `retracteed` as NULL and reported success, misclassifying exactly the thing the field measures.
+    """
+    if value in (None, ""):
+        return None
+    kind = normalize_resolution_kind(value)
+    if kind is None:
+        raise ValueError(f"unknown resolution_kind {value!r}; use one of {', '.join(RESOLUTION_KINDS)}")
+    return kind
+
+
 def normalize_resolution_kind(value: str | None) -> str | None:
     """Return a valid kind, or ``None`` for unknown/missing values.
 

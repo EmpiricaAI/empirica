@@ -1541,10 +1541,12 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                     from empirica.data.resolution_kind import (
                         canonical_finding_id,
                         is_retraction,
-                        normalize_resolution_kind,
+                        require_resolution_kind,
                     )
 
-                    _kind = normalize_resolution_kind(item.get("resolution_kind"))
+                    # Refuses an unknown kind into this item's error: the single-id verb is guarded by argparse choices, the batch
+                    # form was not, and a typo was stored as NULL while the batch reported success.
+                    _kind = require_resolution_kind(item.get("resolution_kind"))
                     # Raises into this item's error, so one bad pointer refuses
                     # one resolution and the rest of the batch still applies.
                     _superseded_by = canonical_finding_id(db.conn.execute, item.get("superseded_by"))
@@ -1578,7 +1580,7 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                                 "resolution": resolution,
                                 "resolution_kind": _kind,
                                 "resolved_timestamp": _tf.time(),
-                                "superseded_by": item.get("superseded_by"),
+                                "superseded_by": _superseded_by,
                             },
                         )
                         _deps = _dependents_safe(db, artifact_id)
@@ -2680,12 +2682,20 @@ def _update_foreign_artifact(atype: str, aid: str, item: dict) -> tuple[int, lis
 
 def _apply_session_row(cursor, atype: str, aid: str, item: dict, errors: list, rejected_report: list) -> int:
     """Correct one row in sessions.db. Mirror of `_apply_foreign` for the local store."""
-    from empirica.data.artifact_fields import ARTIFACT_TABLES, filter_updates
+    import time as _time
+
+    from empirica.data.artifact_fields import ARTIFACT_TABLES, filter_updates, sibling_updates, value_problems
 
     body = {k: v for k, v in item.items() if k not in ("type", "id")}
     updates, rejected = filter_updates(atype, body)
     if rejected:
-        rejected_report.append({"id": aid, "type": atype, "rejected": rejected})
+        entry = {"id": aid, "type": atype, "rejected": rejected}
+        reasons = value_problems(atype, body)
+        if reasons:
+            entry["reasons"] = reasons
+            errors.extend(f"{atype} {aid[:8]}: {field} {why}" for field, why in reasons.items())
+        rejected_report.append(entry)
+    updates = {**updates, **sibling_updates(atype, updates, _time.time())}
     if not updates:
         errors.append(f"{atype} {aid[:8]}: no correctable fields in request")
         return 0

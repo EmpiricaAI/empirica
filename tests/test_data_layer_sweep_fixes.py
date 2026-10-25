@@ -320,3 +320,221 @@ def test_an_update_that_does_not_touch_the_lifecycle_leaves_ended_at_and_status_
     engagements.update_engagement("e1", title="Renamed")
     e = engagements.get_engagement("e1")
     assert e["title"] == "Renamed" and e["ended_at"] is None and e["status"] == "active"
+
+
+# ── #18 the PostgreSQL schema path rewrites every SQLite-only construct ─────
+
+
+def test_no_schema_keeps_a_sqlite_only_construct_after_the_postgresql_adaptation():
+    from empirica.data.schema import ALL_SCHEMAS
+    from empirica.data.schema.dialect import adapt_all_schemas
+
+    leftovers = {}
+    for sql in adapt_all_schemas(list(ALL_SCHEMAS), "postgresql"):
+        for needle in ("datetime(", "strftime", "AUTOINCREMENT"):
+            if needle.lower() in sql.lower():
+                leftovers.setdefault(needle, []).append(sql.split("(")[0].strip()[-40:])
+    assert leftovers == {}, "PostgreSQL has no datetime(), strftime() or AUTOINCREMENT: the CREATE fails"
+
+
+def test_the_datetime_default_becomes_a_utc_text_expression_and_sqlite_is_untouched():
+    from empirica.data.schema.dialect import adapt_schema_sql
+
+    ddl = "CREATE TABLE t (created_at TEXT DEFAULT (datetime('now')))"
+    assert adapt_schema_sql(ddl, "sqlite") == ddl
+    pg = adapt_schema_sql(ddl, "postgresql")
+    assert "datetime(" not in pg and "NOW() AT TIME ZONE 'UTC'" in pg
+
+
+# ── #15 update-artifacts validates values, #16 resolve-artifacts refuses an unknown kind ──
+
+
+def _run_handler(handler, config: dict, monkeypatch, capsys, **extra):
+    import io
+    import json
+    from types import SimpleNamespace as NS
+
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(config)))
+    capsys.readouterr()
+    handler(NS(config="-", schema=False, output="json", verbose=False, file=None, apply=True, **extra))
+    out = capsys.readouterr().out
+    start = out.find("{")
+    return json.loads(out[start:]) if start >= 0 else {}
+
+
+@pytest.fixture
+def artifacts(db, project, tmp_path, monkeypatch):
+    pid, sid = project
+    monkeypatch.setenv("EMPIRICA_SESSION_DB", str(tmp_path / "s.db"))
+    finding = db.log_finding(project_id=pid, session_id=sid, finding="f15", impact=0.5)
+    finding2 = db.log_finding(project_id=pid, session_id=sid, finding="other", impact=0.5)
+    goal = db.goals.create_goal(session_id=sid, objective="g15")
+    return NS_(db=db, finding=finding, finding2=finding2, goal=goal)
+
+
+class NS_:  # a tiny attribute bag; SimpleNamespace is imported lazily above
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+def _finding_row(db, fid):
+    return tuple(
+        db.conn.execute(
+            "SELECT visibility, epistemic_source, impact FROM project_findings WHERE id = ?", (fid,)
+        ).fetchone()
+    )
+
+
+def _update(artifacts, monkeypatch, capsys, **fields):
+    from empirica.cli.command_handlers.graph_commands import handle_update_artifacts_command
+
+    item = {"type": "finding", "id": artifacts.finding, **fields}
+    return _run_handler(handle_update_artifacts_command, {"updates": [item]}, monkeypatch, capsys)
+
+
+def test_update_artifacts_rejects_values_outside_the_closed_sets_and_leaves_the_row_alone(
+    artifacts, monkeypatch, capsys
+):
+    before = _finding_row(artifacts.db, artifacts.finding)
+    _update(artifacts, monkeypatch, capsys, visibility="sharred", epistemic_source="bogus", impact=7.5)
+    assert _finding_row(artifacts.db, artifacts.finding) == before
+
+
+def test_update_artifacts_still_applies_legal_values_including_the_range_ends(artifacts, monkeypatch, capsys):
+    _update(artifacts, monkeypatch, capsys, visibility="public", epistemic_source="search", impact=1.0)
+    assert _finding_row(artifacts.db, artifacts.finding) == ("public", "search", 1.0)
+    _update(artifacts, monkeypatch, capsys, impact=0)
+    assert _finding_row(artifacts.db, artifacts.finding)[2] == 0
+
+
+def test_update_artifacts_refuses_an_unknown_goal_status_and_keeps_the_completion_columns_in_step(
+    artifacts, monkeypatch, capsys
+):
+    from empirica.cli.command_handlers.graph_commands import handle_update_artifacts_command
+
+    def goal_row():
+        return tuple(
+            artifacts.db.conn.execute(
+                "SELECT status, is_completed, completed_timestamp FROM goals WHERE id = ?", (artifacts.goal,)
+            ).fetchone()
+        )
+
+    def set_status(value):
+        _run_handler(
+            handle_update_artifacts_command,
+            {"updates": [{"type": "goal", "id": artifacts.goal, "status": value}]},
+            monkeypatch,
+            capsys,
+        )
+
+    start = goal_row()
+    set_status("banana")
+    assert goal_row() == start, "an unknown status is refused, not stored"
+    set_status("completed")
+    status, is_completed, completed_at = goal_row()
+    assert (status, is_completed) == ("completed", 1) and completed_at is not None
+    set_status("in_progress")
+    status, is_completed, completed_at = goal_row()
+    assert (status, is_completed, completed_at) == ("in_progress", 0, None), (
+        "leaving completed clears the sibling columns"
+    )
+
+
+def _resolve(artifacts, monkeypatch, capsys, **fields):
+    from empirica.cli.command_handlers.graph_commands import handle_resolve_artifacts_command
+
+    item = {"type": "finding", "id": artifacts.finding, "resolution": "done", **fields}
+    return _run_handler(handle_resolve_artifacts_command, {"resolutions": [item]}, monkeypatch, capsys)
+
+
+def _resolution_row(artifacts):
+    return tuple(
+        artifacts.db.conn.execute(
+            "SELECT is_resolved, resolution_kind FROM project_findings WHERE id = ?", (artifacts.finding,)
+        ).fetchone()
+    )
+
+
+def test_resolve_artifacts_refuses_a_typo_in_resolution_kind_instead_of_storing_null(artifacts, monkeypatch, capsys):
+    result = _resolve(artifacts, monkeypatch, capsys, resolution_kind="retracteed")
+    assert _resolution_row(artifacts) == (0, None), (
+        "the finding stays open: a misclassified resolution is the exact thing being measured"
+    )
+    assert result.get("resolved", 0) == 0 and result.get("errors"), "the refusal is reported"
+
+
+@pytest.mark.parametrize("kind", ["stale", "retracted", None])
+def test_resolve_artifacts_still_applies_a_known_kind_or_none(artifacts, monkeypatch, capsys, kind):
+    fields = {"resolution_kind": kind} if kind else {}
+    _resolve(artifacts, monkeypatch, capsys, **fields)
+    assert _resolution_row(artifacts) == (1, kind)
+
+
+def test_require_resolution_kind_returns_known_kinds_and_none_and_raises_on_anything_else():
+    from empirica.data.resolution_kind import require_resolution_kind
+
+    assert (
+        require_resolution_kind("stale") == "stale"
+        and require_resolution_kind(None) is None
+        and require_resolution_kind("") is None
+    )
+    with pytest.raises(ValueError, match="retracteed"):
+        require_resolution_kind("retracteed")
+
+
+def _api_project(tmp_path, pid):
+    import sqlite3
+
+    proj = tmp_path / "apiproj"
+    (proj / ".empirica" / "sessions").mkdir(parents=True)
+    (proj / ".empirica" / "project.yaml").write_text(f"name: api-test\nproject_id: {pid}\n", encoding="utf-8")
+    conn = sqlite3.connect(str(proj / ".empirica" / "sessions" / "sessions.db"))
+    conn.executescript(
+        """
+        CREATE TABLE project_findings (
+            id TEXT PRIMARY KEY, project_id TEXT, session_id TEXT, goal_id TEXT, subtask_id TEXT, transaction_id TEXT,
+            finding TEXT NOT NULL, finding_data TEXT, subject TEXT, impact REAL DEFAULT 0.5, epistemic_source TEXT,
+            created_timestamp REAL NOT NULL, is_resolved INTEGER DEFAULT 0, resolution TEXT, resolved_timestamp REAL,
+            superseded_by TEXT, resolution_kind TEXT
+        );
+        CREATE TABLE artifact_edges (
+            from_id TEXT NOT NULL, to_id TEXT NOT NULL, relation TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (from_id, to_id, relation)
+        );
+        """
+    )
+    conn.execute(
+        "INSERT INTO project_findings (id, project_id, session_id, finding, finding_data, created_timestamp) VALUES (?, ?, 's', 'f', '{}', 1.0)",
+        ("11111111-1111-1111-1111-111111111111", pid),
+    )
+    conn.commit()
+    conn.close()
+    return proj, proj / ".empirica" / "sessions" / "sessions.db"
+
+
+@pytest.mark.parametrize(("kind", "status", "stored"), [("retracteed", 400, (0, None)), ("stale", 200, (1, "stale"))])
+def test_the_resolve_route_refuses_an_unknown_resolution_kind_and_applies_a_known_one(
+    tmp_path, monkeypatch, kind, status, stored
+):
+    import sqlite3
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    import empirica.api.daemon_project as dp
+    from empirica.api.serve_app import create_serve_app
+
+    dp._cached, dp._cached_project = False, None
+    pid = "22222222-2222-2222-2222-222222222222"
+    proj, db_path = _api_project(tmp_path, pid)
+    with patch("empirica.utils.session_resolver.InstanceResolver.project_path", return_value=str(proj)):
+        monkeypatch.chdir(proj)
+        client = TestClient(create_serve_app(), raise_server_exceptions=False)
+        resp = client.patch(
+            "/api/v1/artifacts/11111111-1111-1111-1111-111111111111/resolve",
+            json={"type": "finding", "resolution_kind": kind},
+        )
+    dp._cached, dp._cached_project = False, None
+    assert resp.status_code == status, resp.text
+    row = sqlite3.connect(str(db_path)).execute("SELECT is_resolved, resolution_kind FROM project_findings").fetchone()
+    assert tuple(row) == stored

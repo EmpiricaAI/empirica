@@ -96,11 +96,17 @@ async def test_a_finding_can_be_RETRACTED_not_merely_resolved(api_db):
 
 
 @pytest.mark.asyncio
-async def test_an_invalid_resolution_kind_stores_null_rather_than_failing(api_db):
-    await _resolve("f-1", {"resolved_by": "x", "resolution_kind": "nonsense"})
+async def test_an_invalid_resolution_kind_is_refused_with_a_400_and_the_finding_stays_open(api_db):
+    """This used to pin the opposite (`stores null rather than failing`). Coercing an unknown kind to NULL misclassifies the very
+    thing the field measures (`retracted` recorded as 'not classified') and answers ok, which is what resolution_kind.py's own
+    docstring warns against; the CLI batch verb had the same hole. The API now says so (sweep item #16, 2026-10-25)."""
+    from fastapi import HTTPException
 
-    assert _col(api_db, "SELECT is_resolved FROM project_findings WHERE id='f-1'") == 1
-    assert _col(api_db, "SELECT resolution_kind FROM project_findings WHERE id='f-1'") is None
+    with pytest.raises(HTTPException) as refused:
+        await _resolve("f-1", {"resolved_by": "x", "resolution_kind": "nonsense"})
+
+    assert refused.value.status_code == 400 and "nonsense" in str(refused.value.detail)
+    assert _col(api_db, "SELECT is_resolved FROM project_findings WHERE id='f-1'") == 0
 
 
 @pytest.mark.asyncio

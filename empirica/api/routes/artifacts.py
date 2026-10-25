@@ -1548,8 +1548,14 @@ async def resolve_artifact(
                 UnresolvableFindingRef,
                 canonical_finding_id,
                 normalize_resolution_kind,
+                require_resolution_kind,
             )
 
+            # An unknown kind used to be coerced to NULL and the call answered ok, misclassifying the very thing the field measures.
+            try:
+                require_resolution_kind(body.get("resolution_kind"))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             try:
                 _superseded_by = canonical_finding_id(cursor.execute, body.get("superseded_by"))
             except UnresolvableFindingRef as exc:
