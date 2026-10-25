@@ -269,3 +269,30 @@ def test_no_roadmap_file_and_no_released_roadmap_is_a_project_without_a_forecast
     (tmp_path / "docs" / "ROADMAP.yaml").unlink()
     rm.sync_readme_whats_new()
     assert "What's Coming" not in (tmp_path / "README.md").read_text()
+
+
+def test_an_unquoted_on_key_in_a_revision_gets_an_error_that_names_the_yaml_trap():
+    """In YAML 1.1 an unquoted `on:` key is the boolean true, so the revision 'lacked on' and the message gave no hint why."""
+    parsed = yaml.safe_load(
+        """
+forecast: {made_in: "1.14.14", made_on: "2026-10-25"}
+items:
+  - id: x
+    title: X
+    prediction: Something happens.
+    confidence: 0.7
+    evidence: reviewed
+    basis: Read in the code.
+    falsifier: The opposite is observed.
+    horizon: "1.15.0"
+    steered: false
+    status: predicted
+    revisions:
+      - on: "2026-10-25"
+        from: 0.8
+        to: 0.7
+        reason: Not started.
+"""
+    )
+    with pytest.raises(ValueError, match=r"quote the `on` key"):
+        _mod().validate_roadmap(parsed)

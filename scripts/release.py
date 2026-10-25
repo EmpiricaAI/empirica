@@ -301,7 +301,10 @@ def validate_roadmap(data: object) -> dict:
                 )
             )
             if not complete:
-                raise ValueError(f"roadmap item {n}: revisions need on, from, to and reason in every entry")
+                hint = " (an unquoted `on:` key is the boolean true in YAML 1.1: quote the `on` key)" if any(
+                    isinstance(r, dict) and True in r for r in revisions
+                ) else ""
+                raise ValueError(f"roadmap item {n}: revisions need on, from, to and reason in every entry{hint}")
             if revisions[-1]["to"] != conf:
                 raise ValueError(
                     f"roadmap item {n}: the last of revisions ends at {revisions[-1]['to']!r} but confidence is {conf!r}"

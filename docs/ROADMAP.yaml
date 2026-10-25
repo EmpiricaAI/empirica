@@ -22,7 +22,7 @@
 #   * the text is public. No proposal, goal, task or commit ids, and no one else's internal state (the release script refuses ids).
 #
 # Drafted from the practice's own graph (open goals, measured faults, unresolved unknowns) and confirmed by a human before it ships.
-# Quote `made_in`: an unquoted 1.10 loads as the number 1.1.
+# Quote `made_in`: an unquoted 1.10 loads as the number 1.1. Quote the `on` key of a revision too: unquoted, `on:` is the boolean true in YAML 1.1.
 
 forecast:
   made_in: "1.14.14"
@@ -56,13 +56,18 @@ items:
   - id: budget-save-visible
     title: Session start reports a skipped budget save
     prediction: When session start cannot save the context-budget state, the banner says so instead of only recording it.
-    confidence: 0.8
+    confidence: 0.7
     evidence: reviewed
     basis: Read in the session-init hook, the skip reason is recorded in the budget summary but the banner prints only the budget line. The deploy-gap check already skips outside Claude Code, so that half of the gap is closed.
     falsifier: A session start with no resolvable sessions.db prints a banner that does not mention the unsaved budget state.
-    horizon: "1.14.16"
+    horizon: "1.14.19"
     steered: true
     status: predicted
+    revisions:
+      - "on": "2026-10-25"
+        from: 0.8
+        to: 0.7
+        reason: Not started by its 1.14.16 horizon, and the code still only records the skip reason in the summary. The last three releases went to the review sweep and to reader-audited changes of how vectors and CHECK confidence are stored, so the horizon moves to 1.14.19 and the confidence drops, because a prediction that misses its horizon was over-confident about when.
 
   - id: listener-memory
     title: Listener memory stays flat
