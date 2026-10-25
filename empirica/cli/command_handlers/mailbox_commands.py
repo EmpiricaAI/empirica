@@ -357,9 +357,10 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
             # Same slug, different (or unknowable) tenant: with no canonical id the guard cannot tell your proposal from another
             # tenant's practice of the same name. Refuse that one case instead of posting a reply that may land in your own inbox.
             sys.stderr.write(
-                f"mailbox reply: your canonical id could not be resolved (the roster lookup failed) and parent {parent_id}'s "
-                f"source_claude {parent_source} shares your slug, so this may be your own proposal and the default target could be you. "
-                "Re-run when cortex is reachable, or pass --source-claude <your canonical id>.\n"
+                f"mailbox reply: your canonical id could not be resolved (cortex's roster was unreachable, or it has no row for your "
+                f"slug) and parent {parent_id}'s source_claude {parent_source} shares your slug, so this may be your own proposal and "
+                "the default target could be you. Re-run when cortex is reachable, pass --source-claude <your canonical id>, or check "
+                "the slug with `empirica practice-context`.\n"
             )
             return 1
         if parent_source and parent_source.strip().lower() == own_slug:
@@ -877,8 +878,9 @@ def _attach_poll_completeness(result: dict, poll_meta: dict) -> None:
 def _poll_unresolved_response(args, ai_id: str, direction: str, poll_meta: dict) -> int:
     """Report that the canonical id could not be resolved: the box was NOT checked, which an empty result would have hidden."""
     message = (
-        f"canonical id for {ai_id!r} could not be resolved (the roster lookup failed), so the {direction} was NOT checked; "
-        "an empty result here would have meant 'unknown', not 'no mail'. Retry when cortex is reachable."
+        f"canonical id for {ai_id!r} could not be resolved (cortex's roster was unreachable, or it has no row for that slug), "
+        f"so the {direction} was NOT checked; an empty result here would have meant 'unknown', not 'no mail'. "
+        f"Retry when cortex is reachable; if it persists, `empirica practice-context --ai-id {ai_id}` shows whether the roster knows the slug."
     )
     if getattr(args, "output", "json") == "human":
         sys.stderr.write(f"mailbox poll: {message}\n")

@@ -213,7 +213,8 @@ def render_whats_new(changelog_text: str, version: str, earlier: int = _WHATS_NE
         first_title = next(
             (t for t in (_bold_title(b) for s, blk in secs.items() for b in _top_level_bullets(blk)) if t), ""
         )
-        summary = _first_sentence(first_highlight or intro or first_title)
+        # The line is already bold at the version; a highlight that opens with its own bold title would nest one in the other.
+        summary = re.sub(r"^\*\*(.+?)\*\*", r"\1", _first_sentence(first_highlight or intro or first_title), count=1)
         if summary:
             previous.append(f"- **{ver}** — {summary}")
     if previous:
@@ -481,6 +482,9 @@ for root in ("scripts", "empirica", "tests"):
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         except SyntaxError as e:
             errors.append([path.as_posix(), e.lineno, e.msg])
+        except (UnicodeDecodeError, ValueError) as e:
+            # Not UTF-8, or a null byte: a file the interpreter cannot read is a finding about the tree, not a reason to crash.
+            errors.append([path.as_posix(), 0, f"unreadable: {type(e).__name__}: {e}"])
 print(json.dumps({"checked": checked, "errors": errors}))
 """
 
@@ -2089,6 +2093,9 @@ brew install empirica
             payload = json.loads(result.stdout.strip().splitlines()[-1])
         except (ValueError, IndexError):
             warning(f"NOT VERIFIED: the Python {floor} parse printed nothing readable")
+            return True
+        if not payload["errors"] and not payload.get("checked"):
+            warning(f"NOT VERIFIED: the Python {floor} parse walked no files, so it proves nothing about the tree")
             return True
         if payload["errors"]:
             log(f"\n{RED}Python {floor} cannot parse:{RESET}")

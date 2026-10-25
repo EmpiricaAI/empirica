@@ -102,3 +102,29 @@ def test_prepare_runs_the_floor_gate_after_pyright():
     src = RELEASE_PY.read_text()
     prepare = src[src.index("self.run_pyright():") :]
     assert "run_python_floor_parse()" in prepare[:1500], "the gate must sit with the other pre-publish gates"
+
+
+def test_a_run_that_walked_no_files_is_unverified_not_a_pass(tmp_path, monkeypatch, capsys):
+    """checked == 0 was logged as '0 files parse on Python 3.10' and counted as a pass: a gate pointed at the wrong directory would
+    stay green forever."""
+    monkeypatch.setattr(_mod().shutil, "which", lambda name: "/usr/bin/uv")
+    assert _manager(tmp_path).run_python_floor_parse(run=_fake_run(json.dumps({"checked": 0, "errors": []}))) is True
+    out = capsys.readouterr().out
+    assert "NOT VERIFIED" in out and "0 files parse" not in out
+
+
+def test_the_parse_script_reports_an_undecodable_or_null_byte_file_instead_of_crashing(tmp_path):
+    """The script caught SyntaxError only, so one file that is not UTF-8 (or holds a null byte) crashed it and the gate read that as
+    'uv could not run Python', blaming the wrong thing and disabling itself."""
+    for d in ("scripts", "empirica", "tests"):
+        (tmp_path / d).mkdir()
+    (tmp_path / "empirica" / "ok.py").write_text("x = 1\n")
+    (tmp_path / "empirica" / "latin1.py").write_bytes(b"# caf\xe9\nx = 1\n")
+    (tmp_path / "empirica" / "nul.py").write_bytes(b"x = 1\x00\n")
+    out = subprocess.run(
+        [sys.executable, "-c", _mod().PYTHON_FLOOR_PARSE_SCRIPT], cwd=tmp_path, capture_output=True, text=True, timeout=60
+    )
+    assert out.returncode == 0, out.stderr
+    payload = json.loads(out.stdout.strip().splitlines()[-1])
+    assert payload["checked"] == 3
+    assert sorted(e[0] for e in payload["errors"]) == ["empirica/latin1.py", "empirica/nul.py"]

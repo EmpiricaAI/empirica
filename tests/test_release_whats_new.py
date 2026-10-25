@@ -426,3 +426,14 @@ def test_the_docs_step_reminds_the_author_to_grade_open_predictions(tmp_path, ca
     _sync_with(tmp_path, "# P\n\n## What's New in 1.9.0\n\n- old\n\n## Privacy\n")
     out = capsys.readouterr().out
     assert "1 open prediction" in out and "shipped" in out and "dropped" in out
+
+
+def test_an_earlier_highlight_that_opens_with_a_bold_title_is_not_nested_in_the_versions_bold():
+    """`- **1.14.14** — **Idle sessions can be woken (opt-in).** ...` rendered bold inside a bold line."""
+    text = CHANGELOG.replace(
+        "A correctness release for the notes-and-rebuild path. A second sentence that must not appear in the summary.\n",
+        "An intro.\n\n### Highlights\n\n- **Rebuild restores ids.** The detail follows.\n",
+    )
+    out = _mod().render_whats_new(text, "2.0.0")
+    assert "**1.9.0** — Rebuild restores ids. The detail follows." in out
+    assert "— **" not in out

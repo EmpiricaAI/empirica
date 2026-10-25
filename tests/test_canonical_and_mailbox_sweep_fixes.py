@@ -290,7 +290,7 @@ class _Resp:
         return json.dumps(self.body).encode()
 
 
-def _poll(monkeypatch, roster_down: bool):
+def _poll(monkeypatch, roster_down: bool, roster=None):
     import empirica.cli.command_handlers.mailbox_commands as m
     from empirica.core.loop_scheduler import content_poll as cp
 
@@ -302,7 +302,7 @@ def _poll(monkeypatch, roster_down: bool):
         if "roster" in url:
             if roster_down:
                 raise urllib.error.URLError("roster down")
-            return _Resp(ROSTER_OK)
+            return _Resp(roster or ROSTER_OK)
         return _Resp({"proposals": [], "matched": 0, "has_more": False, "returned": 0})
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
@@ -329,3 +329,20 @@ def test_with_the_roster_up_an_empty_inbox_is_still_a_clean_zero(monkeypatch):
     assert rc == 0 and payload["ok"] is True and payload["count"] == 0
     assert payload["queried_as"] == CANON, "the envelope names the id the inbox was actually asked for"
     assert any(f"ai_id={CANON}" in u for u in seen)
+
+
+ROSTER_WITHOUT_THE_CALLER = {
+    "self": {"tenant_slug": "david"},
+    "org": {"tenants": [{"tenant_slug": "david", "projects": [{"slug": "someone-else", "ai_id_mesh": "empirica.david.someone-else"}]}]},
+}
+
+
+def test_a_slug_missing_from_a_reachable_roster_is_not_blamed_on_the_roster_being_down(monkeypatch):
+    """The resolver answers None for an unreachable roster AND for a slug with no row in a reachable one, so the message said
+    'the roster lookup failed ... retry when cortex is reachable' for a typo, the wrong cause and the wrong remedy."""
+    rc, payload, seen = _poll(monkeypatch, roster_down=False, roster=ROSTER_WITHOUT_THE_CALLER)
+    assert rc == 1 and payload["ok"] is False
+    error = payload["error"].lower()
+    assert "no row" in error and "unreachable" in error, "both causes must be named"
+    assert "practice-context" in error, "the command that tells them apart must be named"
+    assert not any("orchestration/inbox" in u for u in seen)
