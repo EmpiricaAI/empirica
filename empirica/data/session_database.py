@@ -2529,12 +2529,15 @@ class SessionDatabase:
         return breadcrumbs
 
     def _get_latest_impact_score(self, session_id: str) -> float:
-        """Get impact score from latest CASCADE assessment (PREFLIGHT/CHECK/POSTFLIGHT)"""
+        """Get impact score from the latest CASCADE assessment that RECORDED one (PREFLIGHT/CHECK/POSTFLIGHT).
+
+        A CHECK that did not assess impact leaves it NULL; the newest row alone would stamp the neutral 0.5 on every finding logged
+        after it, so the newest non-NULL value is used and 0.5 is only the answer for a session that never recorded one."""
         try:
             result = self.adapter.execute(
                 """
                 SELECT impact FROM reflexes
-                WHERE session_id = ?
+                WHERE session_id = ? AND impact IS NOT NULL
                 ORDER BY timestamp DESC
                 LIMIT 1
             """,

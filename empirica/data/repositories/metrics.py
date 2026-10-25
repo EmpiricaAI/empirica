@@ -84,6 +84,12 @@ class MetricsRepository(BaseRepository):
                 "uncertainty": row[15],
             }
 
+            # A POSTFLIGHT with a NULL vector (a restored or imported one: reflex_import writes NULL for a vector missing from a git
+            # note) has none of the inputs this score is built from. Multiplying None raised TypeError; inventing 0.5 would score a
+            # session that was never assessed. It is left out.
+            if any(v is None for v in vectors.values()):
+                continue
+
             # Calculate flow score
             flow_score = calculate_flow_score(vectors)
             state_name, emoji = classify_flow_state(flow_score)
@@ -205,6 +211,12 @@ class MetricsRepository(BaseRepository):
                 "impact": row[14],
                 "uncertainty": row[15],
             }
+
+            # A POSTFLIGHT with a NULL vector (a restored or imported one: reflex_import writes NULL for a vector missing from a git
+            # note) has none of the inputs this score is built from. Multiplying None raised TypeError; inventing 0.5 would score a
+            # session that was never assessed. It is left out.
+            if any(v is None for v in vectors.values()):
+                continue
 
             # Calculate health score (0-100)
             health_score = self._calculate_session_health_score(vectors)

@@ -214,14 +214,14 @@ class WorkspaceRepository(BaseRepository):
                 -- creation sets project_id with a raw UPDATE), so health and dead_end_ratio stayed neutral for every project.
                 (SELECT COUNT(*) FROM sessions WHERE project_id = p.id) AS total_sessions,
                 p.last_activity_timestamp,
-                -- Get latest epistemic vectors from most recent session reflex
+                -- Latest RECORDED vectors (a sparse CHECK leaves some NULL = not assessed; the newest row alone showed an invented 0.5)
                 (SELECT r.know FROM reflexes r
                  JOIN sessions s ON s.session_id = r.session_id
-                 WHERE s.project_id = p.id
+                 WHERE s.project_id = p.id AND r.know IS NOT NULL
                  ORDER BY r.timestamp DESC LIMIT 1) as latest_know,
                 (SELECT r.uncertainty FROM reflexes r
                  JOIN sessions s ON s.session_id = r.session_id
-                 WHERE s.project_id = p.id
+                 WHERE s.project_id = p.id AND r.uncertainty IS NOT NULL
                  ORDER BY r.timestamp DESC LIMIT 1) as latest_uncertainty,
                 -- Counts
                 (SELECT COUNT(*) FROM project_findings WHERE project_id = p.id) as findings_count,

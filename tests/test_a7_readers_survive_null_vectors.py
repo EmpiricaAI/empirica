@@ -260,3 +260,115 @@ def test_epistemics_show_prints_n_a_for_a_vector_that_was_not_assessed(db, monke
     assert "Total Reflexes: 2" in out, out
     assert "Know: 0.91, Uncertainty: 0.11" in out
     assert "Context: n/a, Completion: n/a" in out
+
+
+# ── readers that silently re-invented a value: they must use the newest RECORDED one ──
+
+
+def test_the_workspace_overview_shows_the_last_recorded_know_and_uncertainty_not_a_neutral_half(db):
+    """The overview took the project's newest reflex of ANY phase; a sparse CHECK on top made know and uncertainty NULL, which was
+    shown as an invented 0.5 and fed the health score (know*0.6 + (1-uncertainty)*0.4)."""
+    pid = db.create_project("p-overview")
+    sid = db.create_session(ai_id="a7-ov", project_id=pid)
+    put(db, sid, "PREFLIGHT", FULL | {"know": 0.9, "uncertainty": 0.1}, ts=1000.0)
+    put(db, sid, "CHECK", {"clarity": 0.9}, ts=2000.0)
+    entry = next(p for p in db.get_workspace_overview()["projects"] if p["name"] == "p-overview")
+    assert entry["epistemic_state"] == {"know": 0.9, "uncertainty": 0.1}
+
+
+def test_a_finding_logged_after_a_sparse_check_is_stamped_with_the_last_recorded_impact(db):
+    """`_get_latest_impact_score` read the newest row's impact and fell back to 0.5 on NULL; its six callers stamp that on every
+    finding logged without an explicit impact, so a recorded artifact value was invented."""
+    sid = db.create_session(ai_id="a7-impact")
+    put(db, sid, "PREFLIGHT", FULL | {"impact": 0.8}, ts=1000.0)
+    put(db, sid, "CHECK", {"know": 0.9}, ts=2000.0)
+    assert db._get_latest_impact_score(sid) == 0.8
+
+
+def test_with_no_impact_ever_recorded_the_stamp_is_still_the_documented_neutral(db):
+    """Control: the fallback for a session that never recorded an impact is unchanged."""
+    sid = db.create_session(ai_id="a7-impact0")
+    assert db._get_latest_impact_score(sid) == 0.5
+
+
+def test_the_dashboard_gate_shows_the_last_recorded_values_and_keeps_a_real_zero(db, monkeypatch):
+    """`know or 0.0` / `uncertainty or 1.0` made a genuine 0.0 uncertainty read 1.0 (gate failed) and a NULL one read 1.0 too."""
+    import empirica.data.session_database as sdb
+    from empirica.core.system_dashboard import SystemDashboard
+
+    sid = db.create_session(ai_id="a7-dash")
+    put(db, sid, "PREFLIGHT", FULL | {"know": 0.8, "uncertainty": 0.0}, ts=1000.0)
+    put(db, sid, "CHECK", {"clarity": 0.9}, ts=2000.0)
+    monkeypatch.setattr(sdb, "SessionDatabase", lambda *a, **k: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    gate = SystemDashboard(session_id=sid, node_id="a7")._query_gate()
+    assert gate.know == 0.8 and gate.uncertainty == 0.0 and gate.gate_passed is True
+    assert gate.phase == "check"
+
+
+# ── flow and health scores: a POSTFLIGHT with NULLs (a restored or imported one) has no score ──
+
+
+def _project_with_postflights(db, name, rows):
+    pid = db.create_project(name)
+    for i, vectors in enumerate(rows):
+        sid = db.create_session(ai_id=f"a7-{name}-{i}", project_id=pid)
+        put(db, sid, "POSTFLIGHT", vectors, ts=1000.0 + i)
+    return pid
+
+
+def test_flow_and_health_skip_an_incomplete_postflight_instead_of_raising(db):
+    """Both built a vectors dict from the columns and multiplied: `None * 0.25` raised TypeError. They are safe today only because
+    POSTFLIGHT always supplies all 13; reflex_import writes NULL for a vector missing from a git note, so an imported one can
+    break them. A score cannot be computed from a row that lacks its inputs, so that row is left out."""
+    pid = _project_with_postflights(db, "p-flow", [FULL, {"know": 0.8, "uncertainty": 0.2}])
+    flow = db.calculate_flow_metrics(pid)
+    assert len(flow["flow_scores"]) == 1, "only the complete POSTFLIGHT has a flow score"
+    health = db.calculate_health_score(pid)
+    assert (
+        len(health["health_scores"]) == 1
+        and health["current_health"]["session_id"] == flow["flow_scores"][0]["session_id"]
+    )
+
+
+def test_a_project_whose_only_postflights_are_incomplete_has_no_score_not_an_error(db):
+    pid = _project_with_postflights(db, "p-flow-none", [{"know": 0.8}])
+    flow = db.calculate_flow_metrics(pid)
+    assert flow["flow_scores"] == [] and flow["current_flow"] is None
+    health = db.calculate_health_score(pid)
+    assert health["health_scores"] == [] and health["current_health"] is None and health["average_health"] == 0.0
+
+
+# ── the handoff report invented 0.0 for a vector either side did not assess ──
+
+
+def _generator(tmp_path):
+    from empirica.core.handoff.report_generator import EpistemicHandoffReportGenerator
+
+    return EpistemicHandoffReportGenerator(db_path=str(tmp_path / "h.db"))
+
+
+def test_a_delta_is_only_computed_between_two_vectors_that_were_both_assessed(tmp_path):
+    """`before = preflight.get(k, 0.0)` / `after = postflight.get(k, 0.0)` turned a vector a sparse CHECK never assessed into a
+    delta against zero: -0.6 for a context the practitioner simply did not re-rate."""
+    gen = _generator(tmp_path)
+    deltas = gen._calculate_deltas({"know": 0.5, "context": 0.6, "uncertainty": 0.4}, {"know": 0.8, "uncertainty": 0.2})
+    assert deltas["know"] == 0.3 and deltas["uncertainty"] == -0.2
+    assert "context" not in deltas, "context was not assessed after, so there is no delta"
+    assert deltas["overall_confidence"] == 0.2
+
+
+def test_no_overall_confidence_delta_without_uncertainty_on_both_sides(tmp_path):
+    gen = _generator(tmp_path)
+    assert "overall_confidence" not in gen._calculate_deltas({"know": 0.5, "uncertainty": 0.4}, {"know": 0.8})
+
+
+def test_the_delta_table_says_n_a_for_what_was_not_assessed(tmp_path):
+    gen = _generator(tmp_path)
+    start = {"know": 0.5, "context": 0.6}
+    end = {"know": 0.8}
+    table = gen._build_delta_table(start, end, gen._calculate_deltas(start, end))
+    context_row = next(line for line in table.splitlines() if line.startswith("| CONTEXT"))
+    assert "n/a" in context_row and "+0.00" not in context_row and "0.00 | 0.00" not in context_row
+    know_row = next(line for line in table.splitlines() if line.startswith("| KNOW"))
+    assert "0.50" in know_row and "0.80" in know_row and "+0.30" in know_row

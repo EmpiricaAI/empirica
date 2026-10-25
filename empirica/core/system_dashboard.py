@@ -482,6 +482,17 @@ class SystemDashboard(EpistemicObserver):
         """Stub — MemoryGapDetector was removed (overlaps with Qdrant + compact hooks)."""
         return IntegrityStatus()
 
+    def _latest_recorded(self, cursor, column: str, default: float) -> float:
+        """The newest non-NULL value of one of this session's vectors, or `default` if it was never recorded."""
+        if column not in ("know", "uncertainty"):  # interpolated into SQL: only the two this method serves
+            raise ValueError(f"unsupported vector column {column!r}")
+        cursor.execute(
+            f"SELECT {column} FROM reflexes WHERE session_id = ? AND {column} IS NOT NULL ORDER BY timestamp DESC LIMIT 1",
+            (self.session_id,),
+        )
+        found = cursor.fetchone()
+        return found[0] if found else default
+
     def _query_gate(self) -> GateStatus:
         """Pull sentinel gate state from database."""
         try:
@@ -509,9 +520,11 @@ class SystemDashboard(EpistemicObserver):
                 db.close()
                 return GateStatus(phase="no_preflight")
 
-            phase, know, uncertainty, reflex_data, _ = row
-            know = know or 0.0
-            uncertainty = uncertainty or 1.0
+            phase, _know, _uncertainty, reflex_data, _ = row
+            # Newest RECORDED know and uncertainty: the latest row is often a CHECK that omits one (NULL = not assessed). `x or default`
+            # also read a genuine 0.0 as missing. Never recorded keeps the fail-closed defaults (know 0.0, uncertainty 1.0).
+            know = self._latest_recorded(cursor, "know", 0.0)
+            uncertainty = self._latest_recorded(cursor, "uncertainty", 1.0)
 
             # Determine decision from reflex_data
             decision = "unknown"

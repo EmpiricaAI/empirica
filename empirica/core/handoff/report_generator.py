@@ -160,7 +160,7 @@ class EpistemicHandoffReportGenerator:
             "recommended_next_steps": recommendations,
             "artifacts_created": artifacts_created or [],
             "calibration_status": calibration["status"],
-            "overall_confidence_delta": deltas.get("overall_confidence", 0.0),
+            "overall_confidence_delta": deltas.get("overall_confidence"),
         }
 
         # Generate markdown
@@ -334,15 +334,19 @@ class EpistemicHandoffReportGenerator:
             "uncertainty",
         ]
 
+        # A delta needs a value on BOTH sides. A vector the later assessment did not make (a sparse CHECK leaves most NULL) used to
+        # default to 0.0, which reported a drop to zero that nobody assessed; it is left out of the deltas instead.
         for key in vector_keys:
-            before = preflight_vectors.get(key, 0.0)
-            after = postflight_vectors.get(key, 0.0)
-            deltas[key] = round(after - before, 3)
+            before = preflight_vectors.get(key)
+            after = postflight_vectors.get(key)
+            if before is not None and after is not None:
+                deltas[key] = round(after - before, 3)
 
-        # Calculate overall confidence (inverse of uncertainty)
-        before_conf = 1.0 - preflight_vectors.get("uncertainty", 0.5)
-        after_conf = 1.0 - postflight_vectors.get("uncertainty", 0.5)
-        deltas["overall_confidence"] = round(after_conf - before_conf, 3)
+        # Calculate overall confidence (inverse of uncertainty), only when uncertainty was assessed on both sides
+        before_unc = preflight_vectors.get("uncertainty")
+        after_unc = postflight_vectors.get("uncertainty")
+        if before_unc is not None and after_unc is not None:
+            deltas["overall_confidence"] = round((1.0 - after_unc) - (1.0 - before_unc), 3)
 
         return deltas
 
@@ -757,9 +761,15 @@ class EpistemicHandoffReportGenerator:
             lines.append(f"| **{tier_name}** | | | | |")
 
             for vec in vectors:
-                before = start_vectors.get(vec, 0.0)
-                after = end_vectors.get(vec, 0.0)
-                delta = deltas.get(vec, 0.0)
+                before = start_vectors.get(vec)
+                after = end_vectors.get(vec)
+                delta = deltas.get(vec)
+
+                if before is None or after is None or delta is None:
+                    # Not assessed on one side: say so rather than print 0.00 for a value nobody gave
+                    shown = lambda v: "n/a" if v is None else f"{v:.2f}"  # noqa: E731
+                    lines.append(f"| {vec.upper()} | {shown(before)} | {shown(after)} | n/a | — |")
+                    continue
 
                 # Status indicator
                 if abs(delta) < 0.05:
