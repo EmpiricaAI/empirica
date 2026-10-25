@@ -4,6 +4,7 @@ pinned here with a negative control. Everything lives in a temp SessionDatabase 
 
 from __future__ import annotations
 
+import os
 import time
 
 import pytest
@@ -688,3 +689,75 @@ def test_saving_into_a_valid_file_still_merges_and_keeps_the_providers(tmp_path,
         loader.save_ntfy_config(topic="t", config_path=path)
     saved = yaml.safe_load(path.read_text())
     assert saved["providers"]["openai"]["api_key"] == "sk-keep-me" and (saved.get("cortex") or saved.get("ntfy"))
+
+
+# ── R3 every credentials getter sees a file another process rewrote, and a fixed file is retried ──
+
+
+@pytest.fixture
+def fresh_loader(tmp_path, monkeypatch):
+    """A CredentialsLoader with no inherited singleton state, reading only tmp_path."""
+    from empirica.config.credentials_loader import CredentialsLoader
+
+    path = tmp_path / "credentials.yaml"
+    monkeypatch.setenv("EMPIRICA_CREDENTIALS_PATH", str(path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    for var in ("ORCHESTRATION_NTFY_URL", "ORCHESTRATION_NTFY_TOPIC", "ORCHESTRATION_NTFY_USER"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(CredentialsLoader, "_instance", None)
+    return path, CredentialsLoader
+
+
+def _rewrite(path, text, *, mtime):
+    path.write_text(text)
+    os.utime(path, (mtime, mtime))
+
+
+def test_a_rewritten_file_is_seen_by_the_provider_getters(fresh_loader):
+    path, cls = fresh_loader
+    _rewrite(path, "providers:\n  openai:\n    api_key: sk-old\n", mtime=1_000_000)
+    loader = cls()
+    assert loader.get_api_key("openai") == "sk-old"
+    _rewrite(path, "providers:\n  openai:\n    api_key: sk-new\n  other:\n    api_key: k2\n", mtime=1_000_100)
+    assert loader.get_api_key("openai") == "sk-new", "get_api_key served the cached file"
+    assert sorted(loader.list_providers()) == ["openai", "other"]
+
+
+def test_a_rewritten_file_is_seen_by_get_ntfy_config(fresh_loader):
+    path, cls = fresh_loader
+    _rewrite(path, "ntfy:\n  topic: old-topic\n", mtime=1_000_000)
+    loader = cls()
+    assert loader.get_ntfy_config()["topic"] == "old-topic"
+    _rewrite(path, "ntfy:\n  topic: new-topic\n", mtime=1_000_100)
+    assert loader.get_ntfy_config()["topic"] == "new-topic"
+
+
+def test_a_file_that_failed_to_parse_is_retried_once_it_is_fixed(fresh_loader):
+    path, cls = fresh_loader
+    _rewrite(path, "providers:\n  openai:\n    api_key: sk-x\nbad: [unclosed\n", mtime=1_000_000)
+    loader = cls()
+    assert loader.get_api_key("openai") is None, "the broken file must not be half-read"
+    _rewrite(path, "providers:\n  openai:\n    api_key: sk-fixed\n", mtime=1_000_100)
+    assert loader.get_api_key("openai") == "sk-fixed", "a fixed file was never retried"
+
+
+def test_a_file_created_after_the_first_load_is_picked_up(fresh_loader):
+    path, cls = fresh_loader
+    loader = cls()
+    assert not path.exists() and loader.get_api_key("openai") is None
+    _rewrite(path, "providers:\n  openai:\n    api_key: sk-late\n", mtime=1_000_000)
+    assert loader.get_api_key("openai") == "sk-late"
+
+
+def test_an_unchanged_file_is_not_parsed_again(fresh_loader, monkeypatch):
+    path, cls = fresh_loader
+    _rewrite(path, "providers:\n  openai:\n    api_key: sk-old\n", mtime=1_000_000)
+    loader = cls()
+    loads = []
+    real = cls._load_credentials
+    monkeypatch.setattr(cls, "_load_credentials", lambda self: (loads.append(1), real(self))[1])
+    for _ in range(3):
+        loader.get_api_key("openai")
+        loader.get_ntfy_config()
+        loader.list_providers()
+    assert loads == [], "an unchanged mtime must not cost a reload"

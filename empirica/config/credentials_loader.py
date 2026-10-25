@@ -143,8 +143,7 @@ class CredentialsLoader:
     # serves a stale oauth block and a bridge guard reading it overwrites a
     # freshly-written family (extension prop_zyz4wflb). Tracking mtime makes the
     # cache reload on disk change.
-    _cache_source_mtime: float | None = None
-    _cache_source_path = None
+    _cache_signature: tuple[Path, float] | None = None
 
     def __new__(cls):
         """Create singleton instance of credentials loader."""
@@ -157,21 +156,28 @@ class CredentialsLoader:
         if self._credentials_cache is None:
             self._load_credentials()
 
-    def _reload_if_file_changed(self) -> None:
-        """Drop the cache when the source file's mtime moved. Cheap (one stat)
-        and best-effort: a stat failure leaves the cache intact rather than
-        thrashing. This is what lets the daemon see a credential written by
-        another process without a restart."""
+    def _source_signature(self) -> tuple[Path, float] | None:
+        """(path, mtime) of the credentials file that would be loaded now, or None.
+
+        Computed from the file search, not from the last load, so a file created
+        after a dotfile fallback, or replaced by one higher in the precedence
+        order, is noticed too."""
         try:
-            path = self._cache_source_path
-            if path is None or not path.exists():
-                return
-            current = path.stat().st_mtime
-            if self._cache_source_mtime is not None and current != self._cache_source_mtime:
-                self._credentials_cache = None
-                self._load_credentials()
+            path = self._find_config_file()
+            return (path, path.stat().st_mtime) if path is not None else None
         except OSError:
-            pass
+            return None
+
+    def _ensure_fresh(self) -> None:
+        """Reload when the credentials file differs from the one the cache came from.
+
+        Every getter calls this: a cache that only some getters re-check serves the
+        daemon a stale ntfy or provider block while the cortex block is current.
+        Cheap (a few stats) and best-effort: a stat failure leaves the cache intact
+        rather than thrashing."""
+        if self._source_signature() != self._cache_signature:
+            self._credentials_cache = None
+            self._load_credentials()
 
     def _find_config_file(self) -> Path | None:
         """
@@ -209,6 +215,10 @@ class CredentialsLoader:
     def _load_credentials(self):
         """Load credentials from config file or fallback to dotfiles"""
         config_file = self._find_config_file()
+        # Recorded BEFORE parsing: a file that fails to parse is still the file
+        # this cache came from, so fixing it (a new mtime) triggers a retry
+        # instead of leaving the dotfile fallback served until restart.
+        self._cache_signature = self._source_signature()
 
         if config_file:
             logger.info(f"✅ Loading credentials from: {config_file}")
@@ -228,13 +238,6 @@ class CredentialsLoader:
 
                 # Interpolate environment variables
                 self._credentials_cache = self._interpolate_env_vars(config)
-                # Record the source + its mtime so a later read can detect a
-                # concurrent write and reload (serve-daemon freshness).
-                try:
-                    self._cache_source_path = config_file
-                    self._cache_source_mtime = config_file.stat().st_mtime
-                except OSError:
-                    self._cache_source_mtime = None
                 logger.info(f"   Loaded {len(config.get('providers', {}))} provider configurations")
 
             except Exception as e:
@@ -665,7 +668,7 @@ class CredentialsLoader:
         identity beside an access token from another — which fails in ways far
         harder to read than "no token".
         """
-        self._reload_if_file_changed()
+        self._ensure_fresh()
         if not self._credentials_cache:
             self._load_credentials()
         cortex = self._credentials_cache.get("cortex") if self._credentials_cache else None
@@ -799,7 +802,7 @@ class CredentialsLoader:
         env_url = os.getenv("CORTEX_REMOTE_URL") or os.getenv("CORTEX_URL")
         env_key = os.getenv("CORTEX_API_KEY")
 
-        self._reload_if_file_changed()
+        self._ensure_fresh()
         if not self._credentials_cache:
             self._load_credentials()
 
@@ -868,6 +871,7 @@ class CredentialsLoader:
             "token": os.getenv("ORCHESTRATION_NTFY_TOKEN"),
         }
 
+        self._ensure_fresh()
         if not self._credentials_cache:
             self._load_credentials()
         file_cfg = self._credentials_cache.get("ntfy") if self._credentials_cache else None
@@ -941,6 +945,7 @@ class CredentialsLoader:
         Returns:
             Dict with provider config or None if not found
         """
+        self._ensure_fresh()
         if not self._credentials_cache:
             self._load_credentials()
 
@@ -1004,6 +1009,7 @@ class CredentialsLoader:
 
     def list_providers(self) -> list:
         """List all configured providers"""
+        self._ensure_fresh()
         if not self._credentials_cache:
             self._load_credentials()
         return list(self._credentials_cache.get("providers", {}).keys())
