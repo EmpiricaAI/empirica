@@ -120,10 +120,14 @@ def test_a_bad_file_is_logged_and_skipped_and_its_neighbour_still_loads(tmp_path
 def test_a_dropped_check_entry_is_logged_and_a_yaml_scalar_is_kept(tmp_path, caplog):
     """`_as_tuple` dropped a non-string entry without a word, so `required_checks: [{semgrep: x}]` silently stopped requiring anything.
     A bare YAML `yes` is a boolean: it is kept as text so the check fails as 'not registered' instead of vanishing."""
-    body = "domain: bad\ncriticalities:\n  high:\n    required_checks:\n      - tests\n      - {semgrep: x}\n      - yes\n"
+    body = (
+        "domain: bad\ncriticalities:\n  high:\n    required_checks:\n      - tests\n      - {semgrep: x}\n      - yes\n"
+    )
     with caplog.at_level(logging.WARNING):
         reg = _registry_with(tmp_path, body)
     required = reg.resolve(DomainKey("code", "bad", "high")).required
     assert required[0] == "tests" and "True" in required, "a scalar entry must stay required, as text"
     assert len(required) == 2, "the mapping entry cannot be a check id"
-    assert any("semgrep" in r.getMessage() and "required_checks" in r.getMessage() for r in caplog.records), "the drop must be visible"
+    assert any("semgrep" in r.getMessage() and "required_checks" in r.getMessage() for r in caplog.records), (
+        "the drop must be visible"
+    )

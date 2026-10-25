@@ -2271,20 +2271,27 @@ def _goal_miss_reason(goal_id: str, expected_status: str, cursor=None) -> str:
     """Why a goal id selected nothing to change: too short, ambiguous, absent, or present but in the wrong state.
 
     The repository methods answer a bare False for all four, and the handlers said "not found or not in 'planned' status" for each,
-    which sends a user with an ambiguous prefix looking for a goal that exists. The id resolver already knows the reason."""
-    from empirica.data.id_guard import resolve_id_prefix
-
+    which sends a user with an ambiguous prefix looking for a goal that exists. The id resolver already knows the reason. This only
+    builds a message, so it never raises: any failure falls back to the old wording rather than hiding the original error."""
+    fallback = f"Goal {goal_id} not found or not in '{expected_status}' status"
     own = None
     try:
+        from empirica.data.id_guard import resolve_id_prefix
+
         if cursor is None:
             from empirica.data.session_database import SessionDatabase
 
             own = SessionDatabase()
             cursor = own.conn.cursor()
         _full, why = resolve_id_prefix(cursor, "goals", "id", goal_id)
+    except Exception:
+        return fallback
     finally:
         if own is not None:
-            own.close()
+            try:
+                own.close()
+            except Exception:
+                pass
     if why:
         return f"Goal {goal_id}: {why}"
     return f"Goal {goal_id} is not in '{expected_status}' status"

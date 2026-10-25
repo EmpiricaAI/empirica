@@ -855,3 +855,10 @@ def test_a_unique_prefix_that_exists_falls_back_to_the_status_wording():
 
     message = _goal_miss_reason("zzzz9999", "planned", cursor=_goal_rows())
     assert "not in 'planned' status" in message
+
+
+def test_the_goal_miss_message_never_raises_and_falls_back_to_the_old_wording():
+    """It only builds an error message: if looking up the reason fails, the original error must still reach the user."""
+    from empirica.cli.command_handlers.goal_commands import _goal_miss_reason
+
+    assert _goal_miss_reason("abc", "planned", cursor=object()) == "Goal abc not found or not in 'planned' status"

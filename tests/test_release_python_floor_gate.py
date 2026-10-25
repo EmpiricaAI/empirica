@@ -122,7 +122,11 @@ def test_the_parse_script_reports_an_undecodable_or_null_byte_file_instead_of_cr
     (tmp_path / "empirica" / "latin1.py").write_bytes(b"# caf\xe9\nx = 1\n")
     (tmp_path / "empirica" / "nul.py").write_bytes(b"x = 1\x00\n")
     out = subprocess.run(
-        [sys.executable, "-c", _mod().PYTHON_FLOOR_PARSE_SCRIPT], cwd=tmp_path, capture_output=True, text=True, timeout=60
+        [sys.executable, "-c", _mod().PYTHON_FLOOR_PARSE_SCRIPT],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert out.returncode == 0, out.stderr
     payload = json.loads(out.stdout.strip().splitlines()[-1])

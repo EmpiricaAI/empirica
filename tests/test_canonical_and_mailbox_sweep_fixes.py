@@ -333,7 +333,14 @@ def test_with_the_roster_up_an_empty_inbox_is_still_a_clean_zero(monkeypatch):
 
 ROSTER_WITHOUT_THE_CALLER = {
     "self": {"tenant_slug": "david"},
-    "org": {"tenants": [{"tenant_slug": "david", "projects": [{"slug": "someone-else", "ai_id_mesh": "empirica.david.someone-else"}]}]},
+    "org": {
+        "tenants": [
+            {
+                "tenant_slug": "david",
+                "projects": [{"slug": "someone-else", "ai_id_mesh": "empirica.david.someone-else"}],
+            }
+        ]
+    },
 }
 
 
