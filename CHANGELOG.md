@@ -5,6 +5,34 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.16] - 2026-10-25
+
+### Highlights
+
+- **A vector nobody assessed is stored as "not assessed", not as 0.5.** `store_vectors` filled every missing vector with 0.5, and every reader then took the 0.5 for a measurement. Measured on this project's last 60 days: PREFLIGHT and POSTFLIGHT supply all 13 vectors, but CHECK supplies 7.0 on average (as few as 2), and all 53 CHECKs with missing vectors had the gaps stored as 0.5.
+- **Every reader of those columns was audited first, and the ones that broke are fixed.** Two read-only audits covered about 80 read sites, and three independent reviews of the change found the ones they missed. The writer change was applied last, after the readers could take a NULL.
+- **A missing value no longer turns into a permissive recommendation.** A handoff for a CHECK that skipped uncertainty said "Ready for execution"; it now asks for uncertainty to be assessed. The dashboard gate fails closed when the latest check did not assess uncertainty, and stagnation is no longer detected from values nobody assessed.
+- **Where a value is needed, the last value actually recorded is used.** Session end, session create's auto-close, the pre-compact snapshot, the statusline and the dashboard take each vector's newest recorded value instead of a default. The auto-close also stopped rewriting a genuine 0.0 to a default.
+- **Commands that crashed on a sparse CHECK now work:** `goals-ready`, the compact analysis, the text form of `epistemics-show`, `project-bootstrap` after an auto-closed session, and `handoff-create`.
+
+### Changed
+
+- **`store_vectors` stores NULL for a vector that is absent or not a number** (a bool counts as not a number). The values actually supplied stay in `reflex_data`. The columns were already nullable, so there is no migration. **Existing rows are not rewritten:** the 0.5s already stored for past CHECKs stay, and cannot be told apart from a real 0.5 without reading `reflex_data`.
+- **The handoff report leaves a delta out when a vector was not assessed on both sides** (it used to compute a delta against 0.0), the table prints `n/a`, `overall_confidence_delta` is null when uncertainty is missing, and the heuristic calibration check answers `not_assessable` instead of "well calibrated" for a comparison it never made.
+- **The dashboard gate shows the last recorded know and uncertainty, but `gate_passed` is false when the latest row itself did not assess uncertainty.** It also reads a real 0.0 uncertainty correctly (it read 1.0).
+- **The statusline fills a vector the latest row did not assess from its last recorded value in the same transaction**, and its completion bar does the same. A missing vector would otherwise read 0% in red. The extra query costs about 0.5 ms per render, and only when the latest row is sparse.
+- **Flow and health scores skip a POSTFLIGHT that has NULLs** (a restored or imported one) instead of raising `TypeError`.
+- **New `VectorRepository.get_last_recorded_vectors`** (and the matching `SessionDatabase` method): each vector's newest recorded value over a session.
+
+### Fixed
+
+- **The diminishing-returns check no longer reads unassessed rounds as stagnation.** Earlier CHECKs that skipped know and uncertainty counted as 0.5 each, so a current CHECK at uncertainty 0.45 could pass the gate (threshold 0.35) as "diminishing returns".
+- **`goals-ready` no longer raises `TypeError`** when the latest row omits know or uncertainty; it uses the newest recorded values and says which is missing.
+- **The pre-compact snapshot and the continuation PREFLIGHT built from it no longer invent uncertainty 0.35 and state 0.7** for a sparse CHECK.
+- **The impact stamped on a finding logged after a sparse CHECK is the last recorded impact**, not a neutral 0.5. The workspace overview and workspace map show the last recorded know and uncertainty for a project, and the health score built on them is no longer fed an invented 0.5.
+- **The postflight delta no longer drops every delta silently** when the PREFLIGHT row has a NULL (the `TypeError` was swallowed by an outer handler).
+- **`project-bootstrap` no longer crashes printing a handoff** whose vectors are missing: `get(k, "N/A")` followed by `:.2f` could not format the string it had defaulted to (this one pre-dates the change).
+
 ## [1.14.15] - 2026-10-25
 
 ### Highlights
