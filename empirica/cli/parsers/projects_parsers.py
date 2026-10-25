@@ -346,11 +346,11 @@ def add_projects_parsers(subparsers) -> None:
             "Soft archive (default): sets is_archived=true + archived_at "
             "on the cortex project row, removes the project_id from the "
             "caller's user.project_ids so it stops surfacing in roster / "
-            "threads / sers projections. Proposals + SERs + artifacts stay "
+            "threads projections. Proposals, artifacts and historical records stay "
             "readable for audit. Reversible by re-running `projects-bulk-register` "
             "on the same project.\n\n"
             "Hard purge (--purge --confirm): deletes the project row and "
-            "cascade-deletes proposals + SERs + artifacts owned by it. "
+            "cascade-deletes proposals, artifacts and historical records owned by it. "
             "Irreversible. Requires --confirm to actually execute."
         ),
     )
@@ -367,7 +367,7 @@ def add_projects_parsers(subparsers) -> None:
     unreg.add_argument(
         "--purge",
         action="store_true",
-        help="Hard-delete instead of soft-archive. Cascade-deletes proposals + SERs + artifacts. Requires --confirm.",
+        help="Hard-delete instead of soft-archive. Cascade-deletes proposals, artifacts and historical records. Requires --confirm.",
     )
     unreg.add_argument(
         "--confirm",

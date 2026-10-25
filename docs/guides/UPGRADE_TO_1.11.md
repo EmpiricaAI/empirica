@@ -67,7 +67,7 @@ remain in `CHANGELOG.md`.
   mesh-support escalation when a listener entered intentional 429
   backoff and the previous status was misleading.
 - **1.11.2 (2026-06-02)** — code-side completion of the bead v0 →
-  SER migration. `bead` node type, the 4 v0 edges
+  SER migration (the SER itself was retired 2026-10-24). `bead` node type, the 4 v0 edges
   (`tracks`/`owned_by`/`about`/`worked_by`), the `_workflow_postflight`
   beads-sync group, and `bead_id`/`bridge_position` listener event
   fields all removed. `'blocked'` added to the goal status enum.
@@ -100,7 +100,9 @@ If you skipped 1.10.5 + 1.10.6 patches and are jumping straight from 1.10.4, you
 
 ### Bead v0 → Shared Epistemic Record (SER) — coordination concept relocated (1.10.5 ship → 1.11 retire)
 
-**Short version:** the v0 `bead` artifact type that landed in 1.10.5 has been retired. Its replacement — the **Shared Epistemic Record (SER)** — lives at the cortex layer, not in the empirica artifact graph. If you're not running mesh, nothing changes. If you are, see below.
+> **Later change (2026-10-24):** the SER that replaced the bead was itself retired. Cortex closed every SER and refuses new ones, and core removed its consumer side in 1.14.14. The cross-practitioner "is every target done" question is now answered by one multi-target proposal with a per-target ack (`empirica mailbox reply`). Read the rest of this section as the 1.11 history it is.
+
+**Short version:** the v0 `bead` artifact type that landed in 1.10.5 has been retired. In 1.11 its replacement was the **Shared Epistemic Record (SER)**, which lived at the cortex layer, not in the empirica artifact graph. If you're not running mesh, nothing changes. If you are, see below.
 
 **What happened.** 1.10.5 shipped a `beads` table + a `bead` artifact type with `coordination_state` + 4 new edge relations (`owned_by` / `worked_by` / `tracks` / `about`) as the v0 design for cross-practitioner coordination. Three-way review across cortex / empirica / extension surfaced two problems with that shape:
 
@@ -116,11 +118,11 @@ The retirement decision and new design landed in [`empirica-cortex/docs/architec
 | If you are… | Action |
 |---|---|
 | Not running mesh | Nothing. The bead concept was invisible to you in 1.10.5 and stays invisible |
-| Running mesh, never emitted a v0 bead | Nothing. SER (Shared Epistemic Record) handles cross-practitioner coordination; the `/cortex-mailbox-send` skill (1.11.0+) directs your AIs through the SER coordination flow |
-| Emitted v0 beads during 1.10.5 | The rows stay readable. Don't re-emit. SER replaces the concept at the mesh layer |
-| Building against the v0 bead API (custom code) | Migrate to the mesh SER coordination actions (the create / read / state-transition flow exposed by the mesh layer). Some state transitions are still landing mesh-side |
+| Running mesh, never emitted a v0 bead | Nothing. Cross-practitioner coordination lives at the cortex layer (the SER in 1.11, multi-target proposals since 2026-10-24); the `/cortex-mailbox-send` skill directs your AIs through it |
+| Emitted v0 beads during 1.10.5 | The rows stay readable. Don't re-emit. The concept moved to the mesh layer |
+| Building against the v0 bead API (custom code) | Use multi-target proposals with per-target acks. (The SER create / read / state-transition actions this guide pointed to in 1.11 were retired 2026-10-24) |
 
-**Why this matters for the 1.11 conceptual story.** SER is the cross-practitioner primitive; **goals** stay the per-practitioner work primitive. They live at different altitudes and don't compete. See [`MESH_CONCEPTS.md`](../human/end-users/MESH_CONCEPTS.md) for the full framing of why this split is intentional and what each layer carries.
+**Why this matters for the 1.11 conceptual story.** The cross-practitioner primitive lives in cortex (the SER then, multi-target proposals now); **goals** stay the per-practitioner work primitive. They live at different altitudes and don't compete. See [`MESH_CONCEPTS.md`](../human/end-users/MESH_CONCEPTS.md) for the full framing of why this split is intentional and what each layer carries.
 
 ### Phase B mesh — noetic / praxic primitive split (1.10.5)
 
@@ -168,7 +170,7 @@ restored push-path delivery fleet-wide. Short aliases (`cortex`,
 - [ ] `empirica setup-claude-code --force` (refresh hooks + plugin skills)
 - [ ] `empirica diagnose` — green = ready
 - [ ] If you run a persistent listener, restart it (see Quick Upgrade above)
-- [ ] **Mesh users who emitted v0 beads in the 1.10.5 window**: nothing to migrate — those rows stay readable, no further bead emissions happen, SER replaces the concept at the cortex layer (see [Bead v0 → SER](#bead-v0--shared-epistemic-record-ser--coordination-concept-relocated-1105-ship--111-retire))
+- [ ] **Mesh users who emitted v0 beads in the 1.10.5 window**: nothing to migrate — those rows stay readable, no further bead emissions happen, the concept moved to the cortex layer (see [Bead v0 → SER](#bead-v0--shared-epistemic-record-ser--coordination-concept-relocated-1105-ship--111-retire))
 - [ ] **Multi-project users**: skim [`REGISTER_AND_MANAGE_PROJECTS.md`](../human/end-users/REGISTER_AND_MANAGE_PROJECTS.md) — covers the new `projects-sync` master verb and the selective `--include`/`--exclude` filters
 - [ ] **Mesh users**: skim [`MESH_SETUP.md`](../human/end-users/MESH_SETUP.md) — covers the post-1.10.6 listener arming pattern + the Contract 2 wake-noise simplification. New to the conceptual story: read [`MESH_CONCEPTS.md`](../human/end-users/MESH_CONCEPTS.md) first
 - [ ] **New to the discovery side**: walk through [`LOGGING_AND_FINDING.md`](../human/end-users/LOGGING_AND_FINDING.md) — the OAuth2 worked example threads search + entity-walk + commit-context together

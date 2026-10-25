@@ -108,6 +108,20 @@ def test_whats_new_sync_writes_the_released_version_heading(tmp_path: Path):
     assert "Was broken across two physical lines." in readme
 
 
+def test_whats_new_sync_keeps_a_blank_line_before_the_next_heading(tmp_path: Path):
+    """The replaced span stops before the next heading's newline, so the heading used to land on the line right after the last bullet
+    (1.14.14 shipped `## Privacy & Data` glued to the list, which renders as part of the last bullet)."""
+    (tmp_path / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## [9.9.9] - 2026-01-01\n\n### Fixed\n- **A thing.** Fixed.\n"
+    )
+    (tmp_path / "README.md").write_text(
+        "# Project\n\n## What's New in 9.9.8\n\n- **Old.** Thing.\n\n## Privacy\n\ntext\n"
+    )
+    _manager(tmp_path).sync_readme_whats_new()
+    readme = (tmp_path / "README.md").read_text()
+    assert "- **A thing.** Fixed.\n\n## Privacy" in readme
+
+
 def test_whats_new_sync_survives_a_backslash_in_a_bullet(tmp_path: Path):
     """`re.sub` interprets escapes in a replacement STRING — a bullet with a
     backslash would be mangled or raise on the way into README."""

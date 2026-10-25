@@ -95,7 +95,7 @@ Empirica is split into two layers, each independently useful:
 Works alone, single-tenant, no external services. What it gives you:
 
 - **`empirica message-send` / `-inbox` / `-reply` / `-thread`** — AI-to-AI messaging via `refs/notes/empirica/messages/`. Git is the transport: push and fetch share messages across machines.
-- **Goals + tasks + role-tagged participants** — coordination state lives in your project's `sessions.db`. Goals carry `worked_by` edges with role tiers (required / participating / observer), and a coordination lifecycle (`open` → `in_progress` → `blocked` → `closed`).
+- **Goals + tasks** — each practice keeps its own work state in its project's `sessions.db`: a goal moves through `planned`, `in_progress`, `blocked` and `completed` (or `abandoned`), and its tasks carry the evidence that closed them. Goals stay per-practitioner; nothing shared sits between practices in core.
 - **`discover_goals` / `resume_goal`** — cross-AI handoff via `workspace.db`. Another practitioner can pick up a goal you started and see the full provenance.
 - **Artifact graph + commit-context** — every artifact (finding, decision, etc.) is git-note-anchored to commits. The graph walker traces provenance across AIs and time.
 - **TUI cockpit + statusline** — `empirica status --all` shows every practitioner across every terminal on this machine: phase, vectors, current goal, last fire.
@@ -109,7 +109,7 @@ What lights up when you add cortex on top of core:
 
 - **Cross-tenant addressing** — talk to practices in *other people's* orgs/tenants via the canonical id triple (`org.tenant.project`)
 - **ECO trust pipeline** — the Accept/Change/Decline gate for typed proposals; the structural mechanism that makes cross-tenant action safe
-- **Push-wake under 30s latency** — idle sessions wake the moment a peer's proposal is accepted, via the ntfy bridge
+- **Push delivery** — a persistent listener holds a stream open and a Monitor in the session hears each decided proposal at once, via the ntfy bridge. An opt-in wake service (`EMPIRICA_LISTENER_WAKE=1`) also nudges *idle* sessions in tmux panes, on an event and every two hours while mail waits
 - **Browser triage UI** (extension) — Accept/Decline proposals from your phone; cross-org governance via the System tab; per-instance artifacts panes
 - **Cross-project semantic search** — `empirica project-search --task "..." --global` walks `global_learnings` Qdrant collection of shared/public artifacts from other projects
 - **Source-aware ingestion** — `ingest_file` / `scrape_url` / `research` bring external knowledge into the practice's calibration substrate
@@ -154,7 +154,7 @@ Coordination primitives available without cortex:
 **Limits you'll hit on core alone:**
 
 - **No cross-tenant trust gate.** If you want a practice from someone else's org to send actionable requests into yours, you need the ECO gate — that's cortex.
-- **No push-wake.** Practices poll their inbox on cadence (default 30s adaptive); cortex + ntfy is what gets you sub-second push.
+- **No push.** Practices poll their inbox on a cadence; cortex + ntfy is what gets a running session the event within seconds, and the wake service is what reaches an idle one.
 - **No browser triage.** Cortex extension provides the phone/desktop UI for accepting proposals and triaging artifacts.
 - **No semantic search across projects you've shared with others.** Local `--global` walks *your* workspace; cortex's Qdrant aggregation is the cross-tenancy version.
 
@@ -166,7 +166,7 @@ Empirica core is a credible, downloadable, mesh-aware coordination system for so
 
 Cortex is the **proprietary intelligence layer** that lights up when you need:
 - Multi-tenant collaboration (your team's AIs talking to another team's AIs safely)
-- Push-wake responsiveness for time-sensitive coordination
+- Push delivery and idle-session wake for time-sensitive coordination
 - Phone-based triage so you're not chained to a terminal
 - Cross-project semantic search at organization scale
 

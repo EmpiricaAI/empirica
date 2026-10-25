@@ -9,13 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`/pre-publish`**, the release-gate sequence as a loadable skill: scope the diff, deterministic gates, an independent read-only sweep
-  whose every finding you trace, hot-path timing, a clean re-run on the exact commit, then the cut. It carries the rules the 1.14.13
-  sweep earned (a second pass must be clean; grep for an existing guard before writing one; sweep a new destructive command before it
-  touches real data) and has empirica's release steps in a reference file.
-- **The POSTFLIGHT response carries a `reply_shape` line** (Done / Next / Waiting with predicted answers), because
-  `/reporting-discipline` was loaded 3 times against about 4,970 POSTFLIGHTs.
-- **`/artifact-graph`, `/practice-model`, `/authoring-guidance`**: the constitution split by the moment each part is needed.
+- **An opt-in wake service in the listener** (`EMPIRICA_LISTENER_WAKE=1`, off by default). On a mesh event, and every two hours when
+  the inbox holds mail it has not already surfaced, it wakes the practice's idle panes (a busy pane, a draft or a dialog is refused),
+  and the woken turn polls the inbox. Each message causes at most one successful wake; the listener's per-event cost with the flag off
+  is a dictionary lookup.
 - **`wake_instance` only types into a pane that is waiting for input.** It reads the pane first (`pane_is_idle`) and refuses a running
   turn, a half-typed draft, a permission dialog or an unreadable pane, because Space+Enter accepts a dialog's default option and
   submits a draft. The Events button reports a refusal instead of a failure; `require_idle=False` keeps the old unconditional send. The pane is read with its
@@ -27,13 +24,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   then tells the session to stop: a woken session otherwise keeps working (measured: 59 s of unrequested work). Any other prompt costs
   nothing extra. Wake log lines carry a UTC timestamp, because the listener's stderr is a file and an untimed line cannot be compared
   with `armed_at`.
-- **An opt-in wake service in the listener** (`EMPIRICA_LISTENER_WAKE=1`, off by default). On a mesh event, and every two hours when
-  the inbox holds mail it has not already surfaced, it wakes the practice's idle panes (a busy pane, a draft or a dialog is refused),
-  and the woken turn polls the inbox. Each message causes at most one successful wake; the listener's per-event cost with the flag off
-  is a dictionary lookup.
+- **`/pre-publish`**, the release-gate sequence as a loadable skill: scope the diff, deterministic gates, an independent read-only sweep
+  whose every finding you trace, hot-path timing, a clean re-run on the exact commit, then the cut. It carries the rules the 1.14.13
+  sweep earned (a second pass must be clean; grep for an existing guard before writing one; sweep a new destructive command before it
+  touches real data) and has empirica's release steps in a reference file.
 
 ### Changed
 
+- **`mailbox reply` acknowledges a multi-target parent for your own target** instead of skipping completion (cortex 97820077). The
+  client stopgap that left a fan-out request open is gone: it calls `/complete` with your canonical `ai_id`, reports
+  `parent_acked`, `pending_targets` and `target_acks`, and archives your own copy once your ack is recorded. `parent_closed` now means
+  every target has acked. `parent_close_skipped` no longer exists.
+  It replaces the Shared Epistemic Record (SER), which is removed from core (see Removed): one multi-target proposal with a per-target ack now answers "is every target done".
+- **`get_tty_key` is computed once per parent pid and read from `/proc`** (ecodex, measured on core 1.14.13): it spawned a `ps` per
+  ancestor on every call and one session-init called it 74 times. On the box that ran this, 74 calls took 3,077 ms and now take 0.04 ms
+  after a 0.15 ms first call, and a praxic PreToolUse gate ran in 295-368 ms and now runs in 110-112 ms (in-process, same payload,
+  import path forced). The cache is keyed on `os.getppid()` so a reparented listener or MCP server walks again, and a transient failure
+  is never cached. Anything `/proc` cannot name falls back to `ps`; macOS is unchanged. Parity with the old walk was checked on four
+  real chains.
 - **The listener and practitioner heartbeats outlast a cortex restart** (cortex, 2026-10-23: cortex now QUEUES connections for the ~5 s a
   restart takes instead of refusing them). Their post timeout is 12 s, up from exactly 5.0 s, and the practitioner emitter stops its
   cycle at the first no-answer instead of timing out once per live session, then retries on the next interval. The liveness probe (8 s
@@ -44,16 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cockpit refresh` brings it back; the profile no longer hardcodes `claude`. `cockpit refresh` resumes a `codex` or `ecodex` pane with
   `<prog> resume --last` instead of starting a fresh session (checked by ecodex against its v0.164.1 source: right for flag-only launches; a launch ending in a prompt or wrapped in a shell needs an explicit `--resume`). `--no-cortex`
   no longer requires `--tenant`/`--org`: a local practice has no tenant to name, and none is written as an empty key.
-- **`get_tty_key` is computed once per parent pid and read from `/proc`** (ecodex, measured on core 1.14.13): it spawned a `ps` per
-  ancestor on every call and one session-init called it 74 times. On the box that ran this, 74 calls took 3,077 ms and now take 0.04 ms
-  after a 0.15 ms first call, and a praxic PreToolUse gate ran in 295-368 ms and now runs in 110-112 ms (in-process, same payload,
-  import path forced). The cache is keyed on `os.getppid()` so a reparented listener or MCP server walks again, and a transient failure
-  is never cached. Anything `/proc` cannot name falls back to `ps`; macOS is unchanged. Parity with the old walk was checked on four
-  real chains.
-- **`mailbox reply` acknowledges a multi-target parent for your own target** instead of skipping completion (cortex 97820077). The
-  client stopgap that left a fan-out request open is gone: it calls `/complete` with your canonical `ai_id`, reports
-  `parent_acked`, `pending_targets` and `target_acks`, and archives your own copy once your ack is recorded. `parent_closed` now means
-  every target has acked. `parent_close_skipped` no longer exists.
+- **The POSTFLIGHT response carries a `reply_shape` line** (Done / Next / Waiting with predicted answers), because
+  `/reporting-discipline` was loaded 3 times against about 4,970 POSTFLIGHTs.
+- **`/artifact-graph`, `/practice-model`, `/authoring-guidance`**: the constitution split by the moment each part is needed.
 - **The Monitor arm text no longer says nothing is lost in the gap.** The arm command is `tail -F -n 0`, which starts at the end of
   the log, so events written while no Monitor was running are never delivered to the session (measured: two gap lines missed, the
   next line seen). The hook, the listener registration note and the `inbox-listener` skill now say to run `empirica mailbox poll`

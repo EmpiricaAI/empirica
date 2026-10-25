@@ -38,7 +38,7 @@ requires a single reliable way to address and control each running practitioner.
 | **Agent** | a subagent a practitioner spawns | — | task-scoped | N per practitioner |
 
 This matches the system-prompt **Practice Model** ("you inhabit a *practice*; you, the LLM, are
-the *practitioner*; agents are subagents"). **Cleanup:** some older docs/SERs wrote
+the *practitioner*; agents are subagents"). **Cleanup:** some older docs and coordination records wrote
 `<org>.<tenant>.<practitioner>` for the canonical wire form, using "practitioner" loosely to mean
 the practice slug (an artifact of the 1:1 era). The wire address has always addressed the
 **practice**; this spec reserves "practitioner" for the session-occupant.
@@ -129,7 +129,7 @@ practitioner rather than all of them? Resolution:
 
 - **Practice-broadcast (default).** A message to `org.tenant.<practice>` lands in the
   practice's inbox; all its practitioners poll it. Correct for "the practice should do X."
-  With N>1 this needs **claim/dedup** — which proposal-accept/complete + SER already provide
+  With N>1 this needs **claim/dedup** — which proposal-accept/complete (per-target acks on a multi-target proposal) already provide
   (one practitioner claims; others see it's handled).
 - **Practitioner-targeted.** Carry a **`target_practitioner` selector** on the message
   (resolved by cortex), **not** a 4-form wire address — `org.tenant.<practice>` stays canonical

@@ -101,8 +101,7 @@ def add_mesh_parsers(subparsers) -> None:
     # migrate-topics
     migrate = mesh_subs.add_parser(
         "migrate-topics",
-        help="Migrate legacy per-practice + retired bare ntfy topics to "
-        "the per-tenant canonical (closes SER canonical-channel model)",
+        help="Migrate legacy per-practice + retired bare ntfy topics to the per-tenant canonical channel",
         description=(
             "Inspects ~/.empirica/credentials.yaml `ntfy.topic` and every "
             "`~/.empirica/listener_active_*.json` topic, detects retired "

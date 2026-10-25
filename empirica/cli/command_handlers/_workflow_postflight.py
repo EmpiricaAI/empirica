@@ -1638,9 +1638,9 @@ _CORTEX_GRAPH_SPECS = (
         ),
     ),
     # bead removed 2026-06-02 — cortex retired the artifact-graph bead node
-    # type three-way 2026-06-01; coordination state lives in cortex-side SER
-    # (Shared Epistemic Record) primitive now. See cortex b6071ff + empirica
-    # 1.11.0 docs/human/end-users/MESH_CONCEPTS.md for the migration story.
+    # type three-way 2026-06-01. Cross-practitioner coordination state moved to cortex, first as
+    # Shared Epistemic Records (retired 2026-10-24) and now as multi-target proposals with a per-target ack.
+    # See cortex b6071ff + empirica 1.11.0 docs/human/end-users/MESH_CONCEPTS.md for the migration story.
 )
 
 _CORTEX_GRAPH_PER_TYPE_CAP = 20

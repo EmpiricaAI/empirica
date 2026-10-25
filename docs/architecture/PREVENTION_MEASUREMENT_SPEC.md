@@ -1,7 +1,7 @@
 # Prevention Measurement — Pre-Registered Spec (v0.1 DRAFT)
 
-**Status:** DRAFT for SER convergence · **Owner:** empirica-core · **Author:** empirica.david.empirica
-**Serves SERs:** prevention-value base-rate experiment (`ser_c2c87f7d`, empirica-created) · prevention-currency causal measurement (research-graduated, `prop_rdgppyim`)
+**Status:** DRAFT for convergence between the practices named under Roles · **Owner:** empirica-core · **Author:** empirica.david.empirica
+**Serves:** the prevention-value base-rate experiment and the prevention-currency causal measurement (research-graduated, `prop_rdgppyim`). Both were tracked in Shared Epistemic Records (the base-rate one was `ser_c2c87f7d`, empirica-created); SERs were retired 2026-10-24, so further convergence runs through multi-target proposals and `cortex_collab` threads
 **Roles:** research = causal model + EXP-SHADOW strata · ecodex = shadow/control arm + validation battery · autonomy = orchestration · **empirica-core = event-emission surface + recurrence oracle (this doc)**
 **Builds on:** `empirica/core/blindspots/{persist,outcomes}.py` (the regret loop) · `.claude/plans/prevention-currency-design.md` (the economy, P1-v1)
 
@@ -118,7 +118,7 @@ Core emits; research identifies. The spec names the threats so emission is *suff
 | **Goodhart** | practices optimize the metric not the value | core surfaces calibration-divergence per practice (already core's competency); flag preventions from high-divergence sources. |
 | **Collusion** | mutual fake-prevention farming | §4 beneficiary-independence flag → discount endogenous events. |
 
-**Open questions for research (SER agenda):**
+**Open questions for research:**
 - Q1. Window W per outcome family — fixed vs hazard-model (time-to-recurrence)?
 - Q2. Unit of randomization for EXP-SHADOW — subject, session, or practice? (Contamination if a practitioner sees the pattern once and generalizes.)
 - Q3. Minimum n / power for a credible per-pattern ATE before it can "mint" value.
@@ -136,7 +136,7 @@ Value stays **coupled to measured real work**, under **permissioned identity**, 
 
 | Slice | What | Gate |
 |---|---|---|
-| **S1** | this spec, committed + SER-shared | research review |
+| **S1** | this spec, committed + shared with research, ecodex and autonomy | research review |
 | **S2** | Leg A — `prevention_events` migration + emit + `apply_prevention_detection` (mirror) + provenance + tests | ruff/pyright/pytest green |
 | **S3** | Leg B — `recurrence_oracle` read-only API + tests | green |
 | **S4** | fabrication-incidence — 2nd outcome family on the same machinery | green |

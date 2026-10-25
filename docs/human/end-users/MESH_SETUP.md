@@ -10,7 +10,7 @@
 
 **This doc is for users who want the optional mesh layer.** The mesh adds:
 - **Cross-AI coordination** — multiple Claude sessions across projects propose work to each other through an ECO (human or autonomy-actor) decision gate
-- **Push-wake on inbox events** — idle sessions wake the moment a peer's proposal is accepted, not on next user prompt
+- **Push delivery of inbox events** — a running session hears a peer's accepted proposal within seconds, not on its next poll; an opt-in wake service can also nudge an idle tmux pane (Step 6)
 - **Cross-project artifact serving** — semantic search across every project you've worked in
 - **Browser-side ECO triage UI** — Accept/Decline proposals on phone or desktop without having to type into a terminal
 - **Multi-target proposals** — one proposal addressed to several practices, acknowledged per target (`empirica mailbox reply`); it closes when every target has acked, and `pending_targets` shows who still owes. This replaced Shared Epistemic Records, retired 2026-10-24.
@@ -44,14 +44,14 @@ If you want them, read on.
 │  EXTENSION (browser UI)  (chrome.google.com or getempirica.com)  │
 │  • ECO triage — Accept/Decline proposals from phone or desktop   │
 │  • Artifacts pane (reads local daemon at localhost:8000)         │
-│  • Reports tab (closed SER history; SERs retired 2026-10-24)     │
+│  • Reports tab (history of closed records only)                  │
 │  • System tab — cross-org governance events                      │
 └────────────────────┬─────────────────────────────────────────────┘
                      │ optional ↓
 ┌────────────────────┴─────────────────────────────────────────────┐
 │  NTFY PUSH BRIDGE  (ntfy.sh or self-hosted)                      │
 │  • Holds one HTTP stream per AI                                  │
-│  • Wakes idle sessions on inbox events                           │
+│  • Delivers inbox events to running sessions in seconds          │
 │  • Without it, AIs poll on their own cadence (30s adaptive)      │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -60,8 +60,8 @@ Four layers. Each one is optional on top of the one below it. You can stop at an
 
 - **Stop at Core** — everything works per-project, no cross-AI features
 - **Stop at Cortex Sync** — cross-project search works; AIs poll their own inbox at 30s cadence; no browser UI
-- **Stop at Extension** — full mesh on desktop, no push-wake (AIs still poll)
-- **All four** — full mesh with push-wake; idle sessions react to events in seconds
+- **Stop at Extension** — full mesh on desktop, no push delivery (AIs still poll)
+- **All four** — full mesh with push delivery; running sessions react to events in seconds, and the opt-in wake service reaches idle ones
 
 ---
 
@@ -138,7 +138,7 @@ empirica diagnose
 
 ## Step 3 — Install the Browser Extension
 
-The [Empirica Extension](https://getempirica.com) provides the ECO triage UI (Accept/Decline proposals), the Artifacts pane (reads your local daemon), and the **Reports tab** — the human-readable history of the Shared Epistemic Records (SERs) the user's practices took part in. SERs were retired 2026-10-24, so it shows closed records only.
+The [Empirica Extension](https://getempirica.com) provides the ECO triage UI (Accept/Decline proposals), the Artifacts pane (reads your local daemon), and the **Reports tab** — the history of closed Shared Epistemic Records, a coordination record that was retired on 2026-10-24 (multi-target proposals replaced it). It shows closed records only.
 
 **Chrome / Chromium browsers:**
 - Install from the Chrome Web Store via the link at [getempirica.com](https://getempirica.com)
@@ -156,7 +156,7 @@ You can skip the extension entirely if you don't want a browser-side UI; the emp
 
 ## Step 4 — Configure ntfy (Push Wake Bridge)
 
-ntfy is what makes idle sessions wake on inbox events in **seconds** instead of polling cadence (30s adaptive). It's optional — without it, AIs still receive every proposal through their poll loop, just with up to a 5-minute lag during quiet periods.
+ntfy is what delivers inbox events to a running session in **seconds** instead of at the polling cadence (30 s when active, backing off to 5 minutes when idle). It's optional — without it, AIs still receive every proposal through their poll loop, just with up to a 5-minute lag during quiet periods.
 
 For most users on the hosted serving layer:
 - The wizard in Step 2 wrote `ntfy.getempirica.com` + your credentials. You're done.
@@ -233,6 +233,10 @@ Two listener modes exist:
 - Recommended supervisor wrapper handles clean-exit + reconnect
 
 The SessionStart hook detects which mode is active and arms the right shape. You shouldn't have to choose manually.
+
+**A Monitor expires after 30 minutes** (a Claude Code limit). The session re-arms it and runs `empirica mailbox poll` right after, because events written while no Monitor was running are not replayed into the session.
+
+**Waking an idle session (opt-in).** A session that has stopped taking turns hears nothing from its Monitor. Set `EMPIRICA_LISTENER_WAKE=1` on the persistent listener service and it types a short `[wake]` prompt into the practice's idle tmux panes on a mesh event, and every two hours while mail waits. It refuses a busy pane, a half-typed draft or a permission dialog, wakes at most once per message, and the woken turn polls the inbox. It is off by default because it types into terminals unattended.
 
 For pausing/resuming a listener without unregistering:
 ```bash
@@ -365,9 +369,9 @@ A reminder, because users sometimes assume the mesh is required:
 - Cross-project semantic search (`project-search --global`)
 - Cross-AI proposal pipeline (peer AIs requesting work from each other)
 - ECO trust gating with phone/desktop accept/decline
-- Push-wake on inbox events
-- Multi-target proposals with per-target acks (the cross-practitioner "is everyone done" primitive; they replaced Shared Epistemic Records, retired 2026-10-24)
-- The Reports tab in the extension (closed SER history only; SERs were retired 2026-10-24)
+- Push delivery of inbox events, and the opt-in wake service for idle sessions
+- Multi-target proposals with per-target acks (the cross-practitioner "is everyone done" primitive; they replaced the retired Shared Epistemic Record)
+- The Reports tab in the extension (history of closed records only)
 - The System tab (cross-org governance events)
 
 ---

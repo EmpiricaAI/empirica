@@ -1119,6 +1119,9 @@ class ReleaseManager:
         # Build the new What's New section
         new_whats_new = f"## What's New in {self.version}\n\n"
         new_whats_new += "\n".join(whats_new_items[:8])  # Top 8 items
+        # The pattern below stops BEFORE the next heading's newline, so without this the heading lands on the line after the last
+        # bullet with no blank line between (what 1.14.14 shipped to origin).
+        new_whats_new += "\n"
 
         # Replace in README. Match the FIRST What's New section by capturing
         # everything from the header up to (but not including) the next ## or

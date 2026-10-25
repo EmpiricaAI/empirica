@@ -103,3 +103,18 @@ def test_the_content_poll_has_no_ser_event_or_fetch():
     for name in ("EscalationEvent", "reconcile_ser_escalations", "_fetch_sers", "ACTIVE_SER_STATES"):
         assert not hasattr(content_poll, name), name
     assert hasattr(content_poll, "ProposalEvent"), "control: the live event type is still there"
+
+
+def test_no_doc_or_prompt_still_tells_a_reader_to_run_the_removed_verb():
+    """The Sentinel reference listed `mailbox poll|show|sers` as read-only after the verb was gone; the package scan above does not
+    reach docs/. A reader (or a model) following that line is told about a verb that fails with `invalid choice`."""
+    hits = [
+        str(p.relative_to(ROOT))
+        for p in _shipped_files(ROOT / "docs")
+        if "mailbox sers" in p.read_text(encoding="utf-8")
+    ]
+    hits += [
+        str(p.relative_to(ROOT)) for p in _shipped_files(PACKAGE) if "mailbox sers" in p.read_text(encoding="utf-8")
+    ]
+    assert hits == []
+    assert sum(1 for _ in _shipped_files(ROOT / "docs")) > 50, "control: the docs scan walked the docs"

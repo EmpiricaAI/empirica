@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.14
-**Generated:** 2026-10-25 10:20:58 UTC
+**Generated:** 2026-10-25 10:29:09 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1731,7 +1731,7 @@ Unregister a project from Cortex (soft archive by default; --purge to hard-delet
 - `--slug` — optional
   Project slug (resolves on the cortex side against caller's projects).
 - `--purge` — optional · flag
-  Hard-delete instead of soft-archive. Cascade-deletes proposals + SERs + artifacts. Requires --confirm.
+  Hard-delete instead of soft-archive. Cascade-deletes proposals, artifacts and historical records. Requires --confirm.
 - `--confirm` — optional · flag
   Required with --purge — acknowledge the destructive operation.
 - `--local` — optional · flag
@@ -5146,7 +5146,7 @@ Live tail loop_fires.log filtered by instance(s)
 
 ##### `empirica mesh migrate-topics`
 
-Migrate legacy per-practice + retired bare ntfy topics to the per-tenant canonical (closes SER canonical-channel model)
+Migrate legacy per-practice + retired bare ntfy topics to the per-tenant canonical channel
 
 **Arguments:**
 

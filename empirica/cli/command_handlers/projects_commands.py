@@ -1588,13 +1588,13 @@ def handle_projects_unregister_command(args) -> None:
     Soft archive (default):
       - Sets `projects.is_archived=true` and `archived_at=now()` on cortex.
       - Removes the project_id from caller's `users.project_ids` (no longer
-        surfaces in roster, /threads, /sers projections).
-      - Preserves rows: proposals, SER records, artifact history — all stay
+        surfaces in roster or /threads projections).
+      - Preserves rows: proposals, historical records, artifact history — all stay
         readable for audit.
 
     Hard purge (--purge):
       - DELETEs the project row from `projects`.
-      - Cascade-deletes proposals + SERs + artifacts owned by the project.
+      - Cascade-deletes proposals, historical records and artifacts owned by the project.
       - Irreversible. Requires --confirm to actually execute.
 
     Project resolution (precedence):

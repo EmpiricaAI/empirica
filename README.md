@@ -39,7 +39,7 @@ AI coding agents today have no self-awareness about what they know:
 | **Calibrates against reality** | Three-vector model: self-assessed, observed (from deterministic checks), and AI-reasoned grounded state with rationale. Domain compliance loops iterate until all checks pass |
 | **Tracks your codebase** | Temporal entity model auto-extracts functions, classes, and imports from every file edit — the AI knows what's alive and what's stale |
 | **Works through natural language** | You describe tasks normally. The AI operates the measurement system automatically |
-| **Optional: coordinates with peer AIs** | Cross-Claude mesh via Cortex (opt-in) — peer AIs propose work, ECO accepts/declines, completion handshakes carry commit SHAs. A persistent listener wakes idle sessions on inbox events. **Empirica core works standalone without this** — see [Cross-AI Mesh](#cross-ai-mesh-optional-ecosystem-layer) below for the ecosystem layer |
+| **Optional: coordinates with peer AIs** | Cross-AI mesh via Cortex (opt-in) — peer AIs propose work, ECO accepts/declines, completion handshakes carry commit SHAs. A persistent listener delivers inbox events to running sessions, and an opt-in wake service nudges idle ones. **Empirica core works standalone without this** — see [Cross-AI Mesh](#cross-ai-mesh-optional-ecosystem-layer) below |
 
 ---
 
@@ -285,9 +285,9 @@ what it holds. → **[Skills reference](docs/reference/SKILLS.md)**
 
 ## Cross-AI Mesh (Optional Ecosystem Layer)
 
-**This section describes an optional layer.** Empirica core — measurement, calibration, artifacts, goals, project-search, sentinel gating — works fully standalone. The mesh is an opt-in capability for users who run multiple Claude sessions across projects and want them to coordinate as peers. If you only use one AI in one repo, skip this section.
+> **Requires [Empirica Cortex](https://getempirica.com) (proprietary).** Mesh proposals, the persistent listener, the wake service and the `empirica mesh` command cluster all depend on Cortex. They are **not** available in empirica core on its own. If you use one AI in one repo, skip this section: measurement, calibration, artifacts, goals, project-search and Sentinel gating work fully standalone.
 
-The mesh runs on top of [Empirica Cortex](https://getempirica.com) (proprietary serving layer) plus an optional [browser extension](https://getempirica.com) for ECO triage. At a high level:
+The mesh lets practitioners in different practices coordinate as peers. Instead of text-only chat they exchange **epistemic envelopes** that carry calibrated state, source-tagged provenance, noetic/praxic intent and workflow position. It runs on [Empirica Cortex](https://getempirica.com) plus an optional [browser extension](https://getempirica.com) for ECO triage:
 
 ```
 empirica AI ── proposes work ──► ECO Accept/Decline ──► peer AI wakes + acts
@@ -299,41 +299,36 @@ empirica AI ◄────────── outbox/completed event ───�
 
 | Capability | What it does |
 |------------|-------------|
-| **Mesh proposals (two flavors)** | A noetic flavor is auto-accepted (FYI / question / discussion). Praxic flavors (code change / architecture / investigation) are **ECO-gated** — they wait for an Accept/Decline decision before the target AI acts |
-| **`empirica mailbox reply`** | One CLI verb closes the AI-to-AI handshake atomically — single-step completion ack instead of two |
-| **Persistent listener service** | systemd-user / launchd daemon holds a push stream open. Idle sessions wake the moment a peer's proposal is decided, not on next user prompt |
-| **Canonical loops (opt-in)** | Wake-on-event is the standing trigger, so nothing is scheduled by default. Inbox polling (30s adaptive) exists for harnesses that *cannot* do wake-on-event, and daily housekeeping is a cron loop — **both are opt-in**, registered with `empirica loop register`. See [Trigger Model](docs/architecture/TRIGGER_MODEL.md) |
+| **Practitioner / practice framing** | Practices are epistemic specializations that persist; practitioners (the LLMs) inhabit them. Artifacts accrue to the practice, calibration to the practitioner inhabiting it. See [MESH_CONCEPTS.md](docs/human/end-users/MESH_CONCEPTS.md) |
+| **Two proposal flavors** | A noetic flavor (FYI / question / discussion) is auto-accepted. Praxic flavors (code change / architecture / investigation) are **ECO-gated**: they wait for an Accept/Decline decision before the target AI acts |
+| **Multi-target proposals** | One proposal addressed to several practices. Each target acknowledges its own part with `empirica mailbox reply`, the proposal closes when every target has, and `pending_targets` shows who still owes. Goals stay per-practitioner. This replaced the Shared Epistemic Record, retired 2026-10-24 |
+| **`empirica mailbox reply`** | One verb closes the AI-to-AI handshake atomically: a single-step completion ack carrying the commit SHA, instead of two steps |
+| **Persistent listener service** | A systemd-user / launchd daemon holds a push stream open and writes each decided proposal to `loop_fires.log`. A Monitor armed in the session tails that log, so a running session hears the event at once. Claude Code caps a Monitor at 30 minutes, so the session re-arms it and runs `empirica mailbox poll` after each re-arm to cover the gap |
+| **Wake service (opt-in)** | `EMPIRICA_LISTENER_WAKE=1` makes the listener nudge a practice's *idle* tmux panes on a mesh event, and every two hours when mail is waiting. A busy pane, a half-typed draft or a dialog is refused, each message wakes at most once, and the woken turn polls the inbox. Off by default |
+| **Canonical loops (opt-in)** | Wake-on-event is the standing trigger, so nothing is scheduled by default. Inbox polling exists for harnesses that *cannot* do wake-on-event, and daily housekeeping is a cron loop. Both are opt-in, registered with `empirica loop register`. See [Trigger Model](docs/architecture/TRIGGER_MODEL.md) |
+| **Mesh Routing Protocol v0** | Locked four-way with cortex, extension and mesh-support: L1/L2/L3 trust model, server-stamped layer annotation, participant-scoped thread reads |
 
-The browser-side ECO surface (Accept/Decline, inbox triage, publish review) lives in the proprietary [Empirica Extension](https://getempirica.com). The full API surface for proposals, listener events, and the trust pipeline is documented at [getempirica.com](https://getempirica.com).
+The `empirica mesh` cluster is the diagnostic and control surface across listener instances and the optional Cortex bridge:
 
----
+```bash
+empirica mesh status              # per-instance health (local + cortex bridge)
+empirica mesh diagnose <ai_id>    # deep diagnostic + suggested fix command
+empirica mesh restart <ai_id>     # systemd/launchd restart + verify
+empirica mesh on|off <ai_id>      # install + start | stop the listener
+empirica mesh tail [<ai_id>]      # live-tail loop_fires.log
+```
 
-## Mesh
+The listener heals itself: an in-process watchdog terminates stale curl streams (TCP-zombie detection at 120 s by default), and HTTP 429 triggers a long backoff while the catch-up poll keeps running.
 
-> **Requires [Empirica Cortex](https://getempirica.com) (proprietary).** Everything in this section — mesh proposals, the persistent listener, and the `empirica mesh` command cluster — is a Cortex-served layer. It is **not** available in empirica core on its own; without Cortex, empirica is a single-AI measurement layer.
+The browser-side ECO surface (Accept/Decline, inbox triage, publish review) lives in the proprietary [Empirica Extension](https://getempirica.com). The full API for proposals, listener events and the trust pipeline is documented at [getempirica.com](https://getempirica.com).
 
-The cross-AI coordination layer. Practitioners in different practices coordinate not via text-only chat but via **epistemic envelopes** that carry calibrated state, source-tagged provenance, noetic/praxic intent, and workflow position.
-
-- **Practitioner / practice** framing — practices are epistemic specializations that persist, and practitioners (the LLMs) inhabit them. Artifacts accrue to the practice; calibration accrues to the practitioner inhabiting it. See [MESH_CONCEPTS.md](docs/human/end-users/MESH_CONCEPTS.md).
-- **Multi-target proposals** — one proposal addressed to several practices; each target acknowledges its own part (`empirica mailbox reply`), the proposal closes when every target has, and `pending_targets` shows who still owes. Goals stay per-practitioner. (This replaced the Shared Epistemic Record, retired 2026-10-24.)
-- **`empirica mesh` command cluster** — unified diagnostic + control surface across listener instances + the optional cortex bridge:
-  ```bash
-  empirica mesh status              # per-instance health (local + cortex bridge)
-  empirica mesh diagnose <ai_id>    # deep diagnostic + suggested fix command
-  empirica mesh restart <ai_id>     # systemd/launchd restart + verify
-  empirica mesh on|off <ai_id>      # install + start | stop the listener
-  empirica mesh tail [<ai_id>]      # live-tail loop_fires.log
-  ```
-- **Listener self-heal** — in-process watchdog terminates stale curl streams (TCP-zombie detection at 120s by default); HTTP 429 detection applies long backoff with catch-up poll continuing during the window.
-- **Mesh Routing Protocol v0** locked four-way with cortex + extension + mesh-support. L1/L2/L3 trust model, server-stamped layer annotation, participant-scoped thread reads.
-
-**Without Cortex, empirica is a single-AI measurement layer** — the proposals, listener, and `empirica mesh` cluster above are all Cortex-dependent. Core does ship a minimal local `empirica message-*` git-notes primitive for passing notes between your own sessions, but that is note-passing, not the coordinating mesh. Everything that makes empirica valuable on its own — measurement, calibration, artifacts, goals, project-search, sentinel gating — works fully standalone.
+**Without Cortex, empirica is a single-AI measurement layer.** Core does ship a minimal local `empirica message-*` git-notes primitive for passing notes between your own sessions, but that is note-passing, not the coordinating mesh.
 
 ---
 
 ## Practice Model + Entity Graph
 
-Empirica's workspace stores entities (projects, contacts, organisations, engagements, users) in `entity_registry` with typed edges in `entity_memberships`. The **Practice Model** frames this consistently:
+Empirica's workspace registers the entities it works with (projects, users and the sharing agreements between them) in `entity_registry`, with typed edges in `entity_memberships`. Organisations, contacts and engagements are identity data: the canonical CRM store holds them (see [Empirica Workspace](#the-empirica-ecosystem)), and the registry's copies of those rows are no longer maintained. The **Practice Model** frames the registry consistently:
 
 | Term | Maps to |
 |------|---------|
@@ -350,7 +345,7 @@ empirica entity-walk <type:id> --depth 3 # BFS membership graph, cycle-safe
 empirica entity-search "query" [--type T]
 ```
 
-All read-only, all support `--output json`. Backs cross-project orchestration, CRM workflows, and the entity-aware POSTFLIGHT retrospective.
+All read-only, all support `--output json`. They back cross-project orchestration and the entity-aware POSTFLIGHT retrospective. For the current state of an organisation, contact or engagement, ask the CRM, not the registry.
 
 ---
 
@@ -427,14 +422,15 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ## What's New in 1.14.14
 
-- **`/pre-publish`**, the release-gate sequence as a loadable skill: scope the diff, deterministic gates, an independent read-only sweep whose every finding you trace, hot-path timing, a clean re-run on the exact commit, then the cut. It carries the rules the 1.14.13 sweep earned (a second pass must be clean; grep for an existing guard before writing one; sweep a new destructive command before it touches real data) and has empirica's release steps in a reference file.
-- **The POSTFLIGHT response carries a `reply_shape` line** (Done / Next / Waiting with predicted answers), because `/reporting-discipline` was loaded 3 times against about 4,970 POSTFLIGHTs.
-- **`/artifact-graph`, `/practice-model`, `/authoring-guidance`**: the constitution split by the moment each part is needed.
+- **An opt-in wake service in the listener** (`EMPIRICA_LISTENER_WAKE=1`, off by default). On a mesh event, and every two hours when the inbox holds mail it has not already surfaced, it wakes the practice's idle panes (a busy pane, a draft or a dialog is refused), and the woken turn polls the inbox. Each message causes at most one successful wake; the listener's per-event cost with the flag off is a dictionary lookup.
 - **`wake_instance` only types into a pane that is waiting for input.** It reads the pane first (`pane_is_idle`) and refuses a running turn, a half-typed draft, a permission dialog or an unreadable pane, because Space+Enter accepts a dialog's default option and submits a draft. The Events button reports a refusal instead of a failure; `require_idle=False` keeps the old unconditional send. The pane is read with its styling, so Claude Code's dim prompt suggestion is named as a suggestion and a typed draft as a draft; a wake lands over a suggestion only with `allow_suggestion` (`EMPIRICA_WAKE_OVER_SUGGESTION=1` for the listener service), never over a draft.
 - **A wake turn polls the inbox.** `wake_instance` types a short visible marker, `[wake]`, and Enter (a blank Space+Enter starts no turn: tmux reports success and Claude Code ignores it, measured live), and on that prompt `tool-router` injects the practice's pending mesh messages and spells out three steps (react to the messages, re-arm the Monitor via `listener on --dry-run` and `listener arm`, poll once more), then tells the session to stop: a woken session otherwise keeps working (measured: 59 s of unrequested work). Any other prompt costs nothing extra. Wake log lines carry a UTC timestamp, because the listener's stderr is a file and an untimed line cannot be compared with `armed_at`.
-- **An opt-in wake service in the listener** (`EMPIRICA_LISTENER_WAKE=1`, off by default). On a mesh event, and every two hours when the inbox holds mail it has not already surfaced, it wakes the practice's idle panes (a busy pane, a draft or a dialog is refused), and the woken turn polls the inbox. Each message causes at most one successful wake; the listener's per-event cost with the flag off is a dictionary lookup.
+- **`/pre-publish`**, the release-gate sequence as a loadable skill: scope the diff, deterministic gates, an independent read-only sweep whose every finding you trace, hot-path timing, a clean re-run on the exact commit, then the cut. It carries the rules the 1.14.13 sweep earned (a second pass must be clean; grep for an existing guard before writing one; sweep a new destructive command before it touches real data) and has empirica's release steps in a reference file.
+- **`mailbox reply` acknowledges a multi-target parent for your own target** instead of skipping completion (cortex 97820077). The client stopgap that left a fan-out request open is gone: it calls `/complete` with your canonical `ai_id`, reports `parent_acked`, `pending_targets` and `target_acks`, and archives your own copy once your ack is recorded. `parent_closed` now means every target has acked. `parent_close_skipped` no longer exists. It replaces the Shared Epistemic Record (SER), which is removed from core (see Removed): one multi-target proposal with a per-target ack now answers "is every target done".
+- **`get_tty_key` is computed once per parent pid and read from `/proc`** (ecodex, measured on core 1.14.13): it spawned a `ps` per ancestor on every call and one session-init called it 74 times. On the box that ran this, 74 calls took 3,077 ms and now take 0.04 ms after a 0.15 ms first call, and a praxic PreToolUse gate ran in 295-368 ms and now runs in 110-112 ms (in-process, same payload, import path forced). The cache is keyed on `os.getppid()` so a reparented listener or MCP server walks again, and a transient failure is never cached. Anything `/proc` cannot name falls back to `ps`; macOS is unchanged. Parity with the old walk was checked on four real chains.
 - **The listener and practitioner heartbeats outlast a cortex restart** (cortex, 2026-10-23: cortex now QUEUES connections for the ~5 s a restart takes instead of refusing them). Their post timeout is 12 s, up from exactly 5.0 s, and the practitioner emitter stops its cycle at the first no-answer instead of timing out once per live session, then retries on the next interval. The liveness probe (8 s timeout, exits only after 240 s without a success) and the catch-up fetch (10 s) already complied.
 - **`provision-practice` and the cockpit work for practices that do not run Claude** (ecodex, David's rulings 2026-10-24). `--dry-run` narration (`[dry-run] would run:` and `would patch`) goes to stderr, so `--output json` stdout is exactly the JSON. New `--launch` and `--resume` (they need `--cockpit-profile` and are refused without it, not ignored) say what the pane runs and how `cockpit refresh` brings it back; the profile no longer hardcodes `claude`. `cockpit refresh` resumes a `codex` or `ecodex` pane with `<prog> resume --last` instead of starting a fresh session (checked by ecodex against its v0.164.1 source: right for flag-only launches; a launch ending in a prompt or wrapped in a shell needs an explicit `--resume`). `--no-cortex` no longer requires `--tenant`/`--org`: a local practice has no tenant to name, and none is written as an empty key.
+
 ## Privacy & Data
 
 **Your data stays local:**
