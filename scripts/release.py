@@ -95,7 +95,11 @@ _WHATS_NEW_EARLIER = 2
 _SUMMARY_MAX = 160
 _ROADMAP_TEXT_FIELDS = ("id", "title", "prediction", "basis", "falsifier")
 _ROADMAP_FIELDS = (*_ROADMAP_TEXT_FIELDS, "confidence", "evidence", "status")
-_ROADMAP_STATUSES = ("predicted", "shipped", "dropped")
+_ROADMAP_STATUSES = ("predicted", "shipped", "dropped", "retracted", "superseded")
+_RELEASE_NUMBER = re.compile(r"^\d+\.\d+\.\d+$")
+_REVISION_KEYS = ("on", "from", "to", "reason")
+# Fields whose silent change would let a forecast be adjusted after the fact. Changing one needs a dated revision saying why.
+_ROADMAP_GUARDED = ("confidence", "prediction", "falsifier", "horizon", "evidence")
 # How the basis is known caps the confidence it can carry: a figure a command produced can support 0.95, a report from someone else
 # (testimony about code that may have changed since) no more than 0.7, and an inference no more than 0.6.
 _ROADMAP_EVIDENCE_CEILING = {"measured": 0.95, "reviewed": 0.85, "reported": 0.7, "inferred": 0.6}
@@ -269,9 +273,46 @@ def validate_roadmap(data: object) -> dict:
             raise ValueError(
                 f"roadmap item {n}: a {item['status']} item needs resolved_in, the release that settled it"
             )
+        if not isinstance(item.get("steered"), bool):
+            raise ValueError(
+                f"roadmap item {n}: steered must be true or false (was a goal for it already open when it was predicted?)"
+            )
+        horizon = item.get("horizon")
+        if horizon is None and item["status"] == "predicted":
+            raise ValueError(
+                f"roadmap item {n}: a predicted item needs a horizon, the release by which it will be settled"
+            )
+        if horizon is not None and not (isinstance(horizon, str) and _RELEASE_NUMBER.match(horizon)):
+            raise ValueError(f"roadmap item {n}: horizon must be a release number like 1.15.0, not {horizon!r}")
+        if item["status"] in ("retracted", "superseded") and not (
+            isinstance(item.get("reason"), str) and item["reason"].strip()
+        ):
+            raise ValueError(
+                f"roadmap item {n}: a {item['status']} item needs a reason (why the prediction was wrong or replaced)"
+            )
+        revisions = item.get("revisions")
+        if revisions is not None:
+            complete = (
+                isinstance(revisions, list)
+                and revisions
+                and all(
+                    isinstance(r, dict) and all(r.get(k) not in (None, "") for k in _REVISION_KEYS) for r in revisions
+                )
+            )
+            if not complete:
+                raise ValueError(f"roadmap item {n}: revisions need on, from, to and reason in every entry")
+            if revisions[-1]["to"] != conf:
+                raise ValueError(
+                    f"roadmap item {n}: the last of revisions ends at {revisions[-1]['to']!r} but confidence is {conf!r}"
+                )
         if item["id"] in seen:
             raise ValueError(f"roadmap item {n}: duplicate id {item['id']!r}")
         seen.add(item["id"])
+    for n, item in enumerate(data["items"], 1):
+        if item["status"] == "superseded" and item.get("superseded_by") not in seen:
+            raise ValueError(
+                f"roadmap item {n}: superseded_by must name another item in the roadmap, not {item.get('superseded_by')!r}"
+            )
     for text in (*_strings_in(forecast), *_strings_in(data["items"])):
         if leak := _INTERNAL_ID.search(text):
             raise ValueError(f"roadmap carries an internal id ({leak.group(0)!r}); the roadmap is public text")
@@ -293,9 +334,9 @@ def render_whats_coming(roadmap: dict) -> str:
     validate_roadmap(roadmap)
     items = roadmap["items"]
     open_items = [i for i in items if i["status"] == "predicted"]
-    shipped = sum(1 for i in items if i["status"] == "shipped")
-    dropped = sum(1 for i in items if i["status"] == "dropped")
-    if not open_items and not (shipped or dropped):
+    count = {s: sum(1 for i in items if i["status"] == s) for s in _ROADMAP_STATUSES}
+    unplanned = sum(1 for i in items if i["status"] == "shipped" and not i["steered"])
+    if not open_items and not any(v for s, v in count.items() if s != "predicted"):
         return ""
     lines = ["## What's Coming", ""]
     if open_items:
@@ -303,20 +344,70 @@ def render_whats_coming(roadmap: dict) -> str:
             f"Empirica's own forecast, made in {roadmap['forecast']['made_in']} from its open work, the demand it has measured and its known "
             "weak spots. Each prediction carries a confidence, the evidence behind it and the observation that would prove it wrong, and is "
             "graded when it ships or is dropped. The word beside the confidence says how the basis is known: **measured** by a command, "
-            "**reviewed** in the code, **reported** by someone else, or **inferred**; weaker evidence cannot carry a higher confidence.",
+            "**reviewed** in the code, **reported** by someone else, or **inferred**; weaker evidence cannot carry a higher confidence. "
+            "**planned** means a goal for it already existed when we predicted it: those are scored separately, because delivering planned "
+            "work is not foresight.",
             "",
             "| Direction | Confidence | Why we expect it | What would change our mind |",
             "|---|---|---|---|",
         ]
         for i in sorted(open_items, key=lambda it: -it["confidence"]):
             lines.append(
-                f"| **{_cell(i['title'])}**: {_cell(i['prediction'])} | {round(i['confidence'] * 100)}% ({i['evidence']}) | {_cell(i['basis'])} | {_cell(i['falsifier'])} |"
+                f"| **{_cell(i['title'])}**: {_cell(i['prediction'])} | {round(i['confidence'] * 100)}% ({i['evidence']}{', planned' if i['steered'] else ''}) | {_cell(i['basis'])} | {_cell(i['falsifier'])} |"
             )
         lines.append("")
-    lines.append(f"Forecast record: {shipped} shipped, {dropped} dropped so far.") if (shipped or dropped) else None
+    if any(v for s, v in count.items() if s != "predicted"):
+        lines.append(
+            f"Forecast record: {count['shipped']} shipped ({unplanned} of them not on the plan when predicted), {count['dropped']} dropped, "
+            f"{count['retracted']} retracted, {count['superseded']} superseded so far."
+        )
     while lines and lines[-1] == "":
         lines.pop()
     return "\n".join(lines)
+
+
+def _release_tuple(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
+
+
+def items_past_horizon(roadmap: dict, version: str) -> list[dict]:
+    """Predicted items whose horizon release has already been cut: nothing stays open indefinitely."""
+    return [
+        i
+        for i in roadmap["items"]
+        if i["status"] == "predicted" and _release_tuple(i["horizon"]) < _release_tuple(version)
+    ]
+
+
+def roadmap_silent_edits(released: dict, current: dict) -> list[str]:
+    """What changed against the last RELEASED roadmap without leaving a trace, one message per problem.
+
+    A forecast that can be adjusted after the fact is not a forecast. A changed confidence, prediction, falsifier, horizon or evidence on
+    a predicted item needs a new dated revision saying why; a resolved item cannot be rewritten; and an item cannot be deleted, only
+    retracted, dropped or superseded, so the record keeps its misses. Drafts before the first release are free (no baseline).
+    """
+    problems = []
+    now = {i["id"]: i for i in current.get("items", [])}
+    for old in released.get("items", []):
+        item = now.get(old["id"])
+        if item is None:
+            problems.append(
+                f"{old['id']}: removed from the roadmap; retract, drop or supersede it instead of deleting it"
+            )
+            continue
+        changed = [f for f in _ROADMAP_GUARDED if old.get(f) != item.get(f)]
+        if not changed:
+            continue
+        if old["status"] == "predicted" and item["status"] == "predicted":
+            if len(item.get("revisions") or []) <= len(old.get("revisions") or []):
+                problems.append(
+                    f"{old['id']}: {', '.join(changed)} changed with no new revision; append one under `revisions` saying why"
+                )
+        else:
+            problems.append(
+                f"{old['id']}: {', '.join(changed)} rewritten after the item was resolved or while resolving it"
+            )
+    return problems
 
 
 def replace_whats_new_block(readme: str, block: str) -> str:
@@ -1341,9 +1432,33 @@ class ReleaseManager:
 
         success(f"CHANGELOG has a top-level entry for {self.version}")
 
-    def _remind_forecast_grading(self, roadmap_path: Path) -> None:
+    def _released_roadmap_text(self) -> str | None:
+        """docs/ROADMAP.yaml as it stood at the last release tag, or None when there is no tag or the file did not exist there."""
+        git = dict(capture_output=True, text=True, cwd=str(self.repo_root), check=False)
+        tag = subprocess.run(["git", "describe", "--tags", "--abbrev=0"], **git)
+        if tag.returncode != 0 or not tag.stdout.strip():
+            return None
+        shown = subprocess.run(["git", "show", f"{tag.stdout.strip()}:docs/ROADMAP.yaml"], **git)
+        return shown.stdout if shown.returncode == 0 else None
+
+    def _garden_roadmap(self, roadmap: dict) -> None:
+        """Gardening for the forecast: stop on a silent edit against the last release, warn about every item past its horizon."""
+        baseline = self._released_roadmap_text()
+        if baseline:
+            import yaml
+
+            problems = roadmap_silent_edits(yaml.safe_load(baseline) or {}, roadmap)
+            if problems:
+                error("docs/ROADMAP.yaml has edits that left no trace:\n  " + "\n  ".join(problems))
+        for item in items_past_horizon(roadmap, self.version):
+            warning(
+                f"roadmap item {item['id']} is past its horizon ({item['horizon']}, this is {self.version}): mark it shipped, dropped, "
+                "retracted or superseded, or move the horizon with a revision that says why"
+            )
+
+    def _remind_forecast_grading(self, roadmap: dict) -> None:
         """The forecast is only a forecast if it is graded: say how many predictions are still open at every docs step."""
-        open_count = sum(1 for i in load_roadmap(roadmap_path)["items"] if i["status"] == "predicted")
+        open_count = sum(1 for i in roadmap["items"] if i["status"] == "predicted")
         if open_count:
             warning(
                 f"{open_count} open prediction{'s' if open_count != 1 else ''} in docs/ROADMAP.yaml: grade each against this release "
@@ -1379,19 +1494,22 @@ class ReleaseManager:
             error(f"{e}")
         roadmap_path = self.repo_root / "docs" / "ROADMAP.yaml"
         whats_coming = ""
+        roadmap = None
         if roadmap_path.exists():
             try:
-                whats_coming = render_whats_coming(load_roadmap(roadmap_path))
+                roadmap = load_roadmap(roadmap_path)
+                whats_coming = render_whats_coming(roadmap)
             except ValueError as e:
                 error(f"docs/ROADMAP.yaml: {e}")
+            self._garden_roadmap(roadmap)
         new_block = whats_new + ("\n\n" + whats_coming if whats_coming else "")
         readme = readme_path.read_text()
         try:
             readme = replace_whats_new_block(readme, new_block)
         except ValueError as e:
             error(f"README.md: {e}")
-        if whats_coming:
-            self._remind_forecast_grading(roadmap_path)
+        if roadmap is not None and whats_coming:
+            self._remind_forecast_grading(roadmap)
 
         # Built outside the f-strings: a quote or backslash inside an f-string expression is a SyntaxError before Python 3.12.
         coming_note = " and What's Coming from docs/ROADMAP.yaml" if whats_coming else ""

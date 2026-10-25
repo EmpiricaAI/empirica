@@ -146,6 +146,8 @@ ITEM = {
     "basis": "It passed a live trial on two seats and its open edge cases are small.",
     "falsifier": "Any wake that lands in a pane that was not idle.",
     "evidence": "measured",
+    "horizon": "1.15.0",
+    "steered": False,
     "status": "predicted",
 }
 
@@ -203,7 +205,9 @@ def test_the_forecast_is_graded_as_items_resolve_and_resolved_items_leave_the_ta
 def test_a_roadmap_with_only_resolved_items_shows_the_record_and_no_table():
     shipped = {**ITEM, "status": "shipped", "resolved_in": "2.0.0"}
     out = _mod().render_whats_coming(_roadmap(shipped))
-    assert out == "## What's Coming\n\nForecast record: 1 shipped, 0 dropped so far."
+    assert out == (
+        "## What's Coming\n\nForecast record: 1 shipped (1 of them not on the plan when predicted), 0 dropped, 0 retracted, 0 superseded so far."
+    )
 
 
 def test_a_roadmap_with_no_items_at_all_renders_nothing():

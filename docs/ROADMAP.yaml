@@ -11,6 +11,11 @@
 #     a reader sees the kind beside the number and can tell a measured 85% from a reported 65%.
 #   * when a release ships an item, set `status: shipped` and `resolved_in: <version>`; when it is abandoned, `status: dropped` and
 #     `resolved_in`. Resolved items leave the table and move into the "Forecast record" count, so the hit rate is public;
+#   * gardening keeps the forecast honest, as it does for findings: a prediction that was wrong when written (its basis was false) is
+#     `retracted`, not `dropped`; a replaced one is `superseded` with `superseded_by`; every predicted item names a `horizon` (a release),
+#     and the docs step flags each one that has passed; `steered: true` means a goal for it already existed when it was predicted, and
+#     those are scored separately (delivering planned work is not foresight); a change to confidence, prediction, falsifier, horizon or
+#     evidence after a release needs a dated entry under `revisions`, and an item is never deleted, only resolved;
 #   * a falsifier must test the PREDICTION, not a neighbouring claim, and must be checkable by someone outside the project;
 #   * check each prediction against HEAD before writing it: a settled fact is not a forecast (one item here described a gap that had
 #     been fixed three weeks earlier, from a peer's report of older code);
@@ -31,6 +36,8 @@ items:
     evidence: measured
     basis: A systematic sweep reproduced 78 medium-or-high defects, summed from seven open fix goals covering the data layer, the transaction handlers, resolvers, sync, chat, the Sentinel and the mailbox. None of the seven has a completed task yet.
     falsifier: The next two changelogs together cite fewer than 26 of them.
+    horizon: "1.14.16"
+    steered: true
     status: predicted
 
   - id: bootstrap-whole-picture
@@ -40,6 +47,8 @@ items:
     evidence: measured
     basis: Measured on this project today, it shows 10 of 3,173 findings, 10 of 758 decisions, 5 of 835 dead ends and 5 of 447 mistakes with no notice (goals and unknowns do get one), none of the 115 open assumptions, and only project-level relations, not the links between artifacts.
     falsifier: A bootstrap run on a graph larger than its caps that omits open assumptions or caps findings without saying so.
+    horizon: "1.14.17"
+    steered: true
     status: predicted
 
   - id: budget-save-visible
@@ -49,6 +58,8 @@ items:
     evidence: reviewed
     basis: Read in the session-init hook, the skip reason is recorded in the budget summary but the banner prints only the budget line. The deploy-gap check already skips outside Claude Code, so that half of the gap is closed.
     falsifier: A session start with no resolvable sessions.db prints a banner that does not mention the unsaved budget state.
+    horizon: "1.14.16"
+    steered: true
     status: predicted
 
   - id: listener-memory
@@ -58,6 +69,8 @@ items:
     evidence: reported
     basis: Operators of long-running listeners report about 30 MB an hour in one case and over 1 GB at 29 hours in another, with a stream process that was not respawned after a drop. We have not yet reproduced it on a fresh unit.
     falsifier: On a release that claims the fix, a listener's memory grows by more than 50 MB between hour 4 and hour 24 of uptime.
+    horizon: "1.14.17"
+    steered: true
     status: predicted
 
   - id: cockpit-rejoin
@@ -67,6 +80,8 @@ items:
     evidence: reported
     basis: Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. Read in the code, cockpit refresh does not yet call the wake or the inbox poll.
     falsifier: After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later.
+    horizon: "1.14.17"
+    steered: true
     status: predicted
 
   - id: wake-default
@@ -76,4 +91,6 @@ items:
     evidence: measured
     basis: It passed a live trial on two seats and refuses busy panes, drafts and dialogs. Open edge cases are an image-only prompt that can read as blank and a spinner scrolled out of view that reads as idle.
     falsifier: A report of a wake that interrupted a running turn or submitted a half-typed draft.
+    horizon: "1.15.0"
+    steered: false
     status: predicted
