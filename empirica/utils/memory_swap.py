@@ -154,11 +154,16 @@ def _write_back(target_memory: Path, manifest: dict) -> tuple[list[str], list[st
         recorded = hashes.get(rel)
         if recorded is not None and now == recorded:
             continue  # nobody touched it
+        if recorded is None and _sha256(target_memory / BACKUP_SUBDIR / rel) == now:
+            continue  # the harness project's own original, put back by a restore that was interrupted: never the active project's
         dest = source_memory / rel
-        if dest.is_file() and _sha256(dest) == now:
+        if not dest.is_symlink() and dest.is_file() and _sha256(dest) == now:
             written.append(rel)
             continue
-        free = not dest.exists() or (recorded is not None and dest.is_file() and _sha256(dest) == recorded)
+        # A symlink in the source is never written through: its target is a different file than the one that was edited.
+        free = not dest.is_symlink() and (
+            not dest.exists() or (recorded is not None and dest.is_file() and _sha256(dest) == recorded)
+        )
         target = dest if free else _conflict_copy(dest)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, target)
@@ -262,7 +267,18 @@ def swap_memory(
     # If a different swap is already active, restore it first to avoid layering
     if existing:
         logger.info(f"Replacing existing swap (was: {existing.get('source_project')})")
-        restore_memory(harness_cwd_project, _force_replace=True)
+        replaced = restore_memory(harness_cwd_project, _force_replace=True)
+        if replaced.get("action") == "broken":
+            # Its backup is gone, so the files in this dir are the OLD project's, not the harness project's. Swapping now would back
+            # them up as this project's originals and restore them as such for good.
+            return {
+                "ok": False,
+                "action": "restore_before_swap_failed",
+                "message": (
+                    f"An earlier swap ({existing.get('source_project')}) has no backup left to restore from; not layering a new swap "
+                    f"over {target_memory}. Clear that directory by hand, then retry."
+                ),
+            }
 
     target_memory.mkdir(parents=True, exist_ok=True)
     backup_dir = target_memory / BACKUP_SUBDIR
@@ -270,6 +286,18 @@ def swap_memory(
     # Backup target memory dir contents (excluding the backup dir itself if it exists)
     backup_dir.mkdir(parents=True, exist_ok=True)
     backed_up = _copy_dir_entries(target_memory, backup_dir, "Backup")
+    unsaved = sorted(
+        e.name
+        for e in target_memory.iterdir()
+        if e.name not in (BACKUP_SUBDIR, MANIFEST_NAME) and e.name not in backed_up
+    )
+    if unsaved:
+        # Removing an original that was not backed up destroys it, and a manifest-less half swap cannot be restored.
+        return {
+            "ok": False,
+            "action": "backup_incomplete",
+            "message": f"Could not back up {', '.join(unsaved)} in {target_memory}; nothing was removed or swapped.",
+        }
 
     # Remove originals (now safely backed up)
     _remove_entries(target_memory, backed_up)

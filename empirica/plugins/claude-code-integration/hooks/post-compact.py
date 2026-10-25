@@ -283,7 +283,13 @@ def _try_memory_swap(claude_session_id: str, harness_cwd: str | None) -> None:
     ``harness_cwd`` is the directory the hook was launched in, captured BEFORE
     _resolve_project_and_setup chdir'd to the practice: after the chdir the process
     cwd is the active project, so the swap would compare it against itself. None (the launch directory is gone) skips the swap:
-    the process cwd is no substitute."""
+    the process cwd is no substitute.
+
+    Opt-in (``EMPIRICA_MEMORY_SWAP=1``). The swap never fired before it was given the real harness cwd, so switching it on for every
+    compaction is a behaviour change with a first real use's worth of edge cases (symlinks, an unreadable original, an interrupted
+    restore), not a bug fix. A restore at session end is unconditional: it only acts when a swap is recorded."""
+    if os.environ.get("EMPIRICA_MEMORY_SWAP", "").strip().lower() not in ("1", "true", "yes", "on"):
+        return
     if harness_cwd is None:
         print("memory swap skipped: the launch directory is gone", file=sys.stderr)
         return

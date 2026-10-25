@@ -148,6 +148,7 @@ def test_a_deleted_launch_cwd_is_read_as_none_not_a_crash(monkeypatch):
 
 
 def test_post_compact_with_no_harness_cwd_does_not_swap_and_says_so(fake_home, monkeypatch, capsys):
+    monkeypatch.setenv("EMPIRICA_MEMORY_SWAP", "1")
     hook = _hook("post-compact.py", "post_compact_t1")
     import empirica.utils.memory_swap as ms
 
@@ -321,3 +322,88 @@ def test_session_end_says_what_was_written_back_and_what_conflicted(fake_home, t
     monkeypatch.setattr(hook, "_LAUNCH_CWD", harness)
     hook._cleanup_session_files("cs-1")
     assert "wrote back 1" in capsys.readouterr().err
+
+
+# ── third-pass sweep: symlinks, a broken backup, an unreadable original, a retry, and the opt-in ──
+
+import os  # noqa: E402
+import shutil  # noqa: E402
+
+
+def test_a_swapped_in_symlink_is_never_written_through_to_the_file_it_points_at(fake_home, tmp_path):
+    """The source's link.md -> real.md is copied in as a plain file; writing the edit back followed the link and overwrote real.md."""
+    harness = _project(tmp_path, "harness", {"MEMORY.md": "harness original"})
+    active = _project(tmp_path, "active", {"real.md": "REAL"})
+    (_memory(active) / "link.md").symlink_to("real.md")
+    swap_memory(harness, active)
+    (_memory(harness) / "link.md").write_text("EDIT_LINK")
+    result = restore_if_swapped(harness)
+    assert (_memory(active) / "real.md").read_text() == "REAL", "a different file than the one edited was changed"
+    assert (_memory(active) / "link.md").is_symlink()
+    assert result and result["write_back_conflicts"] == ["link.md"]
+    assert "EDIT_LINK" in [p.read_text() for p in _memory(active).iterdir() if "swap-conflict" in p.name]
+
+
+def test_a_forced_replace_over_a_swap_whose_backup_is_gone_refuses_instead_of_adopting_the_old_files(
+    fake_home, tmp_path
+):
+    """restore_memory answers 'broken' (manifest cleared, swapped-in files left) and its return was ignored, so the next swap backed
+    the OLD project's files up as the harness project's originals."""
+    harness = _project(tmp_path, "harness", {"a.md": "harness a"})
+    first = _project(tmp_path, "first", {"a.md": "first a"})
+    second = _project(tmp_path, "second", {"a.md": "second a"})
+    swap_memory(harness, first)
+    from empirica.utils.memory_swap import BACKUP_SUBDIR
+
+    shutil.rmtree(_memory(harness) / BACKUP_SUBDIR)
+    result = swap_memory(harness, second)
+    assert result["ok"] is False and result["action"] == "restore_before_swap_failed", result
+    assert not is_swap_active(second) and (_memory(harness) / "a.md").read_text() == "first a", "nothing may be layered"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads a mode-0 file")
+def test_a_harness_original_that_cannot_be_backed_up_stops_the_swap_before_anything_is_removed(fake_home, tmp_path):
+    harness = _project(tmp_path, "harness", {"MEMORY.md": "harness original", "secret.md": "keep me"})
+    active = _project(tmp_path, "active", {"MEMORY.md": "active"})
+    (_memory(harness) / "secret.md").chmod(0)
+    try:
+        result = swap_memory(harness, active)
+    finally:
+        (_memory(harness) / "secret.md").chmod(0o644)
+    assert result["ok"] is False and result["action"] == "backup_incomplete", result
+    assert (_memory(harness) / "MEMORY.md").read_text() == "harness original", (
+        "nothing may be removed after a failed backup"
+    )
+    assert (_memory(harness) / "secret.md").read_text() == "keep me"
+    assert not is_swap_active(harness)
+
+
+def test_originals_already_restored_by_an_interrupted_restore_are_not_copied_into_the_active_project(
+    fake_home, tmp_path
+):
+    from empirica.utils.memory_swap import BACKUP_SUBDIR
+
+    harness = _project(tmp_path, "harness", {"orig.md": "harness original"})
+    active = _project(tmp_path, "active", {"MEMORY.md": "active"})
+    swap_memory(harness, active)
+    # What an interrupted restore leaves: the originals already copied back from the backup, the manifest still present.
+    shutil.copy2(_memory(harness) / BACKUP_SUBDIR / "orig.md", _memory(harness) / "orig.md")
+    restore_if_swapped(harness)
+    assert not (_memory(active) / "orig.md").exists(), "the harness project's own file leaked into the active project"
+    assert (_memory(harness) / "orig.md").read_text() == "harness original"
+
+
+def test_post_compact_swaps_only_when_the_operator_opted_in(fake_home, monkeypatch):
+    """The swap never fired before this release (it compared a cwd with itself). Switching it on for everyone, with the edge cases a
+    first real use exposes, is a decision, not a bug fix: it is opt-in."""
+    hook = _hook("post-compact.py", "post_compact_optin")
+    import empirica.utils.memory_swap as ms
+
+    calls = []
+    monkeypatch.setattr(ms, "maybe_swap_for_active_transaction", lambda **kw: calls.append(kw) or {"ok": True})
+    monkeypatch.delenv("EMPIRICA_MEMORY_SWAP", raising=False)
+    hook._try_memory_swap("cs-1", "/somewhere")
+    assert calls == [], "off by default"
+    monkeypatch.setenv("EMPIRICA_MEMORY_SWAP", "1")
+    hook._try_memory_swap("cs-1", "/somewhere")
+    assert len(calls) == 1
