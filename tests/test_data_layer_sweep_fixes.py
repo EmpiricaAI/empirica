@@ -621,3 +621,31 @@ def test_no_new_artifact_insert_omits_visibility_outside_the_restore_paths():
     assert omitted == [], (
         f"a new artifact INSERT omits visibility and would be born with the 'shared' column default: {omitted}"
     )
+
+
+# ── A11b codebase constraints: an empty, writer-less store reports "no signal", not an empty list that reads as "none apply" ──
+
+
+def _check_context(db, project_id, monkeypatch, tmp_path):
+    monkeypatch.setattr("empirica.config.path_resolver.get_session_db_path", lambda: str(tmp_path / "s.db"))
+    from empirica.cli.command_handlers._workflow_check import _check_enrich_codebase_model
+
+    result: dict = {}
+    _check_enrich_codebase_model(result, project_id)
+    return result.get("codebase_context")
+
+
+def test_an_empty_constraint_store_is_reported_as_no_signal_not_an_empty_list(db, project, monkeypatch, tmp_path):
+    pid, _ = project
+    db.codebase_model.upsert_entity("f", "function", file_path="a.py", project_id=pid)
+    context = _check_context(db, pid, monkeypatch, tmp_path)
+    assert context["active_entities"] == 1
+    assert context["constraints"] is None, "[] reads as 'no constraint applies'; nothing is recorded, which is a different statement"
+
+
+def test_recorded_constraints_are_still_listed(db, project, monkeypatch, tmp_path):
+    pid, _ = project
+    db.codebase_model.upsert_entity("f", "function", file_path="a.py", project_id=pid)
+    db.codebase_model.upsert_constraint(rule_name="no-print", description="no print()", project_id=pid)
+    context = _check_context(db, pid, monkeypatch, tmp_path)
+    assert [c["rule"] for c in context["constraints"]] == ["no-print"]

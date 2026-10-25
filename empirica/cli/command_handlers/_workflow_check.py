@@ -1216,7 +1216,9 @@ def _check_enrich_codebase_model(result, check_project_id):
                         for c in constraints[:5]
                     ]
                     if constraints
-                    else [],
+                    # None, not []: an empty list reads as "no constraint applies". Nothing writes codebase constraints, so the
+                    # honest statement is that none are recorded, i.e. no signal.
+                    else None,
                 }
         finally:
             codebase_db.close()
