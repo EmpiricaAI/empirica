@@ -5,7 +5,7 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.14.15] - 2026-10-25
 
 ### Highlights
 
@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`cybersec` can complete.** Its medium, high and critical levels required scanners nothing registers, so every run failed; they are now optional until a runner exists, and a test fails if a shipped domain requires an unregistered check.
 - **CHECK reports the bar the profile declares.** `rigorous` and `exploratory` showed a hard-coded 0.70 for the know bar; they now show their own, and the dead Sentinel override path is removed from the three transaction verbs.
 - **`/forecast`** is the 26th skill, and the README's What's Coming is a graded forecast that is gardened like any other artifact.
-- **A Python 3.12-only f-string can no longer break 3.11 CI**: `release.py --prepare` parses the tree under the `requires-python` floor.
+- **A Python 3.12-only f-string is caught before a release, not after the push**: `release.py --prepare` parses the tree under the `requires-python` floor through `uv` (CI still runs only 3.11 and 3.13).
 
 ### Added
 
