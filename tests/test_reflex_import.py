@@ -126,14 +126,18 @@ def test_a_vector_the_note_does_not_carry_stays_null_not_half(world):
     assert json.loads(row["reflex_data"])["vectors"] == V7 and json.loads(row["reflex_data"])["decision"] == "proceed"
 
 
-def test_the_hazard_is_real_store_vectors_fills_missing_vectors_with_half(world):
-    """Control for the test above: the other route does invent values, so the NULLs are a choice and not an accident."""
+def test_store_vectors_leaves_missing_vectors_null_like_the_import_route(world):
+    """This was the control proving store_vectors invented 0.5 for a missing vector (so the import's NULLs were a choice). A7 removed
+    the hazard: both write routes now agree that a vector not supplied is NULL, 'not assessed', and the values supplied stay in
+    reflex_data."""
     world.db.store_vectors(world.sid, "CHECK", V7, transaction_id="x")
     world.db.conn.row_factory = sqlite3.Row
 
     row = dict(world.db.conn.execute("SELECT * FROM reflexes").fetchone())
 
-    assert row["impact"] == 0.5 and row["engagement"] == 0.5
+    assert row["impact"] is None and row["engagement"] is None
+    assert row["know"] == V7["know"]
+    assert [row[k] for k in V13 if k not in V7] == [None] * 6
 
 
 def test_a_second_apply_imports_nothing(world):
