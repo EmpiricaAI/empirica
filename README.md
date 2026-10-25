@@ -283,10 +283,20 @@ Empirica doesn't replace or reinvent anything Claude Code already does. Claude C
 
 The result: Claude Code's native capabilities, enhanced with measurement, gating, and calibration feedback that compounds over time.
 
-**26 skills ship with the plugin** — the transaction discipline, graph gardening,
-the quality sweep, mesh messaging, and more. They are *lazy*: a skill does
-nothing until it loads, so knowing when each fires matters more than knowing
-what it holds. → **[Skills reference](docs/reference/SKILLS.md)**
+**26 skills ship with the plugin.** They are *lazy*: a skill does nothing until it loads, so what matters is when each one fires. The eight a new reader meets first:
+
+| Skill | Fires when | What it gives you |
+|---|---|---|
+| `/epistemic-transaction` | Work spans several files or goals | The measured loop: vectors, goals, tasks, and the move from investigating to changing things |
+| `/pre-action-grounding` | A request arrives without its why or a checkable done-condition | Investigate first, ask last, then a goal with a done-condition |
+| `/epistemic-gardening` | A logged claim is stale or false, or before a release | Resolve, retract and prune, so the graph reflects what is live |
+| `/artifact-graph` | About to log several artifacts, or unsure of a type | Typing and connecting findings, assumptions, decisions and mistakes |
+| `/forecast` | Deciding what comes next | Directions as graded predictions, with questions only where the evidence is thin |
+| `/pre-publish` | About to push, tag or publish | The release-gate sequence, with an independent and traced sweep |
+| `/eat-the-broccoli` | Before a release, after a refactor, or when something smells off | A quality sweep plus a hunt for the defects that pass every test |
+| `/empirica-constitution` | You are unsure which skill fits | The index: routes a situation to the skill that covers it |
+
+The mesh skills (sending and receiving between practices) ship with the Cortex bundle. All 26, grouped by job: **[Skills reference](docs/reference/SKILLS.md)**
 
 ---
 

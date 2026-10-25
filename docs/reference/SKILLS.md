@@ -4,8 +4,8 @@ Empirica ships **26 skills** with the Claude Code plugin. They are *lazy*: a
 skill does nothing until it is loaded, so knowing when each one fires matters
 more than knowing what it contains.
 
-Until this document existed you discovered them by finding a `/slash-command`
-in a prompt, or not at all — and the README did not mention skills exist.
+You meet a skill by finding a `/slash-command` in a prompt, or by reading this
+page. The README lists the eight most people reach for first.
 
 > **Load-bearing vs situational.** One skill carries most graph upkeep and the
 > rest fire on specific triggers. The deep protocol skills for
