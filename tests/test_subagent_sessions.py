@@ -126,6 +126,34 @@ class TestMigration034:
         cursor.execute("SELECT status FROM subagent_sessions WHERE session_id = 'orphan-child'")
         assert cursor.fetchone()["status"] == "orphaned"
 
+    def test_a_child_session_with_recorded_work_is_not_moved(self, fresh_db):
+        """parent_session_id is also set by `session-create` config and create_session callers that are not
+        subagent shells. A session that has reflexes or goals hanging off it is real work: deleting it from
+        `sessions` would orphan them (A14, sweep goal b78396ad)."""
+        cursor = fresh_db.cursor()
+        cursor.execute(
+            "INSERT INTO sessions (session_id, ai_id, start_time, components_loaded, parent_session_id) "
+            "VALUES ('parent-3', 'claude-code', '2026-04-07T00:00:00', 0, NULL)"
+        )
+        for sid, name in (("real-child", "claude-code"), ("shell-child", "Explore")):
+            cursor.execute(
+                "INSERT INTO sessions (session_id, ai_id, start_time, components_loaded, parent_session_id) "
+                "VALUES (?, ?, '2026-04-07T00:01:00', 0, 'parent-3')",
+                (sid, name),
+            )
+        # This fixture applies only the sessions schemas; a minimal work table stands in for reflexes.
+        cursor.execute("CREATE TABLE reflexes (id INTEGER PRIMARY KEY, session_id TEXT)")
+        cursor.execute("INSERT INTO reflexes (session_id) VALUES ('real-child')")
+        fresh_db.commit()
+
+        migration_034_subagent_sessions(cursor)
+        fresh_db.commit()
+
+        cursor.execute("SELECT session_id FROM sessions WHERE parent_session_id IS NOT NULL")
+        assert [r[0] for r in cursor.fetchall()] == ["real-child"], "the session with a reflex must stay"
+        cursor.execute("SELECT session_id FROM subagent_sessions")
+        assert [r[0] for r in cursor.fetchall()] == ["shell-child"], "the bare shell row still moves (positive control)"
+
     def test_migration_idempotent_on_empty(self, fresh_db):
         """Running migration with no subagent rows should be a no-op."""
         cursor = fresh_db.cursor()

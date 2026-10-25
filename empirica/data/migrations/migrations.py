@@ -1147,6 +1147,12 @@ def migration_034_subagent_sessions(cursor: sqlite3.Cursor):
 
     Safe: only rows that were children of a Task spawn are touched. The
     parent's row (parent_session_id IS NULL) stays in `sessions`.
+
+    parent_session_id alone does not identify a subagent shell: `session-create`
+    config and any create_session caller can set it. A child that has rows in any
+    other table keyed by session_id (reflexes, goals, findings, ...) is real work,
+    and deleting it would orphan them, so it stays. A subagent shell never had any:
+    its epistemic rollup lives in subagent_sessions.
     """
     import logging
 
@@ -1169,10 +1175,22 @@ def migration_034_subagent_sessions(cursor: sqlite3.Cursor):
         )
     """)
 
+    # Child rows that carry recorded work stay put. Tables are discovered, not listed,
+    # so one added later is covered too.
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT IN ('sessions', 'subagent_sessions')"
+    )
+    keyed_by_session = []
+    for (table,) in cursor.fetchall():
+        if any(col[1] == "session_id" for col in cursor.execute(f'PRAGMA table_info("{table}")').fetchall()):
+            keyed_by_session.append(table)
+    has_work = "".join(
+        f' AND NOT EXISTS (SELECT 1 FROM "{t}" WHERE "{t}".session_id = sessions.session_id)' for t in keyed_by_session
+    )
+    shell_rows = f"parent_session_id IS NOT NULL{has_work}"
+
     # Step 2: count rows to migrate (for the log message + safety check)
-    cursor.execute("""
-        SELECT COUNT(*) FROM sessions WHERE parent_session_id IS NOT NULL
-    """)
+    cursor.execute(f"SELECT COUNT(*) FROM sessions WHERE {shell_rows}")
     to_migrate = cursor.fetchone()[0]
 
     if to_migrate == 0:
@@ -1183,7 +1201,7 @@ def migration_034_subagent_sessions(cursor: sqlite3.Cursor):
     # ai_id is repurposed as agent_name. Status defaults to 'completed'
     # because legacy rows we're migrating already had end_time set or are
     # orphaned (no live subagent will be using them).
-    cursor.execute("""
+    cursor.execute(f"""
         INSERT OR IGNORE INTO subagent_sessions (
             session_id, agent_name, parent_session_id,
             project_id, instance_id, start_time, end_time,
@@ -1195,14 +1213,12 @@ def migration_034_subagent_sessions(cursor: sqlite3.Cursor):
             CASE WHEN end_time IS NOT NULL THEN 'completed' ELSE 'orphaned' END,
             created_at
         FROM sessions
-        WHERE parent_session_id IS NOT NULL
+        WHERE {shell_rows}
     """)
     migrated = cursor.rowcount
 
     # Step 4: delete the migrated rows from the main sessions table.
-    cursor.execute("""
-        DELETE FROM sessions WHERE parent_session_id IS NOT NULL
-    """)
+    cursor.execute(f"DELETE FROM sessions WHERE {shell_rows}")
     deleted = cursor.rowcount
 
     logger.info(
