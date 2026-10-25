@@ -5,9 +5,7 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-Rename this heading to the release version and date at the cut: `scripts/release.py` refuses a top entry that is not the version.
+## [1.14.14] - 2026-10-25
 
 ### Added
 
