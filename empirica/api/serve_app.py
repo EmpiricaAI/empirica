@@ -832,26 +832,26 @@ def _store_artifacts(artifacts: list[ArtifactPayload]) -> dict:
         try:
             if atype == "finding":
                 db.adapter.execute(
-                    "INSERT INTO project_findings (id, project_id, session_id, finding, impact, created_timestamp) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO project_findings (id, project_id, session_id, finding, impact, created_timestamp, visibility) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 'local')",
                     (artifact_id, "extension-import", None, content, meta.get("impact", 0.5), now),
                 )
             elif atype == "decision":
                 db.adapter.execute(
-                    "INSERT INTO project_findings (id, project_id, session_id, finding, impact, created_timestamp) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO project_findings (id, project_id, session_id, finding, impact, created_timestamp, visibility) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 'local')",
                     (artifact_id, "extension-import", None, f"[decision] {content}", meta.get("impact", 0.5), now),
                 )
             elif atype == "dead_end":
                 db.adapter.execute(
-                    "INSERT INTO project_dead_ends (id, project_id, session_id, approach, why_failed, created_timestamp) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO project_dead_ends (id, project_id, session_id, approach, why_failed, created_timestamp, visibility) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 'local')",
                     (artifact_id, "extension-import", None, content, meta.get("whyFailed", ""), now),
                 )
             elif atype == "mistake":
                 db.adapter.execute(
-                    "INSERT INTO mistakes_made (id, project_id, session_id, mistake, why_wrong, prevention, created_timestamp) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO mistakes_made (id, project_id, session_id, mistake, why_wrong, prevention, created_timestamp, visibility) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'local')",
                     (
                         artifact_id,
                         "extension-import",
@@ -864,8 +864,8 @@ def _store_artifacts(artifacts: list[ArtifactPayload]) -> dict:
                 )
             elif atype == "unknown":
                 db.adapter.execute(
-                    "INSERT INTO project_unknowns (id, project_id, session_id, unknown, created_timestamp) "
-                    "VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO project_unknowns (id, project_id, session_id, unknown, created_timestamp, visibility) "
+                    "VALUES (?, ?, ?, ?, ?, 'local')",
                     (artifact_id, "extension-import", None, content, now),
                 )
             else:

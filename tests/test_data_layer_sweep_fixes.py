@@ -574,3 +574,50 @@ def test_the_subject_filter_applies_the_same_rule(db, three_findings):
 def test_asking_for_history_returns_everything(db, three_findings):
     pid, _ = three_findings
     assert len(db.breadcrumbs.get_project_findings(pid, include_resolved=True)) == 3
+
+
+# ── A13 new artifacts are born 'local' (fail-closed), whatever the column default says ──
+
+
+def test_a_goal_created_through_the_repository_is_local_not_shared(db, project):
+    _, sid = project
+    goal = db.goals.create_goal(sid, "private by default")
+    assert db.conn.execute("SELECT visibility FROM goals WHERE id = ?", (goal,)).fetchone()[0] == "local"
+
+
+def test_an_explicit_shared_visibility_is_still_honoured_by_the_updater(db, project):
+    """Control: the default moved, the ability to choose did not."""
+    _, sid = project
+    goal = db.goals.create_goal(sid, "to be shared")
+    db.conn.execute("UPDATE goals SET visibility = 'shared' WHERE id = ?", (goal,))
+    assert db.conn.execute("SELECT visibility FROM goals WHERE id = ?", (goal,)).fetchone()[0] == "shared"
+
+
+#: Paths that RESTORE historical rows (rebuild from notes, profile import, git sync) and so keep the column default on purpose:
+#: visibility.py says adjudicating old rows is David's call, not a bug fix. Everything else that creates an artifact must say 'local'.
+RESTORE_PATHS = (
+    "empirica/core/canonical/empirica_git/profile_import.py",
+    "empirica/cli/command_handlers/profile_commands.py",
+    "empirica/cli/command_handlers/sync_commands.py",
+)
+
+
+def test_no_new_artifact_insert_omits_visibility_outside_the_restore_paths():
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    tables = "project_findings|project_unknowns|project_dead_ends|mistakes_made|assumptions|decisions|goals"
+    pattern = re.compile(rf"INSERT\s+(?:OR\s+\w+\s+)?INTO\s+({tables})\b\s*\(([^)]*)\)", re.IGNORECASE | re.DOTALL)
+    walked, omitted = 0, []
+    for path in (root / "empirica").rglob("*.py"):
+        rel = path.relative_to(root).as_posix()
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for m in pattern.finditer(text):
+            walked += 1
+            if "visibility" not in m.group(2) and rel not in RESTORE_PATHS:
+                omitted.append(f"{rel}:{text[: m.start()].count(chr(10)) + 1} ({m.group(1)})")
+    assert walked > 10, "control: the scan found the INSERTs it is guarding"
+    assert omitted == [], (
+        f"a new artifact INSERT omits visibility and would be born with the 'shared' column default: {omitted}"
+    )

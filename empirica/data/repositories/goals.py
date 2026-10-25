@@ -11,6 +11,7 @@ import time
 import uuid
 
 from ..id_guard import is_blank_id, resolve_id_prefix
+from ..visibility import DEFAULT_VISIBILITY
 from .base import BaseRepository
 
 logger = logging.getLogger(__name__)
@@ -89,8 +90,8 @@ class GoalDataRepository(BaseRepository):
 
         self._execute(
             """
-            INSERT INTO goals (id, session_id, objective, description, scope, status, created_timestamp, is_completed, goal_data, beads_issue_id, project_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+            INSERT INTO goals (id, session_id, objective, description, scope, status, created_timestamp, is_completed, goal_data, beads_issue_id, project_id, visibility)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
         """,
             (
                 goal_id,
@@ -103,6 +104,8 @@ class GoalDataRepository(BaseRepository):
                 json.dumps({}),
                 beads_issue_id,
                 project_id,
+                # Fail-closed: the column default shipped by migrations 039/049 is 'shared', which visibility.py calls a doctrine defect.
+                DEFAULT_VISIBILITY,
             ),
         )
 
