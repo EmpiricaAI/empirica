@@ -395,6 +395,20 @@ def roadmap_silent_edits(released: dict, current: dict) -> list[str]:
                 f"{old['id']}: removed from the roadmap; retract, drop or supersede it instead of deleting it"
             )
             continue
+        if old["status"] != "predicted":
+            # A resolved item is closed history: nothing about it may change, including the fields outside _ROADMAP_GUARDED
+            # (status, resolved_in, reason, steered, title, basis), or a miss could be reopened and a flag flipped unseen.
+            rewritten = sorted(k for k in {*old, *item} if old.get(k) != item.get(k))
+            if rewritten:
+                problems.append(
+                    f"{old['id']}: {', '.join(rewritten)} changed on an item that was already {old['status']}"
+                )
+            continue
+        if old.get("steered") != item.get("steered"):
+            # steered says a goal already existed when the prediction was made; it is a fact about then, not an opinion to revise.
+            problems.append(
+                f"{old['id']}: steered changed from {old.get('steered')!r} to {item.get('steered')!r}; it records the moment of prediction"
+            )
         changed = [f for f in _ROADMAP_GUARDED if old.get(f) != item.get(f)]
         if not changed:
             continue
@@ -1502,6 +1516,13 @@ class ReleaseManager:
             except ValueError as e:
                 error(f"docs/ROADMAP.yaml: {e}")
             self._garden_roadmap(roadmap)
+        elif self._released_roadmap_text():
+            # Gardening only ran for a file that exists, so deleting it skipped the no-deletion rule and the README lost
+            # What's Coming while this step reported success.
+            error(
+                "docs/ROADMAP.yaml is missing but the last release had one: every prediction must be retracted, dropped or "
+                "superseded in the file, never removed with it"
+            )
         new_block = whats_new + ("\n\n" + whats_coming if whats_coming else "")
         readme = readme_path.read_text()
         try:

@@ -187,6 +187,40 @@ def test_a_resolved_item_cannot_be_rewritten_afterwards():
     assert _mod().roadmap_silent_edits(_roadmap(shipped), _roadmap(rewritten))
 
 
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"status": "predicted", "resolved_in": None},  # reopened
+        {"resolved_in": "1.15.0"},
+        {"reason": "a reason added after the fact"},
+        {"steered": True},
+        {"title": "A renamed title"},
+        {"basis": "A basis rewritten once the outcome was known."},
+    ],
+    ids=["reopened", "resolved_in", "reason", "steered", "title", "basis"],
+)
+def test_nothing_about_a_resolved_item_can_change_not_only_the_five_guarded_fields(change):
+    """The guard compared confidence, prediction, falsifier, horizon and evidence only, so a shipped item could be reopened or its
+    `steered` flipped (which moves the 'not on the plan' count) with no trace, against the docstring and the changelog."""
+    shipped = _resolved("shipped")
+    problems = _mod().roadmap_silent_edits(_roadmap(shipped), _roadmap({**shipped, **change}))
+    assert problems and ITEM["id"] in problems[0], f"{change} slipped through"
+
+
+def test_a_retracted_item_cannot_be_quietly_put_back_to_predicted():
+    retracted = _resolved("retracted", reason="Its basis was false when written.")
+    back = {**ITEM}
+    assert _mod().roadmap_silent_edits(_roadmap(retracted), _roadmap(back))
+
+
+def test_steered_cannot_be_flipped_on_a_predicted_item_even_with_a_revision():
+    """`steered` is a fact about when the prediction was made, not an opinion that can be revised."""
+    revision = {"on": "2026-11-02", "from": 0.6, "to": 0.6, "reason": "x"}
+    changed = {**ITEM, "steered": True, "revisions": [revision]}
+    problems = _mod().roadmap_silent_edits(_roadmap(ITEM), _roadmap(changed))
+    assert problems and "steered" in problems[0]
+
+
 # ── the docs step uses all of it ─────────────────────────────────────────────
 
 
@@ -219,3 +253,19 @@ def test_the_docs_step_stops_on_a_silent_edit_against_the_last_released_roadmap(
 def test_with_no_released_roadmap_there_is_nothing_to_compare_and_drafts_are_free(tmp_path, monkeypatch):
     _docs_step(tmp_path, monkeypatch, "1.14.15", None).sync_readme_whats_new()
     assert "Wake service on by default" in (tmp_path / "README.md").read_text()
+
+
+def test_deleting_the_roadmap_file_after_a_release_that_had_one_is_refused(tmp_path, monkeypatch):
+    """Gardening only ran inside `if roadmap_path.exists()`, so deleting the file skipped the no-deletion rule and the README's
+    What's Coming was dropped with the docs step reporting success."""
+    rm = _docs_step(tmp_path, monkeypatch, "1.14.15", yaml.safe_dump(_roadmap(ITEM), sort_keys=False))
+    (tmp_path / "docs" / "ROADMAP.yaml").unlink()
+    with pytest.raises(SystemExit):
+        rm.sync_readme_whats_new()
+
+
+def test_no_roadmap_file_and_no_released_roadmap_is_a_project_without_a_forecast(tmp_path, monkeypatch):
+    rm = _docs_step(tmp_path, monkeypatch, "1.14.15", None)
+    (tmp_path / "docs" / "ROADMAP.yaml").unlink()
+    rm.sync_readme_whats_new()
+    assert "What's Coming" not in (tmp_path / "README.md").read_text()
