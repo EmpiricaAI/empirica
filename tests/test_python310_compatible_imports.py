@@ -8,7 +8,10 @@ per-file run earlier did not. This guard checks the one name that has already bi
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
+
+import pytest
 
 PACKAGE = Path(__file__).resolve().parents[1] / "empirica"
 # `from datetime import ..., UTC, ...` and `datetime.UTC`: both need 3.11. `timezone.utc` is the 3.10-safe spelling.
@@ -62,13 +65,34 @@ def _pep701_only_fstrings(source: str) -> list[int]:
     return sorted(set(bad))
 
 
-def test_the_f_string_guard_catches_the_syntax_that_broke_release_py_on_3_11():
-    """Positive control, built from the line that shipped: a same-quote string inside a replacement field."""
-    assert _pep701_only_fstrings('x = f"a{" and b" if y else ""}"\n') == [1]
-    assert _pep701_only_fstrings("x = f\"a{' and b\\'s' if y else ''}\"\n") == [1], "a backslash in a field"
-    assert _pep701_only_fstrings("x = f\"a{' and b' if y else ''}\"\n") == [], "a different quote is legal before 3.12"
-    assert _pep701_only_fstrings('x = f"""a{d["k"]}"""\n') == [], "a triple-quoted f-string may hold a single quote"
-    assert _pep701_only_fstrings('x = f"a{d}"\n') == []
+# Sources that only PARSE on 3.12+: the guard's positive controls. Below 3.12 the interpreter rejects them itself, which is the signal
+# the guard exists to give early, so feeding them to ast.parse there raises instead of testing anything.
+PEP701_SOURCES = [
+    'x = f"a{" and b" if y else ""}"\n',  # the line that shipped: a same-quote string inside a replacement field
+    "x = f\"a{' and b\\'s' if y else ''}\"\n",  # a backslash inside a field
+]
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 12), reason="these sources are a SyntaxError below 3.12; that error is the signal"
+)
+@pytest.mark.parametrize("source", PEP701_SOURCES)
+def test_the_f_string_guard_catches_the_syntax_that_broke_release_py_on_3_11(source):
+    """Positive control, built from the line that shipped. A guard that flagged nothing would also pass the tree-wide test below."""
+    assert _pep701_only_fstrings(source) == [1]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "x = f\"a{' and b' if y else ''}\"\n",  # a different quote is legal before 3.12
+        'x = f"""a{d["k"]}"""\n',  # a triple-quoted f-string may hold a single quote
+        'x = f"a{d}"\n',
+    ],
+)
+def test_the_f_string_guard_leaves_syntax_that_is_valid_everywhere_alone(source):
+    """Negative control, valid on every supported interpreter, so it runs on all of them."""
+    assert _pep701_only_fstrings(source) == []
 
 
 def test_no_python_file_uses_f_string_syntax_that_needs_python_3_12():
