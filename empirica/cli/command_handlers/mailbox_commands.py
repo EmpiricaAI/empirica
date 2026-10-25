@@ -499,6 +499,7 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
         commit_sha = getattr(args, "commit_sha", None)
         if commit_sha:
             complete_body["commit_sha"] = commit_sha
+        ack_ai_id = None
         if _is_multi_target(parent):
             # Same canonical-form requirement as the archive leg below: a bare slug is a guaranteed participant mismatch, so an
             # unresolvable seat omits the key (cortex infers it when exactly one target is ours) rather than sending a wrong one.
@@ -524,6 +525,18 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
                 f"Run cortex_complete_proposal via MCP to close manually.\n"
             )
             # Propose succeeded — surface the partial result rather than fail hard
+        elif (
+            ack_ai_id
+            and isinstance(complete_resp.get("target_acks"), dict)
+            and ack_ai_id not in complete_resp["target_acks"]
+        ):
+            # A 2xx is not proof that OUR target acked. If cortex returns the per-target acks and this seat is not among them (an older
+            # cortex, or a refusal shaped as success), claiming the ack would archive an ask we never answered. Absent target_acks is
+            # not contradiction and is accepted as before.
+            sys.stderr.write(
+                f"mailbox reply: cortex answered {c_status} but its target_acks does not list {ack_ai_id}, so this seat's ack is NOT "
+                f"counted and the parent stays in your inbox: {complete_resp}\n"
+            )
         else:
             parent_acked = True
             note = complete_resp.get("note")

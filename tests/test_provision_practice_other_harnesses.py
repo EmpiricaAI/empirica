@@ -209,3 +209,29 @@ def test_an_explicit_resume_still_wins():
 @pytest.mark.parametrize("launch", ["bash", "htop", "python3 serve.py"])
 def test_anything_else_that_is_not_claude_is_still_re_run_as_launched(launch):
     assert resume_command(_proj(launch)) == launch
+
+
+def test_asking_for_a_different_launch_on_a_practice_already_in_the_profile_is_refused(tmp_path):
+    """Review finding (session reviewer, confirmed): add_practice_to_profile returned 'already listed' before reading launch/resume, so
+    `--launch ecodex` on a re-run was accepted, reported fine, and discarded. An advertised flag must not be a silent no-op."""
+    from empirica.core.cockpit.launcher.config import ProfileError
+
+    add_practice_to_profile("me", "p", str(tmp_path / "p"))
+    with pytest.raises(ProfileError, match="nothing was changed"):
+        add_practice_to_profile("me", "p", str(tmp_path / "p"), launch="ecodex")
+    with pytest.raises(ProfileError, match="nothing was changed"):
+        add_practice_to_profile("me", "p", str(tmp_path / "p"), resume="ecodex resume --last")
+
+
+def test_repeating_the_same_request_is_still_idempotent(tmp_path):
+    add_practice_to_profile("me", "p", str(tmp_path / "p"), launch="ecodex", resume="ecodex resume --last")
+    _, changed = add_practice_to_profile("me", "p", str(tmp_path / "p"), launch="ecodex", resume="ecodex resume --last")
+    assert changed is False
+    _, changed_default = add_practice_to_profile("me", "p", str(tmp_path / "p"))
+    assert changed_default is False, "asking for nothing in particular never conflicts with what is there"
+
+
+def test_an_empty_launch_is_not_a_way_around_the_profile_requirement(tmp_path, capsys):
+    rc = pp.handle_provision_practice_command(_args(tmp_path, dry_run=True, launch=""))
+    _, err = capsys.readouterr()
+    assert rc == 1 and "--cockpit-profile" in err

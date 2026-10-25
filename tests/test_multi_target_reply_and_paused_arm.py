@@ -147,6 +147,31 @@ def test_a_refused_ack_is_surfaced_and_nothing_is_archived(capsys, status):
     assert str(status) in err
 
 
+def test_an_ack_that_does_not_list_our_seat_is_not_counted_as_ours(capsys):
+    """Review finding (mailbox reviewer, traced): parent_acked came from the HTTP status alone. If cortex returns target_acks and our seat is
+    not in them, our target did not ack (an older cortex, or a refusal shaped as success): do not claim it and do not archive our copy."""
+    other = {
+        "ok": True,
+        "target_acks": {"empirica.david.empirica-cortex": {"result": "shipped"}},
+        "pending_targets": [SEAT],
+    }
+    _, calls, out, err = _reply(THREE, capsys, complete_resp=other)
+    assert out["parent_acked"] is False and out["parent_closed"] is False
+    assert not any("/archive" in u for u in _urls(calls)), "an ask we did not ack must stay in our inbox"
+    assert SEAT in err, "the warning names the seat that is missing"
+
+
+def test_an_ack_that_lists_our_seat_is_still_ours(capsys):
+    _, calls, out, _ = _reply(THREE, capsys, complete_resp=WAITING)
+    assert out["parent_acked"] is True and any("/archive" in u for u in _urls(calls))
+
+
+def test_a_response_without_target_acks_is_accepted_as_before(capsys):
+    """Control: cortex's terminal reply may not carry target_acks at all; absence is not contradiction."""
+    _, _, out, _ = _reply(THREE, capsys, complete_resp={"ok": True})
+    assert out["parent_acked"] is True
+
+
 def test_a_single_target_parent_needs_no_ai_id(capsys):
     _, calls, out, _ = _reply(["empirica.david.empirica"], capsys)
     assert "ai_id" not in _complete_body(calls), "cortex infers it when exactly one target is ours"

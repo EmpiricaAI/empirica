@@ -385,7 +385,7 @@ class PractitionerHeartbeatEmitter:
         """Emit every local non-stale practitioner once.
 
         Returns ``{claude_session_id: status_code}`` per emitted practitioner.
-        Never raises — a per-record failure records -1 and continues.
+        Never raises. A per-record exception records -1 and continues with the next session; a post that gets no answer (-1) stops the cycle.
         """
         results: dict[str, int] = {}
         # Liveness keep-alive FIRST: re-stamp alive-PID sessions so a session
@@ -414,12 +414,14 @@ class PractitionerHeartbeatEmitter:
                     timeout=self.timeout_sec,
                 )
             except Exception as e:
+                # One bad record is not an outage: record it and carry on with the next session, every interval.
                 logger.warning("practitioner-heartbeat: emit failed for %s: %s", sid, e)
                 results[sid] = -1
+                continue
             if results[sid] == -1:
-                # No answer at all (timeout or refused). One per session would hold the cycle for N x timeout against a cortex that is
-                # down or restarting; stop here and retry on the next interval, which is also the backoff. An HTTP status is an answer
-                # and does not stop the cycle.
+                # The post itself got no answer at all (timeout or refused). One per session would hold the cycle for N x timeout
+                # against a cortex that is down or restarting; stop here and retry on the next interval, which is also the
+                # backoff. An HTTP status is an answer and does not stop the cycle.
                 logger.warning(
                     "practitioner-heartbeat: no answer from cortex; stopping this cycle after %d of %d",
                     len(results),

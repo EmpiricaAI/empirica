@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -337,7 +338,13 @@ def is_headless() -> bool:
 
 
 _PROC_ROOT = Path("/proc")
-_TTY_CACHE: dict[int, str | None] = {}
+# parent pid -> (answer, when it was cached). The answer cannot change while the parent is the same, so within one hook run (milliseconds)
+# every call after the first is free. It is NOT cached forever: a long-lived child (listener, MCP server) whose parent outlives its terminal
+# would otherwise keep serving the old pts-N after the hangup, where a fresh walk returns None (the safe answer), and a reused pts number
+# would be another instance's session key. A bounded lifetime keeps the saving and bounds that exposure.
+_TTY_CACHE: dict[int, tuple[str | None, float]] = {}
+_TTY_CACHE_TTL_S = 60.0
+_tty_cache_now = time.monotonic  # module attribute so tests can move the clock
 
 
 class _Unrecognised:
@@ -433,18 +440,22 @@ def get_tty_key() -> str | None:
     that instance isolation cannot be guaranteed. Callers must handle None
     by failing safely rather than risking cross-instance bleed.
 
-    The answer is cached per process, keyed on the parent pid: it cannot change while the parent is the same, a reparented
+    The answer is cached per process for 60 s, keyed on the parent pid: it cannot change while the parent is the same, a reparented
     long-lived process (listener, MCP server) has a new key and walks again, and a transient failure is never cached. Before
     this, one session-init called it 74 times and each call spawned a `ps` per ancestor (measured: 74 calls = 3,077 ms). On
     Linux the walk reads /proc/<pid>/stat; anything it cannot name is asked of `ps`.
     """
     try:
         parent = os.getppid()
-        if parent in _TTY_CACHE:
-            return _TTY_CACHE[parent]
+        now = _tty_cache_now()
+        hit = _TTY_CACHE.get(parent)
+        if hit is not None and now - hit[1] < _TTY_CACHE_TTL_S:
+            return hit[0]
         tty, definitive = _walk_for_tty(parent)
         if definitive:
-            _TTY_CACHE[parent] = tty
+            _TTY_CACHE[parent] = (tty, now)
+        else:
+            _TTY_CACHE.pop(parent, None)
         return tty
     except Exception:
         return None  # No fallback - fail safely

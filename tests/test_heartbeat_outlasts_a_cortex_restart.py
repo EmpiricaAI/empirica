@@ -104,3 +104,19 @@ def test_an_http_status_is_not_a_network_failure_and_does_not_stop_the_cycle(sta
 
     _emitter(answers, 3).emit_once()
     assert len(posts) == 3
+
+
+def test_a_record_that_raises_does_not_silence_the_sessions_after_it():
+    """Review finding (mailbox reviewer, traced): -1 is recorded both for 'no answer' and for an exception inside one record's emit. Only
+    the first means cortex is down; an exception is one bad record and the next session should still be sent, every interval."""
+    state = {"n": 0}
+
+    def first_raises(url, body, headers, timeout):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise RuntimeError("one bad record")
+        return 200
+
+    results = _emitter(first_raises, 3).emit_once()
+    assert state["n"] == 3, "the two sessions after the bad record must still be posted"
+    assert list(results.values()) == [-1, 200, 200]

@@ -510,7 +510,7 @@ def profile_path(profile: str) -> Path:
 
 
 def add_practice_to_profile(
-    profile: str, name: str, path: str, *, launch: str = "claude", resume: str | None = None
+    profile: str, name: str, path: str, *, launch: str | None = None, resume: str | None = None
 ) -> tuple[Path, bool]:
     """Add one practice to a cockpit profile, creating the profile if it has none.
 
@@ -552,6 +552,17 @@ def add_practice_to_profile(
                 f"{name!r} is already in {target} at {existing.path}, not {wanted}; "
                 "edit or remove that entry, nothing was changed"
             )
+        # A launch or resume that was ASKED for (not left unspecified) and differs from what is there must not be discarded: an accepted
+        # flag that does nothing reads as success. Unspecified (None) never conflicts.
+        for field_name, wanted_value, have in (
+            ("launch", launch, existing.launch),
+            ("resume", resume, existing.resume),
+        ):
+            if wanted_value is not None and wanted_value != have:
+                raise ProfileError(
+                    f"{name!r} is already in {target} with {field_name} {have!r}, not {wanted_value!r}; "
+                    "edit or remove that entry, nothing was changed"
+                )
         return target, False
     group_name = name.replace(".", "-")  # tmux reads '.' in a window target as a pane separator
     if any(g.name == group_name for g in config.groups):
@@ -559,7 +570,7 @@ def add_practice_to_profile(
             f"a window named {name!r} already exists in {target} (the default TUI window is 'monitor'); "
             "provision under another name, nothing was changed"
         )
-    config.projects.append(ProjectSpec(name=name, path=str(wanted), launch=launch, resume=resume))
+    config.projects.append(ProjectSpec(name=name, path=str(wanted), launch=launch or "claude", resume=resume))
     if config.is_groups_mode():
         config.groups.append(GroupSpec(name=group_name, panes=[PaneSpec(project_ref=name)]))
     # else: a projects-only profile opens one window per project on its own. Adding a group would

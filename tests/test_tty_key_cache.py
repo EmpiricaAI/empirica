@@ -193,3 +193,24 @@ def test_a_ps_timeout_is_not_cached(tmp_path, monkeypatch):
 def test_pid_one_or_lower_is_never_walked(proc, monkeypatch):
     _parent(monkeypatch, 1)
     assert sr.get_tty_key() is None
+
+
+def test_a_cached_answer_expires_so_a_hung_up_terminal_is_not_served_forever(proc, monkeypatch):
+    """Review finding (session reviewer, traced by reasoning): a long-lived child whose parent outlives its terminal would keep the cached
+    pts-N after the hangup, and a reused pts number would then be another instance's session key. A fresh walk after hangup returns None,
+    the safe answer. The cache therefore lives for a bounded time: long enough to cover every call a hook makes, short enough to bound this."""
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(sr, "_tty_cache_now", lambda: clock["t"])
+    _proc(proc, {200: (1, PTS(2))})
+    _parent(monkeypatch, 200)
+    assert sr.get_tty_key() == "pts-2"
+    (proc / "200" / "stat").unlink()
+    clock["t"] += sr._TTY_CACHE_TTL_S - 1
+    assert sr.get_tty_key() == "pts-2", "inside the TTL the cached answer is served"
+    _proc(proc, {200: (1, 0)})  # the terminal hung up: tty_nr is now 0
+    clock["t"] += 2
+    assert sr.get_tty_key() is None, "past the TTL the walk runs again and sees there is no tty"
+
+
+def test_the_ttl_covers_a_whole_hook_run_but_not_a_long_lived_process():
+    assert 10 <= sr._TTY_CACHE_TTL_S <= 300

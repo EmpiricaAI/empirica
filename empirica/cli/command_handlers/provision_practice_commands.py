@@ -158,9 +158,7 @@ def _add_to_cockpit_profile(
     if dry_run:
         return {"step": "cockpit-profile", "changed": True, "note": f"dry-run, would add to {target}", "launch": launch}
     try:
-        target, changed = add_practice_to_profile(
-            profile, name, str(proj_dir), launch=pane_launch or "claude", resume=pane_resume
-        )
+        target, changed = add_practice_to_profile(profile, name, str(proj_dir), launch=pane_launch, resume=pane_resume)
     except ProfileError as exc:
         return {"step": "cockpit-profile", "changed": False, "error": str(exc)}
     note = str(target) if changed else f"already in {target}"
@@ -223,7 +221,7 @@ def handle_provision_practice_command(args) -> int:
     profile = getattr(args, "cockpit_profile", None)
     launch_flag = getattr(args, "launch", None)
     resume_flag = getattr(args, "resume", None)
-    if (launch_flag or resume_flag) and not profile:
+    if (launch_flag is not None or resume_flag is not None) and not profile:
         msg = "--launch/--resume say what the cockpit pane runs and need --cockpit-profile; without it they would be ignored."
         print(json.dumps({"ok": False, "error": msg}) if output == "json" else f"❌ {msg}", file=sys.stderr)
         return 1
