@@ -258,6 +258,9 @@ ENGAGEMENT_LIFECYCLE_STATES = frozenset({"planned", "open", "in_progress", "bloc
 ENGAGEMENT_PREACTIVE_STATES = frozenset({"planned"})
 ENGAGEMENT_TERMINAL_STATES = frozenset({"closed"})
 ENGAGEMENT_DEFAULT_EXCLUDED_STATES = ENGAGEMENT_PREACTIVE_STATES | ENGAGEMENT_TERMINAL_STATES
+# The legacy `status` column mirrors the lifecycle (the CRM vocabulary is planned, active, blocked, completed, lost, deferred).
+_ENGAGEMENT_CLOSED_STATUS = {"lost": "lost", "defer": "deferred"}  # any other outcome closes as "completed"
+_ENGAGEMENT_OPEN_STATUS = {"planned": "planned", "blocked": "blocked"}  # open and in_progress are "active"
 ENGAGEMENT_OUTCOMES = frozenset({"won", "lost", "resolved", "wont_fix", "defer", "superseded"})
 
 
@@ -2204,8 +2207,22 @@ class WorkspaceDBRepository(BaseRepository):
                 params.append(val)
         if not sets:
             return self.get_engagement(engagement_id)
+        now = time.time()
+        if lifecycle_state is not None:
+            # The API reports `status` and `ended_at`; nothing wrote them after creation, so a closed engagement still read active
+            # with no end time. A lifecycle change keeps them in step: closing stamps the end and a terminal status that follows the
+            # outcome, anything else clears the end and maps the state.
+            if lifecycle_state in ENGAGEMENT_TERMINAL_STATES:
+                sets.append("ended_at = COALESCE(ended_at, ?)")
+                params.append(now)
+                sets.append("status = ?")
+                params.append(_ENGAGEMENT_CLOSED_STATUS.get(outcome or "", "completed"))
+            else:
+                sets.append("ended_at = NULL")
+                sets.append("status = ?")
+                params.append(_ENGAGEMENT_OPEN_STATUS.get(lifecycle_state, "active"))
         sets.append("updated_at = ?")
-        params.append(time.time())
+        params.append(now)
         params.append(engagement_id)
         cursor = self._execute(f"UPDATE engagements SET {', '.join(sets)} WHERE engagement_id = ?", tuple(params))
         self.commit()

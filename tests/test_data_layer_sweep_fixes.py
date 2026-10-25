@@ -224,3 +224,99 @@ def test_the_facade_forwards_transaction_id_to_create_branch_and_project_id_to_s
     # control: omitting both still works, as every existing caller does
     assert db.create_branch(sid, "by", "path", "git", pre)
     db.store_vectors(sid, "CHECK", pre)
+
+
+# ── A8 the handoff delta pairs a POSTFLIGHT with the PREFLIGHT of the same transaction ──
+
+
+def _vec(level):
+    return dict.fromkeys(VECTOR_NAMES, level)
+
+
+def _handoff_know_delta(db, pid):
+    handoff = db.get_ai_epistemic_handoff(pid, "t")
+    assert handoff is not None
+    return round(handoff["deltas"]["foundation"]["know"], 2)
+
+
+def test_the_handoff_delta_uses_the_preflight_of_the_same_transaction_not_the_sessions_first(db, project):
+    pid, sid = project
+    db.store_vectors(sid, "PREFLIGHT", _vec(0.2), transaction_id="txA")
+    db.store_vectors(sid, "POSTFLIGHT", _vec(0.4), transaction_id="txA")
+    db.store_vectors(sid, "PREFLIGHT", _vec(0.6), transaction_id="txB")
+    db.store_vectors(sid, "POSTFLIGHT", _vec(0.9), transaction_id="txB")
+    assert _handoff_know_delta(db, pid) == 0.3, "0.9 - 0.6 for transaction B, not 0.9 - 0.2 across two transactions"
+
+
+def test_a_legacy_row_with_no_transaction_id_still_pairs_within_its_session(db, project):
+    pid, sid = project
+    db.store_vectors(sid, "PREFLIGHT", _vec(0.5))
+    db.store_vectors(sid, "POSTFLIGHT", _vec(0.8))
+    assert _handoff_know_delta(db, pid) == 0.3
+
+
+# ── A9 workspace overview health is driven by sessions that exist, not by a counter nothing increments ──
+
+
+def _overview_entry(db, name):
+    overview = db.get_workspace_overview()
+    return next(p for p in overview["projects"] if p["name"] == name)
+
+
+def test_the_overview_counts_a_projects_sessions_live(db, project):
+    pid, sid = project
+    db.create_session(ai_id="t2", project_id=pid)
+    db.log_dead_end(project_id=pid, session_id=sid, approach="a", why_failed="w")
+    entry = _overview_entry(db, "p")
+    assert entry["total_sessions"] == 2
+    assert entry["dead_end_ratio"] == 0.5, "one dead end over two sessions"
+
+
+def test_a_project_with_no_sessions_keeps_the_neutral_health(db):
+    db.create_project("empty")
+    entry = _overview_entry(db, "empty")
+    assert entry["total_sessions"] == 0
+    assert entry["dead_end_ratio"] == 0.0 and entry["health_score"] == 0.5
+
+
+# ── #12 closing an engagement stamps ended_at and status, because the API reports both ──
+
+
+@pytest.fixture
+def engagements():
+    import sqlite3
+
+    from empirica.data.repositories.workspace_db import WorkspaceDBRepository, _ensure_workspace_schema
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    _ensure_workspace_schema(conn)
+    repo = WorkspaceDBRepository(conn)
+    repo.create_engagement("e1", "Ticket one")
+    return repo
+
+
+def test_closing_an_engagement_sets_ended_at_and_a_terminal_status(engagements):
+    engagements.update_engagement("e1", lifecycle_state="closed", outcome="won")
+    e = engagements.get_engagement("e1")
+    assert e["ended_at"] is not None
+    assert e["status"] == "completed"
+
+
+@pytest.mark.parametrize(("outcome", "status"), [("lost", "lost"), ("defer", "deferred"), ("resolved", "completed")])
+def test_the_status_follows_the_outcome_it_closed_with(engagements, outcome, status):
+    engagements.update_engagement("e1", lifecycle_state="closed", outcome=outcome)
+    assert engagements.get_engagement("e1")["status"] == status
+
+
+def test_reopening_clears_ended_at_and_the_terminal_status(engagements):
+    engagements.update_engagement("e1", lifecycle_state="closed", outcome="won")
+    engagements.update_engagement("e1", lifecycle_state="in_progress")
+    e = engagements.get_engagement("e1")
+    assert e["ended_at"] is None and e["status"] == "active"
+
+
+def test_an_update_that_does_not_touch_the_lifecycle_leaves_ended_at_and_status_alone(engagements):
+    engagements.update_engagement("e1", title="Renamed")
+    e = engagements.get_engagement("e1")
+    assert e["title"] == "Renamed" and e["ended_at"] is None and e["status"] == "active"

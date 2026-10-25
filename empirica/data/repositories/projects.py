@@ -419,18 +419,31 @@ class ProjectRepository(BaseRepository):
         postflight_dict = dict(postflight)
         session_id = postflight_dict.get("session_id")
 
-        # Try to find corresponding PREFLIGHT to calculate deltas
-        cursor = self._execute(
-            """
-            SELECT r.* FROM reflexes r
-            WHERE r.session_id = ? AND r.phase = 'PREFLIGHT'
-            ORDER BY r.timestamp ASC
-            LIMIT 1
-        """,
-            (session_id,),
-        )
-
-        preflight = cursor.fetchone()
+        # The PREFLIGHT that opened the SAME transaction as this POSTFLIGHT. Pairing with the session's first PREFLIGHT made the delta
+        # span every transaction in a multi-transaction session. A row with no transaction_id (older data) falls back to the latest
+        # PREFLIGHT of the session that precedes the POSTFLIGHT.
+        preflight = None
+        transaction_id = postflight_dict.get("transaction_id")
+        if transaction_id:
+            preflight = self._execute(
+                """
+                SELECT r.* FROM reflexes r
+                WHERE r.transaction_id = ? AND r.phase = 'PREFLIGHT'
+                ORDER BY r.timestamp ASC
+                LIMIT 1
+            """,
+                (transaction_id,),
+            ).fetchone()
+        if preflight is None:
+            preflight = self._execute(
+                """
+                SELECT r.* FROM reflexes r
+                WHERE r.session_id = ? AND r.phase = 'PREFLIGHT' AND r.timestamp <= ?
+                ORDER BY r.timestamp DESC
+                LIMIT 1
+            """,
+                (session_id, postflight_dict.get("timestamp")),
+            ).fetchone()
         preflight_dict = dict(preflight) if preflight else None
 
         # Build epistemic vectors dict from POSTFLIGHT

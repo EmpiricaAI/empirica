@@ -210,7 +210,9 @@ class WorkspaceRepository(BaseRepository):
                 p.name,
                 p.description,
                 p.status,
-                p.total_sessions,
+                -- Counted live: projects.total_sessions has no production writer (link_session_to_project has no caller; session
+                -- creation sets project_id with a raw UPDATE), so health and dead_end_ratio stayed neutral for every project.
+                (SELECT COUNT(*) FROM sessions WHERE project_id = p.id) AS total_sessions,
                 p.last_activity_timestamp,
                 -- Get latest epistemic vectors from most recent session reflex
                 (SELECT r.know FROM reflexes r
