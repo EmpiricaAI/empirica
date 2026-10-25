@@ -1284,8 +1284,10 @@ class ReleaseManager:
         # mangled (or raise) on the way into README.
         readme = pattern.sub(lambda _: new_block, readme, count=1)
 
+        # Built outside the f-strings: a quote or backslash inside an f-string expression is a SyntaxError before Python 3.12.
+        coming_note = " and What's Coming from docs/ROADMAP.yaml" if whats_coming else ""
         if self.dry_run:
-            info(f"Would sync README What's New{" and What's Coming" if whats_coming else ''}")
+            info(f"Would sync README What's New{coming_note}")
             return
 
         readme_path.write_text(readme)
@@ -1297,9 +1299,7 @@ class ReleaseManager:
                 f"README's What's New still does not read `## What's New in {self.version}` after sync — "
                 f"refusing to release a README that advertises a different version than it ships"
             )
-        success(
-            f"README What's New synced from CHANGELOG{" and What's Coming from docs/ROADMAP.yaml" if whats_coming else ''}"
-        )
+        success(f"README What's New synced from CHANGELOG{coming_note}")
 
     def run_command(self, cmd: list[str], check: bool = True, cwd: str | None = None) -> subprocess.CompletedProcess:
         """Run a shell command"""
