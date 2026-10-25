@@ -44,7 +44,8 @@ def get_database_config() -> dict[str, Any]:
     """
     # Check DATABASE_URL first (standard Docker/Heroku convention)
     database_url = os.environ.get("DATABASE_URL")
-    if database_url and database_url.startswith("postgresql"):
+    # `postgres://` is the spelling Heroku and Docker hand out; `postgresql://` is SQLAlchemy's. The docstring promised both.
+    if database_url and database_url.startswith(("postgres://", "postgresql")):
         from urllib.parse import urlparse
 
         parsed = urlparse(database_url)
@@ -91,7 +92,12 @@ def get_database_config() -> dict[str, Any]:
                         logger.info(f"📊 Loaded database config from {config_path}")
                         return db_config
     except Exception as e:
-        logger.debug(f"Could not load database config from file: {e}")
+        # A user who configured PostgreSQL in config.yaml and got SQLite back deserves to be told. This runs on every database open, so
+        # it is a warning, not a failure: a broken config must not take the CLI down.
+        logger.warning(
+            f"Could not load the database config from .empirica/config.yaml ({type(e).__name__}: {e}); "
+            "falling back to SQLite. If PostgreSQL was intended, fix the file."
+        )
 
     # Default to SQLite
     logger.info("📊 Using default SQLite database configuration")
@@ -116,6 +122,12 @@ def _substitute_env_vars(config: Any) -> Any:
         return [_substitute_env_vars(item) for item in config]
     elif isinstance(config, str) and config.startswith("${") and config.endswith("}"):
         var_name = config[2:-1]
-        return os.environ.get(var_name, config)
+        if var_name not in os.environ:
+            logger.warning(
+                f"config.yaml references ${{{var_name}}} but the environment variable is not set; "
+                "the literal text is being used, which will not be a valid value."
+            )
+            return config
+        return os.environ[var_name]
     else:
         return config
