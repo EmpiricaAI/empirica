@@ -145,6 +145,7 @@ ITEM = {
     "confidence": 0.6,
     "basis": "It passed a live trial on two seats and its open edge cases are small.",
     "falsifier": "Any wake that lands in a pane that was not idle.",
+    "evidence": "measured",
     "status": "predicted",
 }
 
@@ -162,7 +163,9 @@ def test_a_valid_roadmap_renders_as_a_table_with_confidence_basis_and_falsifier(
     assert "Any wake that lands in a pane that was not idle." in out
 
 
-@pytest.mark.parametrize("missing", ["id", "title", "prediction", "confidence", "basis", "falsifier", "status"])
+@pytest.mark.parametrize(
+    "missing", ["id", "title", "prediction", "confidence", "basis", "falsifier", "evidence", "status"]
+)
 def test_an_item_without_one_of_its_fields_is_refused(missing):
     item = {k: v for k, v in ITEM.items() if k != missing}
     with pytest.raises(ValueError, match=missing):
@@ -197,9 +200,14 @@ def test_the_forecast_is_graded_as_items_resolve_and_resolved_items_leave_the_ta
     assert len(rows) == 1 and "Wake service on by default" in rows[0], "only open predictions are in the table"
 
 
-def test_a_roadmap_with_no_open_items_renders_nothing_rather_than_an_empty_table():
+def test_a_roadmap_with_only_resolved_items_shows_the_record_and_no_table():
     shipped = {**ITEM, "status": "shipped", "resolved_in": "2.0.0"}
-    assert _mod().render_whats_coming(_roadmap(shipped)).count("| ") == 0
+    out = _mod().render_whats_coming(_roadmap(shipped))
+    assert out == "## What's Coming\n\nForecast record: 1 shipped, 0 dropped so far."
+
+
+def test_a_roadmap_with_no_items_at_all_renders_nothing():
+    assert _mod().render_whats_coming(_roadmap()) == ""
 
 
 @pytest.mark.parametrize("leak", ["prop_abcdefghij", "ser_c2c87f7d", "goal 17d7ef80", "see 3ae3a502b"])
@@ -213,7 +221,10 @@ def test_this_repos_roadmap_is_valid_and_public_safe():
     path = REPO_ROOT / "docs" / "ROADMAP.yaml"
     assert path.exists(), "docs/ROADMAP.yaml is the source of README's What's Coming"
     data = mod.load_roadmap(path)
-    assert any(i["status"] == "predicted" for i in data["items"]), "a forecast with nothing predicted is not a forecast"
+    assert data["items"], "an empty roadmap should be deleted, not committed"
+    assert _mod().render_whats_coming(data), (
+        "the roadmap must render something (open predictions, or the forecast record)"
+    )
 
 
 # ── the sync end to end ─────────────────────────────────────────────────────
@@ -270,3 +281,144 @@ def test_an_invalid_roadmap_stops_the_release_instead_of_publishing_a_broken_for
     (tmp_path / "docs" / "ROADMAP.yaml").write_text(yaml.safe_dump(_roadmap({**ITEM, "confidence": 3})))
     with pytest.raises(SystemExit):
         _manager(tmp_path).sync_readme_whats_new()
+
+
+# ── review findings (independent broccoli pass, 2026-10-25), each reproduced here before the fix ───────────────────────────────────
+
+
+def _sync_with(tmp_path, readme: str, roadmap=True):
+    (tmp_path / "CHANGELOG.md").write_text(CHANGELOG)
+    (tmp_path / "README.md").write_text(readme)
+    if roadmap:
+        (tmp_path / "docs").mkdir(exist_ok=True)
+        (tmp_path / "docs" / "ROADMAP.yaml").write_text(yaml.safe_dump(_roadmap(ITEM), sort_keys=False))
+    _manager(tmp_path).sync_readme_whats_new()
+    return (tmp_path / "README.md").read_text()
+
+
+KEEP = "KEEP-ME-sentinel"
+
+SHAPES = {
+    "level-one heading after": f"# P\n\n## What's New in 1.9.0\n\n- old\n\n# Other\n\n{KEEP}\n",
+    "sub-heading inside": f"# P\n\n## What's New in 1.9.0\n\n### Sub\n\n- old\n\n## Privacy\n\n{KEEP}\n",
+    "fenced heading inside": f"# P\n\n## What's New in 1.9.0\n\n```\n## not a heading\n```\n\n- old\n\n## Privacy\n\n{KEEP}\n",
+    "divider between the two sections": f"# P\n\n## What's New in 1.9.0\n\n- old\n\n---\n\n## What's Coming\n\nold forecast\n\n## Privacy\n\n{KEEP}\n",
+    "curly apostrophe": f"# P\n\n## What's New in 1.9.0\n\n- old\n\n## What\u2019s Coming\n\nold forecast\n\n## Privacy\n\n{KEEP}\n",
+    "prose mentioning the heading first": f"# P\n\nSee ## What's New in docs.\n\n## What's New in 1.9.0\n\n- old\n\n## Privacy\n\n{KEEP}\n",
+    "at the end of the file": f"# P\n\n{KEEP}\n\n## What's New in 1.9.0\n\n- old\n",
+}
+
+
+@pytest.mark.parametrize("shape", list(SHAPES))
+def test_the_sync_replaces_only_its_own_block_whatever_surrounds_it(tmp_path, shape):
+    """The old span ran to the next `## ` or `---`: a `# ` heading, a `---` before What's Coming, a curly apostrophe or a fenced heading
+    made it eat what followed or leave a stale forecast beside the new one, with a success message."""
+    readme = _sync_with(tmp_path, SHAPES[shape])
+    assert KEEP in readme, f"content outside the block was lost ({shape})"
+    assert "old forecast" not in readme and "- old" not in readme, f"stale content survived ({shape})"
+    assert len(re.findall(r"^## What.s Coming", readme, re.MULTILINE)) == 1, f"forecast duplicated or lost ({shape})"
+    assert readme.count("```") % 2 == 0, f"an orphan code fence was left ({shape})"
+    assert "## What's New in 2.0.0" in readme
+
+
+def test_a_whats_coming_above_whats_new_is_refused_not_duplicated(tmp_path):
+    (tmp_path / "CHANGELOG.md").write_text(CHANGELOG)
+    (tmp_path / "README.md").write_text(
+        "# P\n\n## What's Coming\n\nold\n\n## What's New in 1.9.0\n\n- old\n\n## Privacy\n"
+    )
+    with pytest.raises(SystemExit):
+        _manager(tmp_path).sync_readme_whats_new()
+
+
+def test_a_highlights_block_with_no_readable_bullets_is_an_error_not_a_quiet_fallback():
+    text = "# Changelog\n\n## [3.0.0] - 2026-03-01\n\n### Highlights\n\nJust a paragraph.\n\n### Added\n\n- **Thing.** Detail.\n"
+    with pytest.raises(ValueError, match="Highlights"):
+        _mod().render_whats_new(text, "3.0.0")
+
+
+def test_a_highlights_heading_with_a_suffix_is_still_the_highlights():
+    text = "# Changelog\n\n## [3.0.0] - 2026-03-01\n\n### Highlights (summary)\n\n- The one that matters.\n\n### Added\n\n- **Thing.** Detail.\n"
+    assert "- The one that matters." in _mod().render_whats_new(text, "3.0.0")
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Fixes e.g. the leak. Then more.", "Fixes e.g. the leak."),
+        ("See Dr. Smith's fix. Then more.", "See Dr. Smith's fix."),
+        ("Adds the verb, i.e. the flag. Done.", "Adds the verb, i.e. the flag."),
+        ("Version 1.14.13 is out. Next.", "Version 1.14.13 is out."),
+    ],
+)
+def test_the_first_sentence_does_not_end_at_an_abbreviation(text, expected):
+    assert _mod()._first_sentence(text) == expected
+
+
+def test_the_entry_count_includes_bullets_without_a_bold_title():
+    text = "# Changelog\n\n## [3.0.0] - 2026-03-01\n\n### Highlights\n\n- One.\n\n### Added\n\n- **Titled.** Detail.\n- Plain bullet.\n"
+    assert "All 2 entries" in _mod().render_whats_new(text, "3.0.0")
+
+
+# ── the roadmap validator covers every field it renders ──────────────────────
+
+
+def test_made_in_must_be_a_string_so_an_unquoted_1_10_cannot_become_1_1():
+    data = _roadmap(ITEM)
+    data["forecast"]["made_in"] = 1.1
+    with pytest.raises(ValueError, match="made_in"):
+        _mod().validate_roadmap(data)
+
+
+def test_made_in_is_checked_for_internal_ids_like_every_other_rendered_field():
+    data = _roadmap(ITEM)
+    data["forecast"]["made_in"] = "prop_abcdefgh"
+    with pytest.raises(ValueError, match="internal id"):
+        _mod().validate_roadmap(data)
+
+
+@pytest.mark.parametrize("field", ["title", "prediction", "basis", "falsifier"])
+def test_a_text_field_must_be_a_string_so_a_list_cannot_hide_an_id_or_print_as_a_python_repr(field):
+    with pytest.raises(ValueError, match=field):
+        _mod().validate_roadmap(_roadmap({**ITEM, field: ["prop_abcdefgh"]}))
+
+
+@pytest.mark.parametrize("leak", ["9b662c9", "prop-abcdefg", "3ae3a502b", "goal 17d7ef80"])
+def test_short_commit_hashes_and_hyphenated_proposal_ids_are_refused_too(leak):
+    with pytest.raises(ValueError, match="internal id"):
+        _mod().validate_roadmap(_roadmap({**ITEM, "basis": f"Tracked in {leak}."}))
+
+
+@pytest.mark.parametrize(
+    "fine", ["20261025", "10000000 rows", "1,014 MB at 29 hours", "release 1.14.14", "deadlines", "a facade"]
+)
+def test_ordinary_numbers_dates_and_words_are_not_mistaken_for_ids(fine):
+    _mod().validate_roadmap(_roadmap({**ITEM, "basis": f"Measured: {fine}."}))
+
+
+# ── evidence markers: confidence is capped by how the basis is known ──────────
+
+
+@pytest.mark.parametrize(
+    ("evidence", "ceiling"), [("measured", 0.95), ("reviewed", 0.85), ("reported", 0.7), ("inferred", 0.6)]
+)
+def test_confidence_cannot_exceed_what_the_kind_of_evidence_can_carry(evidence, ceiling):
+    mod = _mod()
+    mod.validate_roadmap(_roadmap({**ITEM, "evidence": evidence, "confidence": ceiling}))
+    with pytest.raises(ValueError, match="evidence"):
+        mod.validate_roadmap(_roadmap({**ITEM, "evidence": evidence, "confidence": round(ceiling + 0.05, 2)}))
+
+
+def test_an_unknown_evidence_kind_is_refused():
+    with pytest.raises(ValueError, match="evidence"):
+        _mod().validate_roadmap(_roadmap({**ITEM, "evidence": "vibes"}))
+
+
+def test_the_evidence_kind_is_shown_beside_the_confidence():
+    out = _mod().render_whats_coming(_roadmap({**ITEM, "confidence": 0.6, "evidence": "reported"}))
+    assert "60% (reported)" in out
+
+
+def test_the_docs_step_reminds_the_author_to_grade_open_predictions(tmp_path, capsys):
+    _sync_with(tmp_path, "# P\n\n## What's New in 1.9.0\n\n- old\n\n## Privacy\n")
+    out = capsys.readouterr().out
+    assert "1 open prediction" in out and "shipped" in out and "dropped" in out

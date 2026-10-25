@@ -88,17 +88,29 @@ def info(msg: str):
 # ── README's What's New and What's Coming ────────────────────────────────────
 # The section people read first. What's New is the release's author-written `### Highlights` (short lines); the detail stays in
 # CHANGELOG.md and what is left out is counted and linked, never dropped silently. What's Coming renders docs/ROADMAP.yaml, a forecast
-# whose items each carry a confidence, the evidence they rest on and the observation that would falsify them.
+# whose items each carry a confidence, the kind of evidence it rests on, and the observation that would falsify it.
 
 _WHATS_NEW_FALLBACK_MAX = 6
 _WHATS_NEW_EARLIER = 2
 _SUMMARY_MAX = 160
-_ROADMAP_FIELDS = ("id", "title", "prediction", "confidence", "basis", "falsifier", "status")
+_ROADMAP_TEXT_FIELDS = ("id", "title", "prediction", "basis", "falsifier")
+_ROADMAP_FIELDS = (*_ROADMAP_TEXT_FIELDS, "confidence", "evidence", "status")
 _ROADMAP_STATUSES = ("predicted", "shipped", "dropped")
-# The roadmap is public text. Ids of proposals, records, goals, tasks and commits are internal coordinates a reader cannot resolve.
+# How the basis is known caps the confidence it can carry: a figure a command produced can support 0.95, a report from someone else
+# (testimony about code that may have changed since) no more than 0.7, and an inference no more than 0.6.
+_ROADMAP_EVIDENCE_CEILING = {"measured": 0.95, "reviewed": 0.85, "reported": 0.7, "inferred": 0.6}
+# The roadmap is public text. Ids of proposals, records, goals, tasks and commits are internal coordinates a reader cannot resolve. A
+# hex run counts as a commit hash only if it mixes letters and digits, so dates, counts and ordinary words pass.
 _INTERNAL_ID = re.compile(
-    r"\b(?:prop|ser)_[0-9a-z]{6,}|\b(?:goal|task) [0-9a-f]{6,}\b|\b(?=[0-9a-f]*\d)[0-9a-f]{8,}\b", re.IGNORECASE
+    r"\b(?:prop|ser)[_-][0-9a-z]{6,}|\b(?:goal|task)[ _-][0-9a-f]{6,}\b|\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b",
+    re.IGNORECASE,
 )
+_NOT_A_SENTENCE_END = r"(?<!e\.g)(?<!i\.e)(?<!\bvs)(?<!\betc)(?<!\bDr)(?<!\bMr)(?<!\bMrs)(?<!\bSt)"
+_SENTENCE = re.compile(r"(.+?" + _NOT_A_SENTENCE_END + r"[.!?])(?:\s|$)")
+_NEW_HEADING = re.compile(r"^## What[’']s New in ")
+_COMING_HEADING = re.compile(r"^## What[’']s Coming\s*$")
+_ANY_TOP_HEADING = re.compile(r"^#{1,2} ")
+_FENCE = re.compile(r"^\s*(```|~~~)")
 
 
 def _changelog_entries(text: str) -> list[tuple[str, str]]:
@@ -139,9 +151,23 @@ def _bold_title(bullet: str) -> str | None:
 
 def _first_sentence(text: str, cap: int = _SUMMARY_MAX) -> str:
     flat = " ".join(text.split())
-    m = re.match(r"(.+?[.!?])(?:\s|$)", flat)
+    m = _SENTENCE.match(flat)
     out = m.group(1) if m else flat
-    return out if len(out) <= cap else out[: cap - 1].rstrip() + "\u2026"
+    return out if len(out) <= cap else out[: cap - 1].rstrip() + "…"
+
+
+def _highlights(sections: dict[str, str], version: str, strict: bool) -> list[str]:
+    """The `### Highlights` bullets of one entry. A block that exists but yields no bullet is an error for the release being cut: falling
+    back quietly would publish the detail the author meant to replace and say nothing."""
+    name = next((n for n in sections if n.lower().startswith("highlights")), None)
+    if name is None:
+        return []
+    bullets = _top_level_bullets(sections[name])
+    if not bullets and strict:
+        raise ValueError(
+            f"CHANGELOG {version}: `### {name}` has no `- ` bullets, so README's What's New would silently fall back to titles"
+        )
+    return bullets
 
 
 def render_whats_new(changelog_text: str, version: str, earlier: int = _WHATS_NEW_EARLIER) -> str:
@@ -153,20 +179,17 @@ def render_whats_new(changelog_text: str, version: str, earlier: int = _WHATS_NE
             f"CHANGELOG's top entry is {top}, not {version}; README's What's New would describe the wrong release"
         )
     _, sections = _entry_sections(entries[0][1])
-    highlights = _top_level_bullets(sections.get("Highlights", ""))
+    highlights = _highlights(sections, version, strict=True)
     detail = [
         b
         for name, block in sections.items()
-        if name != "Highlights"
+        if not name.lower().startswith("highlights")
         for b in _top_level_bullets(block)
-        if _bold_title(b)
     ]
     if highlights:
-        shown, left_out = highlights, len(detail)
+        shown = highlights
     else:
-        titles = [t for t in (_bold_title(b) for b in detail) if t]
-        shown = titles[:_WHATS_NEW_FALLBACK_MAX]
-        left_out = len(titles) - len(shown)
+        shown = [_bold_title(b) or _first_sentence(b) for b in detail][:_WHATS_NEW_FALLBACK_MAX]
     if not shown:
         raise ValueError(
             f"No bullet items found in the CHANGELOG entry for {version}; README's What's New would be synced empty"
@@ -178,20 +201,31 @@ def render_whats_new(changelog_text: str, version: str, earlier: int = _WHATS_NE
             f"All {len(detail)} entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md)."
         )
     else:
-        lines.append(f"Plus {left_out} more entries in the [CHANGELOG](CHANGELOG.md).")
+        lines.append(f"Plus {len(detail) - len(shown)} more entries in the [CHANGELOG](CHANGELOG.md).")
     previous = []
     for ver, body in entries[1 : 1 + earlier]:
         intro, secs = _entry_sections(body)
-        first_highlight = next(iter(_top_level_bullets(secs.get("Highlights", ""))), "")
+        first_highlight = next(iter(_highlights(secs, ver, strict=False)), "")
         first_title = next(
             (t for t in (_bold_title(b) for s, blk in secs.items() for b in _top_level_bullets(blk)) if t), ""
         )
         summary = _first_sentence(first_highlight or intro or first_title)
         if summary:
-            previous.append(f"- **{ver}** \u2014 {summary}")
+            previous.append(f"- **{ver}** — {summary}")
     if previous:
         lines += ["", "**Earlier releases**", "", *previous]
     return "\n".join(lines)
+
+
+def _strings_in(value: object):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for v in value.values():
+            yield from _strings_in(v)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            yield from _strings_in(v)
 
 
 def validate_roadmap(data: object) -> dict:
@@ -201,6 +235,10 @@ def validate_roadmap(data: object) -> dict:
     forecast = data.get("forecast")
     if not isinstance(forecast, dict) or not forecast.get("made_in"):
         raise ValueError("roadmap needs `forecast.made_in`, the release the forecast was made in")
+    if not isinstance(forecast["made_in"], str):
+        raise ValueError(
+            f"forecast.made_in must be quoted text, not {forecast['made_in']!r} (an unquoted 1.10 loads as the number 1.1)"
+        )
     seen: set[str] = set()
     for n, item in enumerate(data["items"], 1):
         if not isinstance(item, dict):
@@ -208,9 +246,21 @@ def validate_roadmap(data: object) -> dict:
         for field in _ROADMAP_FIELDS:
             if item.get(field) in (None, ""):
                 raise ValueError(f"roadmap item {n}: missing {field}")
+        for field in _ROADMAP_TEXT_FIELDS:
+            if not isinstance(item[field], str):
+                raise ValueError(f"roadmap item {n}: {field} must be text, not {type(item[field]).__name__}")
         conf = item["confidence"]
         if isinstance(conf, bool) or not isinstance(conf, (int, float)) or not 0 <= conf <= 1:
             raise ValueError(f"roadmap item {n}: confidence must be a number from 0 to 1, not {conf!r}")
+        ceiling = _ROADMAP_EVIDENCE_CEILING.get(item["evidence"])
+        if ceiling is None:
+            raise ValueError(
+                f"roadmap item {n}: evidence must be one of {', '.join(_ROADMAP_EVIDENCE_CEILING)}, not {item['evidence']!r}"
+            )
+        if conf > ceiling:
+            raise ValueError(
+                f"roadmap item {n}: evidence {item['evidence']!r} cannot carry confidence above {ceiling}, not {conf}"
+            )
         if item["status"] not in _ROADMAP_STATUSES:
             raise ValueError(
                 f"roadmap item {n}: status must be one of {', '.join(_ROADMAP_STATUSES)}, not {item['status']!r}"
@@ -222,11 +272,9 @@ def validate_roadmap(data: object) -> dict:
         if item["id"] in seen:
             raise ValueError(f"roadmap item {n}: duplicate id {item['id']!r}")
         seen.add(item["id"])
-        for key, value in item.items():
-            if isinstance(value, str) and (leak := _INTERNAL_ID.search(value)):
-                raise ValueError(
-                    f"roadmap item {n}: {key} carries an internal id ({leak.group(0)!r}); the roadmap is public text"
-                )
+    for text in (*_strings_in(forecast), *_strings_in(data["items"])):
+        if leak := _INTERNAL_ID.search(text):
+            raise ValueError(f"roadmap carries an internal id ({leak.group(0)!r}); the roadmap is public text")
     return data
 
 
@@ -254,18 +302,82 @@ def render_whats_coming(roadmap: dict) -> str:
         lines += [
             f"Empirica's own forecast, made in {roadmap['forecast']['made_in']} from its open work, the demand it has measured and its known "
             "weak spots. Each prediction carries a confidence, the evidence behind it and the observation that would prove it wrong, and is "
-            "graded when it ships or is dropped.",
+            "graded when it ships or is dropped. The word beside the confidence says how the basis is known: **measured** by a command, "
+            "**reviewed** in the code, **reported** by someone else, or **inferred**; weaker evidence cannot carry a higher confidence.",
             "",
             "| Direction | Confidence | Why we expect it | What would change our mind |",
             "|---|---|---|---|",
         ]
         for i in sorted(open_items, key=lambda it: -it["confidence"]):
             lines.append(
-                f"| **{_cell(i['title'])}**: {_cell(i['prediction'])} | {round(i['confidence'] * 100)}% | {_cell(i['basis'])} | {_cell(i['falsifier'])} |"
+                f"| **{_cell(i['title'])}**: {_cell(i['prediction'])} | {round(i['confidence'] * 100)}% ({i['evidence']}) | {_cell(i['basis'])} | {_cell(i['falsifier'])} |"
             )
-    if shipped or dropped:
-        lines += ["", f"Forecast record: {shipped} shipped, {dropped} dropped so far."]
+        lines.append("")
+    lines.append(f"Forecast record: {shipped} shipped, {dropped} dropped so far.") if (shipped or dropped) else None
+    while lines and lines[-1] == "":
+        lines.pop()
     return "\n".join(lines)
+
+
+def replace_whats_new_block(readme: str, block: str) -> str:
+    """README with its What's New section (and the What's Coming that follows it) replaced by `block`.
+
+    The span is read line by line: it starts at the `## What's New in` heading and ends at the next level-1 or level-2 heading that is
+    not What's Coming, or at a `---` divider that does not lead into What's Coming, or at the end of the file. Headings inside a code
+    fence do not count. Everything outside the span is returned byte for byte. A What's Coming anywhere else is refused, because
+    replacing around it would leave two forecasts.
+    """
+    lines = readme.split("\n")
+    in_fence = False
+    start = end = None
+    coming_elsewhere: list[int] = []
+    for i, line in enumerate(lines):
+        if _FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if start is None:
+            if _NEW_HEADING.match(line):
+                start = i
+            elif _COMING_HEADING.match(line):
+                coming_elsewhere.append(i)
+            continue
+        if end is not None:
+            if _COMING_HEADING.match(line):
+                coming_elsewhere.append(i)
+            continue
+        if line.strip() == "---":
+            following = next((ln for ln in lines[i + 1 :] if ln.strip()), "")
+            if not _COMING_HEADING.match(following):
+                end = i
+        elif _ANY_TOP_HEADING.match(line) and not _COMING_HEADING.match(line):
+            end = i
+    if start is None:
+        raise ValueError("no `## What's New in …` heading found")
+    if coming_elsewhere:
+        raise ValueError(
+            f"README has a What's Coming heading outside the What's New block (line {coming_elsewhere[0] + 1}); "
+            "move it directly under What's New so the sync can replace both"
+        )
+    after = lines[end:] if end is not None else []
+    return "\n".join([*lines[:start], *block.split("\n"), "", *after])
+
+
+# Run by the Python-floor gate under the oldest supported interpreter: parse every file the suite or the package imports. A SyntaxError
+# there is a syntax the floor cannot read, whatever the newer interpreters on the box accept.
+PYTHON_FLOOR_PARSE_SCRIPT = """
+import ast, json, pathlib
+errors, checked = [], 0
+for root in ("scripts", "empirica", "tests"):
+    for path in sorted(pathlib.Path(root).rglob("*.py")):
+        checked += 1
+        try:
+            ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except SyntaxError as e:
+            errors.append([path.as_posix(), e.lineno, e.msg])
+print(json.dumps({"checked": checked, "errors": errors}))
+"""
 
 
 class ReleaseManager:
@@ -1229,6 +1341,15 @@ class ReleaseManager:
 
         success(f"CHANGELOG has a top-level entry for {self.version}")
 
+    def _remind_forecast_grading(self, roadmap_path: Path) -> None:
+        """The forecast is only a forecast if it is graded: say how many predictions are still open at every docs step."""
+        open_count = sum(1 for i in load_roadmap(roadmap_path)["items"] if i["status"] == "predicted")
+        if open_count:
+            warning(
+                f"{open_count} open prediction{'s' if open_count != 1 else ''} in docs/ROADMAP.yaml: grade each against this release "
+                "(shipped, dropped, or still predicted) before publishing, or the forecast record stands still"
+            )
+
     def sync_readme_whats_new(self):
         """Sync README 'What's New' section from CHANGELOG.
 
@@ -1263,26 +1384,14 @@ class ReleaseManager:
                 whats_coming = render_whats_coming(load_roadmap(roadmap_path))
             except ValueError as e:
                 error(f"docs/ROADMAP.yaml: {e}")
-        new_block = whats_new + ("\n\n" + whats_coming if whats_coming else "") + "\n"
-
-        # Replace in README: from the What's New heading up to the next heading that is not What's Coming (so a previous forecast goes
-        # with it, and a roadmap that was deleted does not leave a stale one behind), or a `---` divider, or the end of the file.
-        # The span stops BEFORE the next heading's newline, so new_block carries its own trailing newline: without it the heading lands
-        # on the line after the last bullet with no blank line between.
+        new_block = whats_new + ("\n\n" + whats_coming if whats_coming else "")
         readme = readme_path.read_text()
-        pattern = re.compile(
-            r"## What's New in [^\n]+\n.+?(?=\n## (?!What's Coming)|\n---\n|\Z)",
-            re.DOTALL,
-        )
-        if not pattern.search(readme):
-            error(
-                "Could not find a `## What's New in …` section in README.md — "
-                "the sync has nothing to replace and README would keep the previous release's notes"
-            )
-
-        # Replacement via lambda: `re.sub` interprets backslash escapes in a replacement STRING, so a bullet containing one would be
-        # mangled (or raise) on the way into README.
-        readme = pattern.sub(lambda _: new_block, readme, count=1)
+        try:
+            readme = replace_whats_new_block(readme, new_block)
+        except ValueError as e:
+            error(f"README.md: {e}")
+        if whats_coming:
+            self._remind_forecast_grading(roadmap_path)
 
         # Built outside the f-strings: a quote or backslash inside an f-string expression is a SyntaxError before Python 3.12.
         coming_note = " and What's Coming from docs/ROADMAP.yaml" if whats_coming else ""
@@ -1797,6 +1906,59 @@ brew install empirica
             log(f"  {line}")
         return False
 
+    def python_floor(self) -> str:
+        """The oldest Python the project claims to support, read from `requires-python` so it cannot drift from pyproject."""
+        text = (self.repo_root / "pyproject.toml").read_text()
+        m = re.search(r'^requires-python\s*=\s*"[^"]*?>=\s*(\d+\.\d+)', text, re.MULTILINE)
+        return m.group(1) if m else "3.10"
+
+    def run_python_floor_parse(self, run=subprocess.run) -> bool:
+        """Parse the whole tree under the oldest supported interpreter, via uv.
+
+        ruff targets py310 but parses with the newest grammar, and the suite runs on whatever the developer has, so syntax that only
+        3.12 accepts passed every local gate and broke CI on 3.11 (1.14.14 follow-up). CI does not run the floor at all. When this cannot
+        run it says NOT VERIFIED and returns True: the release is not blocked on a download, but the log cannot read as a clean floor.
+        """
+        log("\n" + "=" * 60)
+        log("🐍 Python-floor parse gate")
+        log("=" * 60)
+        floor = self.python_floor()
+        if self.dry_run:
+            info(f"Would parse scripts/ empirica/ tests/ under Python {floor} via uv")
+            return True
+        if shutil.which("uv") is None:
+            warning(
+                f"NOT VERIFIED: uv is not installed, so nothing proves the tree parses on Python {floor} (requires-python)"
+            )
+            return True
+        try:
+            result = run(
+                ["uv", "run", "--python", floor, "--no-project", "python", "-c", PYTHON_FLOOR_PARSE_SCRIPT],
+                capture_output=True,
+                text=True,
+                timeout=600,
+                cwd=str(self.repo_root),
+            )
+        except (OSError, subprocess.TimeoutExpired) as e:
+            warning(f"NOT VERIFIED: could not run Python {floor} through uv ({type(e).__name__}: {e})")
+            return True
+        if result.returncode != 0:
+            tail = (result.stderr or result.stdout).strip().splitlines()[-1:] or ["no output"]
+            warning(f"NOT VERIFIED: uv could not run Python {floor} ({tail[0]})")
+            return True
+        try:
+            payload = json.loads(result.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            warning(f"NOT VERIFIED: the Python {floor} parse printed nothing readable")
+            return True
+        if payload["errors"]:
+            log(f"\n{RED}Python {floor} cannot parse:{RESET}")
+            for path, line, msg in payload["errors"][:30]:
+                log(f"  {path}:{line}: {msg}")
+            return False
+        success(f"{payload['checked']} files parse on Python {floor}")
+        return True
+
     # Governed CVE-waiver list. STRICT by default (any un-waived CVE hard-fails).
     # A waiver here is a documented, reviewed risk-acceptance for a CVE that is
     # (a) assessed non-exploitable in Empirica's usage, AND (b) has no available
@@ -2159,6 +2321,12 @@ brew install empirica
             # Gate: pyright (types) — mirrors CI's pyright step.
             if not self.run_pyright():
                 warning("Type-check failed. Fix issues before running --publish.")
+                info("\nOnce fixed, run: python scripts/release.py --publish")
+                sys.exit(1)
+
+            # Gate: the tree parses on the oldest supported Python (nothing else runs it).
+            if not self.run_python_floor_parse():
+                warning("A file does not parse on the Python floor. Fix before running --publish.")
                 info("\nOnce fixed, run: python scripts/release.py --publish")
                 sys.exit(1)
 

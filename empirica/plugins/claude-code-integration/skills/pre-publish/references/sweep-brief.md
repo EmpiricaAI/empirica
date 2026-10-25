@@ -15,7 +15,9 @@ Fill in the angle brackets. Send each reviewer the same brief with its own scope
 > CONFIRMED. At most 10 findings, most severe first, compact. If you find nothing real, say so and list what you checked. Under 500
 > words.
 
-Add one job per area where it applies: hooks that run on every prompt (anything crashing, dangling, or adding per-call cost), and
+Add one job per area where it applies: public text that makes claims (README, ROADMAP, changelog Highlights): re-run the command behind each claim
+against HEAD, ask whether each falsifier tests the prediction it guards, and try the generators that write it with an input shape they were not written for
+(a sentinel after the span must survive); hooks that run on every prompt (anything crashing, dangling, or adding per-call cost), and
 docs/prompt accuracy (sections or behaviours referred to that no longer exist).
 
 The reviewers' verdicts are uncalibrated. Their value is the candidates; the confirmation is yours.

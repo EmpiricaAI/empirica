@@ -44,6 +44,14 @@ that, because the defect was an absence.
 - **A new destructive command is swept before it touches real data.** Enumerate what references the thing it deletes from the
   schema (every table with that id as a column, every external store), and treat an unreachable store as unknown, never zero.
 - **A test that mocks the boundary pins the defect.** Check payloads against the callee's own published schema.
+- **A claim about current code cites HEAD, not a report.** A public forecast item described a gap a peer had reported against older vendored
+  copies; the repo had fixed it three weeks earlier. For each claim in README, ROADMAP or a changelog, run the command that shows it today
+  (`git log -S<symbol> --since=<report date>`, a count, a grep) and write its evidence kind beside it.
+- **Run the oldest Python you claim.** `release.py --prepare` parses the tree under `requires-python`'s floor through `uv`. ruff targets py310 but
+  parses with the newest grammar, so a 3.12-only f-string passed lint, format and a 3.14 suite and broke CI on 3.11. If the gate prints
+  `NOT VERIFIED`, the floor was not checked: say so in the report instead of reading silence as clean.
+- **A falsifier tests the prediction it guards, and someone outside can evaluate it.** Write the claim as the check's own sentence; if you cannot, they
+  are two claims.
 - **Wait by run id, never by short SHA.** A short SHA matches nothing and the wait never ends.
 - **Do not publish on a go you inferred.** Tag and push only on the owner's explicit word for this release.
 
