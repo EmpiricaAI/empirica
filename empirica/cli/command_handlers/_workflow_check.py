@@ -51,6 +51,22 @@ def _check_patterns_for_warnings(project_id, config_data, checkpoints, current_v
         return None
 
 
+def _profile_base_thresholds(loader) -> dict:
+    """The know and uncertainty bars of the profile the loader has loaded.
+
+    Only the `default` profile defines `ready_know_threshold`; every other profile carries the know bar under its legacy name,
+    `ready_confidence_threshold` (cascade_styles.yaml marks it the deprecated alias). Reading the new name alone missed for every
+    non-default profile, applied a hardcoded 0.70, and logged it as the profile's own value.
+    """
+    know = loader.get("cascade.ready_know_threshold", None)
+    if know is None:
+        know = loader.get("cascade.ready_confidence_threshold", 0.70)
+    return {
+        "ready_know_threshold": know,
+        "ready_uncertainty_threshold": loader.get("cascade.ready_uncertainty_threshold", 0.35),
+    }
+
+
 def _compute_check_decision(confidence: float, drift: float, unknowns_count: int) -> tuple:
     """Compute CHECK gate decision from confidence, drift, and unknowns.
 
@@ -585,10 +601,7 @@ def _check_load_dynamic_thresholds(session_id):
 
             loader = ThresholdLoader.get_instance()
             if loader.load_profile(cascade_profile):
-                profile_base_thresholds = {
-                    "ready_know_threshold": loader.get("cascade.ready_know_threshold", 0.70),
-                    "ready_uncertainty_threshold": loader.get("cascade.ready_uncertainty_threshold", 0.35),
-                }
+                profile_base_thresholds = _profile_base_thresholds(loader)
                 ready_uncertainty_threshold = profile_base_thresholds["ready_uncertainty_threshold"]
                 basis.update(cascade_profile=cascade_profile, base_source=f"cascade profile '{cascade_profile}'")
                 logger.info(f"CHECK using cascade profile '{cascade_profile}' baselines: {profile_base_thresholds}")

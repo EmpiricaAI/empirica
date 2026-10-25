@@ -558,8 +558,12 @@ def three_findings(db, project):
 def test_resolved_and_retracted_findings_are_not_returned_by_default(db, three_findings, depth):
     pid, open_id = three_findings
     got = db.breadcrumbs.get_project_findings(pid, depth=depth)
-    assert [f["id"] for f in got] == [open_id], "the read path feeding CHECK, POSTFLIGHT and bootstrap returned finished and false findings"
-    assert [f["id"] for f in db.get_project_findings(pid)] == [open_id], "the SessionDatabase facade goes through the same query"
+    assert [f["id"] for f in got] == [open_id], (
+        "the read path feeding CHECK, POSTFLIGHT and bootstrap returned finished and false findings"
+    )
+    assert [f["id"] for f in db.get_project_findings(pid)] == [open_id], (
+        "the SessionDatabase facade goes through the same query"
+    )
 
 
 def test_the_subject_filter_applies_the_same_rule(db, three_findings):
