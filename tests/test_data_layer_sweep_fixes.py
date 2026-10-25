@@ -609,7 +609,9 @@ def test_no_new_artifact_insert_omits_visibility_outside_the_restore_paths():
 
     root = Path(__file__).resolve().parents[1]
     tables = "project_findings|project_unknowns|project_dead_ends|mistakes_made|assumptions|decisions|goals"
-    pattern = re.compile(rf"INSERT\s+(?:OR\s+\w+\s+)?INTO\s+({tables})\b\s*\(([^)]*)\)", re.IGNORECASE | re.DOTALL)
+    # `[\s"']*` lets the column list start in the NEXT string literal: SQL split across adjacent literals was invisible to the first
+    # version of this scan, which is how _log_deletion_decision's insert went unnoticed.
+    pattern = re.compile(rf"INSERT\s+(?:OR\s+\w+\s+)?INTO\s+({tables})\b[\s\"']*\(([^)]*)\)", re.IGNORECASE | re.DOTALL)
     walked, omitted = 0, []
     for path in (root / "empirica").rglob("*.py"):
         rel = path.relative_to(root).as_posix()
@@ -619,6 +621,10 @@ def test_no_new_artifact_insert_omits_visibility_outside_the_restore_paths():
             if "visibility" not in m.group(2) and rel not in RESTORE_PATHS:
                 omitted.append(f"{rel}:{text[: m.start()].count(chr(10)) + 1} ({m.group(1)})")
     assert walked > 10, "control: the scan found the INSERTs it is guarding"
+    split_literal = (root / "empirica/cli/command_handlers/graph_commands.py").read_text()
+    assert pattern.search(split_literal), (
+        "control: the scan reads an INSERT whose columns start in the next string literal"
+    )
     assert omitted == [], (
         f"a new artifact INSERT omits visibility and would be born with the 'shared' column default: {omitted}"
     )

@@ -1897,8 +1897,8 @@ def _log_deletion_decision(cursor, project_id: str, session_id: str, choice: str
     try:
         cursor.execute(
             "INSERT INTO decisions "
-            "(id, project_id, session_id, choice, rationale, reversibility, created_timestamp) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "(id, project_id, session_id, choice, rationale, reversibility, created_timestamp, visibility) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 str(uuid.uuid4()),
                 project_id,
@@ -1907,6 +1907,7 @@ def _log_deletion_decision(cursor, project_id: str, session_id: str, choice: str
                 rationale,
                 "committal",
                 time.time(),
+                "local",
             ),
         )
         return "recorded"

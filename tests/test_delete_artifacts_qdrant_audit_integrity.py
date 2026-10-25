@@ -176,7 +176,8 @@ def _decisions_db() -> sqlite3.Connection:
             outcome_assessed_at REAL,
             regret_score REAL,
             created_by_ai TEXT,
-            created_timestamp REAL NOT NULL
+            created_timestamp REAL NOT NULL,
+            visibility TEXT DEFAULT 'shared'  -- the real column default; the receipt must not inherit it
         );
         """
     )
@@ -198,7 +199,7 @@ def test_audit_decision_row_is_written_to_the_real_table():
 
     assert status == "recorded"
     rows = conn.execute(
-        "SELECT id, project_id, session_id, choice, rationale, reversibility, created_timestamp FROM decisions"
+        "SELECT id, project_id, session_id, choice, rationale, reversibility, created_timestamp, visibility FROM decisions"
     ).fetchall()
     assert len(rows) == 1
     row = rows[0]
@@ -208,6 +209,7 @@ def test_audit_decision_row_is_written_to_the_real_table():
     assert row[5] == "committal"
     uuid.UUID(row[0])  # id column, a real uuid
     assert isinstance(row[6], float), "created_timestamp must be REAL epoch, not datetime('now') text"
+    assert row[7] == "local", "a deletion receipt is born local like every new artifact, not the shared column default"
 
 
 def test_audit_failure_is_reported_not_swallowed():
