@@ -169,9 +169,31 @@ class TestWave1Integration:
 
 
 class TestEndToEndComplianceFlow:
-    def test_cybersec_high_with_mixed_results(self):
-        """Full flow: cybersec/high runs 5 checks, some pass some fail."""
+    def test_cybersec_high_with_mixed_results(self, tmp_path, monkeypatch):
+        """Full flow: a security-style domain runs 5 checks, some pass some fail.
+
+        The shipped cybersec domain no longer requires the scanners (none has a runner), so the
+        checklist comes from a project domains file shaped like the one it used to ship.
+        """
         import time
+
+        import yaml
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / ".empirica").mkdir()
+        (tmp_path / ".empirica" / "domains.yaml").write_text(
+            yaml.dump(
+                {
+                    "domains": {
+                        "cybersec": {
+                            "criticalities": {
+                                "high": {"required_checks": ["tests", "lint", "semgrep_full", "trivy_deps", "gitleaks"]}
+                            }
+                        }
+                    }
+                }
+            )
+        )
 
         # Register real checks for tests + lint, stubs for the rest
         ServiceRegistry.load_builtins()
@@ -232,6 +254,7 @@ class TestEndToEndComplianceFlow:
             work_type="code",
             domain="cybersec",
             criticality="high",
+            project_path=str(tmp_path),
         )
 
         assert result is not None

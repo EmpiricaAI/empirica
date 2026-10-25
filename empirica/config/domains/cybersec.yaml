@@ -7,6 +7,12 @@ applies_to_work_types:
   - infra
   - config
 
+# The scanners listed under optional_checks (semgrep_*, trivy_deps, gitleaks, sbom_audit,
+# threat_model_current, privilege_review) have no runner registered in ServiceRegistry yet. As
+# required checks they made every medium/high/critical run fail with "not registered", so the
+# domain could never complete. They are NOT enforced until a runner exists: promote an id back
+# to required_checks in the same change that registers it (tests/config/
+# test_shipped_domains_and_malformed_files.py fails if a required id has no runner).
 criticalities:
   low:
     description: "Hobby projects, prototypes, internal tools with no PII"
@@ -24,6 +30,7 @@ criticalities:
     required_checks:
       - tests
       - lint
+    optional_checks:
       - semgrep_basic
     thresholds:
       coverage_min: 0.5
@@ -35,6 +42,7 @@ criticalities:
     required_checks:
       - tests
       - lint
+    optional_checks:
       - semgrep_full
       - trivy_deps
       - gitleaks
@@ -48,6 +56,7 @@ criticalities:
     required_checks:
       - tests
       - lint
+    optional_checks:
       - semgrep_full
       - trivy_deps
       - gitleaks

@@ -193,20 +193,8 @@ class TestRunComplianceChecks:
         assert result.status == "max_iterations_exceeded"
         assert result.next_transaction is None
 
-    def test_unregistered_check_treated_as_failure(self, tmp_path):
-        """Checks not in ServiceRegistry are reported as failures."""
-        # Use cybersec/high which requires semgrep_full, trivy_deps, gitleaks
-        # — none of which are in the builtins
-        result = run_compliance_checks(
-            session_id="s1",
-            transaction_id="t1",
-            work_type="code",
-            domain="cybersec",
-            criticality="high",
-        )
-        assert result is not None
-        assert result.checks_failed >= 1
-        assert any("not registered" in r["summary"] for r in result.check_results)
+    # An unregistered REQUIRED check failing the run is pinned on a synthetic domain in
+    # tests/config/test_shipped_domains_and_malformed_files.py: cybersec no longer requires unregistered ids.
 
 
 class TestSkippedIsNotPassed:
