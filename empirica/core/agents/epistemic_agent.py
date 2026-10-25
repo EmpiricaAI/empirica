@@ -464,7 +464,7 @@ def aggregate_agent_results(
             return {"error": "No successful agent results"}
 
         # Get merge decision
-        merge_result = db.branches.merge_branches(session_id=session_id, round_number=investigation_round)
+        merge_result = db.branches.merge_branches(session_id=session_id, investigation_round=investigation_round)
 
         # Find winner
         winner = None

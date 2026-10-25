@@ -204,7 +204,7 @@ def _merge_tag_losing_branches(db, session_id, merge_result):
             "could not resolve project_id for session %s: %s — dead-ends logged unscoped, not embedded", session_id, e
         )
 
-    for loser in merge_result["other_branches"]:
+    for loser in merge_result.get("losers", []):
         loser_name = loser.get("branch_name", "unknown")
         loser_score = loser.get("score", 0)
         loser_branch_id = loser.get("branch_id")
@@ -215,7 +215,7 @@ def _merge_tag_losing_branches(db, session_id, merge_result):
             f"Branch score: {loser_score:.4f} vs winner: {winning_score:.4f}"
         )
 
-        db.log_project_dead_end(
+        db.log_dead_end(
             project_id=project_id,
             session_id=session_id,
             approach=approach,

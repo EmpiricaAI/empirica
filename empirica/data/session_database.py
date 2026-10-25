@@ -1163,10 +1163,19 @@ class SessionDatabase:
         metadata: dict | None = None,
         reasoning: str | None = None,
         transaction_id: str | None = None,
+        project_id: str | None = None,
     ):
         """Store epistemic vectors (delegates to VectorRepository)"""
         return self.vectors.store_vectors(
-            session_id, phase, vectors, cascade_id, round_num, metadata, reasoning, transaction_id=transaction_id
+            session_id,
+            phase,
+            vectors,
+            cascade_id,
+            round_num,
+            metadata,
+            reasoning,
+            project_id=project_id,
+            transaction_id=transaction_id,
         )
 
     def get_latest_vectors(self, session_id: str, phase: str | None = None) -> dict | None:
@@ -1353,7 +1362,13 @@ class SessionDatabase:
     # ========== Investigation Branches (Epistemic Auto-Merge) ==========
 
     def create_branch(
-        self, session_id: str, branch_name: str, investigation_path: str, git_branch_name: str, preflight_vectors: dict
+        self,
+        session_id: str,
+        branch_name: str,
+        investigation_path: str,
+        git_branch_name: str,
+        preflight_vectors: dict,
+        transaction_id: str | None = None,
     ) -> str:
         """Create a new investigation branch (delegates to BranchRepository)
 
@@ -1368,7 +1383,12 @@ class SessionDatabase:
             Branch ID
         """
         return self.branches.create_branch(
-            session_id, branch_name, investigation_path, git_branch_name, preflight_vectors
+            session_id,
+            branch_name,
+            investigation_path,
+            git_branch_name,
+            preflight_vectors,
+            transaction_id=transaction_id,
         )
 
     def checkpoint_branch(

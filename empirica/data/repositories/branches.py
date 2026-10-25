@@ -276,5 +276,12 @@ class BranchRepository(BaseRepository):
             "winning_score": round(winner["score"], 4),
             "merge_decision_id": decision_id,
             "other_branches": other_branches,
+            # Records, not just names: the loser tagger needs the id and the score, and treating the names as dicts crashed it after
+            # the merge had already been committed.
+            "losers": [
+                {"branch_id": b["branch_id"], "branch_name": b["branch_name"], "score": b["score"]}
+                for b in branch_scores
+                if b["branch_id"] != winner["branch_id"]
+            ],
             "rationale": rationale,
         }

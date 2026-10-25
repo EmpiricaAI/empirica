@@ -10,7 +10,7 @@ import logging
 import time
 import uuid
 
-from ..id_guard import is_blank_id
+from ..id_guard import is_blank_id, resolve_id_prefix
 from .base import BaseRepository
 
 logger = logging.getLogger(__name__)
@@ -371,6 +371,7 @@ class GoalDataRepository(BaseRepository):
             FROM goals
             WHERE session_id IN (SELECT session_id FROM sessions WHERE project_id = ?)
             AND is_completed = 0
+            AND COALESCE(status, '') != 'abandoned'
             ORDER BY created_timestamp DESC
         """,
             (project_id,),
@@ -389,6 +390,7 @@ class GoalDataRepository(BaseRepository):
             LEFT JOIN subtasks s ON g.id = s.goal_id
             WHERE g.session_id IN (SELECT session_id FROM sessions WHERE project_id = ?)
             AND g.is_completed = 0
+            AND COALESCE(g.status, '') != 'abandoned'
             GROUP BY g.id
             ORDER BY g.created_timestamp DESC
         """,
@@ -546,11 +548,25 @@ class GoalDataRepository(BaseRepository):
 
         return stale_goals
 
-    def goal_status(self, goal_id: str) -> str | None:
-        """Status of the goal a (prefix) id names, or None when no goal matches or the id is blank."""
-        if is_blank_id(goal_id):
+    def _one_goal_id(self, goal_id: str | None) -> str | None:
+        """The single full goal id a (prefix) id names, or None when it is blank, too short or ambiguous.
+
+        The goal verbs used to take the first row of `LIKE prefix%`, or every row for the batch archive, which is a coin flip returned
+        as a result (id_guard.resolve_id_prefix exists for exactly this). Resolving first and addressing the row by exact id is what
+        makes each verb single-row.
+        """
+        full_id, id_error = resolve_id_prefix(self.conn.cursor(), "goals", "id", goal_id)
+        if id_error:
+            logger.warning(f"goal id {goal_id!r}: {id_error}")
             return None
-        row = self._execute("SELECT status FROM goals WHERE id LIKE ? LIMIT 1", (f"{goal_id}%",)).fetchone()
+        return full_id
+
+    def goal_status(self, goal_id: str) -> str | None:
+        """Status of the goal a (prefix) id names, or None when no goal matches, the id is blank, or the prefix is ambiguous."""
+        full_id = self._one_goal_id(goal_id)
+        if full_id is None:
+            return None
+        row = self._execute("SELECT status FROM goals WHERE id = ?", (full_id,)).fetchone()
         return row[0] if row else None
 
     def activate_goal(self, goal_id: str, transaction_id: str | None = None) -> bool:
@@ -563,14 +579,14 @@ class GoalDataRepository(BaseRepository):
         Returns:
             True if activated, False if goal not found or not planned
         """
-        if is_blank_id(goal_id):
-            return False  # LIKE '%' would activate an arbitrary planned goal
-        # Prefix match on goal_id
+        full_id = self._one_goal_id(goal_id)
+        if full_id is None:
+            return False  # blank, too short, or ambiguous: activating "whichever matched first" is a coin flip
         cursor = self._execute(
             """
-            SELECT id, goal_data, transaction_id FROM goals WHERE id LIKE ? AND status = 'planned'
+            SELECT id, goal_data, transaction_id FROM goals WHERE id = ? AND status = 'planned'
         """,
-            (f"{goal_id}%",),
+            (full_id,),
         )
         row = cursor.fetchone()
 
@@ -620,12 +636,13 @@ class GoalDataRepository(BaseRepository):
         Returns:
             True if reopened, False if goal not found or not in a terminal state
         """
-        if is_blank_id(goal_id):
-            return False  # LIKE '%' would reopen an arbitrary completed goal
+        resolved_id = self._one_goal_id(goal_id)
+        if resolved_id is None:
+            return False
         cursor = self._execute(
             "SELECT id, goal_data, completed_timestamp, transaction_id, archived, archived_at "
-            "FROM goals WHERE id LIKE ? AND (status = 'completed' OR status = 'abandoned' OR is_completed = 1)",
-            (f"{goal_id}%",),
+            "FROM goals WHERE id = ? AND (status = 'completed' OR status = 'abandoned' OR is_completed = 1)",
+            (resolved_id,),
         )
         row = cursor.fetchone()
         if not row:
@@ -692,11 +709,14 @@ class GoalDataRepository(BaseRepository):
         if goal_id is not None and is_blank_id(goal_id):
             return []
         if goal_id:
+            resolved_id = self._one_goal_id(goal_id)
+            if resolved_id is None:
+                return []  # an ambiguous prefix archived every goal sharing it
             cursor = self._execute(
                 "SELECT id, objective, completed_timestamp FROM goals "
-                "WHERE id LIKE ? AND (status = 'completed' OR is_completed = 1) "
+                "WHERE id = ? AND (status = 'completed' OR is_completed = 1) "
                 "AND COALESCE(archived, 0) = 0",
-                (f"{goal_id}%",),
+                (resolved_id,),
             )
         else:
             cutoff = time.time() - older_than_days * 86400
