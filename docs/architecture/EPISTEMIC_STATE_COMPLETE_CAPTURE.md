@@ -80,8 +80,8 @@
     ],
     "decision_history": [
       {"checkpoint": "PREFLIGHT", "decision": null},
-      {"checkpoint": "CHECK-1", "decision": "investigate", "confidence": 0.65},
-      {"checkpoint": "CHECK-2", "decision": "proceed", "confidence": 0.82}
+      {"checkpoint": "CHECK-1", "decision": "investigate"},
+      {"checkpoint": "CHECK-2", "decision": "proceed"}
     ],
     "epistemic_tags": ["debugging", "hook_integration", "storage_layer"]
   }

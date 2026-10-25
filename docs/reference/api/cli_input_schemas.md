@@ -118,8 +118,10 @@ runs grounded verification, and produces a calibration score.
 
 > **CHECK** (`check-submit`) has no pydantic model — the handler reads its
 > payload off the raw dict. It accepts `vectors`, `reasoning`, `decision`,
-> `cycle`, `round`, `confidence`, `approach`, `verbose`, `session_id`, plus
-> `claims` and `falsifiers` with the same shapes as PREFLIGHT. The consumed set
+> `cycle`, `round`, `approach`, `verbose`, `session_id`, plus
+> `claims` and `falsifiers` with the same shapes as PREFLIGHT. `confidence` is read only by the
+> legacy `check` command (a caller-asserted figure); `check-submit` reports `claim_confidence`,
+> computed from the claims' grounding, instead. The consumed set
 > is pinned in `validation.RAW_CONSUMED` and checked by
 > `tests/test_ignored_keys_are_announced.py`.
 

@@ -3,7 +3,7 @@
   "title": "Empirica CHECK Config Schema",
   "description": "Configuration schema for empirica check command",
   "type": "object",
-  "required": ["session_id", "confidence"],
+  "required": ["session_id"],
   "properties": {
     "session_id": {
       "type": "string",
@@ -14,7 +14,7 @@
       "type": "number",
       "minimum": 0.0,
       "maximum": 1.0,
-      "description": "Confidence score (>=0.7 to proceed)"
+      "description": "Optional caller-asserted confidence (>=0.7 to proceed). When absent the legacy check decides on 1 - uncertainty internally and reports no confidence; check-submit reports claim_confidence from the claims instead."
     },
     "findings": {
       "type": "array",

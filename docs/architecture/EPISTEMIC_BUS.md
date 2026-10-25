@@ -58,7 +58,7 @@ boundaries is the SQLite table below, not the bus.
 | Event | Published by | `data` |
 |---|---|---|
 | `preflight_complete` | `preflight-submit` (`_workflow_preflight.py`) | `transaction_id`, `vectors`, `task_context`, `work_type`, `work_context` |
-| `check_complete` | `check-submit` (`_workflow_check.py`) | `transaction_id`, `vectors`, `decision`, `round`, `confidence` |
+| `check_complete` | `check-submit` (`_workflow_check.py`) | `transaction_id`, `vectors`, `decision`, `round` (no `confidence`: it was `1 - uncertainty`, and is not written since 1.14.17) |
 | `postflight_complete` | `postflight-submit` (`_workflow_postflight.py`) | `transaction_id`, `vectors`, `deltas`, `postflight_confidence`, `internal_consistency` |
 | `memory_pressure`, `context_evicted`, `context_injected`, `page_fault` | `ContextBudgetManager` | budget details plus `node_id`; `agent_id` is `cbm:<node_id>` |
 

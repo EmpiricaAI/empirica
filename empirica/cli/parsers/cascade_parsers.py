@@ -158,9 +158,10 @@ def add_cascade_parsers(subparsers):
         "--confidence",
         type=float,
         help=(
-            "Overall confidence score 0.0–1.0 (legacy mode). The gate prefers "
-            "the per-vector breakdown in the config payload; --confidence is "
-            "a flat-scalar fallback for old callers."
+            "Caller-asserted confidence 0.0–1.0 (legacy `check` only); it wins over "
+            "a `confidence` in the payload and is echoed back as `confidence`. Without "
+            "it the command decides on 1 - uncertainty and reports no `confidence`. "
+            "`check-submit` ignores it and reports `claim_confidence` instead."
         ),
     )
     check_parser.add_argument(

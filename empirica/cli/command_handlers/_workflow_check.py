@@ -113,7 +113,12 @@ def _check_cmd_parse_inputs(args):
     cycle = getattr(args, "cycle", None) or (config_data.get("cycle") if config_data else None)
     round_num = getattr(args, "round", None) or (config_data.get("round") if config_data else None)
     verbose = getattr(args, "verbose", False) or (config_data.get("verbose", False) if config_data else False)
-    explicit_confidence = config_data.get("confidence") if config_data else None
+    # The --confidence flag is documented and registered, and was never read here: accepted, discarded, no error. The flag wins over
+    # the payload (like the other inputs); `is not None` because 0.0 is a real value.
+    cli_confidence = getattr(args, "confidence", None)
+    explicit_confidence = (
+        cli_confidence if cli_confidence is not None else (config_data.get("confidence") if config_data else None)
+    )
     # Per-claim grounding (migration 062). Optional — a CHECK without claims
     # behaves exactly as before.
     claims = (config_data.get("claims") if config_data else None) or []
@@ -186,6 +191,28 @@ def _check_cmd_load_evidence(db, session_id):
     return findings, unknowns, project_id
 
 
+def _check_readiness(explicit_confidence, uncertainty):
+    """The number the legacy `check` decision runs on: the caller's asserted confidence, else the complement of uncertainty.
+
+    This is an input to the decision, not something reported as a measurement; reporting it as `confidence` was the relabelling."""
+    return explicit_confidence if explicit_confidence is not None else (1.0 - uncertainty)
+
+
+def _legacy_check_confidence_fields(explicit_confidence, claims_block):
+    """The confidence-related keys of the legacy `check` result: `confidence` only when the caller supplied one (information a
+    derived `1 - uncertainty` never was), plus `claim_confidence`, null when no claim was declared."""
+    fields = {} if explicit_confidence is None else {"confidence": explicit_confidence}
+    fields["claim_confidence"] = _claim_confidence_value(claims_block)
+    return fields
+
+
+def _claim_confidence_value(claims_block):
+    """The claim_confidence figure from a claims echo block, or None (never a neutral number) when no claim was declared."""
+    if not isinstance(claims_block, dict):
+        return None
+    return (claims_block.get("claim_confidence") or {}).get("value")
+
+
 def _check_declare_claims(session_id, transaction_id, claims):
     """Persist claims declared at CHECK; return the echo block (or None).
 
@@ -210,7 +237,12 @@ def _check_declare_claims(session_id, transaction_id, claims):
         declared, skipped = _claims.declare_reporting(
             db, session_id=session_id, transaction_id=transaction_id, claims=claims
         )
-        return _claims.summarize_for_check(declared, skipped=skipped, submitted=len(claims))
+        block = _claims.summarize_for_check(declared, skipped=skipped, submitted=len(claims))
+        if block is not None and declared:
+            # How likely the declared claims all hold, from their grounding and how often such claims held: information the
+            # uncertainty vector does not contain. Advisory, self-graded, and it says so.
+            block["claim_confidence"] = _claims.claim_confidence(declared, _claims.hold_rates(db))
+        return block
     except Exception as e:
         logger.debug(f"claim declaration skipped: {e}")
         return None
@@ -273,10 +305,10 @@ def handle_check_command(args):
         unknowns_count = len(unknowns)
         uncertainty = current_vectors.get("uncertainty", 0.5)
 
-        confidence = inputs["explicit_confidence"] if inputs["explicit_confidence"] is not None else (1.0 - uncertainty)
+        readiness = _check_readiness(inputs["explicit_confidence"], uncertainty)
 
         # 4. Gate logic
-        decision, strength, reasoning, suggestions = _compute_check_decision(confidence, drift, unknowns_count)
+        decision, strength, reasoning, suggestions = _compute_check_decision(readiness, drift, unknowns_count)
         drift_level = "high" if drift > 0.3 else ("medium" if drift > 0.1 else "low")
 
         _check_patterns_for_warnings(project_id, inputs["config_data"], checkpoints, current_vectors, suggestions)
@@ -311,16 +343,13 @@ def handle_check_command(args):
         )
 
         # 6. Build result
-        confidence_value = (
-            inputs["explicit_confidence"] if inputs["explicit_confidence"] is not None else (1.0 - uncertainty)
-        )
         result = {
             "ok": True,
             "session_id": session_id,
             "checkpoint_id": checkpoint_id,
             "decision": decision,
             "suggestion_strength": strength,
-            "confidence": confidence_value,
+            **_legacy_check_confidence_fields(inputs["explicit_confidence"], claims_block),
             "drift_analysis": {
                 "overall_drift": drift,
                 "drift_level": drift_level,
@@ -958,14 +987,13 @@ def _check_surface_blindspots(result, session_id, transaction_id):
 def _check_store_and_publish(session_id, round_num, vectors, decision, reasoning, cycle):
     """Store CHECK checkpoint (3-layer) and publish bus event.
 
-    Returns (checkpoint_id, check_transaction_id, confidence, gaps).
+    Returns (checkpoint_id, check_transaction_id, gaps). It no longer writes or returns a `confidence`: that was `1 - uncertainty`
+    (1,933 of 1,933 rows), the uncertainty vector under another name. `claim_confidence` (core/claims.py) is the figure that carries
+    something the vectors do not.
     """
     from empirica.core.canonical.git_enhanced_reflex_logger import GitEnhancedReflexLogger
 
     logger_instance = GitEnhancedReflexLogger(session_id=session_id, enable_git_notes=True)
-
-    uncertainty = vectors.get("uncertainty", 0.5)
-    confidence = 1.0 - uncertainty
 
     gaps = []
     for key, value in vectors.items():
@@ -990,7 +1018,6 @@ def _check_store_and_publish(session_id, round_num, vectors, decision, reasoning
         metadata={
             "decision": decision,
             "reasoning": reasoning,
-            "confidence": confidence,
             "gaps": gaps,
             "cycle": cycle,
             "round": round_num,
@@ -1019,14 +1046,13 @@ def _check_store_and_publish(session_id, round_num, vectors, decision, reasoning
                     "vectors": vectors,
                     "decision": decision,
                     "round": round_num,
-                    "confidence": confidence,
                 },
             )
         )
     except Exception as e:
         logger.debug(f"Bus publish (CHECK) failed (non-fatal): {e}")
 
-    return checkpoint_id, check_transaction_id, confidence, gaps
+    return checkpoint_id, check_transaction_id, gaps
 
 
 def _check_auto_checkpoint(session_id, vectors, decision, gaps, cycle, round_num):
@@ -1079,13 +1105,11 @@ def _check_create_snapshot(session_id, vectors, decision, reasoning, round_num, 
         from empirica.data.epistemic_snapshot import ContextSummary
         from empirica.data.snapshot_provider import EpistemicSnapshotProvider
 
-        uncertainty = vectors.get("uncertainty", 0.5)
         db = _get_db_for_session(session_id)
         snapshot_provider = EpistemicSnapshotProvider()
 
-        check_confidence = 1.0 - uncertainty
         context_summary = ContextSummary(
-            semantic={"phase": "CHECK", "decision": decision, "confidence": check_confidence},
+            semantic={"phase": "CHECK", "decision": decision},
             narrative=reasoning or f"CHECK round {round_num}: {decision}",
             evidence_refs=[checkpoint_id] if checkpoint_id else [],
         )
@@ -1357,7 +1381,7 @@ def handle_check_submit_command(args):
 
         # Stage 8: Store checkpoint + publish bus event (inner try for storage errors)
         try:
-            checkpoint_id, check_transaction_id, _, gaps = _check_store_and_publish(
+            checkpoint_id, check_transaction_id, gaps = _check_store_and_publish(
                 session_id, round_num, vectors, decision, reasoning, cycle
             )
 
@@ -1403,6 +1427,7 @@ def handle_check_submit_command(args):
                     "basis": (dynamic_thresholds_info or {}).get("basis"),
                 },
                 "claims": claims_block,
+                "claim_confidence": _claim_confidence_value(claims_block),
                 "falsifiers": falsifiers_block,
             }
 

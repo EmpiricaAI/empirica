@@ -193,11 +193,19 @@ EOF
     "readiness_gate": "know>=0.70 AND uncertainty<=0.35",
     "gate_passed": true
   },
+  "claims": {"declared": 3, "weakly_grounded": 1, "claim_confidence": {"value": 0.68, "claims": 3}},
+  "claim_confidence": 0.68,
   "blindspots": {
     "count": 0
   }
 }
 ```
+
+**`claim_confidence`** (since 1.14.17) is how likely the claims declared at CHECK all hold, from their grounding alone: the product of each
+claim's hold rate (`read`, `ran`, `retrieved`, `assumed`), measured from this practice's own held/refuted verdicts, with measured priors until a
+grounding has 20 decided claims. It is `null` when no claim was declared, never a neutral number. It takes no uncertainty input, so it cannot be
+`1 - uncertainty` again, and it says so in the echo (`self_graded`, `assumes` independent claims, `rates_from`). The old `confidence` key is no longer
+written by `check-submit`.
 
 **Decision Values:**
 | Decision | Meaning |

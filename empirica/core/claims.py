@@ -676,6 +676,73 @@ def _note_skipped(out: dict[str, Any], skipped: list[dict[str, Any]], submitted:
     )
 
 
+#: Hold rate (held over held+refuted) per grounding, measured 2026-10-25 over 1,768 claims in this project's own DB. Used for a grounding
+#: until a practice has MIN_DECIDED decided claims of its own. The verdicts are the practitioner's, so these are self-graded.
+PRIOR_HOLD_RATES: dict[str, float] = {"read": 0.974, "ran": 0.955, "retrieved": 0.824, "assumed": 0.700}
+
+#: Decided claims (held or refuted) a practice needs before its own rate replaces the prior for a grounding.
+MIN_DECIDED = 20
+
+
+def hold_rates(db) -> dict[str, dict[str, Any]]:
+    """Per grounding: how often claims grounded that way held, with how many decided claims that rests on and where it came from.
+
+    Only claims with a verdict of held or refuted count: `untested` means nobody checked, which says nothing about whether it held.
+    A grounding with fewer than MIN_DECIDED decided claims keeps the measured prior, labelled as such. Never raises: a query failure
+    returns the priors, because an advisory figure must not be able to block CHECK.
+    """
+    out = {g: {"rate": PRIOR_HOLD_RATES[g], "decided": 0, "source": "prior"} for g in GROUNDINGS}
+    try:
+        rows = db.conn.execute(
+            "SELECT grounding, SUM(verdict = 'held'), SUM(verdict IN ('held', 'refuted')) FROM transaction_claims "
+            "WHERE grounding IS NOT NULL GROUP BY grounding"
+        ).fetchall()
+    except Exception as e:
+        logger.debug(f"hold rates unavailable, using the priors: {e}")
+        return out
+    for grounding, held, decided in rows:
+        g = normalize_grounding(grounding)
+        if g and decided and decided >= MIN_DECIDED:
+            out[g] = {"rate": round(held / decided, 3), "decided": int(decided), "source": "practice"}
+        elif g and decided:
+            out[g]["decided"] = int(decided)
+    return out
+
+
+def claim_confidence(stored: list[dict[str, Any]], rates: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    """How likely the declared claims all hold, from their grounding alone. None when no claim was declared.
+
+    The product of each claim's hold rate: the work rests on all of them. That assumes the claims are independent, which they are
+    not quite, and says so in `assumes`. Deliberately takes no uncertainty: CHECK's old `confidence` was `1 - uncertainty` (1,933 of
+    1,933 rows), so it added nothing to the uncertainty vector, and a figure that is not given the uncertainty cannot be derived from it.
+    An unlabelled claim is scored as `assumed` (not evidence of grounding) and counted in `unlabelled`.
+    """
+    if not stored:
+        return None
+    value = 1.0
+    by_grounding: dict[str, int] = {}
+    unlabelled = 0
+    for claim in stored:
+        g = normalize_grounding(claim.get("grounding"))
+        if g is None:
+            unlabelled += 1
+            g = "assumed"
+        by_grounding[g] = by_grounding.get(g, 0) + 1
+        value *= rates[g]["rate"]
+    out: dict[str, Any] = {
+        "value": round(value, 3),
+        "claims": len(stored),
+        "by_grounding": by_grounding,
+        "hold_rates": {g: rates[g]["rate"] for g in by_grounding},
+        "rates_from": {g: rates[g]["source"] for g in by_grounding},
+        "self_graded": True,
+        "assumes": "the claims are independent; hold rates come from the practitioner's own held/refuted verdicts",
+    }
+    if unlabelled:
+        out["unlabelled"] = unlabelled
+    return out
+
+
 def summarize_for_check(
     stored: list[dict[str, Any]], skipped: list[dict[str, Any]] | None = None, submitted: int | None = None
 ) -> dict[str, Any] | None:

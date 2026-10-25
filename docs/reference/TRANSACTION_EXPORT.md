@@ -44,7 +44,7 @@ Schema name: `empirica.transaction_export.v1`. Implementation: `empirica/core/tr
 |---|---|---|
 | `transaction_id`, `session_id`, `ai_id` | `reflexes.transaction_id`, `.session_id`, `sessions.ai_id` | |
 | `preflight` | `reflexes` row, phase `PREFLIGHT` | `timestamp`, `vectors` (the 13), `git_commit_sha`, `git_notes_ref`. `null` if the PREFLIGHT row is missing. |
-| `checks` | `reflexes` rows, phase `CHECK`, in time order | One entry per CHECK, so multiplicity is the list length. Each has `timestamp`, `vectors`, `decision` (`proceed` or `investigate`), `confidence`, `cycle`, and `auto_checkpoint: true` on the phantom rows an old auto-checkpoint wrote. |
+| `checks` | `reflexes` rows, phase `CHECK`, in time order | One entry per CHECK, so multiplicity is the list length. Each has `timestamp`, `vectors`, `decision` (`proceed` or `investigate`), `confidence` (only on CHECKs recorded before 1.14.17, where it equalled `1 - uncertainty`; not written since), `cycle`, and `auto_checkpoint: true` on the phantom rows an old auto-checkpoint wrote. |
 | `postflight` | `reflexes` row, phase `POSTFLIGHT` (the last one) | `timestamp`, `vectors`, `work_type`, `internal_consistency`, `postflight_confidence`, `tool_call_count`, `auto_closed`, `git_commit_sha`, `git_notes_ref`. `null` for an open transaction. |
 | `grounded` | `grounded_verifications.transaction_id` | One entry per verification (`phase` is `combined`, `noetic` or `praxic`). See below. |
 | `goals` | `goals.transaction_id` | `id`, `status`, `created_timestamp`, `completed_timestamp` (and `objective` with `--content`). The goal is linked only to the transaction it was created or activated in. |
