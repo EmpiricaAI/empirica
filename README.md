@@ -19,12 +19,17 @@ Empirica tracks what AI knows, gates what it does, and compounds learning across
 
 ## The Problem
 
-AI coding agents today have no self-awareness about what they know:
+**AI can now do real work: write and ship code, run pipelines, research, coordinate with other agents. What it cannot do by itself is show how well it knew what it was doing, so people either review everything and lose the speed, or trust it blindly and find out later.** The gap is not a bigger model. It is a record of what the work rests on, a check of that record against what actually happened, and a way to give an AI more freedom as it earns it. Empirica sits beside the model for exactly that, and does not compete with it.
 
-- **Forgets between sessions** — same questions, same dead ends, every time
-- **Acts before understanding** — edits your code without knowing the architecture
-- **Can't tell you when it's guessing** — no distinction between knowledge and confabulation
-- **No audit trail** — reasoning evaporates with the context window
+- **Memory without judgment.** Most agents now remember something between sessions. What they keep is a lossy summary retrieved by similarity: it cannot tell which caveat or dead end the current task depends on, and it stores a guess with the same weight as a measurement.
+- **Nothing is ever retracted.** Wrong or finished items keep coming back as current, because remembered things have no lifecycle.
+- **It acts before it understands.** Edits land before anyone knows the architecture they touch.
+- **Confidence is not evidence.** A model sounds as sure when it is guessing as when it is right, and its stated confidence is rarely graded against what held.
+- **It passes every check and still ships broken.** Clean lint, green tests, a confident review, and a defect that lives where none of them looked.
+- **No audit trail an auditor can use.** Logs record what happened, not what the AI believed, assumed or checked.
+- **Autonomy is all-or-nothing.** There is no way to scope what a workload may do alone from its track record.
+- **Plans cannot be wrong.** A roadmap with no confidence, evidence or falsifier cannot be graded, so nobody learns whether the planning was any good.
+- **Humans in the loop at the wrong places.** Attention is spread evenly instead of going where impact is high and confidence is low.
 
 ---
 
@@ -33,11 +38,13 @@ AI coding agents today have no self-awareness about what they know:
 | Capability | What You Experience |
 |------------|-------------------|
 | **Measures before acting** | AI investigates your codebase before touching it. The Sentinel gate blocks edits until understanding is demonstrated |
-| **Remembers across sessions** | Findings, dead-ends, and learnings persist in a 4-layer memory system. Session 3 starts where Session 2 left off |
+| **Remembers what the work depends on** | Findings, dead-ends, assumptions and mistakes persist in a 4-layer memory with provenance and confidence, are retracted or superseded when wrong, and are retrieved by relevance to the task, so the next session starts with what matters rather than a summary |
 | **Prevents confident mistakes** | The CHECK gate uses domain-aware thresholds scaled by criticality, tightened by the calibration of the model doing the work — cybersec/high is stricter than default/low |
 | **Shows confidence in real-time** | Live statusline in your terminal, compact by default: ` empirica  │ CHECK 78% │ G3 U5 A2 F4/D1 │ Δ ✓ │ 41%ctx │ 🔍 investigate - 🧠 Sonnet 5.5` (stage and confidence, open goals/unknowns/assumptions, what you logged this transaction, a learning mark, context, and investigate or act). One command switches to the detailed view |
 | **Calibrates against reality** | Three-vector model: self-assessed, observed (from deterministic checks), and AI-reasoned grounded state with rationale. Domain compliance loops iterate until all checks pass |
 | **Tracks your codebase** | Temporal entity model auto-extracts functions, classes, and imports from every file edit — the AI knows what's alive and what's stale |
+| **Forecasts, not just plans** | Directions are predictions with a confidence, the kind of evidence behind it and what would prove them wrong, graded when they ship or miss (see What's Coming below) |
+| **Keeps humans where they matter** | Questions arrive with a predicted answer, attention is routed by impact and confidence, and irreversible actions need an explicit yes |
 | **Works through natural language** | You describe tasks normally. The AI operates the measurement system automatically |
 | **Optional: coordinates with peer AIs** | Cross-AI mesh via Cortex (opt-in) — peer AIs propose work, ECO accepts/declines, completion handshakes carry commit SHAs. A persistent listener delivers inbox events to running sessions, and an opt-in wake service nudges idle ones. **Empirica core works standalone without this** — see [Cross-AI Mesh](#cross-ai-mesh-optional-ecosystem-layer) below |
 
