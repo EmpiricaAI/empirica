@@ -437,21 +437,21 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.14.14
+## What's New in 1.14.15
 
-- **Idle sessions can be woken (opt-in).** A listener flag nudges a practice's idle tmux panes when mail arrives and every two hours while mail waits. It refuses a busy pane, a half-typed draft or a dialog, and wakes at most once per message.
-- **Sessions start faster.** The terminal lookup that ran a `ps` per ancestor 74 times in one session start is now read once from `/proc`: 3,077 ms became 0.04 ms, and a gate check dropped from about 300 ms to 110 ms.
-- **"Is every target done" has one answer.** A proposal addressed to several practices closes when each has acknowledged its own part, with `pending_targets` showing who still owes. It replaces the Shared Epistemic Record, which is removed.
-- **Practices that do not run Claude work in the cockpit.** `provision-practice --launch/--resume` records what a pane runs, `cockpit refresh` resumes codex and ecodex panes instead of restarting them, and `--no-cortex` no longer asks for a tenant.
-- **Heartbeats survive a cortex restart.** A 12 s timeout replaces 5 s, so the few seconds a restart takes no longer read as an outage.
-- **`/pre-publish`** puts the release-gate sequence, including the independent sweep that found this release's defects, in one loadable skill.
+- **A code-review sweep of the data layer, hooks and mailbox is fixed.** Each defect was reproduced on the current code before the fix and has a test that failed first: resolved and retracted findings no longer come back as live knowledge, goal ids that match several goals change none, and a rebuild no longer reopens resolved findings.
+- **A credentials file you break and then repair is picked up again.** Every credentials getter re-checks the file, and saving a cortex or ntfy setting no longer replaces a file it could not parse with an empty one.
+- **`cybersec` can complete.** Its medium, high and critical levels required scanners nothing registers, so every run failed; they are now optional until a runner exists, and a test fails if a shipped domain requires an unregistered check.
+- **CHECK reports the bar the profile declares.** `rigorous` and `exploratory` showed a hard-coded 0.70 for the know bar; they now show their own, and the dead Sentinel override path is removed from the three transaction verbs.
+- **`/forecast`** is the 26th skill, and the README's What's Coming is a graded forecast that is gardened like any other artifact.
+- **A Python 3.12-only f-string is caught before a release, not after the push**: `release.py --prepare` parses the tree under the `requires-python` floor through `uv` (CI still runs only 3.11 and 3.13).
 
-All 19 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 23 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.14.14** — Idle sessions can be woken (opt-in). A listener flag nudges a practice's idle tmux panes when mail arrives and every two hours while mail waits.
 - **1.14.13** — A rebuild from git notes now restores what the notes hold: ids, creation times, resolution kinds, and a goal's lifecycle state.
-- **1.14.12** — Credentials no longer reach stored artifact text, git notes, Qdrant or scan snapshots, and `doctor --scrub-secrets` removes ones already stored.
 
 ## What's Coming
 
