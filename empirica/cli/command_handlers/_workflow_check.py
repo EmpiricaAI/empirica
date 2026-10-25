@@ -125,7 +125,9 @@ def _check_cmd_parse_inputs(args):
         and 0.0 <= explicit_confidence <= 1.0
     ):
         # It becomes the readiness the decision runs on, and `nan` would reach the result as invalid JSON.
-        raise ValueError(f"confidence must be a number between 0 and 1, got {explicit_confidence!r}")
+        from empirica.cli.cli_utils import InvalidInputError
+
+        raise InvalidInputError(f"confidence must be a number between 0 and 1, got {explicit_confidence!r}")
     # Per-claim grounding (migration 062). Optional — a CHECK without claims
     # behaves exactly as before.
     claims = (config_data.get("claims") if config_data else None) or []

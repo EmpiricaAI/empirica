@@ -122,6 +122,13 @@ def reset_reported_errors() -> None:
     _ERROR_REPORTED.clear()
 
 
+class InvalidInputError(ValueError):
+    """The caller passed a value the command correctly rejects (an out-of-range number, a malformed flag).
+
+    A ValueError SUBCLASS so every existing `except ValueError` keeps working. It exists so `handle_cli_error` can file a rejected input at LOW
+    instead of HIGH, which is what `release.py --prepare` blocks on: the CLI refusing `--confidence 78` is not a defect."""
+
+
 def handle_cli_error(error: Exception, command: str, verbose: bool = False, session_id: str | None = None) -> None:
     """
     Standardized error handling for CLI commands with auto-capture integration.
@@ -203,7 +210,7 @@ def handle_cli_error(error: Exception, command: str, verbose: bool = False, sess
             # trade one blind spot for another. Only the severity is corrected.
             from empirica.utils.session_resolver import InvalidSessionIdError
 
-            is_bad_input = isinstance(error, InvalidSessionIdError)
+            is_bad_input = isinstance(error, (InvalidSessionIdError, InvalidInputError))
             issue_id = service.capture_error(
                 message=f"{command} command failed: {error!s}",
                 severity=IssueSeverity.LOW if is_bad_input else IssueSeverity.HIGH,

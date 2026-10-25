@@ -684,17 +684,21 @@ PRIOR_HOLD_RATES: dict[str, float] = {"read": 0.974, "ran": 0.955, "retrieved": 
 #: many there are, so four verdicts cannot replace a prior built from 1,768, and a rate never reaches exactly 0.0 or 1.0 (certainty).
 MIN_DECIDED = 20
 
+#: A rate is labelled `practice` only when the prior carries at most this share of its weight (60+ decided claims); below that it is `blended`.
+PRACTICE_MAX_PRIOR_WEIGHT = 0.25
+
 
 def hold_rates(db) -> dict[str, dict[str, Any]]:
     """Per grounding: how often claims grounded that way held, with how many decided claims that rests on and where it came from.
 
     Only claims with a verdict of held or refuted count: `untested` means nobody checked, which says nothing about whether it held.
-    The rate is shrunk toward the measured prior, ``(held + MIN_DECIDED * prior) / (decided + MIN_DECIDED)``: `source` is `prior` with no
-    decided claims, `blended` under MIN_DECIDED, `practice` from there on. The prior was measured on one project (the one this was built
+    The rate is shrunk toward the measured prior, ``(held + MIN_DECIDED * prior) / (decided + MIN_DECIDED)``: `prior_weight` is the share of
+    the rate that is still the prior, and `source` is `prior` with no decided claims, `blended` while the prior carries more than a quarter of
+    the weight, `practice` once the practice's own verdicts clearly outweigh it. The prior was measured on one project (the one this was built
     in), so a new practice starts from that practitioner's own self-grading until it has verdicts of its own. Never raises: a query
     failure returns the priors, because an advisory figure must not be able to block CHECK.
     """
-    out = {g: {"rate": PRIOR_HOLD_RATES[g], "decided": 0, "source": "prior"} for g in GROUNDINGS}
+    out = {g: {"rate": PRIOR_HOLD_RATES[g], "decided": 0, "source": "prior", "prior_weight": 1.0} for g in GROUNDINGS}
     try:
         rows = db.conn.execute(
             "SELECT grounding, SUM(verdict = 'held'), SUM(verdict IN ('held', 'refuted')) FROM transaction_claims "
@@ -714,10 +718,13 @@ def hold_rates(db) -> dict[str, dict[str, Any]]:
             decided_by[g] = decided_by.get(g, 0) + int(decided)
     for g, decided in decided_by.items():
         prior = PRIOR_HOLD_RATES[g]
+        prior_weight = MIN_DECIDED / (decided + MIN_DECIDED)
         out[g] = {
             "rate": round((held_by[g] + MIN_DECIDED * prior) / (decided + MIN_DECIDED), 3),
             "decided": decided,
-            "source": "practice" if decided >= MIN_DECIDED else "blended",
+            # `practice` means the practice's verdicts outweigh the prior; at 20 decided the prior still carries half the weight
+            "source": "practice" if prior_weight <= PRACTICE_MAX_PRIOR_WEIGHT else "blended",
+            "prior_weight": round(prior_weight, 3),
         }
     return out
 
@@ -725,6 +732,23 @@ def hold_rates(db) -> dict[str, dict[str, Any]]:
 def _rate_of(rates: dict[str, dict[str, Any]], grounding: str) -> dict[str, Any]:
     """The rate entry for a grounding, or its measured prior if the caller's mapping lacks it (never a KeyError in an advisory path)."""
     return rates.get(grounding) or {"rate": PRIOR_HOLD_RATES[grounding], "decided": 0, "source": "prior"}
+
+
+def _assumption_text(sources: set[str]) -> str:
+    """What the figure rests on, honest about where its rates came from: a rate that is still the prior is one project's measurement, not the
+    practice's own verdicts."""
+    if sources == {"practice"}:
+        basis = "hold rates come from this practice's own held/refuted verdicts"
+    elif "practice" in sources or "blended" in sources:
+        basis = (
+            "hold rates are partly this practice's own held/refuted verdicts and partly a prior measured on one project"
+        )
+    else:
+        basis = "hold rates are a prior measured on one project (this practice has too few verdicts of its own), not this practice's data"
+    return (
+        f"the claims are independent; {basis}; the verdicts are the practitioner's own, claims never adjudicated (untested) are "
+        "excluded, and the figure is not an externally calibrated probability"
+    )
 
 
 def claim_confidence(stored: list[dict[str, Any]], rates: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
@@ -754,10 +778,7 @@ def claim_confidence(stored: list[dict[str, Any]], rates: dict[str, dict[str, An
         "hold_rates": {g: _rate_of(rates, g)["rate"] for g in by_grounding},
         "rates_from": {g: _rate_of(rates, g)["source"] for g in by_grounding},
         "self_graded": True,
-        "assumes": (
-            "the claims are independent; hold rates come from the practitioner's own held/refuted verdicts, so claims never "
-            "adjudicated (untested) are excluded and the figure is not an externally calibrated probability"
-        ),
+        "assumes": _assumption_text({_rate_of(rates, g)["source"] for g in by_grounding}),
     }
     if unlabelled:
         out["unlabelled"] = unlabelled

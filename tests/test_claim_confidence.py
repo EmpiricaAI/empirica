@@ -114,7 +114,23 @@ def test_a_few_decided_claims_only_nudge_the_prior_and_are_labelled_blended(db):
 
 def test_with_no_decided_claims_the_prior_is_used_unchanged(db):
     r = C.hold_rates(db)
-    assert all(r[g] == {"rate": PRIOR[g], "decided": 0, "source": "prior"} for g in PRIOR)
+    assert all(r[g] == {"rate": PRIOR[g], "decided": 0, "source": "prior", "prior_weight": 1.0} for g in PRIOR)
+
+
+def test_the_label_practice_means_the_practices_own_verdicts_outweigh_the_prior(db):
+    """At exactly 20 decided claims the prior still carried half the weight, and the label already said 'practice'."""
+    add_claims(db, "assumed", held=10, refuted=10)
+    r = C.hold_rates(db)["assumed"]
+    assert r["decided"] == 20 and r["prior_weight"] == pytest.approx(0.5) and r["source"] == "blended"
+    add_claims(db, "ran", held=70, refuted=0)  # 70 decided: the prior is down to 22% of the weight
+    assert C.hold_rates(db)["ran"]["source"] == "practice"
+    assert C.hold_rates(db)["ran"]["prior_weight"] == pytest.approx(20 / 90, abs=0.01)
+
+
+def test_the_prior_weight_is_reported_so_a_reader_can_see_how_much_is_data(db):
+    assert C.hold_rates(db)["read"]["prior_weight"] == 1.0
+    add_claims(db, "read", held=180, refuted=0)
+    assert C.hold_rates(db)["read"]["prior_weight"] == pytest.approx(0.1)
 
 
 def test_this_practices_own_rate_dominates_once_it_has_many_decided_claims(db):
@@ -313,3 +329,51 @@ def test_a_payload_confidence_is_validated_the_same_way(monkeypatch):
     args = types.SimpleNamespace(confidence=None, session_id="s", cycle=None, round=None, verbose=False)
     with pytest.raises(ValueError, match="between 0 and 1"):
         wc._check_cmd_parse_inputs(args)
+
+
+def test_the_assumes_text_does_not_claim_own_verdicts_when_the_value_is_the_prior():
+    """With no verdicts the figure is a hard-coded rate measured on one project; saying 'the practitioner's own verdicts' was false."""
+    only_prior = C.claim_confidence(stored("read"), rates())["assumes"]
+    assert "own held/refuted verdicts" not in only_prior and "prior" in only_prior and "one project" in only_prior
+    own = C.claim_confidence(
+        stored("read"), {"read": {"rate": 0.9, "decided": 90, "source": "practice", "prior_weight": 0.18}}
+    )["assumes"]
+    assert "own held/refuted verdicts" in own
+
+
+# ── a rejected input is filed as bad input, not as a crash ──
+
+
+def test_a_rejected_confidence_is_an_invalid_input_error_and_still_a_value_error(monkeypatch):
+    import types
+
+    from empirica.cli.cli_utils import InvalidInputError
+
+    monkeypatch.setattr(wc, "_parse_workflow_input", lambda _a, _n: ({}, "json"))
+    args = types.SimpleNamespace(confidence=78, session_id="s", cycle=None, round=None, verbose=False)
+    with pytest.raises(InvalidInputError) as raised:
+        wc._check_cmd_parse_inputs(args)
+    assert isinstance(raised.value, ValueError), "every existing `except ValueError` keeps working"
+
+
+@pytest.mark.parametrize(("error", "severity"), [("invalid_input", "LOW"), ("defect", "HIGH")])
+def test_auto_capture_files_bad_input_at_low_and_a_defect_at_high(monkeypatch, error, severity):
+    """HIGH is what `release.py --prepare` blocks on; the CLI correctly rejecting `--confidence 78` is not a defect."""
+    from empirica.cli import cli_utils
+    from empirica.core import issue_capture
+
+    captured = {}
+
+    class _Service:
+        def capture_error(self, **kw):
+            captured.update(kw)
+            return "issue-1"
+
+    monkeypatch.setattr(issue_capture, "get_auto_capture", lambda: _Service())
+    exc = (
+        cli_utils.InvalidInputError("confidence must be a number between 0 and 1")
+        if error == "invalid_input"
+        else RuntimeError("boom")
+    )
+    cli_utils.handle_cli_error(exc, "CHECK")
+    assert captured["severity"].name == severity
