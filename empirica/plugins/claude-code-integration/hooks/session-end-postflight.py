@@ -221,6 +221,8 @@ def _cleanup_session_files(claude_session_id: str | None):
             restored = None
         else:
             restored = restore_if_swapped(_LAUNCH_CWD)
+        if restored and restored.get("ok") and (restored.get("written_back") or restored.get("write_back_conflicts")):
+            print(f"memory restore: {restored.get('message', '')}", file=sys.stderr)
         if restored and not restored.get("ok", False):
             print(f"memory restore failed: {restored.get('action')}: {restored.get('message', '')}", file=sys.stderr)
     except Exception as e:

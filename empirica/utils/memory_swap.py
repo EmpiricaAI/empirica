@@ -105,45 +105,76 @@ def _sha256(path: Path) -> str | None:
         return None
 
 
+def _memory_files(directory: Path) -> dict[str, Path]:
+    """Every file under a memory dir by relative posix path, skipping the swap's own backup dir and manifest at the top level."""
+    found: dict[str, Path] = {}
+    for path in sorted(directory.rglob("*")):
+        rel = path.relative_to(directory)
+        if rel.parts[0] in (BACKUP_SUBDIR, MANIFEST_NAME) or not path.is_file():
+            continue
+        found[rel.as_posix()] = path
+    return found
+
+
+def _conflict_copy(dest: Path) -> Path:
+    """A free sibling name for an edit that cannot be written over `dest`: `note.md` -> `note.swap-conflict.md`."""
+    candidate = dest.with_name(f"{dest.stem}.swap-conflict{dest.suffix}")
+    n = 2
+    while candidate.exists():
+        candidate = dest.with_name(f"{dest.stem}.swap-conflict-{n}{dest.suffix}")
+        n += 1
+    return candidate
+
+
 def _write_back(target_memory: Path, manifest: dict) -> tuple[list[str], list[str]]:
     """Carry what was written to the swapped memory dir back to the project it belongs to.
 
     While a swap is active the harness's auto-memory writes into the harness project's dir, which holds the ACTIVE project's files.
-    Restoring without this threw those edits away: a note saved during the swap was lost, and a new file was left behind in the
-    wrong project. Returns (written_back, conflicts). A swapped-in file is written back only when its content changed since the
-    swap AND the source still holds what was copied (otherwise another session wrote there meanwhile: a conflict, never an
-    overwrite). A new file is written back when the source has no file of that name. A manifest from before hashes were recorded
-    cannot tell an edit from the original, so it writes nothing back.
+    Restoring without this threw those edits away. Works per file, recursively, against the hash recorded for each file at swap time.
+    Returns (written_back, conflicts), both as relative paths.
+
+    * A swapped-in file that changed is written back when the source still holds what was copied (or no longer has the file).
+    * A new file is written back when the source has no file of that name.
+    * Anything else is a CONFLICT (another session wrote there meanwhile): the source is never overwritten, and the edit is kept as
+      `<name>.swap-conflict<ext>` beside it, because the caller removes the swapped-in files afterwards and a conflict that is only
+      counted would be destroyed with them.
+    * A file the source already holds with identical content counts as written (a retry after an interrupted restore).
+
+    A manifest from before hashes were recorded cannot tell an edit from the original, so it writes nothing back.
     """
     hashes = manifest.get("copied_hashes")
     source_project = manifest.get("source_project")
     if not isinstance(hashes, dict) or not source_project:
         return [], []
     source_memory = _claude_memory_dir(Path(source_project))
-    copied = set(manifest.get("copied_files", []))
     written: list[str] = []
     conflicts: list[str] = []
-    for entry in sorted(target_memory.iterdir()):
-        if entry.name in (BACKUP_SUBDIR, MANIFEST_NAME):
+    for rel, path in _memory_files(target_memory).items():
+        now = _sha256(path)
+        recorded = hashes.get(rel)
+        if recorded is not None and now == recorded:
+            continue  # nobody touched it
+        dest = source_memory / rel
+        if dest.is_file() and _sha256(dest) == now:
+            written.append(rel)
             continue
-        dest = source_memory / entry.name
-        if entry.name in copied:
-            recorded = hashes.get(entry.name)
-            if recorded is None or _sha256(entry) == recorded:
-                continue  # a directory, or a file nobody touched
-            if dest.exists() and _sha256(dest) != recorded:
-                conflicts.append(entry.name)
-                continue
-        elif dest.exists():
-            conflicts.append(entry.name)
-            continue
-        source_memory.mkdir(parents=True, exist_ok=True)
-        if entry.is_dir():
-            shutil.copytree(entry, dest)
-        else:
-            shutil.copy2(entry, dest)
-        written.append(entry.name)
+        free = not dest.exists() or (recorded is not None and dest.is_file() and _sha256(dest) == recorded)
+        target = dest if free else _conflict_copy(dest)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+        (written if free else conflicts).append(rel)
     return written, conflicts
+
+
+def _swapped_in_names(target_memory: Path, manifest: dict) -> list[str]:
+    """Top-level entries a restore removes. With hashes recorded, every write-back outcome (copied over, kept as a conflict copy, or
+    already there) has been secured in the source project, so everything but the swap's own backup and manifest goes: a new file left
+    behind would load as this project's memory. A manifest without hashes wrote nothing back, so only what the swap itself copied in
+    is removed and anything else stays where it was written."""
+    copied = set(manifest.get("copied_files", []))
+    if not isinstance(manifest.get("copied_hashes"), dict):
+        return sorted(copied)
+    return sorted(copied | {e.name for e in target_memory.iterdir() if e.name not in (BACKUP_SUBDIR, MANIFEST_NAME)})
 
 
 def _guarded_write_back(target_memory: Path, manifest: dict, force: bool) -> tuple[list[str], list[str], dict | None]:
@@ -257,8 +288,9 @@ def swap_memory(
         "transaction_id": transaction_id,
         "backed_up_files": backed_up,
         "copied_files": copied,
-        # What each swapped-in file held at swap time, so a restore can tell an edit made during the swap from the original.
-        "copied_hashes": {name: _sha256(target_memory / name) for name in copied if (target_memory / name).is_file()},
+        # What each swapped-in file (by relative path, directories walked) held at swap time, so a restore can tell an edit made
+        # during the swap from the original.
+        "copied_hashes": {rel: _sha256(path) for rel, path in _memory_files(target_memory).items()},
     }
     manifest_file = target_memory / MANIFEST_NAME
     try:
@@ -322,10 +354,7 @@ def restore_memory(harness_cwd_project: Path, *, _force_replace: bool = False) -
     if failure:
         return failure
 
-    # Remove the swapped-in files, and anything new that was just written back to its own project (it is no longer this one's).
-    swapped_in = list(manifest.get("copied_files", [])) + [
-        n for n in written_back if n not in manifest.get("copied_files", [])
-    ]
+    swapped_in = _swapped_in_names(target_memory, manifest)
     for name in swapped_in:
         path = target_memory / name
         try:

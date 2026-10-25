@@ -236,3 +236,88 @@ def test_a_failed_write_back_stops_the_restore_so_the_edit_survives(fake_home, t
     assert result and result["ok"] is False and result["action"] == "write_back_failed"
     assert (_memory(harness) / "MEMORY.md").read_text() == "an edit that exists nowhere else"
     assert is_swap_active(harness), "the swap stays active so the restore can be retried"
+
+
+# ── second-pass sweep: a write-back loses nothing, in directories or on conflict ──
+
+
+def _sub(project: Path, rel: str, content: str | None = None) -> Path:
+    path = _memory(project) / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if content is not None:
+        path.write_text(content)
+    return path
+
+
+def test_a_conflicting_edit_is_kept_beside_the_source_file_not_destroyed(fake_home, tmp_path):
+    """The conflict was counted and then removed with the swapped-in files, so the edit existed nowhere afterwards."""
+    harness = _project(tmp_path, "harness", {"MEMORY.md": "harness original"})
+    active = _project(tmp_path, "active", {"x.md": "original"})
+    swap_memory(harness, active)
+    (_memory(harness) / "x.md").write_text("edited in the swap")
+    (_memory(active) / "x.md").write_text("other-session")
+    result = restore_if_swapped(harness)
+    assert (_memory(active) / "x.md").read_text() == "other-session", "the source is never overwritten"
+    kept = [p for p in _memory(active).iterdir() if p.name != "x.md"]
+    assert [p.read_text() for p in kept] == ["edited in the swap"], f"the edit must survive somewhere: {kept}"
+    assert "swap-conflict" in kept[0].name
+    assert result and result["write_back_conflicts"] == ["x.md"]
+    assert not (_memory(harness) / "x.md").exists()
+
+
+def test_an_edit_inside_a_swapped_in_directory_is_carried_back(fake_home, tmp_path):
+    harness = _project(tmp_path, "harness", {"MEMORY.md": "harness original"})
+    active = _project(tmp_path, "active", {"MEMORY.md": "idx"})
+    _sub(active, "sub/y.md", "original y")
+    swap_memory(harness, active)
+    (_memory(harness) / "sub" / "y.md").write_text("edited y")
+    result = restore_if_swapped(harness)
+    assert (_memory(active) / "sub" / "y.md").read_text() == "edited y"
+    assert result and result["written_back"] == ["sub/y.md"]
+    assert not (_memory(harness) / "sub").exists()
+
+
+def test_a_new_file_inside_a_swapped_in_directory_is_carried_back(fake_home, tmp_path):
+    harness = _project(tmp_path, "harness", {"MEMORY.md": "harness original"})
+    active = _project(tmp_path, "active", {"MEMORY.md": "idx"})
+    _sub(active, "sub/y.md", "original y")
+    swap_memory(harness, active)
+    (_memory(harness) / "sub" / "z.md").write_text("new z")
+    restore_if_swapped(harness)
+    assert (_memory(active) / "sub" / "z.md").read_text() == "new z"
+
+
+def test_a_new_file_whose_name_is_taken_is_kept_beside_it_and_leaves_the_harness_dir(fake_home, tmp_path):
+    harness = _project(tmp_path, "harness", {"MEMORY.md": "harness original"})
+    active = _project(tmp_path, "active", {"MEMORY.md": "idx"})
+    swap_memory(harness, active)
+    (_memory(harness) / "new.md").write_text("made during the swap")
+    (_memory(active) / "new.md").write_text("made by someone else meanwhile")
+    result = restore_if_swapped(harness)
+    assert (_memory(active) / "new.md").read_text() == "made by someone else meanwhile"
+    assert "made during the swap" in [p.read_text() for p in _memory(active).iterdir()]
+    assert not (_memory(harness) / "new.md").exists(), "it stayed behind in the harness project's own memory"
+    assert result and result["write_back_conflicts"] == ["new.md"]
+
+
+def test_a_retry_after_a_partial_write_back_does_not_report_its_own_earlier_copies_as_conflicts(fake_home, tmp_path):
+    harness = _project(tmp_path, "harness", {"MEMORY.md": "harness original"})
+    active = _project(tmp_path, "active", {"MEMORY.md": "idx"})
+    swap_memory(harness, active)
+    (_memory(harness) / "n.md").write_text("same content")
+    (_memory(active) / "n.md").write_text("same content")  # already copied by an interrupted earlier restore
+    result = restore_if_swapped(harness)
+    assert result and result["write_back_conflicts"] == [] and result["written_back"] == ["n.md"]
+    assert sorted(p.name for p in _memory(active).iterdir()) == ["MEMORY.md", "n.md"], "no stray conflict copy"
+
+
+def test_session_end_says_what_was_written_back_and_what_conflicted(fake_home, tmp_path, monkeypatch, capsys):
+    harness = _project(tmp_path, "harness", {"MEMORY.md": "harness original"})
+    active = _project(tmp_path, "active", {"MEMORY.md": "idx"})
+    swap_memory(harness, active)
+    (_memory(harness) / "MEMORY.md").write_text("idx + note")
+    hook = _hook("session-end-postflight.py", "session_end_surface")
+    monkeypatch.chdir(active)
+    monkeypatch.setattr(hook, "_LAUNCH_CWD", harness)
+    hook._cleanup_session_files("cs-1")
+    assert "wrote back 1" in capsys.readouterr().err
