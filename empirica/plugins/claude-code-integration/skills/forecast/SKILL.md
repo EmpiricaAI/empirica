@@ -9,8 +9,9 @@ version: 1.0.0
 Load this when the question is "what comes next", or when a release is about to grade the last forecast.
 
 A direction is a **prediction**: what will happen, by which release, how sure we are, what that rests on, and what would prove it wrong.
-README's What's Coming renders `docs/ROADMAP.yaml`. The schema, the evidence kinds and their confidence caps are in that file's header and
-are enforced by `scripts/release.py`; read it, do not restate it here.
+In empirica core, README's What's Coming renders `docs/ROADMAP.yaml`: the schema, the evidence kinds and their confidence caps are in that
+file's header and `scripts/release.py` enforces them. Read it, do not restate it here. A project without that file keeps its forecast in
+its goals; steps 1 to 5 and the gardening apply unchanged, and creating a public roadmap is a question for the human, not a default.
 
 ## The pass
 
@@ -23,7 +24,7 @@ are enforced by `scripts/release.py`; read it, do not restate it here.
    falsifier you cannot write as the prediction's own sentence (if you cannot, there are two claims). Check each basis against HEAD:
    a report older than the code is not evidence (`git log -S<symbol> --since=<report date> -- <path>`).
 4. **Ask at most three questions.** Rank by impact × (1 − confidence), the answer that would reorder the list most. Each is an
-   `AskUserQuestion` with your predicted answer first, marked Recommended, and the one reason that grounds it. If you cannot predict the
+   `AskUserQuestion` (or your harness's ask-the-user tool) with your predicted answer first, marked Recommended, and the one reason that grounds it. If you cannot predict the
    answer you have not read enough. Attention is the scarce resource: one question that changes the ranking beats five that do not.
 5. **Route attention.**
 
@@ -35,15 +36,17 @@ are enforced by `scripts/release.py`; read it, do not restate it here.
    | low | low | park as an `unknown`; do not forecast it |
 
 6. **Emit, after the human confirms the ranked list.** `goals-create --status planned` with a real description and tasks per direction,
-   a falsifier registered for each (`falsifiers` at PREFLIGHT or CHECK, with a `query`), and the public subset added to
-   `docs/ROADMAP.yaml`. The roadmap is public text: a human reads every line before it ships, and it carries no ids.
+   a falsifier registered for each (`falsifiers` at PREFLIGHT or CHECK, with a `query`), and, where the project has a
+   `docs/ROADMAP.yaml`, the public subset added to it. A roadmap is public text: a human reads every line before it ships, and it carries
+   no ids.
 
 **Steered.** A goal that exists, or that you create in this pass because of the prediction, makes the item `steered: true`. Only an item
 predicted *before* any goal and shipped anyway is unplanned foresight. Do not create the goal first and mark the item unsteered.
 
 ## Gardening (every release, and the day something trips)
 
-The principle that keeps epistemic tagging honest, applied to predictions. `release.py --docs` does the mechanical part.
+The principle that keeps epistemic tagging honest, applied to predictions. In empirica core `release.py --docs` does the mechanical part;
+elsewhere make the same moves by hand at each release.
 
 - **Past its horizon.** Every predicted item whose release has been cut gets adjudicated: `shipped` (set `resolved_in`), `dropped` (a fair
   bet that missed), **`retracted`** (wrong when written because its basis was false; say what), `superseded` (name the replacement), or
