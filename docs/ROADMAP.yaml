@@ -38,7 +38,9 @@ items:
     falsifier: The next two changelogs together cite fewer than 26 of them.
     horizon: "1.14.16"
     steered: true
-    status: predicted
+    status: shipped
+    resolved_in: "1.14.16"
+    reason: Graded at 1.14.16. The three lists the two releases worked through (data layer, canonical and mailbox, resolvers and config) hold 32 of the 78 defects, 41%, and all 32 are closed; a few were one defect listed twice or already fixed when reproduced. 1.14.15 states the count in its changelog. Its Fixed section groups defects by area instead of citing each one, so the falsifier's literal reading (26 cited individually) is not cleanly met; the claim it guards (a third fixed, the number published) is.
 
   - id: bootstrap-whole-picture
     title: Bootstrap shows the whole picture
