@@ -440,6 +440,13 @@ class TranscriptParser:
 
         for record in filtered:
             if record.record_type == RecordType.USER:
+                # A tool result arrives as a user record whose content is only tool_result blocks, so its raw_content is empty. It
+                # continues the turn in progress: treating it as a new turn replaced the user message with "" and dropped every
+                # assistant text, thinking and tool call after the first tool call of the turn.
+                if not record.raw_content.strip() and any(
+                    b.block_type == ContentBlockType.TOOL_RESULT for b in record.content_blocks
+                ):
+                    continue
                 # Yield previous turn if we have one
                 if current_user_msg:
                     tool_chains = self._resolve_tool_chains(current_tool_uses, filtered)

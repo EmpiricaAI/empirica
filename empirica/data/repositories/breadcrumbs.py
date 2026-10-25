@@ -641,7 +641,9 @@ class BreadcrumbRepository(BaseRepository):
         self.commit()
         updated = bool(getattr(cur, "rowcount", 0))
         if updated:
-            self._persist_resolution_to_git_notes("finding", finding_id, resolution, superseded_by)
+            self._persist_resolution_to_git_notes(
+                "finding", finding_id, resolution, superseded_by, resolution_kind=kind
+            )
             self._sync_resolution_to_qdrant("project_findings", finding_id, kind, superseded_by)
         logger.info(
             f"{'✅' if updated else '⚠️'} Finding resolve {finding_id[:8]}...: {'updated' if updated else 'no match'}"
@@ -662,7 +664,12 @@ class BreadcrumbRepository(BaseRepository):
             logger.debug(f"qdrant resolution sync skipped for {artifact_id[:8]}: {exc}")
 
     def _persist_resolution_to_git_notes(
-        self, kind: str, id_arg: str, reason: str, superseded_by: str | None = None
+        self,
+        kind: str,
+        id_arg: str,
+        reason: str,
+        superseded_by: str | None = None,
+        resolution_kind: str | None = None,
     ) -> None:
         """B2: mirror a SQLite resolution into git notes (the canonical store) so a
         from-notes rebuild / multi-device sync preserves it instead of resurrecting
@@ -682,7 +689,7 @@ class BreadcrumbRepository(BaseRepository):
 
                 store = GitFindingStore()
                 for fid in ids:
-                    store.resolve_finding(fid, reason, superseded_by=superseded_by)
+                    store.resolve_finding(fid, reason, superseded_by=superseded_by, resolution_kind=resolution_kind)
             else:
                 from empirica.core.canonical.empirica_git.unknown_store import GitUnknownStore
 

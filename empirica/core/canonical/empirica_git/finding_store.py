@@ -236,7 +236,13 @@ class GitFindingStore:
             logger.warning(f"Failed to load finding from git: {e}")
             return None
 
-    def resolve_finding(self, finding_id: str, resolution: str, superseded_by: str | None = None) -> bool:
+    def resolve_finding(
+        self,
+        finding_id: str,
+        resolution: str,
+        superseded_by: str | None = None,
+        resolution_kind: str | None = None,
+    ) -> bool:
         """Mark a finding resolved/superseded in git notes (mirrors
         GitUnknownStore.resolve_unknown) — re-writes the finding's note with
         is_resolved so a from-notes rebuild / multi-device sync preserves the
@@ -258,6 +264,7 @@ class GitFindingStore:
             is_resolved=True,
             resolution=resolution,
             superseded_by=superseded_by,
+            resolution_kind=resolution_kind,
         )
 
     def discover_findings(

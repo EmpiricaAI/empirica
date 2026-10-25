@@ -48,6 +48,10 @@ def _default_resolve_cortex_creds() -> tuple[str | None, str | None]:
         from empirica.core.auth import cortex_bearer
 
         creds = cortex_bearer()
+        if not creds.get("bearer") and creds.get("reason"):
+            # The resolver answered without raising and said WHY there is no usable bearer (a revoked key, no credential). Dropping
+            # that left every verb telling the user to configure what was configured. It reaches the user beside the caller's message.
+            sys.stderr.write(f"  note: {creds['reason']}\n")
         return creds.get("url"), creds.get("bearer")
     except Exception as e:
         sys.stderr.write(
@@ -297,8 +301,14 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
     # next reader; and a slug that is NOT resolvable would bounce with no local
     # signal at all. An explicit local `--source-claude` is honoured as given.
     source_claude = getattr(args, "source_claude", None)
+    canonical_unresolved = False
     if not source_claude:
-        source_claude = _resolve_canonical_ai_id(cortex_url, api_key, _resolve_ai_id(), _http_get) or _resolve_ai_id()
+        source_claude = _resolve_canonical_ai_id(cortex_url, api_key, _resolve_ai_id(), _http_get)
+        if not source_claude:
+            # Falling back to the bare slug is not a silent equivalent: the own-proposal guard below compares whole ids and cannot
+            # match a bare slug against a canonical one. The fallback is remembered so the guard can refuse the ambiguous case.
+            canonical_unresolved = True
+            source_claude = _resolve_ai_id()
     if not source_claude:
         sys.stderr.write(
             "mailbox reply: source_claude unresolved — set --source-claude or add ai_id to .empirica/project.yaml.\n"
@@ -337,7 +347,22 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
         # 2026-09-23: two follow-ups to cortex, sent this way, never left the
         # sender, and the response said ok. Refused only for the derived default;
         # an explicit --target-claudes is a deliberate choice and is honoured.
-        if parent_source and parent_source.strip().lower() == str(source_claude).strip().lower():
+        own_slug = str(source_claude).strip().lower()
+        if (
+            canonical_unresolved
+            and parent_source
+            and parent_source.strip().lower() != own_slug
+            and parent_source.rsplit(".", 1)[-1].strip().lower() == own_slug
+        ):
+            # Same slug, different (or unknowable) tenant: with no canonical id the guard cannot tell your proposal from another
+            # tenant's practice of the same name. Refuse that one case instead of posting a reply that may land in your own inbox.
+            sys.stderr.write(
+                f"mailbox reply: your canonical id could not be resolved (the roster lookup failed) and parent {parent_id}'s "
+                f"source_claude {parent_source} shares your slug, so this may be your own proposal and the default target could be you. "
+                "Re-run when cortex is reachable, or pass --source-claude <your canonical id>.\n"
+            )
+            return 1
+        if parent_source and parent_source.strip().lower() == own_slug:
             sys.stderr.write(
                 f"mailbox reply: parent {parent_id} is your own proposal (source_claude {parent_source}), "
                 "so the default target would be you: the reply would reach no peer and would close your "
@@ -680,9 +705,21 @@ def _default_fetch_mailbox(
     every listener deaf), so the CLI can't drift from the listener's contract.
     """
     from empirica.core.loop_scheduler.content_poll import (
+        _resolve_canonical_ai_id as resolve_canonical,
+    )
+    from empirica.core.loop_scheduler.content_poll import (
         fetch_cortex_inbox,
         fetch_cortex_outbox,
     )
+
+    # Cortex answers a bare basename with zero proposals, which reads exactly like an empty inbox. Resolve first and refuse to ask
+    # under a basename; the envelope says which id was actually queried so a consumer can tell the two cases apart.
+    canonical = resolve_canonical(cortex_url, api_key, ai_id)
+    if meta_out is not None:
+        meta_out["queried_as"] = canonical
+        meta_out["canonical_resolved"] = "." in canonical
+    if "." not in canonical:
+        return []
 
     fetch = fetch_cortex_outbox if outbox else fetch_cortex_inbox
     return fetch(
@@ -822,6 +859,35 @@ def _resolve_poll_statuses(status_arg: str | None, *, outbox: bool) -> tuple[str
     return requested
 
 
+def _attach_poll_completeness(result: dict, poll_meta: dict) -> None:
+    """Completeness, when cortex reports it. `count` is what THIS poll returned; `matched` is how many exist. Without the pair, a
+    truncated poll is indistinguishable from a complete one, which made "have I replied to everything?" unanswerable at the CLI layer
+    and pushed backlog triage onto memory. Keys are omitted entirely when cortex does not send them, so an older cortex yields the
+    previous envelope byte-for-byte. `queried_as` names the id the inbox was actually asked for."""
+    if poll_meta.get("queried_as"):
+        result["queried_as"] = poll_meta["queried_as"]
+    if poll_meta.get("matched") is not None:
+        result["matched"] = poll_meta["matched"]
+    if poll_meta.get("has_more") is not None:
+        result["has_more"] = poll_meta["has_more"]
+        if poll_meta["has_more"]:
+            result["truncated_hint"] = "more proposals match than were returned — raise --limit or page with --since"
+
+
+def _poll_unresolved_response(args, ai_id: str, direction: str, poll_meta: dict) -> int:
+    """Report that the canonical id could not be resolved: the box was NOT checked, which an empty result would have hidden."""
+    message = (
+        f"canonical id for {ai_id!r} could not be resolved (the roster lookup failed), so the {direction} was NOT checked; "
+        "an empty result here would have meant 'unknown', not 'no mail'. Retry when cortex is reachable."
+    )
+    if getattr(args, "output", "json") == "human":
+        sys.stderr.write(f"mailbox poll: {message}\n")
+    else:
+        body = {"ok": False, "error": message, "ai_id": ai_id, "queried_as": poll_meta.get("queried_as")}
+        sys.stdout.write(json.dumps(body, indent=2) + "\n")
+    return 1
+
+
 def handle_mailbox_poll_command(
     args,
     *,
@@ -890,6 +956,8 @@ def handle_mailbox_poll_command(
         return 1
 
     direction = "outbox" if outbox else "inbox"
+    if _poll_meta.get("canonical_resolved") is False:
+        return _poll_unresolved_response(args, ai_id, direction, _poll_meta)
     result = {
         "ok": True,
         "ai_id": ai_id,
@@ -903,18 +971,7 @@ def handle_mailbox_poll_command(
     ungated = [str(p.get("id")) for p in proposals if isinstance(p, dict) and _decision_gap(p)]
     if ungated:
         result["not_human_decided"] = ungated
-    # Completeness, when cortex reports it. `count` is what THIS poll returned;
-    # `matched` is how many exist. Without the pair, a truncated poll is
-    # indistinguishable from a complete one — which is what made "have I replied
-    # to everything?" unanswerable at the CLI layer and pushed backlog triage
-    # onto memory. Keys are omitted entirely when cortex does not send them, so
-    # an older cortex yields the previous envelope byte-for-byte.
-    if _poll_meta.get("matched") is not None:
-        result["matched"] = _poll_meta["matched"]
-    if _poll_meta.get("has_more") is not None:
-        result["has_more"] = _poll_meta["has_more"]
-        if _poll_meta["has_more"]:
-            result["truncated_hint"] = "more proposals match than were returned — raise --limit or page with --since"
+    _attach_poll_completeness(result, _poll_meta)
     # Printed here, not returned, so the CLI core never sees it: record the
     # partial page for the truncation hook ourselves.
     from empirica.utils import partial_view

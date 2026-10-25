@@ -126,8 +126,9 @@ class ProfileImporter:
                     """
                     INSERT OR IGNORE INTO project_findings
                     (id, project_id, session_id, goal_id, subtask_id,
-                     finding, created_timestamp, finding_data, subject, impact, transaction_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     finding, created_timestamp, finding_data, subject, impact, transaction_id,
+                     is_resolved, resolution, resolved_timestamp, superseded_by, resolution_kind)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         data.get("finding_id", finding_id),
@@ -141,6 +142,13 @@ class ProfileImporter:
                         data.get("subject"),
                         data.get("impact", 0.5),
                         data.get("transaction_id"),  # May be None — notes don't always have this
+                        # The note carries the resolution (finding_store writes it so a rebuild preserves it). Leaving it out
+                        # resurrected resolved and retracted findings as open.
+                        1 if data.get("is_resolved") else 0,
+                        data.get("resolution"),
+                        self._parse_timestamp(data.get("resolved_at")),
+                        data.get("superseded_by"),
+                        data.get("resolution_kind"),
                     ),
                 )
                 if cursor.rowcount > 0:
