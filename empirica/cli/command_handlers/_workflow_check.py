@@ -119,6 +119,13 @@ def _check_cmd_parse_inputs(args):
     explicit_confidence = (
         cli_confidence if cli_confidence is not None else (config_data.get("confidence") if config_data else None)
     )
+    if explicit_confidence is not None and not (
+        isinstance(explicit_confidence, (int, float))
+        and not isinstance(explicit_confidence, bool)
+        and 0.0 <= explicit_confidence <= 1.0
+    ):
+        # It becomes the readiness the decision runs on, and `nan` would reach the result as invalid JSON.
+        raise ValueError(f"confidence must be a number between 0 and 1, got {explicit_confidence!r}")
     # Per-claim grounding (migration 062). Optional — a CHECK without claims
     # behaves exactly as before.
     claims = (config_data.get("claims") if config_data else None) or []
@@ -202,15 +209,16 @@ def _legacy_check_confidence_fields(explicit_confidence, claims_block):
     """The confidence-related keys of the legacy `check` result: `confidence` only when the caller supplied one (information a
     derived `1 - uncertainty` never was), plus `claim_confidence`, null when no claim was declared."""
     fields = {} if explicit_confidence is None else {"confidence": explicit_confidence}
-    fields["claim_confidence"] = _claim_confidence_value(claims_block)
+    fields["claim_confidence"] = _claim_confidence_block(claims_block)
     return fields
 
 
-def _claim_confidence_value(claims_block):
-    """The claim_confidence figure from a claims echo block, or None (never a neutral number) when no claim was declared."""
+def _claim_confidence_block(claims_block):
+    """The labelled claim_confidence block from a claims echo (value, claims, rates, self_graded, assumes), or None when no claim was
+    declared. The whole block, not a bare float: a number alone would drop the caveats that it is self-graded and assumes independence."""
     if not isinstance(claims_block, dict):
         return None
-    return (claims_block.get("claim_confidence") or {}).get("value")
+    return claims_block.get("claim_confidence") or None
 
 
 def _check_declare_claims(session_id, transaction_id, claims):
@@ -1427,7 +1435,7 @@ def handle_check_submit_command(args):
                     "basis": (dynamic_thresholds_info or {}).get("basis"),
                 },
                 "claims": claims_block,
-                "claim_confidence": _claim_confidence_value(claims_block),
+                "claim_confidence": _claim_confidence_block(claims_block),
                 "falsifiers": falsifiers_block,
             }
 

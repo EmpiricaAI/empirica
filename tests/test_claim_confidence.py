@@ -58,6 +58,7 @@ def test_it_says_where_it_comes_from_and_that_the_verdicts_are_self_graded():
     out = C.claim_confidence(stored("read", "assumed"), rates(read=0.9))
     assert out["self_graded"] is True and "independent" in out["assumes"]
     assert out["rates_from"] == {"read": "practice", "assumed": "prior"}
+    assert "untested" in out["assumes"], "the caveat that unadjudicated claims are excluded travels with the figure"
     assert out["hold_rates"] == {"read": 0.9, "assumed": 0.700}
 
 
@@ -103,28 +104,61 @@ def add_claims(db, grounding, held, refuted, untested=0):
     db.conn.commit()
 
 
-def test_with_too_few_decided_claims_the_measured_prior_is_used_and_labelled(db):
-    add_claims(db, "read", held=3, refuted=1)  # 4 decided: far under the minimum
-    r = C.hold_rates(db)
-    assert r["read"]["source"] == "prior" and r["read"]["rate"] == PRIOR["read"]
+def test_a_few_decided_claims_only_nudge_the_prior_and_are_labelled_blended(db):
+    """Four decided claims must not replace a prior built from 1,768: the rate is pulled toward the prior by MIN_DECIDED pseudo-observations."""
+    add_claims(db, "read", held=3, refuted=1)
+    r = C.hold_rates(db)["read"]
+    assert r["source"] == "blended" and r["decided"] == 4
+    assert r["rate"] == pytest.approx((3 + C.MIN_DECIDED * PRIOR["read"]) / (4 + C.MIN_DECIDED), abs=1e-3)
 
 
-def test_with_enough_decided_claims_this_practices_own_rate_is_used(db):
-    add_claims(db, "assumed", held=15, refuted=15)  # 30 decided, 50%
+def test_with_no_decided_claims_the_prior_is_used_unchanged(db):
     r = C.hold_rates(db)
-    assert r["assumed"] == {"rate": 0.5, "decided": 30, "source": "practice"}
-    assert r["read"]["source"] == "prior", "a grounding with no data keeps its prior"
+    assert all(r[g] == {"rate": PRIOR[g], "decided": 0, "source": "prior"} for g in PRIOR)
+
+
+def test_this_practices_own_rate_dominates_once_it_has_many_decided_claims(db):
+    add_claims(db, "assumed", held=150, refuted=150)  # 300 decided, 50%
+    r = C.hold_rates(db)["assumed"]
+    assert r["source"] == "practice" and r["decided"] == 300
+    assert r["rate"] == pytest.approx((150 + 20 * 0.7) / 320, abs=1e-3)
+    assert 0.5 < r["rate"] < 0.7, "pulled toward the prior, not equal to either"
+
+
+def test_a_rate_is_never_exactly_zero_or_one_so_a_figure_never_claims_certainty(db):
+    """20 refuted gave exactly 0.0 and 20 held gave exactly 1.0 (certainty) in the first version."""
+    add_claims(db, "assumed", held=0, refuted=25)
+    add_claims(db, "read", held=25, refuted=0)
+    r = C.hold_rates(db)
+    assert 0.0 < r["assumed"]["rate"] < 0.7 and 0.974 < r["read"]["rate"] < 1.0
 
 
 def test_untested_claims_are_not_counted_as_held_or_refuted(db):
     """'Never checked' says nothing about whether the claim held; counting it either way would move the rate on no evidence."""
     add_claims(db, "ran", held=20, refuted=0, untested=200)
-    assert C.hold_rates(db)["ran"]["rate"] == 1.0
     assert C.hold_rates(db)["ran"]["decided"] == 20
+
+
+def test_groundings_are_counted_under_their_normalised_name(db):
+    """Rows 'Read' and 'read' were separate groups and the second silently overwrote the first."""
+    add_claims(db, "read", held=10, refuted=0)
+    for i in range(10):
+        db.conn.execute(
+            "INSERT INTO transaction_claims (id, session_id, transaction_id, claim_index, claim, grounding, verdict, declared_timestamp) "
+            "VALUES (?, 's', 't', ?, 'c', 'Read', 'refuted', 0.0)",
+            (f"R-{i}", 100 + i),
+        )
+    db.conn.commit()
+    assert C.hold_rates(db)["read"]["decided"] == 20
 
 
 def test_the_priors_are_the_measured_ones():
     assert C.PRIOR_HOLD_RATES == PRIOR
+
+
+def test_a_missing_grounding_in_the_rates_falls_back_to_its_prior_instead_of_raising():
+    out = C.claim_confidence(stored("read"), {"assumed": {"rate": 0.5, "decided": 0, "source": "prior"}})
+    assert out["value"] == pytest.approx(0.974) and out["rates_from"] == {"read": "prior"}
 
 
 # ── what check-submit writes and reports ──
@@ -220,10 +254,12 @@ def test_without_claims_there_is_no_claim_confidence_block():
     assert wc._check_declare_claims("s", "tx", None) is None
 
 
-def test_the_result_reports_claim_confidence_or_null_never_a_neutral_number():
-    assert wc._claim_confidence_value({"declared": 2, "claim_confidence": {"value": 0.68}}) == 0.68
-    assert wc._claim_confidence_value(None) is None
-    assert wc._claim_confidence_value({"declared": 0, "claims": []}) is None
+def test_the_result_reports_the_labelled_claim_confidence_block_or_null_never_a_bare_number():
+    """A bare top-level float would drop `self_graded`, `assumes` and `rates_from`, and read as calibrated."""
+    block = {"value": 0.68, "claims": 2, "self_graded": True, "assumes": "x", "rates_from": {"read": "prior"}}
+    assert wc._claim_confidence_block({"declared": 2, "claim_confidence": block}) == block
+    assert wc._claim_confidence_block(None) is None
+    assert wc._claim_confidence_block({"declared": 0, "claims": []}) is None
 
 
 # ── the legacy `check` command ──
@@ -237,7 +273,7 @@ def test_the_legacy_check_echoes_a_confidence_only_when_the_caller_supplied_one(
 
 def test_the_legacy_check_reports_claim_confidence_from_the_claims_block():
     fields = wc._legacy_check_confidence_fields(None, {"declared": 1, "claim_confidence": {"value": 0.974}})
-    assert fields == {"claim_confidence": 0.974}
+    assert fields == {"claim_confidence": {"value": 0.974}}
 
 
 def test_the_legacy_check_still_decides_on_the_asserted_or_derived_readiness():
@@ -256,3 +292,24 @@ def test_the_documented_confidence_flag_is_actually_read(monkeypatch):
     assert wc._check_cmd_parse_inputs(types.SimpleNamespace(confidence=0.75, **base))["explicit_confidence"] == 0.75
     assert wc._check_cmd_parse_inputs(types.SimpleNamespace(confidence=0.0, **base))["explicit_confidence"] == 0.0
     assert wc._check_cmd_parse_inputs(types.SimpleNamespace(confidence=None, **base))["explicit_confidence"] == 0.4
+
+
+@pytest.mark.parametrize("bad", [7.0, -0.1, float("nan"), float("inf")])
+def test_an_asserted_confidence_outside_zero_to_one_is_refused_not_passed_through(monkeypatch, bad):
+    """Now that the flag is read, `--confidence 7` would make readiness 7 and the check proceed whatever the uncertainty, and nan would
+    reach the result as invalid JSON."""
+    import types
+
+    monkeypatch.setattr(wc, "_parse_workflow_input", lambda _a, _n: ({}, "json"))
+    args = types.SimpleNamespace(confidence=bad, session_id="s", cycle=None, round=None, verbose=False)
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        wc._check_cmd_parse_inputs(args)
+
+
+def test_a_payload_confidence_is_validated_the_same_way(monkeypatch):
+    import types
+
+    monkeypatch.setattr(wc, "_parse_workflow_input", lambda _a, _n: ({"confidence": 78}, "json"))
+    args = types.SimpleNamespace(confidence=None, session_id="s", cycle=None, round=None, verbose=False)
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        wc._check_cmd_parse_inputs(args)

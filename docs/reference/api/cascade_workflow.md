@@ -194,7 +194,8 @@ EOF
     "gate_passed": true
   },
   "claims": {"declared": 3, "weakly_grounded": 1, "claim_confidence": {"value": 0.68, "claims": 3}},
-  "claim_confidence": 0.68,
+  "claim_confidence": {"value": 0.68, "claims": 3, "by_grounding": {"read": 2, "assumed": 1},
+                       "rates_from": {"read": "practice", "assumed": "blended"}, "self_graded": true},
   "blindspots": {
     "count": 0
   }
@@ -202,10 +203,12 @@ EOF
 ```
 
 **`claim_confidence`** (since 1.14.17) is how likely the claims declared at CHECK all hold, from their grounding alone: the product of each
-claim's hold rate (`read`, `ran`, `retrieved`, `assumed`), measured from this practice's own held/refuted verdicts, with measured priors until a
-grounding has 20 decided claims. It is `null` when no claim was declared, never a neutral number. It takes no uncertainty input, so it cannot be
-`1 - uncertainty` again, and it says so in the echo (`self_graded`, `assumes` independent claims, `rates_from`). The old `confidence` key is no longer
-written by `check-submit`.
+claim's hold rate (`read`, `ran`, `retrieved`, `assumed`) from this practice's own held/refuted verdicts. Each rate is shrunk toward a measured
+prior (read 97.4%, ran 95.5%, retrieved 82.4%, assumed 70.0%, from 1,768 claims in the project this was built in) by 20 pseudo-observations, so a few
+verdicts nudge it and it never reaches exactly 0 or 1; `rates_from` says `prior`, `blended` or `practice` per grounding. It is `null` when no claim
+was declared, never a neutral number. It takes no uncertainty input, so it cannot be `1 - uncertainty` again. The block labels itself: the verdicts
+are the practitioner's own (`self_graded`), claims never adjudicated (`untested`) are excluded, and the claims are assumed independent (`assumes`).
+The old `confidence` key is no longer written by `check-submit`. The legacy `check` command refuses a `--confidence` outside 0 to 1.
 
 **Decision Values:**
 | Decision | Meaning |
