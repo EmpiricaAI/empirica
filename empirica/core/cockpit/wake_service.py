@@ -26,7 +26,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from empirica.core.cockpit.instance_actions import WakeResult, wake_instance
@@ -43,7 +43,7 @@ SURFACED_KEEP = 500
 
 def _stamp() -> str:
     """Wall-clock UTC for a log line. The listener's stderr is a file, not journald, so a line carries its own time."""
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 class InboxWatch:
