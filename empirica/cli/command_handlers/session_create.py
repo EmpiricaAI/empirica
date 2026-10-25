@@ -27,6 +27,27 @@ def _is_uuid_format(value: str) -> bool:
     return bool(re.match(uuid_pattern, value.lower()))
 
 
+_VECTOR_COLUMNS = (
+    "know", "uncertainty", "do", "context", "clarity", "coherence",
+    "signal", "density", "state", "change", "completion", "impact", "engagement",
+)  # fmt: skip
+
+
+def _last_recorded_vectors(cursor, session_id: str) -> dict:
+    """The newest non-NULL value of each vector over a session's CHECK and PREFLIGHT rows (newest row first)."""
+    cursor.execute(
+        f"SELECT {', '.join(_VECTOR_COLUMNS)} FROM reflexes WHERE session_id = ? AND phase IN ('CHECK', 'PREFLIGHT') "
+        "ORDER BY timestamp DESC",
+        (session_id,),
+    )
+    recorded: dict = {}
+    for row in cursor.fetchall():
+        for name in _VECTOR_COLUMNS:
+            if name not in recorded and row[name] is not None:
+                recorded[name] = row[name]
+    return recorded
+
+
 def auto_close_previous_sessions(db, ai_id, current_project_id, current_instance_id=None, output_format="json"):
     """
     Auto-close previous sessions with POSTFLIGHT for clean lifecycle.
@@ -75,53 +96,11 @@ def auto_close_previous_sessions(db, ai_id, current_project_id, current_instance
                 continue
             # Same project: auto-close with POSTFLIGHT
 
-            # Get last CHECK or PREFLIGHT vectors for POSTFLIGHT
-            cursor.execute(
-                """
-                SELECT know, uncertainty, do, context, clarity, coherence,
-                       signal, density, state, change, completion, impact, engagement
-                FROM reflexes
-                WHERE session_id = ? AND phase IN ('CHECK', 'PREFLIGHT')
-                ORDER BY timestamp DESC LIMIT 1
-            """,
-                (session_id,),
-            )
-            last_vectors = cursor.fetchone()
-
-            # Create auto-POSTFLIGHT
-            if last_vectors:
-                vectors = {
-                    "know": last_vectors["know"] or 0.5,
-                    "uncertainty": last_vectors["uncertainty"] or 0.3,
-                    "do": last_vectors["do"] or 0.5,
-                    "context": last_vectors["context"] or 0.5,
-                    "clarity": last_vectors["clarity"] or 0.5,
-                    "coherence": last_vectors["coherence"] or 0.5,
-                    "signal": last_vectors["signal"] or 0.5,
-                    "density": last_vectors["density"] or 0.5,
-                    "state": last_vectors["state"] or 0.5,
-                    "change": last_vectors["change"] or 0.5,
-                    "completion": 1.0,  # Session ended = complete
-                    "impact": last_vectors["impact"] or 0.5,
-                    "engagement": last_vectors["engagement"] or 0.5,
-                }
-            else:
-                # No vectors found, use defaults
-                vectors = {
-                    "know": 0.5,
-                    "uncertainty": 0.3,
-                    "do": 0.5,
-                    "context": 0.5,
-                    "clarity": 0.5,
-                    "coherence": 0.5,
-                    "signal": 0.5,
-                    "density": 0.5,
-                    "state": 0.5,
-                    "change": 0.5,
-                    "completion": 1.0,
-                    "impact": 0.5,
-                    "engagement": 0.5,
-                }
+            # Each vector takes its most recent RECORDED value across the session. A CHECK supplies only some of the 13 (the rest are
+            # NULL, "not assessed"), so the newest row alone is not enough, and `value or 0.5` turned a genuine 0.0 (change at the
+            # start of a transaction, uncertainty of 0.0) into an invented default. A vector never recorded stays absent -> NULL.
+            vectors = _last_recorded_vectors(cursor, session_id)
+            vectors["completion"] = 1.0  # Session ended = complete
 
             # Insert auto-POSTFLIGHT
             timestamp = datetime.now().timestamp()
@@ -137,19 +116,19 @@ def auto_close_previous_sessions(db, ai_id, current_project_id, current_instance
             """,
                 (
                     session_id,
-                    vectors["know"],
-                    vectors["uncertainty"],
-                    vectors["do"],
-                    vectors["context"],
-                    vectors["clarity"],
-                    vectors["coherence"],
-                    vectors["signal"],
-                    vectors["density"],
-                    vectors["state"],
-                    vectors["change"],
+                    vectors.get("know"),
+                    vectors.get("uncertainty"),
+                    vectors.get("do"),
+                    vectors.get("context"),
+                    vectors.get("clarity"),
+                    vectors.get("coherence"),
+                    vectors.get("signal"),
+                    vectors.get("density"),
+                    vectors.get("state"),
+                    vectors.get("change"),
                     vectors["completion"],
-                    vectors["impact"],
-                    vectors["engagement"],
+                    vectors.get("impact"),
+                    vectors.get("engagement"),
                     reflex_data,
                     timestamp,
                 ),

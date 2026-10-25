@@ -2551,6 +2551,17 @@ def handle_goals_refresh_command(args):
 # --- Merged from goals_ready_command.py ---
 
 
+def _latest_recorded_vector(db, session_id: str, column: str) -> float | None:
+    """The newest non-NULL value of one vector column for a session, or None if it was never recorded."""
+    if column not in ("know", "uncertainty"):  # the column name is interpolated: only the two this module needs
+        raise ValueError(f"unsupported vector column {column!r}")
+    row = db.conn.execute(
+        f"SELECT {column} FROM reflexes WHERE session_id = ? AND {column} IS NOT NULL ORDER BY timestamp DESC LIMIT 1",
+        (session_id,),
+    ).fetchone()
+    return row[0] if row else None
+
+
 def _handle_goals_ready_command_helper(
     beads_ready, cursor, db, max_uncertainty, min_confidence, ready_work, session_id
 ):
@@ -2582,50 +2593,19 @@ def _handle_goals_ready_command_helper(
         # Parse scope
         scope = json.loads(scope_json) if scope_json else {}
 
-        # Get epistemic state from latest CHECK or PREFLIGHT
-        cursor = db.conn.execute(
-            """
-            SELECT phase, engagement, know, do, context, clarity, coherence,
-                   signal, density, state, change, completion, impact, uncertainty
-            FROM reflexes
-            WHERE session_id = ?
-            ORDER BY timestamp DESC
-            LIMIT 1
-        """,
-            (session_id,),
-        )
-
-        reflex_row = cursor.fetchone()
-
+        # The newest RECORDED know and uncertainty. The latest row is often a CHECK that omits one of them (NULL = not assessed), and
+        # comparing None with a threshold raised TypeError for every candidate item.
+        last_confidence = _latest_recorded_vector(db, session_id, "know")
+        last_uncertainty = _latest_recorded_vector(db, session_id, "uncertainty")
         epistemic_ready = True
-        last_confidence = None
-        last_uncertainty = None
         why_not_ready = None
 
-        if reflex_row:
-            # Build vectors dict from individual columns
-            vectors = {
-                "engagement": reflex_row[1],
-                "know": reflex_row[2],
-                "do": reflex_row[3],
-                "context": reflex_row[4],
-                "clarity": reflex_row[5],
-                "coherence": reflex_row[6],
-                "signal": reflex_row[7],
-                "density": reflex_row[8],
-                "state": reflex_row[9],
-                "change": reflex_row[10],
-                "completion": reflex_row[11],
-                "impact": reflex_row[12],
-                "uncertainty": reflex_row[13],
-            }
-            reflex_row[0]
-
-            # Extract epistemic state
-            last_confidence = vectors.get("know", 0.5)
-            last_uncertainty = vectors.get("uncertainty", 0.5)
-
-            # Check epistemic readiness
+        if last_confidence is None or last_uncertainty is None:
+            # Nothing to judge readiness on: assume not ready, and say which value is missing.
+            epistemic_ready = False
+            missing = [n for n, v in (("know", last_confidence), ("uncertainty", last_uncertainty)) if v is None]
+            why_not_ready = f"No {' or '.join(missing)} value recorded yet for this session"
+        else:
             if last_confidence < min_confidence:
                 epistemic_ready = False
                 why_not_ready = f"Confidence too low ({last_confidence:.2f} < {min_confidence})"
@@ -2633,10 +2613,6 @@ def _handle_goals_ready_command_helper(
             if last_uncertainty > max_uncertainty:
                 epistemic_ready = False
                 why_not_ready = f"Uncertainty too high ({last_uncertainty:.2f} > {max_uncertainty})"
-        else:
-            # No epistemic data available - assume not ready
-            epistemic_ready = False
-            why_not_ready = "No PREFLIGHT/CHECK data available"
 
         # Build ready work item
         ready_item = {

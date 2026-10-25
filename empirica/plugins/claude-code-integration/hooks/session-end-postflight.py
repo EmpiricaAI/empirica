@@ -86,25 +86,18 @@ def get_session_state(session_id: str) -> dict:
         has_postflight = "POSTFLIGHT" in phases
         last_phase = phases[0] if phases else None
 
-        # Get vectors from most recent entry
-        latest = rows[0]
-        last_vectors = {
-            "engagement": latest[1],
-            "know": latest[2],
-            "do": latest[3],
-            "context": latest[4],
-            "clarity": latest[5],
-            "coherence": latest[6],
-            "signal": latest[7],
-            "density": latest[8],
-            "state": latest[9],
-            "change": latest[10],
-            "completion": latest[11],
-            "impact": latest[12],
-            "uncertainty": latest[13],
-        }
-        # Filter None values
-        last_vectors = {k: v for k, v in last_vectors.items() if v is not None}
+        # Each vector takes its most recent RECORDED value. The newest row is usually a CHECK, which supplies only some of the 13
+        # (the rest are NULL = not assessed), and the auto-POSTFLIGHT built from it must not go out sparse: a POSTFLIGHT row full of
+        # NULLs breaks readers that rely on it being complete. Rows are newest first, so the first non-NULL per column wins.
+        names = [
+            "engagement", "know", "do", "context", "clarity", "coherence", "signal",
+            "density", "state", "change", "completion", "impact", "uncertainty",
+        ]  # fmt: skip
+        last_vectors = {}
+        for row in rows:
+            for offset, name in enumerate(names, start=1):
+                if name not in last_vectors and row[offset] is not None:
+                    last_vectors[name] = row[offset]
 
         # Needs POSTFLIGHT if has PREFLIGHT but no POSTFLIGHT
         needs_postflight = has_preflight and not has_postflight
