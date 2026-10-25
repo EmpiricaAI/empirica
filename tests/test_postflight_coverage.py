@@ -154,7 +154,6 @@ class TestBuildPostflightResultCoverage:
             "deltas": {},
             "trajectory_issues": None,
             "grounded_verification": None,
-            "sentinel_decision": None,
             "compliance_result": None,
             "compliance_error": None,
             "postflight_grounded_vectors": None,

@@ -21,7 +21,6 @@ from ._workflow_shared import (
     _build_retrospective,
     _extract_all_vectors,
     _get_db_for_session,
-    _invoke_sentinel_hook,
     _parse_workflow_input,
     _resolve_and_validate_session,
     _soft_run,
@@ -1408,7 +1407,6 @@ def _build_postflight_result(
     deltas,
     trajectory_issues,
     grounded_verification,
-    sentinel_decision,
     compliance_result,
     compliance_error,
     postflight_grounded_vectors,
@@ -1444,7 +1442,6 @@ def _build_postflight_result(
         "deltas": deltas,
         "trajectory_issues": trajectory_issues if trajectory_issues else None,
         "calibration": calibration_for_ai,
-        "sentinel": sentinel_decision.value if sentinel_decision else None,
         "reply_shape": _REPLY_SHAPE,
     }
 
@@ -2292,23 +2289,6 @@ def handle_postflight_submit_command(args):
                 postflight_confidence,
                 internal_consistency,
             )
-            sentinel_decision = _soft_run(
-                "sentinel_hook",
-                warnings,
-                _invoke_sentinel_hook,
-                "POSTFLIGHT",
-                session_id,
-                {
-                    "vectors": vectors,
-                    "reasoning": reasoning,
-                    "postflight_confidence": postflight_confidence,
-                    "internal_consistency": internal_consistency,
-                    "deltas": deltas,
-                    "trajectory_issues": trajectory_issues,
-                    "checkpoint_id": checkpoint_id,
-                },
-            )
-
             # Stage 5b: Auto-edges — persist each artifact's structural goal-edge
             # to artifact_edges so the local graph is connected with zero AI
             # effort (Gated Artifact-Graph map, work-stream 3). Runs BEFORE the
@@ -2401,7 +2381,6 @@ def handle_postflight_submit_command(args):
                 deltas=deltas,
                 trajectory_issues=trajectory_issues,
                 grounded_verification=grounded_verification,
-                sentinel_decision=sentinel_decision,
                 compliance_result=compliance_result,
                 compliance_error=compliance_error,
                 postflight_grounded_vectors=parsed["grounded_vectors"],

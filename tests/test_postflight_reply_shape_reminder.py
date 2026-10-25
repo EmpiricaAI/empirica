@@ -26,7 +26,6 @@ def _build(**kw):
         "deltas": {},
         "trajectory_issues": [],
         "grounded_verification": None,
-        "sentinel_decision": None,
         "compliance_result": None,
         "compliance_error": None,
         "postflight_grounded_vectors": None,
@@ -64,6 +63,5 @@ def test_the_existing_keys_are_all_still_there():
         "evidence_summary",
         "deltas",
         "calibration",
-        "sentinel",
     ):
         assert key in result

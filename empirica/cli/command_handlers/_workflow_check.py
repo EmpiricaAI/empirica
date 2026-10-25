@@ -7,7 +7,6 @@ import logging
 import os
 from typing import Any
 
-from empirica.core.canonical.empirica_git.sentinel_hooks import SentinelDecision, SentinelHooks
 from empirica.utils.session_resolver import InstanceResolver as R
 
 from ..cli_utils import handle_cli_error, parse_json_safely
@@ -17,7 +16,6 @@ from ._workflow_shared import (
     _build_weave_guidance,
     _check_bootstrap_status,
     _get_db_for_session,
-    _invoke_sentinel_hook,
     _parse_workflow_input,
     _resolve_and_validate_session,
     register_window_falsifiers,
@@ -1031,82 +1029,6 @@ def _check_store_and_publish(session_id, round_num, vectors, decision, reasoning
     return checkpoint_id, check_transaction_id, confidence, gaps
 
 
-def _check_apply_sentinel(
-    session_id,
-    decision,
-    decision_binding,
-    vectors,
-    reasoning,
-    confidence,
-    gaps,
-    cycle,
-    round_num,
-    checkpoint_id,
-    check_transaction_id,
-):
-    """Invoke Sentinel hook and apply override if warranted.
-
-    Returns (decision, sentinel_decision, sentinel_override).
-    """
-    sentinel_override = False
-    sentinel_decision = _invoke_sentinel_hook(
-        "CHECK",
-        session_id,
-        {
-            "vectors": vectors,
-            "decision": decision,
-            "reasoning": reasoning,
-            "confidence": confidence,
-            "gaps": gaps,
-            "cycle": cycle,
-            "round": round_num,
-            "checkpoint_id": checkpoint_id,
-        },
-    )
-
-    if sentinel_decision and not decision_binding:
-        sentinel_map = {
-            SentinelDecision.PROCEED: "proceed",
-            SentinelDecision.INVESTIGATE: "investigate",
-            SentinelDecision.BRANCH: "investigate",
-            SentinelDecision.HALT: "investigate",
-            SentinelDecision.REVISE: "investigate",
-        }
-        if sentinel_decision in sentinel_map:
-            new_decision = sentinel_map[sentinel_decision]
-            if new_decision != decision:
-                logger.info(f"Sentinel override: {decision} → {new_decision} (sentinel={sentinel_decision.value})")
-                decision = new_decision
-                sentinel_override = True
-
-                # UPDATE DB: Sync the overridden decision to the stored reflex
-                try:
-                    db2 = _get_db_for_session(session_id)
-                    db2.conn.execute(
-                        """
-                        UPDATE reflexes SET reflex_data = json_set(reflex_data, '$.decision', ?)
-                        WHERE id = (
-                            SELECT id FROM reflexes
-                            WHERE session_id = ? AND phase = 'CHECK'
-                            AND transaction_id = ?
-                            ORDER BY timestamp DESC LIMIT 1
-                        )
-                    """,
-                        (new_decision, session_id, check_transaction_id),
-                    )
-                    db2.conn.commit()
-                    db2.close()
-                    logger.info(f"DB synced: CHECK decision updated to '{new_decision}'")
-                except Exception as e:
-                    logger.warning(f"Failed to sync sentinel override to DB: {e}")
-    elif sentinel_decision and decision_binding:
-        logger.info(
-            f"Autopilot binding active - Sentinel override blocked (sentinel wanted: {sentinel_decision.value})"
-        )
-
-    return decision, sentinel_decision, sentinel_override
-
-
 def _check_auto_checkpoint(session_id, vectors, decision, gaps, cycle, round_num):
     """Create git checkpoint if uncertainty > 0.5 (risky decision).
 
@@ -1427,33 +1349,18 @@ def handle_check_submit_command(args):
         diminishing_returns = _check_detect_diminishing_returns(previous_check_vectors, know, uncertainty)
 
         # Stage 7: Compute gate decision (proceed/investigate) + autopilot
-        decision, computed_decision, _, decision_binding = _check_gate_decision(
+        decision, computed_decision, _, _ = _check_gate_decision(
             vectors, ready_uncertainty_threshold, diminishing_returns, round_num, decision
         )
 
         # Stage 8: Store checkpoint + publish bus event (inner try for storage errors)
         try:
-            checkpoint_id, check_transaction_id, confidence, gaps = _check_store_and_publish(
+            checkpoint_id, check_transaction_id, _, gaps = _check_store_and_publish(
                 session_id, round_num, vectors, decision, reasoning, cycle
             )
 
             # NOTE: Bayesian belief updates during CHECK were REMOVED (2026-01-21)
             # Calibration now uses vector_trajectories table.
-
-            # Stage 9: Sentinel hook + override
-            decision, sentinel_decision, sentinel_override = _check_apply_sentinel(
-                session_id,
-                decision,
-                decision_binding,
-                vectors,
-                reasoning,
-                confidence,
-                gaps,
-                cycle,
-                round_num,
-                checkpoint_id,
-                check_transaction_id,
-            )
 
             # Stage 10: Auto-checkpoint for risky decisions
             _check_auto_checkpoint(session_id, vectors, decision, gaps, cycle, round_num)
@@ -1493,12 +1400,6 @@ def handle_check_submit_command(args):
                     ),
                     "basis": (dynamic_thresholds_info or {}).get("basis"),
                 },
-                "sentinel": {
-                    "decision": sentinel_decision.value if sentinel_decision else None,
-                    "override_applied": sentinel_override,
-                }
-                if SentinelHooks.is_enabled() and sentinel_override
-                else None,
                 "claims": claims_block,
                 "falsifiers": falsifiers_block,
             }

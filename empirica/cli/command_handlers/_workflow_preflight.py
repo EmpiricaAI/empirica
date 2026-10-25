@@ -18,7 +18,6 @@ from ._workflow_shared import (
     _build_voice_guidance,
     _extract_all_vectors,
     _get_db_for_session,
-    _invoke_sentinel_hook,
     _parse_workflow_input,
     _remap_trajectory_summary,
     _resolve_and_validate_session,
@@ -1223,7 +1222,6 @@ def _preflight_build_result(
     calibration_adjustments,
     calibration_report,
     previous_transaction_feedback,
-    sentinel_decision,
     patterns,
     unclosed_transaction_warning,
     work_type=None,
@@ -1246,7 +1244,6 @@ def _preflight_build_result(
         if calibration_adjustments or calibration_report
         else None,
         "previous_transaction_feedback": previous_transaction_feedback,
-        "sentinel": sentinel_decision.value if sentinel_decision else None,
         "patterns": _patterns_block(patterns),
         "unclosed_transaction_warning": unclosed_transaction_warning,
     }
@@ -1457,11 +1454,6 @@ def handle_preflight_submit_command(args):
                 transaction_file_error = f"{type(e).__name__}: {e}"
                 logger.warning("Active transaction file NOT written: %s", transaction_file_error)
 
-            # Stage 4: Sentinel hook
-            sentinel_decision = _invoke_sentinel_hook(
-                "PREFLIGHT", session_id, {"vectors": vectors, "reasoning": reasoning, "checkpoint_id": checkpoint_id}
-            )
-
             # Stage 5: Create DB transaction record
             db = _get_db_for_session(session_id)
             cascade_id = str(uuid.uuid4())
@@ -1527,7 +1519,6 @@ def handle_preflight_submit_command(args):
                 cal["calibration_adjustments"],
                 cal["calibration_report"],
                 previous_transaction_feedback,
-                sentinel_decision,
                 patterns,
                 unclosed_transaction_warning,
                 work_type=parsed.get("work_type"),

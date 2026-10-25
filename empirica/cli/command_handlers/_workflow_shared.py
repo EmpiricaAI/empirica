@@ -13,7 +13,6 @@ import sys
 import time
 
 from empirica.config.path_resolver import resolve_session_db_path
-from empirica.core.canonical.empirica_git.sentinel_hooks import SentinelHooks
 from empirica.utils.session_resolver import InstanceResolver as R
 
 from ..cli_utils import parse_json_safely, run_empirica_subprocess
@@ -33,7 +32,6 @@ __all__ = [
     "_extract_all_vectors",
     "_extract_numeric_value",
     "_get_db_for_session",
-    "_invoke_sentinel_hook",
     "_parse_workflow_input",
     "_remap_trajectory_summary",
     "_resolve_and_validate_session",
@@ -253,18 +251,6 @@ def _resolve_and_validate_session(session_id: str, phase: str) -> str:
             )
         )
         sys.exit(1)
-
-
-def _invoke_sentinel_hook(phase: str, session_id: str, checkpoint_data: dict):
-    """Invoke Sentinel post-checkpoint hook if enabled.
-
-    Returns SentinelDecision or None.
-    """
-    if SentinelHooks.is_enabled():
-        return SentinelHooks.post_checkpoint_hook(
-            session_id=session_id, ai_id=None, phase=phase, checkpoint_data=checkpoint_data
-        )
-    return None
 
 
 def _build_noetic_guidance(work_type: str | None) -> dict | None:
