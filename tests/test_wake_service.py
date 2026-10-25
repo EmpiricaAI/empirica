@@ -271,3 +271,66 @@ def test_a_wake_service_that_raises_cannot_break_the_listeners_event_path(catchu
     listener_mod._WAKE_SERVICES["proj"] = Boom()  # type: ignore[assignment]
     catchup["events"] = _Events(1)
     assert listener_mod._emit_catchup_events("proj", "cortex-mailbox-poll", output_stream=io.StringIO()) == 1
+
+
+def test_a_failing_inbox_check_is_logged_not_silent():
+    """Review finding (wake reviewer, traced): a broken poll (empirica not on the listener's PATH, cortex unauthenticated) looked identical to a
+    working service. Each failure is written to the listener's stderr with its time and its cause."""
+    import re
+
+    def broken_poll(*a, **k):
+        raise FileNotFoundError("empirica")
+
+    out = io.StringIO()
+    clock = [0.0]
+    watch = InboxWatch("proj", Path("/nonexistent/s.json"), run=broken_poll)
+    service = WakeService(
+        "proj",
+        watch=watch,
+        panes=lambda: ["tmux_3"],
+        wake=lambda p: WakeResult(p, True, "sent", "x"),
+        clock=lambda: clock[0],
+        err_stream=out,
+    )
+    clock[0] = 2 * HOUR + 1
+    service.tick_once()
+    line = next(line for line in out.getvalue().splitlines() if "inbox check failed" in line)
+    assert re.match(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z listener: wake ", line), line
+    assert "FileNotFoundError" in line
+
+
+def test_note_event_does_not_queue_behind_a_slow_tick(tmp_path):
+    import threading
+
+    entered, release = threading.Event(), threading.Event()
+
+    def slow_wake(pane):
+        entered.set()
+        release.wait(10)
+        return WakeResult(pane, True, "sent", "tmux-send-keys")
+
+    watch = InboxWatch("proj", tmp_path / "s.json", run=lambda *a, **k: _poll("prop_1")())
+    service = WakeService("proj", watch=watch, panes=lambda: ["tmux_3"], wake=slow_wake, clock=lambda: 5.0)
+    service.note_event()
+    ticker = threading.Thread(target=service.tick_once, daemon=True)
+    ticker.start()
+    assert entered.wait(5)
+    done = threading.Event()
+    threading.Thread(target=lambda: (service.note_event(), done.set()), daemon=True).start()
+    try:
+        assert done.wait(1.0), "the listener's event path must never wait for the wake service's subprocess calls"
+    finally:
+        release.set()
+        ticker.join(5)
+
+
+def test_the_surfaced_list_keeps_the_most_recent_ids_in_order(tmp_path, monkeypatch):
+    """Review finding (wake reviewer, traced): the list was rebuilt from a set, so trimming past the cap dropped arbitrary ids and old mail
+    could be woken for again."""
+    from empirica.core.cockpit import wake_service as ws
+
+    monkeypatch.setattr(ws, "SURFACED_KEEP", 3)
+    state = tmp_path / "s.json"
+    for pid in ["prop_a", "prop_b", "prop_c", "prop_d", "prop_e"]:
+        InboxWatch("proj", state, run=_poll(pid)).mark_surfaced()
+    assert json.loads(state.read_text())["ids"] == ["prop_c", "prop_d", "prop_e"]

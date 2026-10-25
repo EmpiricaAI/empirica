@@ -78,16 +78,18 @@ class InboxWatch:
         payload = json.loads(out.stdout)
         return [str(p["id"]) for p in payload.get("proposals") or [] if p.get("id")]
 
-    def _surfaced(self) -> set[str]:
+    def _surfaced(self) -> list[str]:
+        """Surfaced ids in the order they were recorded (oldest first), so trimming past the cap drops the oldest, not arbitrary ones."""
         try:
-            return set(json.loads(self._state_path.read_text()).get("ids") or [])
+            ids = json.loads(self._state_path.read_text()).get("ids") or []
         except (OSError, ValueError, AttributeError):
-            return set()
+            return []
+        return [str(i) for i in ids] if isinstance(ids, list) else []
 
     def has_pending(self) -> bool:
         """Whether accepted mail exists that no wake has surfaced yet. Raises when the poll fails: the scheduler treats that as mail."""
         self._current = self._accepted_ids()
-        return bool(set(self._current) - self._surfaced())
+        return bool(set(self._current) - set(self._surfaced()))
 
     def mark_surfaced(self) -> None:
         """Record the current accepted mail as surfaced. Called after a wake landed; re-polls so mail that arrived since is included."""
@@ -119,8 +121,13 @@ class WakeService:
         self._pane_source = panes or (lambda: wakeable_panes(ai_id))
         self._panes_at: float | None = None
         self._panes_cache: list[str] = []
-        self._scheduler = WakeScheduler(panes=self._panes, wake=self._wake, clock=clock, has_pending=watch.has_pending)
-        self._lock = threading.Lock()
+        self._scheduler = WakeScheduler(
+            panes=self._panes,
+            wake=self._wake,
+            clock=clock,
+            has_pending=watch.has_pending,
+            on_check_error=self._log_check_error,
+        )
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -136,15 +143,21 @@ class WakeService:
             self._watch.mark_surfaced()
         return result
 
+    def _log_check_error(self, error: Exception) -> None:
+        """A broken inbox check must be visible: it used to look identical to a working service. At most one line per scheduler look."""
+        try:
+            self._err.write(f"{_stamp()} listener: wake inbox check failed: {type(error).__name__}: {error}\n")
+        except Exception:  # noqa: S110 - a broken log stream must not take the listener down
+            pass
+
     def note_event(self) -> None:
-        with self._lock:
-            self._scheduler.note_event()
+        """Called from the listener's event path. Never waits for a tick: the scheduler holds its lock only around its own few fields."""
+        self._scheduler.note_event()
 
     def tick_once(self) -> None:
         """One scheduler pass. Never raises; every attempt is logged to the listener's stderr."""
         try:
-            with self._lock:
-                outcomes = self._scheduler.tick()
+            outcomes = self._scheduler.tick()
             for o in outcomes:
                 self._err.write(
                     f"{_stamp()} listener: wake {o.reason} {o.pane}: {'sent' if o.result.success else o.result.detail}\n"

@@ -57,7 +57,7 @@ def test_nothing_is_woken_at_start_or_on_a_quiet_tick():
 
 
 def test_an_event_wakes_every_pane_of_the_practice():
-    rig = Rig(panes=("tmux_3", "tmux_4"))
+    rig = Rig(panes=("tmux_3", "tmux_4"), pending=True)
     rig.sched.note_event()
     out = rig.sched.tick()
     assert sorted(rig.wakes) == ["tmux_3", "tmux_4"]
@@ -65,7 +65,7 @@ def test_an_event_wakes_every_pane_of_the_practice():
 
 
 def test_a_woken_pane_is_not_woken_again_for_the_same_event():
-    rig = Rig()
+    rig = Rig(pending=True)
     rig.sched.note_event()
     rig.sched.tick()
     rig.advance(60)
@@ -102,7 +102,7 @@ def test_a_successful_heartbeat_restarts_the_two_hours():
 
 
 def test_a_refused_wake_is_retried_after_the_retry_interval_and_not_before():
-    rig = Rig(idle=False, retry_s=300)
+    rig = Rig(idle=False, retry_s=300, pending=True)
     rig.sched.note_event()
     rig.sched.tick()
     assert rig.wakes == ["tmux_3"]
@@ -114,7 +114,7 @@ def test_a_refused_wake_is_retried_after_the_retry_interval_and_not_before():
 
 
 def test_a_pane_that_stays_busy_is_attempted_once_per_retry_interval():
-    rig = Rig(idle=False, retry_s=300)
+    rig = Rig(idle=False, retry_s=300, pending=True)
     rig.sched.note_event()
     for _ in range(10):
         rig.advance(60)
@@ -132,7 +132,7 @@ def test_a_stale_event_is_dropped_instead_of_waking_a_pane_that_appears_much_lat
 
 
 def test_a_pane_that_appears_while_an_event_is_pending_is_woken():
-    rig = Rig(panes=())
+    rig = Rig(panes=(), pending=True)
     rig.sched.note_event()
     rig.advance(60)
     rig.panes = ["tmux_9"]
@@ -150,23 +150,95 @@ def test_a_wake_that_raises_does_not_escape_the_tick():
     assert len(out) == 1 and out[0].result.success is False and "tmux exploded" in out[0].result.detail
 
 
-def test_an_inbox_check_that_raises_is_treated_as_something_pending():
-    """Fail toward waking: a broken check must not silence a practice that has mail."""
+def _raising_rig(on_check_error=None):
+    now = [0.0]
+    woke: list[str] = []
 
     def broken():
         raise OSError("cortex unreachable")
 
-    now = [0.0]
-    woke: list[str] = []
     sched = WakeScheduler(
         panes=lambda: ["tmux_3"],
         wake=lambda p: (woke.append(p), WakeResult(p, True, "sent", "tmux-send-keys"))[1],
         clock=lambda: now[0],
         has_pending=broken,
+        on_check_error=on_check_error,
     )
+    return sched, now, woke
+
+
+def test_a_failed_inbox_check_does_not_trigger_a_heartbeat_wake():
+    """Review finding (wake reviewer, traced): the hook that a wake runs polls the same inbox the same way, so when the check fails the woken
+    session sees a bare [wake] and learns nothing. Waking every pane every two hours on a broken check is empty turns that look like a
+    working service. The heartbeat stays silent on a failed check; the failure is reported instead (see the service test)."""
+    sched, now, woke = _raising_rig()
     now[0] = 2 * HOUR + 1
     sched.tick()
+    assert woke == []
+
+
+def test_a_failed_inbox_check_still_wakes_for_an_event():
+    """An event is itself evidence that mail arrived, so a check that cannot be read does not cancel it."""
+    sched, _now, woke = _raising_rig()
+    sched.note_event()
+    sched.tick()
     assert woke == ["tmux_3"]
+
+
+def test_a_failed_inbox_check_is_reported_to_the_caller():
+    errors: list[Exception] = []
+    sched, now, _ = _raising_rig(on_check_error=errors.append)
+    now[0] = 2 * HOUR + 1
+    sched.tick()
+    assert len(errors) == 1 and isinstance(errors[0], OSError)
+
+
+def test_a_retried_event_wake_rechecks_the_inbox_and_skips_mail_that_was_already_handled():
+    """Review finding (wake reviewer, traced): an event whose first wake was refused (the session was busy handling it) kept retrying, and once
+    the session went idle the wake landed on an empty inbox: a bare [wake] turn for mail the session had already answered."""
+    rig = Rig(idle=False, retry_s=300, pending=True)
+    rig.sched.note_event()
+    rig.sched.tick()
+    assert rig.wakes == ["tmux_3"], "first attempt: the pane is busy, so the wake is refused"
+    rig.idle, rig.pending = True, False  # the session finished and answered the mail
+    rig.advance(300)
+    assert rig.wakes == ["tmux_3"], "the retry must not wake a session for an inbox that is now empty"
+
+
+def test_a_retried_event_wake_still_lands_when_the_mail_is_still_there():
+    rig = Rig(idle=False, retry_s=300, pending=True)
+    rig.sched.note_event()
+    rig.sched.tick()
+    rig.idle = True
+    rig.advance(300)
+    assert rig.wakes == ["tmux_3", "tmux_3"]
+
+
+def test_note_event_does_not_wait_for_a_tick_that_is_inside_a_slow_wake():
+    """Review finding (wake reviewer, traced): note_event is called from the listener's event path; it must never queue behind the scheduler's
+    subprocess calls (a poll, a capture and a send per pane: tens of seconds)."""
+    import threading
+
+    entered, release = threading.Event(), threading.Event()
+
+    def slow_wake(pane):
+        entered.set()
+        release.wait(10)
+        return WakeResult(pane, True, "sent", "tmux-send-keys")
+
+    sched = WakeScheduler(panes=lambda: ["tmux_3"], wake=slow_wake, clock=lambda: 0.0, has_pending=lambda: True)
+    sched.note_event()
+    ticker = threading.Thread(target=sched.tick, daemon=True)
+    ticker.start()
+    assert entered.wait(5), "the tick must reach the slow wake"
+    done = threading.Event()
+    noter = threading.Thread(target=lambda: (sched.note_event(), done.set()), daemon=True)
+    noter.start()
+    try:
+        assert done.wait(1.0), "note_event blocked behind the tick's slow wake"
+    finally:
+        release.set()
+        ticker.join(5)
 
 
 @pytest.mark.parametrize("kw", [{"heartbeat_s": 0}, {"retry_s": 0}, {"event_ttl_s": 0}])
