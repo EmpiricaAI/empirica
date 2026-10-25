@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -1702,6 +1703,16 @@ async def patch_artifact(
                 status_code=422,
                 detail=(f"No whitelisted fields in body. Allowed for {artifact_type}: {sorted(whitelist)}"),
             )
+        # The same value checks `update-artifacts` makes: the whitelist says which columns may change, not what is legal in them.
+        from empirica.data.artifact_fields import sibling_updates, value_problems
+
+        problems = value_problems(artifact_type, updates)
+        if problems:
+            raise HTTPException(
+                status_code=422,
+                detail="Refused, nothing changed: " + "; ".join(f"{field} {why}" for field, why in problems.items()),
+            )
+        updates = {**updates, **sibling_updates(artifact_type, updates, time.time())}
 
         set_clause = ", ".join(f"{k} = ?" for k in updates)
         params = list(updates.values()) + [artifact_id]

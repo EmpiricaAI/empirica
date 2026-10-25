@@ -302,3 +302,72 @@ async def test_provenance_is_correctable_on_a_foreign_project(tmp_path, monkeypa
 
     assert out["ok"] is True
     assert _col(db_file, "SELECT epistemic_source FROM project_findings WHERE id='prov-1'") == "mixed"
+
+
+# ── PATCH /artifacts/{id} holds the same contract as `update-artifacts` (sweep 2, T2) ─────────────
+
+
+def _seed_goal(db_file, status="in_progress"):
+    conn = sqlite3.connect(db_file)
+    try:
+        conn.execute(
+            "INSERT INTO goals (id, session_id, objective, scope, created_timestamp, goal_data, status, project_id) "
+            "VALUES ('g-1','s','an objective','{}',0.0,'{}',?, 'p')",
+            (status,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+async def _patch(artifact_id, body):
+    from empirica.api.routes.artifacts import patch_artifact
+
+    return await patch_artifact(artifact_id, body)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "body,column",
+    [
+        ({"visibility": "sharred"}, "visibility"),
+        ({"impact": 7.5}, "impact"),
+        ({"epistemic_source": "bogus"}, "epistemic_source"),
+    ],
+)
+async def test_patch_refuses_an_illegal_value_with_422_and_changes_nothing(api_db, body, column):
+    """`update-artifacts` refused these; PATCH stored them under ok:true. Two consumers of one contract had drifted."""
+    from fastapi import HTTPException
+
+    before = _col(api_db, f"SELECT {column} FROM project_findings WHERE id='f-1'")
+    with pytest.raises(HTTPException) as refused:
+        await _patch("f-1", body)
+    assert refused.value.status_code == 422 and column in str(refused.value.detail)
+    assert _col(api_db, f"SELECT {column} FROM project_findings WHERE id='f-1'") == before
+
+
+@pytest.mark.asyncio
+async def test_patch_still_stores_a_legal_value(api_db):
+    """Positive control: the refusal above is the validation, not a PATCH that rejects everything."""
+    out = await _patch("f-1", {"impact": 0.9, "epistemic_source": "search"})
+    assert out["ok"] is True
+    assert _col(api_db, "SELECT impact FROM project_findings WHERE id='f-1'") == 0.9
+
+
+@pytest.mark.asyncio
+async def test_patch_refuses_an_unknown_goal_status(api_db):
+    from fastapi import HTTPException
+
+    _seed_goal(api_db)
+    with pytest.raises(HTTPException) as refused:
+        await _patch("g-1", {"status": "banana"})
+    assert refused.value.status_code == 422
+    assert _col(api_db, "SELECT status FROM goals WHERE id='g-1'") == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_patching_a_goal_to_completed_moves_its_completion_columns(api_db):
+    _seed_goal(api_db)
+    await _patch("g-1", {"status": "completed"})
+    assert _col(api_db, "SELECT is_completed FROM goals WHERE id='g-1'") == 1
+    assert _col(api_db, "SELECT completed_timestamp FROM goals WHERE id='g-1'") is not None
