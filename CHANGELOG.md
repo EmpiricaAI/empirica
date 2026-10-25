@@ -81,6 +81,15 @@ Rename this heading to the release version and date at the cut: `scripts/release
 
 ### Fixed
 
+- **Guidance that still pointed at the old constitution** (found by the pre-release docs sweep): the no-active-transaction nudge that fires on
+  every such prompt told the model to load the constitution "before PREFLIGHT", the `onboard` and session-start text said it routes
+  `--project-id` and compaction, `authoring-guidance` said "this constitution governs itself", two code comments cited a removed
+  "Section XIII", and the README said 21 skills (25) and ARCHITECTURE.md 46 documents (48). The constitution is a 360-word index.
+- **Wake service, found by the pre-release sweep:** a retried event wake no longer fires into an inbox the session already answered; a
+  failed inbox check is logged and no longer wakes every pane every two hours; `note_event` never waits behind a tick; the surfaced-id list
+  keeps its order. Also: the `get_tty_key` cache lives 60 s (a long-lived child no longer keeps a hung-up terminal's key), one bad
+  practitioner-heartbeat record no longer silences the sessions after it, `mailbox reply` does not count a 2xx as this seat's ack when
+  cortex's `target_acks` omits the seat, and `provision-practice` refuses a `--launch`/`--resume` that a re-run would have silently dropped.
 - **`setuptools` floor raised to 84.1.0** (build requirement and runtime dependency) for GHSA-xmj3-9gf7-h52w. A clean install already resolved
   84.2.1 and audits clean; the floor stops a constrained environment from resolving the vulnerable 83.0.0.
 - **A test that wrote findings into the checkout's real git notes** now runs from a directory that is not a repository.

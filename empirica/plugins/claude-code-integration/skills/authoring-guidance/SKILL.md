@@ -35,7 +35,7 @@ Two corollaries you will need before you reach for any of the three:
   its first drift. Name the command that prints the current answer instead.
 
 The full set, with reasoning, is **shared lesson `e3b487c997177444`**
-(`cross_org`) — the single source this constitution and cortex's how-to-cortex
+(`cross_org`) — the single source this skill and cortex's how-to-cortex
 skill both cite. Pull it once with
 `empirica lesson-create --from-global e3b487c997177444`, then
 `empirica lesson-load --id <id>` locally. Do not copy it here: two hand-copies of
@@ -53,7 +53,7 @@ trigger from a tool at the moment it matters: the POSTFLIGHT response now carrie
 
 - The Sentinel monitors using the same 13 vectors it monitors you with.
 - Goals about goal-management are themselves goals.
-- This constitution governs itself: if a section is wrong, fix it through the same
+- This guidance governs itself: if a section is wrong, fix it through the same
   find–log–decide cycle as any other work.
 - Auditing skills is itself skill usage, and gets the same
   PREFLIGHT/CHECK/POSTFLIGHT treatment.

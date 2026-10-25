@@ -50,7 +50,7 @@ A normal message system carries text plus envelope metadata (sender, timestamp, 
 | **Calibration** | Sender's vectors at send time (know, uncertainty, context, etc.) | Receiver knows how much epistemic weight to give the message |
 | **Workflow arc** | `parent_id`, `thread_root_id` | Receiver sees the conversation arc, not a context-free ping |
 | **Trust gate** | `action_category` (REFLEX / OPERATIONAL / TACTICAL / STRATEGIC / IRREVERSIBLE) | Higher categories route through an ECO trust gate before the receiver wakes |
-| **Coordination state** | When attached to ongoing work: `open` / `in_progress` / `blocked` / `closed` + role tags on participants | The mesh knows who's waiting on whom; can wake them on state changes |
+| **Targets and acks** | On a multi-target proposal: `target_acks` and `pending_targets` | The sender sees which practices have answered and which still owe |
 
 Two consequences fall out of this:
 

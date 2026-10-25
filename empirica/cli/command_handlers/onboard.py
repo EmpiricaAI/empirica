@@ -208,10 +208,11 @@ Use the /epistemic-transaction skill to plan multi-goal work:
    4. Generate transaction plan (estimated vectors per goal)
    5. Execute with PREFLIGHT/CHECK/POSTFLIGHT per transaction
 
-Use the /empirica-constitution skill for routing decisions:
-   - Which mechanism for this situation?
-   - Cross-project writing (--project-id <name>)
-   - When to checkpoint, when to compact
+Use /empirica-constitution as the index to the deeper skills:
+   - /artifact-graph      logging, typing and retracting what you learn
+   - /practice-model      cross-project writing (--project-id <name>), remote work
+   - /authoring-guidance  writing or editing a prompt, skill or hook
+   (When to checkpoint and compact is in the system prompt's COMPACTION section.)
 
 Between transactions: close completed goals, resolve unknowns,
 verify or falsify assumptions. Each goal = one transaction.

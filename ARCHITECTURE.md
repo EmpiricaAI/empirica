@@ -2,7 +2,7 @@
 
 > **Scope.** A top-level orientation: what the pieces are, why they are separate,
 > and where the real detail lives. It deliberately reaches across boundaries that
-> `docs/architecture/` covers one at a time — that folder has 46 documents, each
+> `docs/architecture/` covers one at a time — that folder has 48 documents, each
 > good on its subject and none of them a map. This is the map.
 >
 > Numbers here are measured against this repo, not estimated. They will drift;
@@ -203,7 +203,7 @@ An architecture document that lists no problems is marketing.
 | You want | Read |
 |---|---|
 | The deeper rules, by the moment you need them | `/empirica-constitution` (the index skill) |
-| Every architecture topic in depth | [`docs/architecture/`](docs/architecture/) — 46 documents |
+| Every architecture topic in depth | [`docs/architecture/`](docs/architecture/) — 48 documents |
 | When a practice wakes, and why | [`docs/architecture/TRIGGER_MODEL.md`](docs/architecture/TRIGGER_MODEL.md) |
 | Messaging: which layer, and why both | [`docs/architecture/MESSAGING_LAYERS.md`](docs/architecture/MESSAGING_LAYERS.md) |
 | Storage internals | [`docs/architecture/CANONICAL_STORAGE.md`](docs/architecture/CANONICAL_STORAGE.md) |

@@ -70,7 +70,7 @@ empirica-core ships a helper (`idempotency_key(action_type, target, params)`) so
 
 ## 5. Applied-keys ledger (cortex's responsibility)
 
-W1a defines the **contract**; cortex implements the **ledger** (executor-side, where the SER + proposal state already live):
+W1a defines the **contract**; cortex implements the **ledger** (executor-side, where the proposal state already lives; the interim SER store was retired 2026-10-24):
 
 ```
 ledger[idempotency_key] = { receipt, first_applied_at, proposal_id }
@@ -81,7 +81,7 @@ ledger[idempotency_key] = { receipt, first_applied_at, proposal_id }
 
 **Open design decisions for cortex (flagged, not prescribed):**
 - **Scope / TTL of a key.** A legitimately-*intended* repeat of the same action after a long gap should not be silently swallowed. Options: (i) thread-scoped (key unique within `thread_root_id`), (ii) TTL'd (e.g. 24h), (iii) explicit `payload.idempotency_window`. Recommend **thread-scoped by default** (most races are within a coordination thread) with an opt-in TTL.
-- **Where the ledger lives** relative to the SER store (same store, keyed table).
+- **Where the ledger lives** relative to the proposal store (same store, keyed table).
 
 ---
 

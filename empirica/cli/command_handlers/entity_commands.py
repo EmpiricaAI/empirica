@@ -1,7 +1,7 @@
 """
 Entity Commands — CLI surface for workspace.db entity_registry.
 
-Backs the Practice Model concept (see /empirica-constitution Section XIII):
+Backs the Practice Model concept (see /practice-model):
 entities (project, contact, organization, engagement, user) and their
 membership edges are queryable without dropping into raw SQL.
 

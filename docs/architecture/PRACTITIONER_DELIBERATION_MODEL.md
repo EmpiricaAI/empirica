@@ -67,7 +67,7 @@ A deliberation is the set of attributed practitioner reads on one engagement. Se
 
 Positions autonomy anchored (design, not built):
 
-- **Trigger:** arbitration is CHECK at the deliberation layer, at the praxic boundary: an ECO-gated proposal graduates, a SER reaches a decision state, or a fold-back commits. Never on read convergence, because agreement is not authority.
+- **Trigger:** arbitration is CHECK at the deliberation layer, at the praxic boundary: an ECO-gated proposal graduates, a multi-target proposal gets its last ack, or a fold-back commits. Never on read convergence, because agreement is not authority.
 - **Fold:** weight at query time by default, so the raw trajectory points stay the source of truth and a corrected shrinkage model can recompute the fold. Mutating the profile is a gated promotion of a repeatedly confirmed direction, never a side effect.
 - **The arbiter obeys the floor it enforces:** fail closed to the flat practice prior and escalate on no arbiter, a tie, or a sub-floor sample; a practitioner cannot arbitrate in favor of its own read; the feasibility vector (`do`) can veto, not only down-weight.
 - **Parity:** arbitration attaches its basis as a recorded field (`arbitration_basis`, parallel to `autonomy_verdict_basis`) and must not change the underlying gate's outcome semantics.
