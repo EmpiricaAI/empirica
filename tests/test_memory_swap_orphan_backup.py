@@ -121,3 +121,26 @@ def test_after_an_incomplete_backup_the_next_swap_succeeds_instead_of_being_refu
     assert restore_memory(harness)["ok"] is True
     memory = _claude_memory_dir(harness)
     assert (memory / "a.md").read_text() == "A" and (memory / "b.md").read_text() == "B"
+
+
+def test_an_incomplete_backup_never_deletes_an_earlier_backups_originals(fake_home, tmp_path, monkeypatch):
+    """The replacement path skips the orphan guard (a manifest exists). If the old swap's restore cannot remove its backup, that backup still
+    holds the project's ORIGINALS; a later incomplete backup must discard only the copies it made, not the directory."""
+    from empirica.utils import memory_swap as ms
+
+    harness = _project(tmp_path, "harness", {"a.md": "ORIGINAL A", "b.md": "ORIGINAL B"})
+    first = _project(tmp_path, "first", {"MEMORY.md": "FIRST"})
+    second = _project(tmp_path, "second", {"MEMORY.md": "SECOND"})
+    assert swap_memory(harness, first)["action"] == "swapped"
+    backup = _claude_memory_dir(harness) / BACKUP_SUBDIR
+    assert {p.name for p in backup.iterdir()} >= {"a.md", "b.md"}
+
+    # the old swap's restore fails to take its backup away (the rmtree it does can fail): nothing is restored, the backup stays
+    monkeypatch.setattr(ms, "restore_memory", lambda *a, **k: {"ok": True, "action": "restored"})
+    _flaky_first_backup(monkeypatch, "MEMORY.md")
+    result = swap_memory(harness, second)
+
+    assert result["action"] == "backup_incomplete", result
+    assert (backup / "a.md").read_text() == "ORIGINAL A" and (backup / "b.md").read_text() == "ORIGINAL B", (
+        "the originals in the earlier backup were deleted"
+    )
