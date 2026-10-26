@@ -45,13 +45,18 @@ items:
   - id: bootstrap-whole-picture
     title: Bootstrap shows the whole picture
     prediction: project-bootstrap lists open assumptions, includes the links between artifacts, and says when it capped findings, decisions, dead ends or mistakes.
-    confidence: 0.75
+    confidence: 0.65
     evidence: measured
     basis: Measured on this project today, it shows 10 of 3,173 findings, 10 of 758 decisions, 5 of 835 dead ends and 5 of 447 mistakes with no notice (goals and unknowns do get one), none of the 115 open assumptions, and only project-level relations, not the links between artifacts.
     falsifier: A bootstrap run on a graph larger than its caps that omits open assumptions or caps findings without saying so.
-    horizon: "1.14.17"
+    horizon: "1.14.20"
     steered: true
     status: predicted
+    revisions:
+      - "on": "2026-10-26"
+        from: 0.75
+        to: 0.65
+        reason: Not delivered by its 1.14.17 horizon, because project-bootstrap was not changed in 1.14.18, which went to the pre-publish sweep, the test and code-quality evidence contracts, and the suite speed-up. The horizon moves to 1.14.20 and the confidence drops, because a prediction that misses its horizon was over-confident about when.
 
   - id: budget-save-visible
     title: Session start reports a skipped budget save
@@ -72,24 +77,34 @@ items:
   - id: listener-memory
     title: Listener memory stays flat
     prediction: Within three releases a listener's memory stops growing with uptime, and a dead notification stream is restarted.
-    confidence: 0.65
+    confidence: 0.55
     evidence: reported
     basis: Operators of long-running listeners report about 30 MB an hour in one case and over 1 GB at 29 hours in another, with a stream process that was not respawned after a drop. We have not yet reproduced it on a fresh unit.
     falsifier: On a release that claims the fix, a listener's memory grows by more than 50 MB between hour 4 and hour 24 of uptime.
-    horizon: "1.14.17"
+    horizon: "1.14.20"
     steered: true
     status: predicted
+    revisions:
+      - "on": "2026-10-26"
+        from: 0.65
+        to: 0.55
+        reason: Not delivered by its 1.14.17 horizon, because the listener code was not changed in 1.14.18 (the loops only gained terminal-401 handling), so nothing could have moved its memory growth. The horizon moves to 1.14.20 and the confidence drops, because a prediction that misses its horizon was over-confident about when.
 
   - id: cockpit-rejoin
     title: Restarted cockpit panes rejoin the mesh unprompted
     prediction: After a cockpit restart, resumed sessions re-arm their listener and catch up on mail without anyone typing, using the wake and inbox poll added in 1.14.14.
-    confidence: 0.55
+    confidence: 0.45
     evidence: reported
     basis: Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. Read in the code, cockpit refresh does not yet call the wake or the inbox poll.
     falsifier: After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later.
-    horizon: "1.14.17"
+    horizon: "1.14.20"
     steered: true
     status: predicted
+    revisions:
+      - "on": "2026-10-26"
+        from: 0.55
+        to: 0.45
+        reason: Not delivered by its 1.14.17 horizon, because cockpit refresh still does not call the wake or the inbox poll; this range touched cockpit code only for 401 handling and a cron example. The horizon moves to 1.14.20 and the confidence drops, because a prediction that misses its horizon was over-confident about when.
 
   - id: wake-default
     title: Wake service on by default

@@ -437,19 +437,20 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.14.17
+## What's New in 1.14.18
 
-- **CHECK no longer reports `1 - uncertainty` as a confidence.** The old `confidence` equalled `1 - uncertainty` in 1,933 of 1,933 recorded rows, so it added nothing to the uncertainty vector. `check-submit` stops writing it, and reports `claim_confidence` instead.
-- **`claim_confidence` carries something the vectors do not: how well grounded the claims are.** It is the product of the declared claims' hold rates by grounding (`read` 97.4%, `ran` 95.5%, `retrieved` 82.4%, `assumed` 70.0%, over 1,768 claims). It takes no uncertainty input, so it cannot be derived from it: the same claims give the same figure whether uncertainty was 0.2 or 0.6.
-- **It labels what it is.** The figure is self-graded (the verdicts are the practitioner's own), assumes the claims are independent, excludes claims never adjudicated, and says per grounding whether its rate is the prior, a blend or the practice's own, with the prior's weight. It is null when no claim was declared, never a neutral number.
-- **`empirica check --confidence 0.75` now does something.** The flag was documented and registered, and was read nowhere: accepted and discarded. It is read now, and a value outside 0 to 1 (or `nan`) is refused as bad input.
+- **Test evidence exists, for any language.** A `pytest11` plugin now writes `.empirica/test_report.json`; nothing wrote the file the collector read, so no practice ever had test evidence. The collector also reads JUnit XML, ignores a report older than the transaction, and says why a source is empty (`source_notes`). A `partial:` scope no longer passes `tests_pass`.
+- **Code quality is defined by the practice.** A practice's own tooling writes `.empirica/code_quality.json`; core reads it under the same freshness rule and runs nothing. Go, Rust and Java changes are graded as code, not prose.
+- **POSTFLIGHT's signals fire.** Three signal generators read keys no collector wrote and could never appear. They now report test results (with their scope), repeated investigation, and CHECKs held at `investigate`.
+- **An unassessed vector no longer crashes CHECK or POSTFLIGHT.** A null `context` or `uncertainty` raised `TypeError` across the gate, the detector, the drift calculation and the POSTFLIGHT delta loop. The gate now holds it at `investigate`, and no override can rescue it.
+- **The Sentinel closes a fail-open class, and a terminal 401 is remembered.** Abbreviated, attached and quoted forms of program-running flags (`man --co`, `man -Pcat`, `git diff "--ext-diff"`) now gate, and the cortex loops stop re-presenting a rejected credential.
 
-All 9 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 21 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.14.17** — CHECK no longer reports `1 - uncertainty` as a confidence. The old `confidence` equalled `1 - uncertainty` in 1,933 of 1,933 recorded rows, so it added not…
 - **1.14.16** — A vector nobody assessed is stored as "not assessed", not as 0.5. `store_vectors` filled every missing vector with 0.5, and every reader then took the 0.5…
-- **1.14.15** — A code-review sweep of the data layer, hooks and mailbox is fixed. Each defect was reproduced on the current code before the fix and has a test that failed…
 
 ## What's Coming
 
@@ -457,10 +458,10 @@ Empirica's own forecast, made in 1.14.14 from its open work, the demand it has m
 
 | Direction | Confidence | Why we expect it | What would change our mind |
 |---|---|---|---|
-| **Bootstrap shows the whole picture**: project-bootstrap lists open assumptions, includes the links between artifacts, and says when it capped findings, decisions, dead ends or mistakes. | 75% (measured, planned) | Measured on this project today, it shows 10 of 3,173 findings, 10 of 758 decisions, 5 of 835 dead ends and 5 of 447 mistakes with no notice (goals and unknowns do get one), none of the 115 open assumptions, and only project-level relations, not the links between artifacts. | A bootstrap run on a graph larger than its caps that omits open assumptions or caps findings without saying so. |
 | **Session start reports a skipped budget save**: When session start cannot save the context-budget state, the banner says so instead of only recording it. | 70% (reviewed, planned) | Read in the session-init hook, the skip reason is recorded in the budget summary but the banner prints only the budget line. The deploy-gap check already skips outside Claude Code, so that half of the gap is closed. | A session start with no resolvable sessions.db prints a banner that does not mention the unsaved budget state. |
-| **Listener memory stays flat**: Within three releases a listener's memory stops growing with uptime, and a dead notification stream is restarted. | 65% (reported, planned) | Operators of long-running listeners report about 30 MB an hour in one case and over 1 GB at 29 hours in another, with a stream process that was not respawned after a drop. We have not yet reproduced it on a fresh unit. | On a release that claims the fix, a listener's memory grows by more than 50 MB between hour 4 and hour 24 of uptime. |
-| **Restarted cockpit panes rejoin the mesh unprompted**: After a cockpit restart, resumed sessions re-arm their listener and catch up on mail without anyone typing, using the wake and inbox poll added in 1.14.14. | 55% (reported, planned) | Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. Read in the code, cockpit refresh does not yet call the wake or the inbox poll. | After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later. |
+| **Bootstrap shows the whole picture**: project-bootstrap lists open assumptions, includes the links between artifacts, and says when it capped findings, decisions, dead ends or mistakes. | 65% (measured, planned) | Measured on this project today, it shows 10 of 3,173 findings, 10 of 758 decisions, 5 of 835 dead ends and 5 of 447 mistakes with no notice (goals and unknowns do get one), none of the 115 open assumptions, and only project-level relations, not the links between artifacts. | A bootstrap run on a graph larger than its caps that omits open assumptions or caps findings without saying so. |
+| **Listener memory stays flat**: Within three releases a listener's memory stops growing with uptime, and a dead notification stream is restarted. | 55% (reported, planned) | Operators of long-running listeners report about 30 MB an hour in one case and over 1 GB at 29 hours in another, with a stream process that was not respawned after a drop. We have not yet reproduced it on a fresh unit. | On a release that claims the fix, a listener's memory grows by more than 50 MB between hour 4 and hour 24 of uptime. |
+| **Restarted cockpit panes rejoin the mesh unprompted**: After a cockpit restart, resumed sessions re-arm their listener and catch up on mail without anyone typing, using the wake and inbox poll added in 1.14.14. | 45% (reported, planned) | Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. Read in the code, cockpit refresh does not yet call the wake or the inbox poll. | After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later. |
 | **Wake service on by default**: The wake service stops being opt-in once a few weeks of live use show no wake into a busy pane. | 35% (measured) | It passed a live trial on two seats and refuses busy panes, drafts and dialogs. Open edge cases are an image-only prompt that can read as blank and a spinner scrolled out of view that reads as idle. | A report of a wake that interrupted a running turn or submitted a half-typed draft. |
 
 Forecast record: 1 shipped (0 of them not on the plan when predicted), 0 dropped, 0 retracted, 0 superseded so far.

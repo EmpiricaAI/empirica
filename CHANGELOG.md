@@ -5,6 +5,46 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.18] - 2026-10-26
+
+### Highlights
+
+- **Test evidence exists, for any language.** A `pytest11` plugin now writes `.empirica/test_report.json`; nothing wrote the file the collector read, so no practice ever had test evidence. The collector also reads JUnit XML, ignores a report older than the transaction, and says why a source is empty (`source_notes`). A `partial:` scope no longer passes `tests_pass`.
+- **Code quality is defined by the practice.** A practice's own tooling writes `.empirica/code_quality.json`; core reads it under the same freshness rule and runs nothing. Go, Rust and Java changes are graded as code, not prose.
+- **POSTFLIGHT's signals fire.** Three signal generators read keys no collector wrote and could never appear. They now report test results (with their scope), repeated investigation, and CHECKs held at `investigate`.
+- **An unassessed vector no longer crashes CHECK or POSTFLIGHT.** A null `context` or `uncertainty` raised `TypeError` across the gate, the detector, the drift calculation and the POSTFLIGHT delta loop. The gate now holds it at `investigate`, and no override can rescue it.
+- **The Sentinel closes a fail-open class, and a terminal 401 is remembered.** Abbreviated, attached and quoted forms of program-running flags (`man --co`, `man -Pcat`, `git diff "--ext-diff"`) now gate, and the cortex loops stop re-presenting a rejected credential.
+
+### Changed
+
+- **Test evidence exists, for any language.** The collector used to read a pytest-shaped file that nothing wrote, so no practice's `verification_evidence` was ever sourced from tests, and the absence was silent. A `pytest11` plugin now writes `.empirica/test_report.json` when a session finishes (only where the rootdir holds `.empirica/`; it never fails a run and writes nothing for a session that ran no test). The collector reads that runner-agnostic file first, then the legacy pytest names, then JUnit XML at the Maven, Gradle, nextest and jest-junit paths. A report older than the transaction is ignored, and `source_notes` says why a source is empty (`no_test_report`, `stale_test_report`, `empty_test_report`).
+- **A report says what it covers.** `test_report.json` takes an optional `scope`; the plugin writes `full run` or `partial: <selection>`, and a `partial:` run no longer satisfies a `tests_pass` or `quality_gate` goal criterion (it skips with the did-not-apply reason). A JUnit read says `scope unknown`, or `partial: first 200 of more than 200 junit files` when it truncated.
+- **Non-Python code reaches the collector.** Auto profile detection counted only `.py` as code, so a Go, Rust or Java change set was graded as prose and the test collector never ran.
+- **`postflight_confidence` and the snapshot confidence are retired** (they equalled `1 - uncertainty` on 3,244 of 3,244 stored rows); `internal_consistency` is computed directly and states its basis (`good`/`moderate`/`poor`/`not_assessed`).
+- **The Sentinel closes a fail-open class.** Flags that name a program to run (`git --ext-diff/--textconv`, `man -C/--config-file/-P/-H`) gate; so do their unique abbreviations (`man --co`, `git blame --textco`), attached or clustered short forms (`man -Pcat`, `man -aC file`) and quoted forms (`man "-P"`, `git diff "--ext-diff"`, `find . "-delete"`). `tmux` is limited to read verbs. The deployed hook changes only on `empirica setup-claude-code`.
+- **A terminal 401 is remembered.** `credential_health.mark` had no caller, so cortex's 401 contract was one-sided. The heartbeats, the liveness probe and auto-accept now record a terminal verdict; `cortex_bearer` skips a key or OAuth token recorded dead; `empirica doctor` names it by fingerprint. Marks are written atomically; `WWW-Authenticate` is matched in any case.
+- **The test suite is faster without losing a test.** Local wall clock 388s to 144s, summed test time 823s to 447s (12,212 to 12,344 passing). `test_command_exists` spawned the CLI 185 times and asserted something that passes for a command that does not exist; it now checks the parser in process.
+- **`resolved_timestamp` is epoch seconds everywhere** (migration 076 repairs TEXT rows that sorted above every real time and saturated the triage evidence); a rebuild from git notes now keeps the stamped resolution time instead of the rebuild clock, and `profile_import` restores invalidated dead ends and mistakes.
+- **Bulk resolve (`POST /artifacts/resolve`) handles findings, dead ends and mistakes through the same code as the single route**; an item on a project database that predates the lifecycle columns is `failed` with a migration `hint` (it was mislabelled `skipped`), and an unexpected error on one item is rolled back and reported as `failed` instead of a 500.
+- **`unknown-resolve` and `finding-resolve` stamp their git notes**, and so does the bulk REST route.
+- **Migration 077 drops the orphan `codebase_facts` and `codebase_constraints` tables** (empty on every database; a table that holds rows is kept). The API, the collector evidence and the `claude_task_id` exact-match strategy that used them are removed.
+- **A deploy from a linked git worktree is stamped with the practice it belongs to** (`ai_id_source: cwd-worktree`).
+- **A nightly workflow** runs the integration set and the clean-environment suite.
+
+### Fixed
+
+- **A memory swap whose backup could not be completed no longer becomes a permanent orphan**, and the cleanup discards only the copies it made.
+- Three silent failures say so: a failed inbox poll in the session loader, a memory swap over an orphan backup, a cortex feedback failure.
+- `fingerprint` and `note_http_error` ignore a credential that is not text.
+
+### Known, not changed
+
+- **`tests/` named explicitly counts as `partial:`** to the plugin, so a full-suite run written as `pytest tests/` makes a `tests_pass` criterion skip; run `pytest` with no path or declare a `scope` to avoid it.
+- **JUnit and neutral reports still show as `source=pytest`** in evidence listings; the runner is in `raw_value`.
+- **The pytest plugin is active on any editable install after `pip install -e . --no-deps`** (the package's `egg-info` carries the entry point); on a pip or pipx install it arrives with this release.
+- Open as goals: a partially assessed turtle-stack layer scores as complete; the cortex loops log "no cortex credentials" for a suppressed one and a wrong terminal mark never expires; the CI Python 3.11 job kept 549s while 3.13 fell to 341s (one sample).
+- A semgrep OWASP run lists 31 findings, all md5/sha1 hash rules, none added by this range; each use was not audited.
+
 ## [1.14.17] - 2026-10-25
 
 ### Highlights
