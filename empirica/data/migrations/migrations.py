@@ -1243,6 +1243,13 @@ def migration_033_codebase_model(cursor: sqlite3.Cursor):
 
     # Tables are created via codebase_model_schema.py SCHEMAS (idempotent).
     # This migration adds FTS5 virtual table for fact search.
+    #
+    # codebase_facts is no longer created by the schema (migration 077 drops it, David's dead-code ruling 2026-10-26), so on a fresh install
+    # there is no table to index and a trigger on it would fail. An upgrade that still has the table gets the index here, and 077 then
+    # drops the table (and the index) if it is empty.
+    if not cursor.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'codebase_facts'").fetchone():
+        logger.info("Migration 033 skipped: no codebase_facts table (retired by migration 077)")
+        return
     cursor.execute("""
         CREATE VIRTUAL TABLE IF NOT EXISTS codebase_facts_fts USING fts5(
             fact_text,
@@ -1611,6 +1618,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "076_normalize_text_resolved_timestamp",
         "Turn TEXT resolved_timestamp values into epoch seconds on project_unknowns, project_findings and assumptions. SQLite orders every TEXT value above every REAL, so a row resolved through resolve-artifacts (which wrote datetime('now')) satisfied `resolved_timestamp >= scope_start` in every window: 39 unknowns on the empirica practice counted as resolved in each transaction and saturated the triage do/know evidence. The writer now stamps epoch seconds. UTC strings are converted with strftime('%s'); numeric text is cast; anything unreadable is left as it was. Idempotent.",
         lambda cursor: migration_076_normalize_text_resolved_timestamp(cursor),
+    ),
+    (
+        "077_drop_empty_codebase_fact_tables",
+        "Drop codebase_facts (with its FTS5 index, shadow tables and triggers from migration 033) and codebase_constraints when they are empty. Nothing in production ever wrote either: both held 0 rows on the empirica practice and lost their last readers in 456e64a94 (David's dead-code ruling, 2026-10-26). Judged per table: one that holds rows is kept and logged, so a cleanup cannot lose data. Idempotent; absent tables are skipped.",
+        lambda cursor: migration_077_drop_empty_codebase_fact_tables(cursor),
     ),
 ]
 
@@ -3035,6 +3047,37 @@ def migration_066_normalize_text_created_timestamp(cursor: sqlite3.Cursor):
         except sqlite3.OperationalError:
             continue  # table absent on a partial/older DB — defensive skip
     logger.info(f"✅ Migration 066 complete: normalized {fixed} TEXT created_timestamp value(s) to REAL")
+
+
+def migration_077_drop_empty_codebase_fact_tables(cursor: sqlite3.Cursor):
+    """Drop `codebase_facts` and `codebase_constraints` while they are empty, together with what hangs on them.
+
+    Nothing wrote to either table, so on every database they hold 0 rows and cost two tables, eight indexes, an FTS5 index (five tables)
+    and three triggers. The check is per table and by row count, never by assumption: a database that does hold rows keeps the table,
+    its index and its triggers, and logs a warning. Idempotent; a table that is absent is skipped.
+    """
+    import logging
+
+    log = logging.getLogger(__name__)
+
+    def exists(name: str) -> bool:
+        return bool(cursor.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)).fetchone())
+
+    dropped = []
+    for table in ("codebase_facts", "codebase_constraints"):
+        if not exists(table):
+            continue
+        rows = cursor.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # fixed names above, never user input
+        if rows:
+            log.warning(f"Migration 077 kept {table}: it holds {rows} row(s)")
+            continue
+        if table == "codebase_facts":
+            for trigger in ("codebase_facts_ai", "codebase_facts_ad", "codebase_facts_au"):
+                cursor.execute(f"DROP TRIGGER IF EXISTS {trigger}")
+            cursor.execute("DROP TABLE IF EXISTS codebase_facts_fts")  # an FTS5 table takes its shadow tables with it
+        cursor.execute(f"DROP TABLE {table}")  # its indexes go with it
+        dropped.append(table)
+    log.info(f"✅ Migration 077 complete: dropped {', '.join(dropped) if dropped else 'nothing'}")
 
 
 _RESOLVED_TIMESTAMP_TABLES = ("project_unknowns", "project_findings", "assumptions")

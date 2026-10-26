@@ -185,7 +185,7 @@ projects (1) ──> (N) auto_captured_issues
 
 ## Table Inventory (generated)
 
-**68 tables** (+ 4 FTS5 shadow tables), **134 indexes**, **8 triggers** — the schema a fresh install materialises: `ALL_SCHEMAS` plus every migration in `empirica/data/migrations/migrations.py`, applied in order.
+**65 tables** (+ 0 FTS5 shadow tables), **126 indexes**, **5 triggers** — the schema a fresh install materialises: `ALL_SCHEMAS` plus every migration in `empirica/data/migrations/migrations.py`, applied in order.
 
 Regenerate with `python3 scripts/gen_schema_doc.py`; CI fails when this block is stale. A live database can hold tables outside this inventory (created lazily by code, or left behind by removed schemas): `python3 scripts/gen_schema_doc.py --diff-db <sessions.db>` lists them.
 
@@ -397,22 +397,6 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `created_by_ai_id` TEXT
 - *indexes:* `idx_client_projects_client`, `idx_client_projects_project`, `idx_client_projects_status`
 
-#### `codebase_constraints`
-**12 columns**
-- `id` TEXT PRIMARY KEY
-- `constraint_type` TEXT NOT NULL
-- `rule_name` TEXT NOT NULL
-- `file_pattern` TEXT
-- `description` TEXT
-- `violation_count` INTEGER DEFAULT 0
-- `last_violated` REAL
-- `examples` TEXT
-- `severity` TEXT DEFAULT 'warning'
-- `project_id` TEXT (FK: projects.id)
-- `session_id` TEXT (FK: sessions.session_id)
-- `created_at` REAL NOT NULL
-- *indexes:* `idx_codebase_constraints_project`, `idx_codebase_constraints_rule`, `idx_codebase_constraints_type`, `idx_codebase_constraints_violations`
-
 #### `codebase_entities`
 **10 columns**
 - `id` TEXT PRIMARY KEY
@@ -426,25 +410,6 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `session_id` TEXT (FK: sessions.session_id)
 - `metadata` TEXT
 - *indexes:* `idx_codebase_entities_file`, `idx_codebase_entities_name`, `idx_codebase_entities_project`, `idx_codebase_entities_type`
-
-#### `codebase_facts`
-**11 columns**
-- `id` TEXT PRIMARY KEY
-- `fact_text` TEXT NOT NULL
-- `valid_at` REAL NOT NULL
-- `invalid_at` REAL
-- `status` TEXT NOT NULL DEFAULT 'canonical'
-- `entity_ids` TEXT
-- `evidence_type` TEXT
-- `evidence_path` TEXT
-- `confidence` REAL DEFAULT 1.0
-- `project_id` TEXT (FK: projects.id)
-- `session_id` TEXT (FK: sessions.session_id)
-- *indexes:* `idx_codebase_facts_project`, `idx_codebase_facts_session`, `idx_codebase_facts_status`, `idx_codebase_facts_valid`
-
-#### `codebase_facts_fts`
-**1 columns**
-- `fact_text` ANY
 
 #### `codebase_relationships`
 **9 columns**
