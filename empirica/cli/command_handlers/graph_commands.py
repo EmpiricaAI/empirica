@@ -1523,9 +1523,10 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                 if artifact_type == "unknown":
                     cursor = db.conn.cursor()
                     cursor.execute(
-                        "UPDATE project_unknowns SET is_resolved = 1, resolved_by = ?, "
-                        "resolved_timestamp = datetime('now') WHERE id = ?",
-                        (resolution, artifact_id),
+                        # Epoch seconds like every other writer: datetime('now') is a TEXT string, which SQLite orders above every
+                        # REAL, so a text row satisfied `resolved_timestamp >= scope_start` in every window (migration 076).
+                        "UPDATE project_unknowns SET is_resolved = 1, resolved_by = ?, resolved_timestamp = ? WHERE id = ?",
+                        (resolution, time.time(), artifact_id),
                     )
                     if cursor.rowcount > 0:
                         resolved_count += 1

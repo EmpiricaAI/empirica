@@ -1607,6 +1607,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Create `falsifiers`, the observation that would refute a belief, registered before the evidence that tests it (autonomy's FALSIFIER_SPEC, Phase 1, approved by David 2026-09-22). A falsifier outlives its transaction: it stays open and is surfaced at every PREFLIGHT until adjudicated tripped, survived or expired. Survived requires evidence that the population was observed; silence is expired. Every falsifier names the artifact it tests — a finding, assumption, decision, dead_end, mistake or lesson — and one with no parent is refused at write time. Unknowns are excluded: an unknown asserts nothing, so nothing can make it false.",
         lambda cursor: migration_075_falsifiers(cursor),
     ),
+    (
+        "076_normalize_text_resolved_timestamp",
+        "Turn TEXT resolved_timestamp values into epoch seconds on project_unknowns, project_findings and assumptions. SQLite orders every TEXT value above every REAL, so a row resolved through resolve-artifacts (which wrote datetime('now')) satisfied `resolved_timestamp >= scope_start` in every window: 39 unknowns on the empirica practice counted as resolved in each transaction and saturated the triage do/know evidence. The writer now stamps epoch seconds. UTC strings are converted with strftime('%s'); numeric text is cast; anything unreadable is left as it was. Idempotent.",
+        lambda cursor: migration_076_normalize_text_resolved_timestamp(cursor),
+    ),
 ]
 
 
@@ -3030,6 +3035,44 @@ def migration_066_normalize_text_created_timestamp(cursor: sqlite3.Cursor):
         except sqlite3.OperationalError:
             continue  # table absent on a partial/older DB — defensive skip
     logger.info(f"✅ Migration 066 complete: normalized {fixed} TEXT created_timestamp value(s) to REAL")
+
+
+_RESOLVED_TIMESTAMP_TABLES = ("project_unknowns", "project_findings", "assumptions")
+
+
+def migration_076_normalize_text_resolved_timestamp(cursor: sqlite3.Cursor):
+    """Turn TEXT resolved_timestamp values into epoch seconds so they compare and sort as numbers.
+
+    A TEXT value in a numeric column sorts above every REAL, so `resolved_timestamp >= ?` was true for a text row in every window and
+    `ORDER BY resolved_timestamp DESC` put it first. `resolve-artifacts` wrote `datetime('now')` (UTC, `YYYY-MM-DD HH:MM:SS`) into
+    project_unknowns; 39 such rows saturated the post-test triage evidence on the empirica practice (measured 2026-10-26). The writer
+    now stamps epoch seconds; this closes the legacy pocket.
+
+    Two shapes are converted, nothing else: numeric epoch text is cast (the migration 066 rule), and an ISO-like date is converted with
+    strftime('%s'), which reads it as UTC, as SQLite's datetime('now') is. Unreadable text stays as it was rather than becoming a wrong
+    time. Idempotent; a table absent on a partial DB is skipped.
+    """
+    epoch_glob = "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*"
+    date_glob = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*"
+    fixed = 0
+    for table in _RESOLVED_TIMESTAMP_TABLES:
+        try:
+            cursor.execute(
+                f"UPDATE {table} SET resolved_timestamp = CAST(resolved_timestamp AS REAL) "
+                f"WHERE typeof(resolved_timestamp) = 'text' AND resolved_timestamp GLOB ?",
+                (epoch_glob,),
+            )
+            fixed += cursor.rowcount
+            cursor.execute(
+                f"UPDATE {table} SET resolved_timestamp = CAST(strftime('%s', resolved_timestamp) AS REAL) "
+                f"WHERE typeof(resolved_timestamp) = 'text' AND resolved_timestamp GLOB ? "
+                f"AND strftime('%s', resolved_timestamp) IS NOT NULL",
+                (date_glob,),
+            )
+            fixed += cursor.rowcount
+        except sqlite3.OperationalError:
+            continue  # table (or column) absent on a partial/older DB
+    logger.info(f"✅ Migration 076 complete: normalized {fixed} TEXT resolved_timestamp value(s) to REAL")
 
 
 def migration_071_claim_scope_and_count(cursor: sqlite3.Cursor):
