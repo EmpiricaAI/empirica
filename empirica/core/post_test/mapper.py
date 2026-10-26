@@ -664,25 +664,26 @@ def _signal_test_results(summary: dict) -> str | None:
 
 
 def _signal_noetic_activity(summary: dict) -> str | None:
-    """Signal for investigation depth."""
-    noetic = summary.get("noetic", {})
-    if not noetic:
-        return None
-    reads = noetic.get("file_reads", 0)
-    searches = noetic.get("searches", 0)
-    if reads + searches > 20:
-        return f"Deep investigation ({reads} reads, {searches} searches)"
+    """Signal for repeated investigation, from the noetic collector's `investigation_thoroughness` {investigate_rounds, total_checks}.
+
+    It used to read `file_reads` / `searches`, which nothing writes, so it could never fire."""
+    thoroughness = (summary.get("noetic") or {}).get("investigation_thoroughness")
+    rounds = _extract_int(thoroughness, "investigate_rounds")
+    if rounds >= 3:
+        return f"Repeated investigation ({rounds} of {_extract_int(thoroughness, 'total_checks')} CHECKs held at investigate)"
     return None
 
 
 def _signal_sentinel(summary: dict) -> str | None:
-    """Signal for sentinel blocks."""
-    sentinel = summary.get("sentinel", {})
-    if not sentinel:
-        return None
-    blocks = sentinel.get("blocks", 0)
-    if blocks > 0:
-        return f"Sentinel blocked {blocks} premature praxic attempts"
+    """Signal for CHECKs the gate held at investigate, from the sentinel collector's `check_proceed_ratio` {proceed, investigate}.
+
+    It used to read `blocks`, which nothing writes, so it could never fire."""
+    ratio = (summary.get("sentinel") or {}).get("check_proceed_ratio")
+    held = _extract_int(ratio, "investigate")
+    if held > 0:
+        return (
+            f"Sentinel held {held} of {held + _extract_int(ratio, 'proceed')} CHECKs at investigate before proceeding"
+        )
     return None
 
 
