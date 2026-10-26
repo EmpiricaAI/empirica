@@ -13,6 +13,7 @@ Purpose: Prevent regression after fixes
 
 import sqlite3
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -403,7 +404,9 @@ class TestCLICheckpointCommands:
 
     def test_checkpoint_list_command_exists(self):
         """REGRESSION: Verify checkpoint-list CLI command exists"""
-        result = subprocess.run(["empirica", "checkpoint-list", "--help"], capture_output=True, text=True)
+        result = subprocess.run(
+            [sys.executable, "-m", "empirica.cli", "checkpoint-list", "--help"], capture_output=True, text=True
+        )
 
         assert result.returncode == 0 or "checkpoint-list" in (result.stdout + result.stderr), (
             "checkpoint-list command must be available in CLI"
@@ -423,7 +426,7 @@ class TestCLICheckpointCommands:
         subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True)
 
         result = subprocess.run(
-            ["empirica", "checkpoint-list", "--session-id", "test-session"],
+            [sys.executable, "-m", "empirica.cli", "checkpoint-list", "--session-id", "test-session"],
             capture_output=True,
             text=True,
             cwd=tmp_path,
@@ -449,7 +452,18 @@ class TestCLICheckpointCommands:
 
         # Create checkpoint
         result = subprocess.run(
-            ["empirica", "checkpoint-create", "--session-id", "test-session", "--phase", "CHECK", "--round", "1"],
+            [
+                sys.executable,
+                "-m",
+                "empirica.cli",
+                "checkpoint-create",
+                "--session-id",
+                "test-session",
+                "--phase",
+                "CHECK",
+                "--round",
+                "1",
+            ],
             capture_output=True,
             text=True,
             cwd=tmp_path,

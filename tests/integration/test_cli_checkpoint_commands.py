@@ -6,6 +6,7 @@ Validates CLI commands for git checkpoint management.
 
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -15,7 +16,10 @@ import pytest
 def run_cli_command(args):
     """Helper to run empirica CLI commands"""
     result = subprocess.run(
-        ["python", "-m", "empirica.cli"] + args, capture_output=True, text=True, cwd=Path(__file__).parent.parent.parent
+        [sys.executable, "-m", "empirica.cli"] + args,
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).parent.parent.parent,
     )
     return result
 

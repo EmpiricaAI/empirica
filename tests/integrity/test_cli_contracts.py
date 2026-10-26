@@ -15,6 +15,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import ClassVar
 
@@ -103,7 +104,7 @@ def _run_empirica(*args, timeout=30):
     # probes skip as "no project" and the run stays green while checking nothing.
     env["EMPIRICA_CWD_RELIABLE"] = "true"
     return subprocess.run(
-        ["empirica", *args],
+        [sys.executable, "-m", "empirica.cli", *args],
         capture_output=True,
         text=True,
         timeout=timeout,

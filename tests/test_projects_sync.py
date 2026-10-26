@@ -18,6 +18,7 @@ Surface tested:
 
 from __future__ import annotations
 
+import sys
 import types
 from unittest.mock import patch
 
@@ -302,7 +303,7 @@ def test_project_sync_alias_dispatches_end_to_end():
     import subprocess
 
     result = subprocess.run(
-        ["empirica", "project-sync", "--dry-run", "--no-cortex", "--no-write"],
+        [sys.executable, "-m", "empirica.cli", "project-sync", "--dry-run", "--no-cortex", "--no-write"],
         capture_output=True,
         text=True,
         timeout=30,

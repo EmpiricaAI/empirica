@@ -19,6 +19,7 @@ it a TypeError at import time.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -45,7 +46,7 @@ def two_configs(tmp_path: Path) -> Path:
 
 
 def _c901(cwd: Path) -> dict:
-    return _run_check("c901", ["ruff", "check", "--select", "C901"], cwd=cwd, timeout=60)
+    return _run_check("c901", [sys.executable, "-m", "ruff", "check", "--select", "C901"], cwd=cwd, timeout=60)
 
 
 def test_anchored_to_the_project_the_exclusion_applies(two_configs):

@@ -15,11 +15,12 @@ deprecated, they're removed.
 """
 
 import subprocess
+import sys
 
 
 def _run(args: list[str]) -> tuple[int, str, str]:
     p = subprocess.run(
-        ["empirica", *args],
+        [sys.executable, "-m", "empirica.cli", *args],
         capture_output=True,
         text=True,
         timeout=10,

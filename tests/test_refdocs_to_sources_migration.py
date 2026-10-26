@@ -20,6 +20,7 @@ preserved across the unification.
 from __future__ import annotations
 
 import json
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -258,7 +259,7 @@ def test_refdoc_add_cli_command_is_removed():
     import subprocess
 
     proc = subprocess.run(
-        ["empirica", "refdoc-add", "--help"],
+        [sys.executable, "-m", "empirica.cli", "refdoc-add", "--help"],
         capture_output=True,
         text=True,
         check=False,

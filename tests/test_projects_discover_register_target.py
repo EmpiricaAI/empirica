@@ -189,7 +189,7 @@ def test_filter_preserves_other_manifest_keys(tmp_path):
 def _empirica_cli(*args) -> tuple[int, str, str]:
     """Run empirica CLI as a subprocess. Returns (rc, stdout, stderr)."""
     result = subprocess.run(
-        ["empirica", *args],
+        [sys.executable, "-m", "empirica.cli", *args],
         capture_output=True,
         text=True,
         timeout=30,

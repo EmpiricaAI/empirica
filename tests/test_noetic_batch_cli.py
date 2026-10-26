@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -19,7 +20,7 @@ def project(tmp_path: Path) -> Path:
 
 def _run_cli(args: list[str], stdin: str | None = None, cwd: Path | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["empirica", *args],
+        [sys.executable, "-m", "empirica.cli", *args],
         input=stdin,
         capture_output=True,
         text=True,
