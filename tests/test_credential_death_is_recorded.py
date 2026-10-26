@@ -286,3 +286,12 @@ def test_a_successful_write_leaves_only_the_health_file():
         p.name for p in ch._health_path().parent.iterdir() if p.name != ch._health_path().name and ".tmp" in p.name
     ]
     assert leftovers == []
+
+
+@pytest.mark.parametrize("not_a_secret", [object(), 7, b"bytes", ["x"], {"a": 1}])
+def test_a_credential_that_is_not_a_string_is_never_hashed_and_never_raises(not_a_secret):
+    """The module is called from unattended retry loops and promises not to raise; a loader that returned something else must not take the
+    request down (it surfaced as 'object supporting the buffer API required' once the OAuth token was checked too)."""
+    assert ch.fingerprint(not_a_secret) is None
+    assert ch.dead_reason(not_a_secret) is None
+    assert ch.note_http_error(not_a_secret, _http_error(401, TERMINAL_BODY)) is False

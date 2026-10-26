@@ -71,8 +71,8 @@ def _credentials_path() -> Path:
 
 def fingerprint(secret: str | None) -> str | None:
     """Stable non-reversible id for a credential. Never the credential itself."""
-    if not secret:
-        return None
+    if not secret or not isinstance(secret, str):
+        return None  # a loader that hands back anything but text is not a credential to hash, and this runs in unattended retry loops
     return hashlib.sha256(secret.encode("utf-8")).hexdigest()[:16]
 
 
@@ -202,8 +202,8 @@ def note_http_error(credential: str | None, exc: Any) -> bool:
     an absent verdict and every other status mark nothing (fail open). Never raises: noticing a death must not be able to break the loop.
     """
     try:
-        if getattr(exc, "code", None) != 401 or not credential:
-            return False
+        if getattr(exc, "code", None) != 401 or not credential or not isinstance(credential, str):
+            return False  # and a credential that is not text is not one we can fingerprint, so nothing would be marked
         secret = credential.split(None, 1)[1] if credential[:7].lower() == "bearer " else credential
         try:
             body = exc.read()
