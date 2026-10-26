@@ -9,6 +9,7 @@ import logging
 import re
 import sqlite3
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -1612,6 +1613,33 @@ def handle_unknown_log_command(args):
             db.close()
 
 
+def _full_artifact_id(db, table: str, prefix: str) -> str | None:
+    """The full id behind a prefix a resolve verb was given, or None when it is not unique. Never raises."""
+    try:
+        from empirica.data.id_guard import resolve_id_prefix
+
+        full, error = resolve_id_prefix(db.conn.cursor(), table, "id", prefix)
+        return None if error else full
+    except Exception as exc:
+        logger.debug(f"could not expand {prefix!r} in {table}: {exc}")
+        return None
+
+
+def _stamp_resolved_note(namespace: str, artifact_id: str, fields: dict) -> None:
+    """Mirror a sqlite resolution into the artifact's ACTIVE git note, as `resolve-artifacts` and the REST routes do.
+
+    Notes are the canonical log and a from-notes rebuild re-creates the row from them, so a resolution left only in sqlite is undone by
+    the next rebuild. Best-effort and quiet: no repository, or an artifact with no note, simply has nothing to stamp, and the stamper
+    already logs a warning when a note exists that it could not reach.
+    """
+    try:
+        from empirica.cli.command_handlers.graph_commands import _stamp_note_resolution
+
+        _stamp_note_resolution(namespace, artifact_id, fields, None)
+    except Exception as exc:
+        logger.warning(f"note stamp after resolve failed for {namespace}/{artifact_id}: {exc}")
+
+
 def handle_unknown_resolve_command(args):
     """Handle unknown-resolve command"""
     try:
@@ -1629,12 +1657,21 @@ def handle_unknown_resolve_command(args):
 
         # Resolve the unknown
         db = SessionDatabase()
+        full_id = _full_artifact_id(
+            db, "project_unknowns", unknown_id
+        )  # the note is keyed by the full id; the verb takes a prefix
         resolved = db.resolve_unknown(
             unknown_id=unknown_id,
             resolved_by=resolved_by,
             resolution_finding_id=resolution_finding_id,
         )
         db.close()
+        if resolved:
+            _stamp_resolved_note(
+                "unknowns",
+                full_id or unknown_id,
+                {"resolved": True, "resolved_by": resolved_by, "resolved_timestamp": time.time()},
+            )
 
         # #390 (FrancisFerrero): this reported "resolved successfully" for ids that
         # match nothing. A resolution that changed no row is not a resolution, and
@@ -1750,11 +1787,26 @@ def handle_finding_resolve_command(args):
                 json.dumps({"ok": False, "error": str(e), "hint": "pass the replacement finding's id, 8+ characters"})
             )
             return 1
+        full_id = _full_artifact_id(db, "project_findings", finding_id)
         updated = db.resolve_finding(
             finding_id, resolution, superseded_by=superseded_by, resolution_kind=resolution_kind
         )
         dependents = _resolve_dependents_safe(db, finding_id) if updated else []
         db.close()
+        if updated:
+            from empirica.data.resolution_kind import normalize_resolution_kind
+
+            _stamp_resolved_note(
+                "findings",
+                full_id or finding_id,
+                {
+                    "is_resolved": True,
+                    "resolution": resolution,
+                    "resolution_kind": normalize_resolution_kind(resolution_kind),
+                    "resolved_timestamp": time.time(),
+                    "superseded_by": superseded_by,
+                },
+            )
 
         if not updated:
             print(json.dumps({"ok": False, "error": f"no finding matched {finding_id!r} (full id or 8+ char prefix)"}))
