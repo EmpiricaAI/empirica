@@ -8,9 +8,43 @@ still be pinning a defect, because none of these are the same question:
 | Could this test have failed **on any wrong answer**? | `scripts/audit_test_assertions.py` |
 | Has this test quietly **stopped meaning what it says**? | `scripts/test_freshness_audit.py` |
 | Could this test have failed **on the bug it was written for**? | `scripts/negative_control.py` |
+| Would these tests notice **any small change** to this file? | `scripts/mutation_pilot.py` |
 
 They do not overlap, and a test can pass all of the first two and still fail the
-third. That is not hypothetical — it is why the third exists.
+third. That is not hypothetical — it is why the third exists. The fourth asks the
+question the other three cannot: not "this bug" but "a flipped comparison, a
+negated condition, an off-by-one, anywhere in this module".
+
+---
+
+## `mutation_pilot.py` — would the tests notice if this line were wrong?
+
+```bash
+python3 scripts/mutation_pilot.py empirica/core/claims.py tests/test_claim_*.py
+python3 scripts/mutation_pilot.py empirica/x.py tests/test_x.py --limit 80 --lines 100-180 --k "not test_scans_source"
+```
+
+Writes one mutant at a time (a comparison flipped, `+` and `-` swapped, `and`/`or`
+swapped, an `if` negated, a number plus one, a bool flipped), runs the named tests,
+and lists the mutants that **survived**. A survivor is an equivalent mutant (a log
+line, a timeout) or a behaviour nothing pins; reading the list is the work.
+
+It never touches your checkout: a detached worktree of `HEAD` is created in a temp
+directory (tests not committed yet are copied in) and removed afterwards. Two
+controls must be green first, and the run aborts otherwise: the **baseline**, and
+the **null mutation**, which re-prints the target with no change. The second exists
+because a test that scans the target's *source text* fails on every re-printed
+file and would "kill" every mutant for a reason unrelated to the mutation. The
+first run of the CHECK handler read 220 of 220 killed; the real figure, with two
+such tests deselected, was 21%. Those tests are a finding in their own right: they
+pin how the code is spelled, not what it does.
+
+Measured on this tree (2026-10-26): `core/claims.py` 88% killed before and 98.6%
+after 21 new tests; `data/repositories/vectors.py` 36% then 85%; the CHECK
+handler's decision functions about 8% then 92%. Fully-killed functions were the
+ones recent work had pinned; the unpinned ones were the older decision logic.
+The tool mutates operators and constants only (not strings, returns or calls), so
+a rate here is an upper bound.
 
 ---
 
