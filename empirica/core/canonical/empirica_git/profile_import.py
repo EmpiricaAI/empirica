@@ -87,8 +87,12 @@ class ProfileImporter:
             logger.warning(f"Invalid JSON in note ref {ref}")
             return None
 
-    def _parse_timestamp(self, iso_str: str | None) -> float | None:
-        """Convert ISO timestamp string to epoch float."""
+    def _parse_timestamp(self, iso_str: str | float | None) -> float | None:
+        """Convert an ISO timestamp string, or the epoch float the resolve verbs stamp, to epoch float."""
+        if isinstance(iso_str, bool):
+            return None
+        if isinstance(iso_str, (int, float)):
+            return float(iso_str)
         if not iso_str:
             return None
         try:
@@ -146,7 +150,7 @@ class ProfileImporter:
                         # resurrected resolved and retracted findings as open.
                         1 if data.get("is_resolved") else 0,
                         data.get("resolution"),
-                        self._parse_timestamp(data.get("resolved_at")),
+                        self._parse_timestamp(data.get("resolved_at") or data.get("resolved_timestamp")),
                         data.get("superseded_by"),
                         data.get("resolution_kind"),
                     ),
@@ -178,7 +182,7 @@ class ProfileImporter:
             if not ts:
                 ts = datetime.now(timezone.utc).timestamp()
 
-            resolved_ts = self._parse_timestamp(data.get("resolved_at"))
+            resolved_ts = self._parse_timestamp(data.get("resolved_at") or data.get("resolved_timestamp"))
             unknown_data_json = json.dumps({"unknown": data.get("unknown", "")})
 
             try:

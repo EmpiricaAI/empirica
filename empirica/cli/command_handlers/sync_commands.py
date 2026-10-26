@@ -1438,6 +1438,14 @@ def _note_time(value) -> float | None:
     return parsed.timestamp()
 
 
+def _resolved_time(item) -> float | None:
+    """When a note says its artifact was resolved: `resolved_at` (ISO) or `resolved_timestamp` (the epoch float every resolve verb stamps).
+
+    The rebuild read only `resolved_at`, which the stamped notes do not carry, so it fell back to its own clock and every resolved artifact
+    came back resolved "just now"."""
+    return _note_time(item.get("resolved_at")) or _note_time(item.get("resolved_timestamp"))
+
+
 def _rebuild_restore_identity(db, key, new_id, item, started):
     """Give the row `db.log_*` just created the id and time its NOTE carries; return the id the row now has.
 
@@ -1577,7 +1585,7 @@ def _rebuild_apply_resolution(db, key, new_id, item) -> None:
                     item.get("resolution") or "resolved",
                     item.get("superseded_by"),
                     item.get("resolution_kind"),
-                    _note_time(item.get("resolved_at")) or _t.time(),
+                    _resolved_time(item) or _t.time(),
                     new_id,
                 ),
             )
@@ -1585,7 +1593,7 @@ def _rebuild_apply_resolution(db, key, new_id, item) -> None:
         elif key == "unknowns" and item.get("resolved"):
             cur.execute(
                 "UPDATE project_unknowns SET is_resolved = 1, resolved_by = ?, resolved_timestamp = ? WHERE id = ?",
-                (item.get("resolved_by") or "resolved", _note_time(item.get("resolved_at")) or _t.time(), new_id),
+                (item.get("resolved_by") or "resolved", _resolved_time(item) or _t.time(), new_id),
             )
             db.adapter.conn.commit()
         elif key in ("dead_ends", "mistakes") and item.get("is_invalidated"):
