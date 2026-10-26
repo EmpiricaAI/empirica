@@ -21,6 +21,7 @@ from ._workflow_shared import (
     _build_retrospective,
     _extract_all_vectors,
     _get_db_for_session,
+    _numeric,
     _parse_workflow_input,
     _resolve_and_validate_session,
     _soft_run,
@@ -952,8 +953,9 @@ def _calculate_postflight_deltas(logger_instance, vectors, preflight_session_id)
             # Calculate deltas (system calculates growth, not AI's claimed growth)
             for key in vectors:
                 if key in preflight_vectors:
-                    pre_val = preflight_vectors.get(key, 0.5)
-                    post_val = vectors.get(key, 0.5)
+                    pre_val, post_val = _numeric(preflight_vectors.get(key)), _numeric(vectors.get(key))
+                    if pre_val is None or post_val is None:
+                        continue  # unassessed on either side (null, text): no delta against an invented value, and the loop goes on
                     delta = post_val - pre_val
                     deltas[key] = round(delta, 3)
 
@@ -978,8 +980,8 @@ def _calculate_postflight_deltas(logger_instance, vectors, preflight_session_id)
 
                     # If completion high but uncertainty also high, misalignment
                     if key == "completion" and post_val > 0.8:
-                        uncertainty_post = vectors.get("uncertainty", 0.5)
-                        if uncertainty_post > 0.5:
+                        uncertainty_post = _numeric(vectors.get("uncertainty"))
+                        if uncertainty_post is not None and uncertainty_post > 0.5:
                             trajectory_issues.append(
                                 {
                                     "pattern": "completion_high_uncertainty_high",

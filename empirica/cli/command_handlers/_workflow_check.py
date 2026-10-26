@@ -16,6 +16,7 @@ from ._workflow_shared import (
     _build_weave_guidance,
     _check_bootstrap_status,
     _get_db_for_session,
+    _numeric,
     _parse_workflow_input,
     _resolve_and_validate_session,
     register_window_falsifiers,
@@ -167,8 +168,9 @@ def _check_cmd_compute_drift(baseline_vectors, checkpoints):
     drift_count = 0
 
     for key in ["know", "uncertainty", "engagement", "impact", "completion"]:
-        if key in baseline_vectors and key in current_vectors:
-            delta = current_vectors[key] - baseline_vectors[key]
+        before, now = _numeric(baseline_vectors.get(key)), _numeric(current_vectors.get(key))
+        if before is not None and now is not None:  # a vector unassessed on either side has no delta
+            delta = now - before
             deltas[key] = delta
             drift_sum += abs(delta)
             drift_count += 1
@@ -478,8 +480,8 @@ def _gate_vector(vectors, name, default):
 
     The gate reads the raw payload, where an unassessed vector arrives as null (or as text). Comparing that raised TypeError and
     errored the whole CHECK; "did not assess" must behave like an absent key."""
-    value = vectors.get(name) if isinstance(vectors, dict) else None
-    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else default
+    value = _numeric(vectors.get(name)) if isinstance(vectors, dict) else None
+    return default if value is None else value
 
 
 def _check_bootstrap_gate(session_id, vectors):
@@ -778,9 +780,12 @@ def _check_detect_diminishing_returns(previous_check_vectors, know, uncertainty)
     if len(previous_check_vectors) < 2:
         return diminishing_returns
 
+    know, uncertainty = _numeric(know), _numeric(uncertainty)
+
     # Compute deltas between consecutive rounds (newest first). A delta needs a value on BOTH sides: a CHECK that did not assess
     # know or uncertainty (NULL) used to be read as 0.5, and rounds of unassessed values looked like stagnation.
     def _delta(newer, older):
+        newer, older = _numeric(newer), _numeric(older)
         return None if newer is None or older is None else newer - older
 
     for i in range(len(previous_check_vectors)):
@@ -815,7 +820,10 @@ def _check_detect_diminishing_returns(previous_check_vectors, know, uncertainty)
 
             # Per the meta-uncertainty design (2026-04-07): the gate is
             # uncertainty-only — uncertainty IS the meta confidence summary.
-            if uncertainty <= 0.45:
+            if uncertainty is None:
+                # the plateau is visible from the history alone, but a proceed override needs THIS round's uncertainty
+                diminishing_returns["reason"] += " - uncertainty not assessed, no proceed override"
+            elif uncertainty <= 0.45:
                 diminishing_returns["recommend_proceed"] = True
                 diminishing_returns["reason"] += " - uncertainty acceptable, investigation plateaued"
             else:

@@ -74,6 +74,11 @@ def _remap_trajectory_summary(calibration_summary):
     }
 
 
+def _numeric(value):  # pyright: ignore[reportUnusedFunction] - imported by _workflow_check and _workflow_postflight
+    """The number, or None when it is not one (null, text, a bool): "did not assess" is not a number and must never reach arithmetic."""
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
 def _get_db_for_session(session_id: str):
     """
     Get SessionDatabase for a specific session_id.

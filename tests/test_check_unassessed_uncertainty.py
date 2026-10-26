@@ -70,3 +70,34 @@ def test_the_legacy_readiness_fails_closed_when_nothing_was_assessed():
     assert wc._check_readiness(None, None) == 0.0
     assert wc._check_readiness(0.8, None) == 0.8, "an asserted confidence still wins"
     assert wc._check_readiness(None, 0.25) == pytest.approx(0.75), "control"
+
+
+# ── the remaining siblings the second-pass review found ───────────────────────────────────────────────────────
+
+STAGNANT = [{"know": 0.5, "uncertainty": 0.5}] * 3
+
+
+@pytest.mark.parametrize("value", [None, "0.2", True])
+def test_the_detector_does_not_raise_on_an_unassessed_current_uncertainty_after_three_stagnant_rounds(value):
+    """Round 4: the stagnation branch is reached from the history alone, and `uncertainty <= 0.45` then compared None."""
+    out = wc._check_detect_diminishing_returns(STAGNANT, 0.5, value)
+    assert out["recommend_proceed"] is False, "an unassessed uncertainty is never rescued into a proceed"
+    assert "not assessed" in (out["reason"] or "") or out["detected"] is False
+
+
+def test_the_detector_still_recommends_proceed_for_an_assessed_acceptable_uncertainty_on_the_same_history():
+    """Control: same stagnant history, assessed 0.45 / 0.46."""
+    assert wc._check_detect_diminishing_returns(STAGNANT, 0.5, 0.45)["recommend_proceed"] is True
+    assert wc._check_detect_diminishing_returns(STAGNANT, 0.5, 0.46)["recommend_proceed"] is False
+
+
+def test_the_drift_calculation_skips_a_vector_unassessed_on_either_side():
+    baseline = {"know": 0.5, "uncertainty": None, "engagement": 0.9}
+    latest = {"know": 0.7, "uncertainty": 0.3, "engagement": None}
+    _, drift, deltas = wc._check_cmd_compute_drift(baseline, [{"vectors": latest}])
+    assert set(deltas) == {"know"} and drift == pytest.approx(0.2), "only the vector assessed on both sides is compared"
+
+
+def test_the_drift_calculation_still_compares_assessed_vectors_as_before():
+    _, drift, deltas = wc._check_cmd_compute_drift({"uncertainty": 0.3}, [{"vectors": {"uncertainty": 0.1}}])
+    assert deltas == pytest.approx({"uncertainty": -0.2}) and drift == pytest.approx(0.2)
