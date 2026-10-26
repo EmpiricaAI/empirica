@@ -20,7 +20,7 @@ negated condition, an off-by-one, anywhere in this module".
 ## `mutation_pilot.py` — would the tests notice if this line were wrong?
 
 ```bash
-python3 scripts/mutation_pilot.py empirica/core/claims.py tests/test_claim_*.py
+python3 scripts/mutation_pilot.py empirica/core/claims.py tests/test_claims_*.py
 python3 scripts/mutation_pilot.py empirica/x.py tests/test_x.py --limit 80 --lines 100-180 --k "not test_scans_source"
 ```
 

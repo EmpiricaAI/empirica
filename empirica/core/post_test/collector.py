@@ -11,7 +11,7 @@ Universal (all phases):
 Praxic phase (after CHECK):
 - Goal/subtask completion metrics (SQLite)
 - Issue and triage metrics (SQLite)
-- Codebase model: entities discovered, facts created, constraints (SQLite)
+- Codebase model: entities discovered (SQLite)
 - Non-git file changes: files edited outside git repos (transaction file + mtime)
 - Git metrics: commits, file change density (subprocess, optional)
 - Code quality: ruff, radon, pyright on changed files (subprocess, optional)
@@ -1411,7 +1411,6 @@ class PostTestCollector:
         Measures structural understanding of the codebase via entity extraction:
         - Entities discovered/updated during this session → know, context
         - Entity invalidations (deleted code) → change
-        - Constraints (learned conventions) → coherence, signal
 
         Only runs if codebase_model tables exist (migration 033+).
         """
