@@ -203,8 +203,11 @@ def _check_cmd_load_evidence(db, session_id):
 def _check_readiness(explicit_confidence, uncertainty):
     """The number the legacy `check` decision runs on: the caller's asserted confidence, else the complement of uncertainty.
 
-    This is an input to the decision, not something reported as a measurement; reporting it as `confidence` was the relabelling."""
-    return explicit_confidence if explicit_confidence is not None else (1.0 - uncertainty)
+    This is an input to the decision, not something reported as a measurement; reporting it as `confidence` was the relabelling.
+    With neither an asserted confidence nor an assessed uncertainty it is 0.0: nothing was assessed, so it must not read as ready."""
+    if explicit_confidence is not None:
+        return explicit_confidence
+    return 0.0 if uncertainty is None else 1.0 - uncertainty
 
 
 def _legacy_check_confidence_fields(explicit_confidence, claims_block):
@@ -313,7 +316,7 @@ def handle_check_command(args):
         findings, unknowns, project_id = _check_cmd_load_evidence(db, session_id)
         findings_count = len(findings)
         unknowns_count = len(unknowns)
-        uncertainty = current_vectors.get("uncertainty", 0.5)
+        uncertainty = _gate_vector(current_vectors, "uncertainty", None)
 
         readiness = _check_readiness(inputs["explicit_confidence"], uncertainty)
 
@@ -747,6 +750,8 @@ def _session_ai_id(db, session_id: str) -> str:
 
 def _gate_reason(uncertainty, threshold, diminishing_returns, round_num) -> str:
     """Why the gate computed what it did, in the terms the gate itself uses."""
+    if uncertainty is None:
+        return "uncertainty not assessed"
     if uncertainty <= threshold:
         return f"uncertainty {uncertainty:.3f} <= threshold {threshold:.3f}"
     if diminishing_returns.get("recommend_proceed"):
@@ -831,11 +836,15 @@ def _check_gate_decision(vectors, ready_uncertainty_threshold, diminishing_retur
     Returns (decision, computed_decision, autopilot_mode, decision_binding).
     """
 
-    uncertainty = vectors.get("uncertainty", 0.5)
+    uncertainty = _gate_vector(vectors, "uncertainty", None)
 
     # Compute gate decision
     computed_decision = None
-    if uncertainty <= ready_uncertainty_threshold:
+    if uncertainty is None:
+        # Not assessed (absent, null or not a number): the gate cannot certify what was not assessed, and the two overrides below are
+        # exceptions to a number that is too high, not to one that is missing. It used to default to 0.5 or raise TypeError on a null.
+        computed_decision = "investigate"
+    elif uncertainty <= ready_uncertainty_threshold:
         computed_decision = "proceed"
     elif diminishing_returns["recommend_proceed"]:
         computed_decision = "proceed"
@@ -857,7 +866,8 @@ def _check_gate_decision(vectors, ready_uncertainty_threshold, diminishing_retur
             logger.info(f"AUTOPILOT override: {decision} → {computed_decision} (autopilot enforcement)")
         decision = computed_decision
         logger.info(
-            f"CHECK auto-computed decision: {decision} (uncertainty={uncertainty:.2f} vs threshold={ready_uncertainty_threshold:.2f}, gate uses META uncertainty only)"
+            f"CHECK auto-computed decision: {decision} (uncertainty={'not assessed' if uncertainty is None else f'{uncertainty:.2f}'} "
+            f"vs threshold={ready_uncertainty_threshold:.2f}, gate uses META uncertainty only)"
         )
 
     return decision, computed_decision, autopilot_mode, decision_binding
@@ -1082,7 +1092,7 @@ def _check_auto_checkpoint(session_id, vectors, decision, gaps, cycle, round_num
     import json
     import subprocess
 
-    uncertainty = vectors.get("uncertainty", 0.5)
+    uncertainty = _gate_vector(vectors, "uncertainty", 0.5)  # unassessed is not evidence of a risky decision
     if uncertainty > 0.5:
         try:
             subprocess.run(
@@ -1373,8 +1383,8 @@ def handle_check_submit_command(args):
         _, ready_uncertainty_threshold, dynamic_thresholds_info = _check_load_dynamic_thresholds(session_id)
 
         # Stage 6: Detect diminishing returns across rounds
-        know = vectors.get("know", 0.5)
-        uncertainty = vectors.get("uncertainty", 0.5)
+        know = _gate_vector(vectors, "know", None)
+        uncertainty = _gate_vector(vectors, "uncertainty", None)
         diminishing_returns = _check_detect_diminishing_returns(previous_check_vectors, know, uncertainty)
 
         # Stage 7: Compute gate decision (proceed/investigate) + autopilot
@@ -1425,7 +1435,10 @@ def handle_check_submit_command(args):
                     "diminishing_returns": diminishing_returns.get("detected", False),
                     "uncertainty_threshold": ready_uncertainty_threshold,
                     "gate_reason": _gate_reason(
-                        vectors.get("uncertainty", 0.5), ready_uncertainty_threshold, diminishing_returns, round_num
+                        _gate_vector(vectors, "uncertainty", None),
+                        ready_uncertainty_threshold,
+                        diminishing_returns,
+                        round_num,
                     ),
                     "basis": (dynamic_thresholds_info or {}).get("basis"),
                 },
