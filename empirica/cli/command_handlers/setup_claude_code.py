@@ -1330,7 +1330,8 @@ def _deploying_practice(explicit: str | None = None) -> tuple[str | None, str]:
     have attributed every operator deploy to core: a plausible wrong name, which
     is worse than an absent one. So only sources that CARRY the identity count:
     an explicit argument from a caller that knows, or EMPIRICA_AI_ID, or the cwd
-    when the deploy really was run from a practice checkout. Otherwise None, and
+    when the deploy really was run from a practice checkout (a linked git worktree
+    of one included, source `cwd-worktree`). Otherwise None, and
     `deployed_by` in the record says who actually ran it.
     """
     explicit = (explicit or "").strip()
@@ -1342,6 +1343,22 @@ def _deploying_practice(explicit: str | None = None) -> tuple[str | None, str]:
     found = _ai_id_in(Path.cwd())
     if found:
         return found, "cwd"
+    # A linked git worktree has no `.empirica/` of its own (it is gitignored and lives in the main checkout), yet it IS the practice's
+    # checkout, and the likeliest place for an older or divergent copy to revert someone's deploy. The lookup goes through git's common
+    # directory and returns nothing unless the main checkout is an initialized Empirica project, so it is as exact as the cwd rule and
+    # not a guess from where the package sits (David, 2026-10-26, amending nothing in mesh-support's ruling: still only sources that
+    # carry identity). The label says it was derived.
+    try:
+        from empirica.config.path_resolver import find_worktree_main_empirica
+
+        main_empirica = find_worktree_main_empirica(Path.cwd())
+    except Exception as exc:
+        logger.debug("worktree lookup failed: %s", exc)
+        main_empirica = None
+    if main_empirica:
+        found = _ai_id_in(main_empirica.parent)
+        if found:
+            return found, "cwd-worktree"
     return None, "unknown"
 
 
