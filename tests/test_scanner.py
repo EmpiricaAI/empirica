@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import os
 
+import pytest
+
 from empirica.core.scanner import (
     DEFAULT_READ_SURFACE,
     Snapshot,
@@ -26,6 +28,28 @@ from empirica.core.scanner.read_surface import (
     ReadSurface,
     parse_read_surface,
 )
+
+
+@pytest.fixture
+def real_process_table():
+    """Request this to scan the machine's real process table instead of the small one below."""
+
+
+@pytest.fixture(autouse=True)
+def _small_process_table(request, monkeypatch):
+    """Scan a real but small process table: this process and its ancestors.
+
+    The collector builds a heavy row per process (memory_maps alone is ~4s of a ~7s scan over the 577 processes on a dev box), and 16 of these
+    tests each paid for a full scan while asserting on the scanner's behaviour, not on the machine. ~106s of a 823s suite. The processes are
+    real `psutil.Process` objects, so every code path runs; one test opts back into the real table (`real_process_table`)."""
+    if "real_process_table" in request.fixturenames:
+        return
+    import psutil
+
+    me = psutil.Process(os.getpid())
+    keep = [me, *me.parents()][:4]
+    monkeypatch.setattr(psutil, "process_iter", lambda *_a, **_k: iter(keep))
+
 
 # ── Read-surface defaults + parse ────────────────────────────────────────
 
@@ -116,6 +140,17 @@ class TestProcessCollector:
         # way the invariant must hold for whatever rows do come back.
         for row in rows:
             assert set(row.keys()) <= surface.process
+
+    def test_the_real_process_table_scans_and_includes_the_scanner(self, real_process_table):
+        """The one full scan: every process on the box, the way `empirica scan` sees it."""
+        rows, coverage = collect_processes(DEFAULT_READ_SURFACE)
+        assert rows and coverage["succeeded"] == len(rows) and coverage["attempted"] >= len(rows)
+        assert [r["pid"] for r in rows if r.get("is_scanner_self")] == [os.getpid()]
+
+    def test_the_small_table_is_this_process_and_its_ancestors(self):
+        rows, coverage = collect_processes(DEFAULT_READ_SURFACE)
+        assert 1 <= len(rows) <= 4 and coverage["attempted"] == len(rows) + coverage["skipped"]
+        assert os.getpid() in [r["pid"] for r in rows]
 
     def test_scanner_self_row_present(self):
         rows, _coverage = collect_processes(DEFAULT_READ_SURFACE)
