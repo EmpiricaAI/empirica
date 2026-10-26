@@ -2271,7 +2271,10 @@ _TOOL_DANGEROUS_FLAGS: dict[str, frozenset[str]] = {
     "ag": frozenset({"--pager"}),
     "ack": frozenset({"--pager"}),
     "bat": frozenset({"--pager"}),
-    "man": frozenset({"-P", "--pager", "-H", "--html"}),
+    "man": frozenset({"-P", "--pager", "-H", "--html", "-C", "--config-file"}),
+    # opt-in flags that make a read verb run a program: the diff.external command and a textconv driver's command. (-C / --config-file on
+    # man names a man-db config that can DEFINE the pager, nroff or compressor it executes.)
+    "git": frozenset({"--ext-diff", "--textconv"}),
     # linters and analyzers: fix in place, write reports, create stubs, install packages
     "ruff": frozenset({"--fix", "--fix-only", "--unsafe-fixes", "--add-noqa", "--output-file"}),
     "pip-audit": frozenset({"--fix", "-o", "--output"}),
