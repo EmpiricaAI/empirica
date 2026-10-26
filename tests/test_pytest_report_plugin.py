@@ -173,5 +173,34 @@ def test_options_that_do_not_select_tests_leave_it_a_full_run(tmp_path):
 
 def test_a_very_long_selection_is_truncated_so_the_report_stays_small(tmp_path):
     project = _project(tmp_path, empirica=True)
-    _run_pytest(project, "-k", " or ".join(f"test_{i}" for i in range(400)))
+    _run_pytest(
+        project, "-k", "test_one or " + " or ".join(f"test_{i}" for i in range(400))
+    )  # test_one runs, so a report is written
     assert len(_report(project)["scope"]) <= 200
+
+
+# ── a session that produced no evidence must not erase evidence that did (pre-publish sweep, B1) ────────────────
+
+
+def test_collect_only_leaves_an_existing_report_alone(tmp_path):
+    """`pytest --collect-only` ran no test; it used to replace a good full-run report with total 0 still labelled "full run"."""
+    project = _project(tmp_path, empirica=True)
+    _run_pytest(project)
+    before = _report(project)
+    _run_pytest(project, "--collect-only")
+    assert _report(project) == before
+
+
+def test_a_run_that_selected_nothing_leaves_an_existing_report_alone(tmp_path):
+    project = _project(tmp_path, empirica=True)
+    _run_pytest(project)
+    before = _report(project)
+    _run_pytest(project, "-k", "no_such_test_anywhere")
+    assert _report(project) == before
+
+
+def test_a_run_whose_only_result_is_a_collection_error_is_still_written(tmp_path):
+    """Control: an error counts as a failure and is evidence; only an empty session is skipped."""
+    project = _project(tmp_path, empirica=True, body="import definitely_not_a_module\n")
+    _run_pytest(project)
+    assert _report(project)["summary"]["failed"] >= 1

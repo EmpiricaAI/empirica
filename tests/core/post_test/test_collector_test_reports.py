@@ -31,11 +31,10 @@ def _collector(root: Path, **kw) -> PostTestCollector:
     return c
 
 
-def _neutral(root: Path, passed=8, failed=2, created=T0 + 100, **extra) -> Path:
+def _neutral(root: Path, passed=8, failed=2, created=T0 + 100, summary_total=None, **extra) -> Path:
     path = root / ".empirica" / "test_report.json"
-    path.write_text(
-        json.dumps({"runner": "go", "summary": {"passed": passed, "failed": failed}, "created": created, **extra})
-    )
+    summary = {"passed": passed, "failed": failed, **({} if summary_total is None else {"total": summary_total})}
+    path.write_text(json.dumps({"runner": "go", "summary": summary, "created": created, **extra}))
     return path
 
 
@@ -334,3 +333,75 @@ def test_junit_cannot_know_its_scope_and_says_so(root):
     _junit(root, "junit.xml", SUITE.format(t=3, f=0, e=0, s=0))
     raw = _rate(_collector(root)._collect_test_results()).raw_value
     assert raw["runner"] == "junit" and raw["scope"] is None
+
+
+# ── pre-publish sweep: the reader's boundaries (B3, B4, B5) ─────────────────────────────────────────────────────
+
+
+def test_a_created_in_milliseconds_is_not_taken_as_a_far_future_freshness(root):
+    """A hand-written report with created=Date.now() (ms) used to look newer than any window and never went stale."""
+    import time
+
+    path = _neutral(root, created=int(time.time() * 1000))
+    old = time.time() - 30 * 86400
+    os.utime(path, (old, old))
+    c = _collector(root, preflight_timestamp=time.time() - 3600)
+    assert c._collect_test_results() == [] and c._source_notes["pytest"] == "stale_test_report"
+
+
+def test_a_created_in_the_future_falls_back_to_the_file_time(root):
+    import time
+
+    path = _neutral(root, created=time.time() + 10_000)
+    old = time.time() - 30 * 86400
+    os.utime(path, (old, old))
+    c = _collector(root, preflight_timestamp=time.time() - 3600)
+    assert c._collect_test_results() == []
+
+
+def test_a_created_a_moment_ahead_of_this_clock_is_tolerated(root):
+    """Control: a report written a few seconds 'ahead' (clock skew between writer and reader) is still fresh."""
+    import time
+
+    _neutral(root, created=time.time() + 5)
+    assert _collector(root, preflight_timestamp=time.time() - 3600)._collect_test_results()
+
+
+def test_a_pile_of_junit_files_is_counted_deterministically_and_says_it_was_truncated(root):
+    for i in range(250):
+        _junit(root, f"build/test-results/test/TEST-{i:03}.xml", SUITE.format(t=1, f=1 if i == 249 else 0, e=0, s=0))
+    first = _rate(_collector(root)._collect_test_results())
+    second = _rate(_collector(root)._collect_test_results())
+    assert first.raw_value == second.raw_value, "the same files are counted every time"
+    assert first.raw_value["total"] == 200
+    assert first.raw_value["failed"] == 0, "the 250th file (sorted) holds the failure and was not read"
+    assert first.raw_value["scope"] == "partial: first 200 of more than 200 junit files"
+
+
+def test_exactly_the_cap_is_not_called_truncated(root):
+    for i in range(200):
+        _junit(root, f"build/test-results/test/TEST-{i:03}.xml", SUITE.format(t=1, f=0, e=0, s=0))
+    assert _rate(_collector(root)._collect_test_results()).raw_value["scope"] is None
+
+
+def test_a_report_with_non_numeric_counts_does_not_fail_the_source_and_the_fallbacks_still_run(root):
+    (root / ".empirica" / "test_report.json").write_text(
+        json.dumps({"runner": "x", "created": T0 + 100, "summary": {"passed": "n/a", "failed": None}})
+    )
+    _junit(root, "junit.xml", SUITE.format(t=3, f=0, e=0, s=0))
+    c = _collector(root)
+    assert _rate(c._collect_test_results()).raw_value["runner"] == "junit"
+
+
+@pytest.mark.parametrize(
+    "summary", [{"passed": -1, "failed": 2}, {"passed": 1.5, "failed": 0}, {"passed": True, "failed": 0}]
+)
+def test_counts_that_are_not_non_negative_integers_are_not_a_report(root, summary):
+    (root / ".empirica" / "test_report.json").write_text(json.dumps({"created": T0 + 100, "summary": summary}))
+    c = _collector(root)
+    assert c._collect_test_results() == [] and c._source_notes["pytest"] == "no_test_report"
+
+
+def test_a_total_smaller_than_passed_plus_failed_cannot_give_a_rate_above_one(root):
+    _neutral(root, passed=10, failed=0, summary_total=4)
+    assert _rate(_collector(root)._collect_test_results()).value == 1.0

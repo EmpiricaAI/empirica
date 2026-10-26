@@ -181,3 +181,46 @@ def test_metric_names_match_what_the_collector_actually_emits():
 
     assert 'metric_name="test_pass_rate"' in collector_src
     assert 'metric_name="commit_count"' in collector_src
+
+
+# ── tests_pass on a run that declares itself partial (pre-publish sweep, B2) ─────────────────────────────────
+
+
+def _rate_bundle(passed, failed, scope):
+    raw = {"passed": passed, "failed": failed, "total": passed + failed, "runner": "pytest", "scope": scope}
+    item = EvidenceItem(
+        source="pytest",
+        metric_name="test_pass_rate",
+        value=passed / (passed + failed),
+        raw_value=raw,
+        quality=EvidenceQuality.OBJECTIVE,
+        supports_vectors=[],
+    )
+    return EvidenceBundle(session_id="s1", items=[item])
+
+
+def test_tests_pass_does_not_pass_on_a_partial_run():
+    """Three green tests from a `-k` rerun are not 'the tests pass'; the criterion skips and says it did not apply."""
+    r = dispatch(_Ctx(_crit("all tests green", "tests_pass"), _rate_bundle(3, 0, "partial: -k plugin")))
+    assert r.skipped is True and r.passed is False and "did not apply" in r.summary
+
+
+def test_tests_pass_still_passes_on_a_full_run_and_on_a_declared_scope_that_is_not_partial():
+    for scope in ("full run", "owned crates: plugin, translator", None):
+        r = dispatch(_Ctx(_crit("all tests green", "tests_pass"), _rate_bundle(50, 0, scope)))
+        assert r.passed is True and r.skipped is False, scope
+
+
+def test_tests_pass_still_fails_a_red_full_run():
+    r = dispatch(_Ctx(_crit("all tests green", "tests_pass"), _rate_bundle(49, 1, "full run")))
+    assert r.passed is False and r.skipped is False
+
+
+def test_a_partial_junit_truncation_is_also_not_a_pass():
+    r = dispatch(
+        _Ctx(
+            _crit("all tests green", "tests_pass"),
+            _rate_bundle(200, 0, "partial: first 200 of more than 200 junit files"),
+        )
+    )
+    assert r.skipped is True

@@ -273,7 +273,15 @@ class BundleMetricThresholdEvaluator:
         self._direction = direction
 
     def applies(self, ctx: CriterionContext) -> bool:
-        return ctx.evidence.has(self._metric)
+        return ctx.evidence.has(self._metric) and not self._declared_partial(ctx)
+
+    def _declared_partial(self, ctx: CriterionContext) -> bool:
+        """True when the evidence says it covers only part of what the criterion asks about (a `-k` rerun, a truncated JUnit read).
+
+        A 3-test green rerun is not "the tests pass": it skips with the did-not-apply reason, like any other source that cannot answer."""
+        raw = ctx.evidence.raw(self._metric)
+        scope = raw.get("scope") if isinstance(raw, dict) else None
+        return isinstance(scope, str) and scope.startswith("partial:")
 
     def evaluate(self, ctx: CriterionContext) -> CriterionResult:
         threshold = ctx.criterion.threshold if ctx.criterion.threshold is not None else self._default_threshold

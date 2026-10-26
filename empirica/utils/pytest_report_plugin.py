@@ -82,11 +82,14 @@ def pytest_sessionfinish(session: Any, exitstatus: Any) -> None:
         if not (root / ".empirica").is_dir():
             return
         reporter = config.pluginmanager.get_plugin("terminalreporter")
+        counts = _counts(reporter)
+        if counts["total"] == 0:
+            return  # --collect-only, a selection that matched nothing, all skipped: no evidence, and none already there to be erased
         _write_atomically(
             root / ".empirica" / REPORT_NAME,
             {
                 "runner": "pytest",
-                "summary": _counts(reporter),
+                "summary": counts,
                 "scope": _scope(config),
                 "created": time.time(),
                 "head": _head(root),

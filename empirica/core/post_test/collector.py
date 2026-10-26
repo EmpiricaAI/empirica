@@ -76,6 +76,10 @@ JUNIT_GLOBS = (
 )
 JUNIT_MAX_FILES = 200  # a hot-path glob must not scale with the size of a build directory
 JUNIT_MAX_BYTES = 10_000_000
+REPORT_CLOCK_SKEW_SECONDS = 300  # how far ahead of this clock a report's own `created` may be before it is not believed
+JUNIT_MAX_CANDIDATES = (
+    2000  # per glob; past this the pick of the first 200 is no longer deterministic, which `partial:` already says
+)
 DECLARED_QUALITY_MAX_METRICS = 50  # a practice's declaration is a handful of checks, not a log
 
 
@@ -165,6 +169,11 @@ class EvidenceBundle:
         if isinstance(raw, (int, float)) and not isinstance(raw, bool):
             return float(raw)
         return float(item.value)
+
+    def raw(self, metric_name: str) -> Any:
+        """The raw_value of a named metric (a dict for counts with a scope, a scalar otherwise), or None if the metric is absent."""
+        item = self._find(metric_name)
+        return item.raw_value if item else None
 
     def direction(self, metric_name: str) -> str:
         """Direction declared by the metric's collector. Defaults to higher_is_better."""
@@ -1671,10 +1680,26 @@ class PostTestCollector:
 
     @staticmethod
     def _made_at(path: Path, declared: Any = None) -> float:
-        """When a report was produced: the time it declares, else the file's mtime."""
-        if isinstance(declared, (int, float)) and not isinstance(declared, bool):
+        """When a report was produced: the time it declares, else the file's mtime.
+
+        A declared time more than a few minutes ahead of this clock is not believed: a writer that sent milliseconds (Date.now()) or a
+        wrong clock would otherwise look newer than any window and never go stale. Clock skew of seconds is tolerated."""
+        if (
+            isinstance(declared, (int, float))
+            and not isinstance(declared, bool)
+            and declared <= time.time() + REPORT_CLOCK_SKEW_SECONDS
+        ):
             return float(declared)
         return path.stat().st_mtime
+
+    @staticmethod
+    def _count(value: Any) -> int | None:
+        """A test count: a non-negative integer (JSON 3.0 accepted), else None. Text, null, bool, negatives and fractions are not counts."""
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        return value if isinstance(value, int) and value >= 0 else None
 
     def _read_json_test_report(self, root: Path, start: float | None) -> tuple[dict[str, Any] | None, bool]:
         """First fresh JSON test report: the runner-agnostic file, then the legacy pytest names. Second value: a stale one was seen."""
@@ -1696,13 +1721,18 @@ class PostTestCollector:
                 stale = True
                 continue
             summary = report["summary"]
-            passed = int(summary.get("passed", 0) or 0)
-            failed = int(summary.get("failed", 0) or 0)
+            passed, failed = self._count(summary.get("passed", 0)), self._count(summary.get("failed", 0))
+            declared_total = self._count(summary.get("total", 0))
+            if (
+                passed is None or failed is None
+            ):  # not a report of counts: try the next candidate, do not fail the whole source
+                continue
             return (
                 {
                     "passed": passed,
                     "failed": failed,
-                    "total": int(summary.get("total", passed + failed) or 0),
+                    # a total below passed + failed would give a rate above 1
+                    "total": max(declared_total or 0, passed + failed),
                     "runner": str(report.get("runner") or "pytest"),
                     "scope": self._declared_scope(report.get("scope")),
                 },
@@ -1738,10 +1768,12 @@ class PostTestCollector:
         """Sum the fresh JUnit XML files at the standard paths. Bounded, and a malformed file is skipped, not fatal."""
         seen: set[Path] = set()
         for pattern in JUNIT_GLOBS:
-            seen.update(islice((p for p in root.glob(pattern) if p.is_file()), JUNIT_MAX_FILES))
+            seen.update(islice((p for p in root.glob(pattern) if p.is_file()), JUNIT_MAX_CANDIDATES))
+        ordered = sorted(seen)
+        truncated = len(ordered) > JUNIT_MAX_FILES
         passed = failed = 0
         found = stale = False
-        for path in sorted(seen)[:JUNIT_MAX_FILES]:
+        for path in ordered[:JUNIT_MAX_FILES]:
             try:
                 if path.stat().st_size > JUNIT_MAX_BYTES:
                     continue
@@ -1759,7 +1791,8 @@ class PostTestCollector:
         if not found:
             return None, stale
         # a JUnit file records only the last run's filter, so what it covers is unknown
-        return {"passed": passed, "failed": failed, "total": passed + failed, "runner": "junit", "scope": None}, stale
+        scope = f"partial: first {JUNIT_MAX_FILES} of more than {JUNIT_MAX_FILES} junit files" if truncated else None
+        return {"passed": passed, "failed": failed, "total": passed + failed, "runner": "junit", "scope": scope}, stale
 
     def _collect_test_results(self) -> list[EvidenceItem]:
         """Test pass rate (and coverage) from a report made inside this transaction.
