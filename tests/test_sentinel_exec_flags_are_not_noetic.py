@@ -117,3 +117,58 @@ def test_without_a_widened_work_type_the_same_commands_were_already_gated(gate, 
     """Control: the hole was only the work_type widening."""
     monkeypatch.setattr(gate, "_current_work_type", None)
     assert gate.is_safe_bash_command({"command": command}) is False, command
+
+
+# ── abbreviations and attached short options (pre-publish sweep, C1 and C2) ──────────────────────────────────
+# getopt_long parsers accept any unambiguous PREFIX of a long option and accept a short option with its value attached or inside a cluster, so an
+# exact-token denylist let `man --conf cfg`, `git cat-file --textc`, `man -C/tmp/m.conf`, `man -aC cfg` and `man -Pcat` through as noetic. The
+# reviewer ran the first two and watched the helper run.
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "man --config cfg -l x.1",
+        "man --conf cfg -l x.1",
+        "man --config-f cfg ls",
+        "man --conf=cfg ls",
+        "man --pag cat ls",
+        "man --pager=cat ls",
+        "man --htm ls",
+        "git cat-file --textc HEAD:f",
+        "git blame --textco f",
+        "git diff --textconv=1 HEAD",
+        "git diff --ext-dif HEAD",
+        "man -C/tmp/m.conf ls",
+        "man -aC /tmp/m.conf ls",
+        "man -Pcat ls",
+        "man -aPcat ls",
+        "man -Hfirefox ls",
+    ],
+)
+def test_an_abbreviated_or_attached_form_of_a_program_naming_flag_is_not_noetic(gate, command):
+    assert gate.is_safe_bash_command({"command": command}) is False, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "man ls",
+        "man 3 printf",
+        "man -k printf",
+        "man -l x.1",
+        "man -w ls",
+        "man -a ls",
+        "man --apropos printf",
+        "man --where ls",
+        "git diff --stat",
+        "git diff --stat --numstat HEAD~1",
+        "git log --stat -3",
+        "git log --text-nothing-else",
+        "git blame README.md",
+        "git show --name-only HEAD",
+    ],
+)
+def test_ordinary_man_and_git_reads_stay_noetic(gate, command):
+    """Controls: the broader match must not turn everyday reads into praxic ones."""
+    assert gate.is_safe_bash_command({"command": command}) is True, command

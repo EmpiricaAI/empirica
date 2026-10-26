@@ -2271,8 +2271,10 @@ _TOOL_DANGEROUS_FLAGS: dict[str, frozenset[str]] = {
     "ack": frozenset({"--pager"}),
     "bat": frozenset({"--pager"}),
     "man": frozenset({"-P", "--pager", "-H", "--html", "-C", "--config-file"}),
-    # opt-in flags that make a read verb run a program: the diff.external command and a textconv driver's command. (-C / --config-file on
-    # man names a man-db config that can DEFINE the pager, nroff or compressor it executes.)
+    # opt-in flags that make a read verb run a program: `--ext-diff` the diff.external command, `--textconv` a textconv driver's command.
+    # This does NOT make plain `git diff` safe from an external program: with diff.external set (or GIT_EXTERNAL_DIFF in the environment)
+    # a bare `git diff` already runs it, and no flag guard can see that. (-C / --config-file on man names a man-db config that can DEFINE
+    # the pager, nroff or compressor it executes.)
     "git": frozenset({"--ext-diff", "--textconv"}),
     # linters and analyzers: fix in place, write reports, create stubs, install packages
     "ruff": frozenset({"--fix", "--fix-only", "--unsafe-fixes", "--add-noqa", "--output-file"}),
@@ -2937,9 +2939,36 @@ def _has_dangerous_tool_flags(cmd: str) -> bool:
         for tok in stripped.split()[1:]:
             if tok in flags:
                 return True
-            if tok.startswith("--") and "=" in tok and tok.split("=", 1)[0] in flags:
+            name = tok.split("=", 1)[0]
+            if tok.startswith("--") and "=" in tok and name in flags:
+                return True
+            if head in _GETOPT_ABBREVIATING and _abbreviates_a_flag(name, flags):
+                return True
+            if head == "man" and _man_short_cluster_runs_a_program(tok):
                 return True
     return False
+
+
+# Tools whose option parser is getopt_long: it accepts any UNAMBIGUOUS PREFIX of a long option (`man --conf cfg` is `--config-file cfg`,
+# `git blame --textco` is `--textconv`), so an exact-token denylist leaks. A prefix of a dangerous long flag gates, ambiguous or not: a
+# gate costs a CHECK, a leak runs a program. Three letters after the dashes are required so `--e` style stubs do not gate everything.
+_GETOPT_ABBREVIATING = frozenset({"man", "git"})
+_MIN_ABBREVIATION = 5  # "--" plus three letters
+
+
+def _abbreviates_a_flag(name: str, flags: frozenset[str]) -> bool:
+    """True when `name` (a `--long` token without its `=value`) is a prefix of one of the dangerous long flags."""
+    return (
+        name.startswith("--")
+        and len(name) >= _MIN_ABBREVIATION
+        and any(f.startswith(name) for f in flags if f.startswith("--"))
+    )
+
+
+def _man_short_cluster_runs_a_program(tok: str) -> bool:
+    """man's -P (pager), -H (html browser) and -C (config file that can define the programs it runs) also arrive attached to their value
+    (`-Pcat`, `-C/tmp/m.conf`) or inside a cluster (`-aC file`). Any single-dash token carrying one of them gates."""
+    return len(tok) > 1 and tok[0] == "-" and tok[1] != "-" and any(c in tok[1:] for c in "PHC")
 
 
 # git accepts GLOBAL options between the binary and the subcommand, so the
