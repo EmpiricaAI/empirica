@@ -112,6 +112,23 @@ def _run_empirica(*args, timeout=30):
     )
 
 
+@pytest.fixture(scope="module")
+def cli_parser():
+    """The CLI's argument parser, built once per module (building it is what a spawned process pays for on every call)."""
+    from empirica.cli.cli_core import create_argument_parser
+
+    return create_argument_parser()
+
+
+def _is_registered(parser, command: str) -> bool:
+    """True when `command` is a registered subcommand of the built parser."""
+    import argparse
+
+    return any(
+        command in action.choices for action in parser._actions if isinstance(action, argparse._SubParsersAction)
+    )
+
+
 # ===================================================================
 # Test 1: All JSON-output commands produce valid JSON
 # ===================================================================
@@ -122,13 +139,26 @@ class TestValidJson:
     parseable JSON when invoked."""
 
     @pytest.mark.parametrize("command", ALL_JSON_COMMANDS)
-    def test_command_exists(self, command):
-        """Each JSON-output command should exist and respond to --help."""
-        result = _run_empirica(command, "--help")
-        combined = result.stdout + result.stderr
-        assert result.returncode == 0 or command in combined, (
-            f"Command '{command}' does not appear to be registered in the CLI"
-        )
+    def test_command_exists(self, command, cli_parser, capsys):
+        """Each JSON-output command is registered in the built parser and `--help` renders its options, in process.
+
+        This was a subprocess per command (185 spawns, ~200s, a third of the suite's cost) asserting `returncode == 0 or command in
+        output`, which passes for a command that does not exist: the error text echoes the name. Here the registration is checked
+        against the parser itself, so an unregistered command fails."""
+        assert _is_registered(cli_parser, command), f"Command '{command}' is not registered in the CLI"
+        with pytest.raises(SystemExit) as stopped:
+            cli_parser.parse_args([command, "--help"])
+        assert stopped.value.code == 0
+        assert "--output" in capsys.readouterr().out, f"'{command} --help' does not list --output"
+
+    def test_the_registration_check_rejects_a_command_that_does_not_exist(self, cli_parser):
+        """Negative control: the replaced assertion passed for this name."""
+        assert not _is_registered(cli_parser, "definitely-not-a-command")
+
+    def test_the_installed_entry_point_starts_and_answers_help(self):
+        """The one subprocess left: `python -m empirica.cli <command> --help` imports and runs end to end."""
+        result = _run_empirica(ALL_JSON_COMMANDS[0], "--help")
+        assert result.returncode == 0 and "--output" in result.stdout
 
     @pytest.mark.parametrize("command", RUNNABLE_STATELESS)
     def test_stateless_command_returns_valid_json(self, command):
