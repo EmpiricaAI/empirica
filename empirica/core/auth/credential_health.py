@@ -180,6 +180,32 @@ def mark(secret: str | None, verdict: dict[str, str] | None) -> None:
     )
 
 
+def note_http_error(credential: str | None, exc: Any) -> bool:
+    """Record the credential as dead if `exc` is a 401 whose body carries a TERMINAL verdict. Returns whether it marked.
+
+    For the unattended loops (the heartbeats, the liveness probe, auto-accept), which catch an `HTTPError`, kept its status code and threw
+    its body away, so they could never learn `credential_status` and went on re-presenting a rejected key. They pass the credential they
+    sent (the raw secret or an `Authorization: Bearer ...` value) and the error they got. Only a 401 is considered; a refreshable status,
+    an absent verdict and every other status mark nothing (fail open). Never raises: noticing a death must not be able to break the loop.
+    """
+    try:
+        if getattr(exc, "code", None) != 401 or not credential:
+            return False
+        secret = credential.split(None, 1)[1] if credential[:7].lower() == "bearer " else credential
+        try:
+            body = exc.read()
+        except Exception:
+            body = None
+        verdict = parse_unauthorized(body, dict(getattr(exc, "headers", None) or {}))
+        if not verdict or verdict.get("credential_status") not in TERMINAL:
+            return False
+        mark(secret, verdict)
+        return True
+    except Exception as e:
+        logger.debug(f"credential_health: could not note an HTTP error ({type(e).__name__})")
+        return False
+
+
 def dead_reason(secret: str | None) -> str | None:
     """The recorded terminal status for this credential, or None if usable.
 
@@ -195,6 +221,18 @@ def dead_reason(secret: str | None) -> str | None:
     if not isinstance(entry, dict):
         return None
     return entry.get("credential_status") or "unusable"
+
+
+def dead_marks() -> list[dict[str, Any]]:
+    """Every credential currently recorded dead: its fingerprint, terminal status and when. Never the secret.
+
+    For `doctor`: a credential suppressed by `cortex_bearer` must not be indistinguishable from one that was never configured.
+    """
+    return [
+        {"fingerprint": fp, "credential_status": entry.get("credential_status"), "at": entry.get("at")}
+        for fp, entry in (_read().get("dead") or {}).items()
+        if isinstance(entry, dict)
+    ]
 
 
 def clear() -> None:

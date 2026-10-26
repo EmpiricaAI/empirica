@@ -3103,6 +3103,36 @@ def _handle_reconcile_notes(cwd: Path, apply_it: bool) -> int:
     return 0 if not receipt["failed"] and not receipt["goals"]["failed"] else 2
 
 
+def check_credential_health() -> Check:
+    """Is any cortex credential recorded dead (a terminal 401), and so being suppressed?
+
+    `cortex_bearer` skips a key recorded as dead and says why to its caller, but the unattended loops that call it log that at debug, so
+    from the outside a suppressed credential looked exactly like one that was never configured. This names it, by fingerprint only.
+    """
+    import time as _time
+
+    from empirica.core.auth.credential_health import dead_marks
+
+    name = "Credential health"
+    try:
+        marks = dead_marks()
+    except Exception as exc:
+        return Check(name, WARN, f"credential health unreadable: {type(exc).__name__}")
+    if not marks:
+        return Check(name, PASS, "no credential recorded dead")
+    parts = []
+    for m in marks:
+        age = f"{(_time.time() - float(m['at'])) / 3600:.0f}h ago" if m.get("at") else "time unknown"
+        parts.append(f"{str(m['fingerprint'])[:8]} {m.get('credential_status') or 'unusable'} ({age})")
+    return Check(
+        name,
+        WARN,
+        f"{len(marks)} credential(s) recorded dead and suppressed: " + "; ".join(parts),
+        "empirica auth login   — requests with a dead credential are not sent until credentials.yaml changes",
+        data={"marks": marks},
+    )
+
+
 def check_notes_sqlite_divergence(cwd: Path | None = None) -> Check:
     """Do the ACTIVE git notes agree with sqlite?
 
@@ -3196,6 +3226,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_cortex_creds(),
         check_cortex_reachability(),
         check_cortex_auth(),
+        check_credential_health(),
         check_project_drift(cwd),
         check_pinned_projects(),
         # ntfy mesh

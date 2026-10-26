@@ -94,6 +94,9 @@ def _request(method: str, url: str, key: str, body: dict | None = None) -> dict 
             raw = resp.read().decode("utf-8")
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:
+        from empirica.core.auth.credential_health import note_http_error
+
+        note_http_error(key, e)  # a terminal 401 is remembered, so the next poll does not re-present the key
         if e.code == 404:
             logger.debug(f"auto-accept: endpoint {url} not shipped yet (404)")
         else:

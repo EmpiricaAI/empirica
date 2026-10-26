@@ -196,6 +196,9 @@ class LivenessProbe:
         try:
             status = self._probe_fn(cortex_url, api_key)
         except urllib.error.HTTPError as e:
+            from empirica.core.auth.credential_health import note_http_error
+
+            note_http_error(api_key, e)  # a terminal 401 is remembered, so the next probe does not re-present the key
             if e.code == 401 and retry_on_401:
                 # The token may have expired between resolving it and using it. Re-resolve ONCE and retry before
                 # counting a miss; a token that is genuinely revoked comes back unchanged, and is then a real miss.

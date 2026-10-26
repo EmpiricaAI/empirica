@@ -62,6 +62,11 @@ def _default_post(url: str, body: bytes, headers: dict, timeout: float) -> int:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status
     except urllib.error.HTTPError as e:
+        from empirica.core.auth.credential_health import note_http_error
+
+        note_http_error(
+            headers.get("Authorization"), e
+        )  # a terminal 401 is remembered, so the next beat does not re-present the key
         return e.code
     except Exception:
         return -1
