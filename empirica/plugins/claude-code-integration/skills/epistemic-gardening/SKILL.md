@@ -203,8 +203,11 @@ including your peers' (*never garden a peer's graph*), and `--qdrant` additional
 force-imports git notes into SQLite first, reverting any direct or bulk change not yet in
 notes and then embedding the reverted state.
 
-**Decisions and assumptions have no rebuild path at all.** Nothing re-embeds them from
-SQLite, so a lost point is lost. Treat their Qdrant copies as write-once until that lands.
+**Decisions and assumptions are re-embedded from SQLite** (`rebuild` and `project-embed` read the
+`decisions` and `assumptions` tables since 2026-09-06, `core/qdrant/rebuild.py`
+`_read_decisions_and_assumptions`), so a lost Qdrant point there is recoverable. The wiring is pinned
+structurally (`tests/test_rebuild_drops_only_what_it_refills.py`); no test refills a live Qdrant end to
+end, so compare the point counts before and after a refresh rather than trusting the success line.
 
 ### 5 — POSTFLIGHT
 

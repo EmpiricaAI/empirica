@@ -1754,7 +1754,8 @@ def check_project_embed_outcome(cwd: Path | None = None) -> Check:
             name,
             WARN,
             f"findings logged {lag_days:.0f}d after the last run",
-            "run `empirica project-embed`; the session-end launch may not be firing",
+            "run `empirica project-embed`; the launch fires at SessionEnd, so a session that stays open for days defers it "
+            "(artifacts are also embedded when they are written, so recent findings stay retrievable meanwhile)",
             data=data,
         )
     return Check(name, PASS, f"ok {age_days:.1f}d ago", data=data)

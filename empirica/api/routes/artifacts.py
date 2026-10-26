@@ -1784,7 +1784,8 @@ async def post_artifacts_resolve(
 
     resolved_by = body.get("resolved_by", "")
 
-    db = _open_db_for(_resolve_project_dict(project_id, path))
+    project = _resolve_project_dict(project_id, path)
+    db = _open_db_for(project)
     try:
         cursor = db.conn.cursor()
         now = time.time()
@@ -1833,6 +1834,10 @@ async def post_artifacts_resolve(
         for r in results:
             if r.get("type") == "goal" and r.get("outcome") == "resolved":
                 restamp_goal_note(db.conn, r["id"], "completed")
+            elif r.get("type") == "unknown" and r.get("outcome") == "resolved":
+                # Notes are the canonical log: without this a from-notes rebuild reopens the unknown (as the single route did until
+                # 2026-10-19).
+                _stamp_note_after_resolve(project, "unknown", r["id"], resolved_by, {}, now, None)
         return {
             "ok": True,
             "resolved": sum(1 for r in results if r["outcome"] == "resolved"),
