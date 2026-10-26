@@ -86,10 +86,15 @@ HELP_COMMANDS = [
 
 @pytest.mark.parametrize("command", HELP_COMMANDS)
 def test_the_command_has_a_working_help_that_names_it(cli, command):
-    """Exit 0 alone passes on empty output; the usage line must name the command it documents."""
+    """Exit 0 alone passes on empty output; the usage line must name the command it documents.
+
+    The prefix before the command differs by Python: 3.14 prints `empirica check [-h]`, 3.11 and 3.13 print the main parser's custom
+    usage string first (`empirica [--version] [--verbose] <command> [args] check [-h]`), wrapped by terminal width. `<command> [-h]` is
+    the part every version agrees on (the first version asserted `empirica <command>` and passed only on the developer's 3.14).
+    """
     result = cli(command, "--help")
     assert result.returncode == 0, result.stderr
-    assert f"empirica {command}" in result.stdout, (
+    assert f"{command} [-h]" in " ".join(result.stdout.split()), (
         f"--help for {command} does not say what it documents:\n{result.stdout[:300]}"
     )
 

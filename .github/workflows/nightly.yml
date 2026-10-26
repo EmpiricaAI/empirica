@@ -1,0 +1,90 @@
+name: Nightly
+
+# Two checks the per-push CI deliberately does not run (David, 2026-10-26: "add as nightly run").
+#
+#   integration   the tests marked `integration` (excluded from CI by -m "not integration"). Nothing ran them, so nothing noticed when
+#                 they rotted; they pass locally in ~30 s.
+#   clean-env     the whole suite with HOME empty and PATH holding only the system binaries (`env -i`). It is the only detector for a
+#                 test that measures the box instead of the code: nine files passed on every developer machine and on CI only because
+#                 `empirica`, `python` and `ruff` happened to be on PATH, and 259 tests failed once they were not. The detectors in
+#                 tests/test_tests_have_no_box_dependence.py keep the known classes at zero; this job finds the next class.
+#
+# Scheduled workflows run from the DEFAULT branch's copy of this file (main), but the checkout below tests `develop`, where the work
+# lands. The schedule therefore starts to fire after the first release that carries this file reaches main; run it by hand before then
+# with the "Run workflow" button (workflow_dispatch).
+
+on:
+  schedule:
+    - cron: "23 3 * * *"  # 03:23 UTC, off the top-of-hour rush
+  workflow_dispatch:
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  integration:
+    name: Integration-marked tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: develop
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install (with dev + optional extras)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,api,tui,vector]"
+
+      - name: Configure git identity
+        # The integration tests commit in throwaway repositories.
+        run: |
+          git config --global user.email "ci@example.invalid"
+          git config --global user.name "CI"
+
+      - name: pytest (integration only)
+        run: pytest tests/ -q --tb=short -m integration
+
+  clean-env:
+    name: Clean-environment suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: develop
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install (with dev + optional extras)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,api,tui,vector]"
+          pip install -e "./empirica-mcp[dev]"
+
+      - name: pytest in a clean environment (no inherited variables, empty HOME, system PATH only)
+        # The interpreter is addressed by absolute path because the toolchain directory is deliberately NOT on PATH: a test that
+        # spawns a bare `empirica`, `python` or `ruff` finds nothing and fails, which is the point. A fresh git identity is not
+        # inherited either; the tests that commit set their own.
+        run: |
+          CLEAN_HOME="$(mktemp -d)"
+          env -i HOME="$CLEAN_HOME" PATH=/usr/bin:/bin "$(command -v python)" -m pytest tests/ -q --tb=short -m "not integration" -n auto
