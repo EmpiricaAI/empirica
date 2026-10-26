@@ -321,8 +321,13 @@ def cortex_bearer(loader=None, *, http=_http_json) -> dict[str, Any]:
         token = loader.cortex_access_token(refresh=refresh_cb)
     except Exception as e:  # refresh machinery must never take down the api_key path
         logger.warning(f"oauth token resolution failed, falling back to api_key: {e}")
-    if token:
+    from empirica.core.auth.credential_health import dead_reason
+
+    token_reason = dead_reason(token) if token else None
+    if token and not token_reason:
         return {"url": cfg.get("url"), "bearer": token, "source": "oauth"}
+    # A token recorded as terminally dead is not offered again (it was, until it expired: the guard only looked at the key, so a revoked token
+    # was re-presented every beat). The api_key fallback may still be good, so fall through to it as for any missing token.
 
     api_key = cfg.get("api_key")
     if api_key:
@@ -345,7 +350,11 @@ def cortex_bearer(loader=None, *, http=_http_json) -> dict[str, Any]:
         "url": cfg.get("url"),
         "bearer": None,
         "source": "none",
-        "reason": "no cortex credential configured (no OAuth token, no api_key)",
+        "reason": (
+            f"oauth token unusable ({token_reason}) — re-authenticate with `empirica auth login`"
+            if token_reason
+            else "no cortex credential configured (no OAuth token, no api_key)"
+        ),
     }
 
 

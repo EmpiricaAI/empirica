@@ -211,3 +211,78 @@ def test_dead_marks_lists_each_marked_credential_once():
     marks = ch.dead_marks()
     assert sorted(m["credential_status"] for m in marks) == ["invalid_key", "invalid_token"]
     assert all(SECRET not in json.dumps(m) for m in marks)
+
+
+# ── pre-publish sweep: the contract's edges (D1, D4, D5) ────────────────────────────────────────────────────────
+
+OAUTH = "oauth_access_token_value_ABCDEFGH"
+
+
+class _Loader:
+    def __init__(self, token=OAUTH, api_key=SECRET):
+        self._token, self._api_key = token, api_key
+
+    def get_cortex_config(self):
+        return {"url": "https://cortex.invalid", "api_key": self._api_key}
+
+    def get_cortex_oauth(self):
+        return {
+            "refresh_owner": "extension"
+        }  # a family the CLI does not refresh: no refresh callback, token read as stored
+
+    def cortex_access_token(self, refresh=None):
+        return self._token
+
+
+def test_an_oauth_token_recorded_dead_is_not_offered_again_and_the_key_fallback_takes_over():
+    from empirica.core.auth.cortex_oauth import cortex_bearer
+
+    assert cortex_bearer(_Loader(), http=lambda *a, **k: {})["bearer"] == OAUTH, "control: offered before the 401"
+    ch.note_http_error(OAUTH, _http_error(401, {"credential_status": "invalid_token", "retry": "reauthenticate"}))
+    after = cortex_bearer(_Loader(), http=lambda *a, **k: {})
+    assert after["source"] == "api_key" and after["bearer"] == SECRET
+
+
+def test_with_no_key_to_fall_back_to_a_dead_oauth_token_is_suppressed_and_says_why():
+    from empirica.core.auth.cortex_oauth import cortex_bearer
+
+    ch.note_http_error(OAUTH, _http_error(401, {"credential_status": "invalid_token", "retry": "reauthenticate"}))
+    after = cortex_bearer(_Loader(api_key=None), http=lambda *a, **k: {})
+    assert after["bearer"] is None and after["source"] == "none"
+    assert "invalid_token" in after["reason"] and "oauth" in after["reason"].lower()
+
+
+def test_a_refreshable_401_on_the_oauth_token_does_not_suppress_it():
+    from empirica.core.auth.cortex_oauth import cortex_bearer
+
+    ch.note_http_error(OAUTH, _http_error(401, {"credential_status": "expired_token", "retry": "refresh"}))
+    assert cortex_bearer(_Loader(), http=lambda *a, **k: {})["bearer"] == OAUTH
+
+
+def test_the_www_authenticate_header_is_found_whatever_case_the_server_sent():
+    for name in ("WWW-Authenticate", "www-authenticate", "Www-Authenticate", "WWW-AUTHENTICATE"):
+        err = _http_error(401, b"", {name: 'Bearer error="invalid_token"'})
+        assert ch.note_http_error(SECRET, err) is True, name
+        assert ch.dead_reason(SECRET) == "invalid_token"
+        ch._write({})  # reset between names
+
+
+def test_a_failed_write_leaves_the_previous_marks_and_no_temp_file(monkeypatch, tmp_path):
+    ch.note_http_error(SECRET, _http_error(401, TERMINAL_BODY))
+    before = ch._health_path().read_text()
+    import os
+
+    monkeypatch.setattr(os, "replace", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+    ch.note_http_error("tk_other_secret_000000000", _http_error(401, TERMINAL_BODY))
+    assert ch._health_path().read_text() == before, "a half-written health file must never replace the good one"
+    assert sorted(p.name for p in ch._health_path().parent.iterdir() if "health" in p.name or p.suffix == ".tmp") == [
+        ch._health_path().name
+    ]
+
+
+def test_a_successful_write_leaves_only_the_health_file():
+    ch.note_http_error(SECRET, _http_error(401, TERMINAL_BODY))
+    leftovers = [
+        p.name for p in ch._health_path().parent.iterdir() if p.name != ch._health_path().name and ".tmp" in p.name
+    ]
+    assert leftovers == []

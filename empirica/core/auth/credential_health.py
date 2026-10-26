@@ -41,6 +41,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -95,7 +97,8 @@ def parse_unauthorized(body: Any, headers: dict[str, str] | None = None) -> dict
     if not isinstance(data, dict):
         # RFC 6750 puts the machine-readable reason in WWW-Authenticate when the
         # body is empty, which is the shape the OAuth-challenge paths use.
-        auth = (headers or {}).get("WWW-Authenticate") or (headers or {}).get("www-authenticate")
+        # header names are case-insensitive (RFC 9110) and dict(exc.headers) keeps whatever case the server sent
+        auth = next((v for k, v in (headers or {}).items() if str(k).lower() == "www-authenticate"), None)
         if auth and "invalid_token" in auth:
             return {"credential_status": "invalid_token", "retry": "reauthenticate"}
         return None
@@ -153,7 +156,17 @@ def _write(state: dict[str, Any]) -> None:
             state["credentials_mtime"] = _credentials_path().stat().st_mtime
         except OSError:
             state["credentials_mtime"] = 0.0
-        _health_path().write_text(json.dumps(state, indent=2), encoding="utf-8")
+        # Atomic: four unattended loops share this file, and a reader that landed mid-truncate saw unreadable JSON, logged a spurious
+        # warning, returned {} and let the next mark overwrite the others.
+        target = _health_path()
+        fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".credential_health.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(state, indent=2))
+            os.replace(tmp, target)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
     except OSError as e:
         # Non-fatal: losing the mark costs a re-storm, raising costs the request.
         logger.debug(f"credential_health: could not persist ({e})")
