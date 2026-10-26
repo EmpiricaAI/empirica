@@ -177,6 +177,9 @@ dev = [
 [project.scripts]
 empirica = "empirica.cli.cli_core:main"
 
+[project.entry-points.pytest11]
+empirica = "empirica.utils.pytest_report_plugin"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["empirica"]
