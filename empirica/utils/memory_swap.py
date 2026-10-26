@@ -305,7 +305,11 @@ def swap_memory(
         if e.name not in (BACKUP_SUBDIR, MANIFEST_NAME) and e.name not in backed_up
     )
     if unsaved:
-        # Removing an original that was not backed up destroys it, and a manifest-less half swap cannot be restored.
+        # Removing an original that was not backed up destroys it, and a manifest-less half swap cannot be restored. Nothing was removed from
+        # the target, so the copies made so far are redundant: discard them. The guard above guarantees this call created the backup dir
+        # empty. Left in place they read as an orphan backup, and every later swap is refused with a message that says to move back files
+        # that were never taken out.
+        shutil.rmtree(backup_dir, ignore_errors=True)
         return {
             "ok": False,
             "action": "backup_incomplete",

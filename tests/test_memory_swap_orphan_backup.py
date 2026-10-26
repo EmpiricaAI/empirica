@@ -68,3 +68,56 @@ def test_a_swap_with_a_live_manifest_is_still_idempotent(fake_home, tmp_path):
     other = _project(tmp_path, "other", {"MEMORY.md": "OTHER PROJECT"})
     swap_memory(harness, other)
     assert swap_memory(harness, other)["action"] == "already_active"
+
+
+# ── a backup that could not be completed must not become an orphan (pre-publish sweep, C4) ─────────────────────
+
+
+def _flaky_first_backup(monkeypatch, victim: str):
+    """The first 'Backup' copy silently misses `victim` (a transient copy error); later copies are normal."""
+    from empirica.utils import memory_swap as ms
+
+    real = ms._copy_dir_entries
+    state = {"failed": False}
+
+    def flaky(src, dest, label):
+        done = real(src, dest, label)
+        if label == "Backup" and not state["failed"]:
+            state["failed"] = True
+            (Path(dest) / victim).unlink()
+            return [d for d in done if d != victim]
+        return done
+
+    monkeypatch.setattr(ms, "_copy_dir_entries", flaky)
+
+
+def test_an_incomplete_backup_leaves_no_partial_backup_and_the_originals_untouched(fake_home, tmp_path, monkeypatch):
+    harness = _project(tmp_path, "harness", {"a.md": "A", "b.md": "B"})
+    other = _project(tmp_path, "other", {"MEMORY.md": "OTHER"})
+    _flaky_first_backup(monkeypatch, "b.md")
+
+    first = swap_memory(harness, other)
+
+    memory = _claude_memory_dir(harness)
+    assert first["ok"] is False and first["action"] == "backup_incomplete", first
+    assert (memory / "a.md").read_text() == "A" and (memory / "b.md").read_text() == "B", "nothing was removed"
+    backup = memory / BACKUP_SUBDIR
+    assert not backup.exists() or not any(backup.iterdir()), (
+        "a partial backup is what the next swap would call an orphan"
+    )
+
+
+def test_after_an_incomplete_backup_the_next_swap_succeeds_instead_of_being_refused_forever(
+    fake_home, tmp_path, monkeypatch
+):
+    harness = _project(tmp_path, "harness", {"a.md": "A", "b.md": "B"})
+    other = _project(tmp_path, "other", {"MEMORY.md": "OTHER"})
+    _flaky_first_backup(monkeypatch, "b.md")
+    assert swap_memory(harness, other)["action"] == "backup_incomplete"
+
+    second = swap_memory(harness, other)
+
+    assert second["ok"] is True and second["action"] == "swapped", second
+    assert restore_memory(harness)["ok"] is True
+    memory = _claude_memory_dir(harness)
+    assert (memory / "a.md").read_text() == "A" and (memory / "b.md").read_text() == "B"
