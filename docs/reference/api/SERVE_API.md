@@ -659,11 +659,15 @@ shape: `{nodes: [...], edges: [...]}`.
 
 ### POST /api/v1/artifacts/resolve
 
-Batch resolve. Body: `{ids: [...], resolved_by?: "..."}` or `{items: [{id, type}, ...]}`.
-Per-type semantics match the single resolve endpoint. Types without resolve
-semantics are counted as `skipped` rather than errors.
+Batch resolve. Body: `{ids: [...], resolved_by?: "..."}` or `{items: [{id, ...}, ...]}`; an item may carry
+the fields the single endpoint takes for its type (`verified` for an assumption; `resolution_kind`,
+`superseded_by`, `resolution` for a finding; `reason` for a dead end or mistake). Both endpoints run the same
+code (`_apply_resolution`), so findings, dead ends and mistakes resolve here exactly as they do singly. Types
+without resolve semantics (decisions, sources) are counted as `skipped`. A caller's mistake in one item
+(an unknown `resolution_kind`, a `superseded_by` that names no single finding) is that item's `failed` outcome,
+with its `reason`, and the rest of the batch still runs.
 
-**Response:** `{ok, resolved, skipped, not_found, results: [...]}`
+**Response:** `{ok, resolved, skipped, failed, not_found, results: [...]}` (`failed` added 2026-10-26)
 
 ### POST /api/v1/artifacts/delete
 

@@ -1505,9 +1505,6 @@ async def resolve_artifact(
     resolved-but-unstated assumption is far more often one that did not hold, and
     defaulting to verified manufactures confirmation the caller never claimed.
     """
-    import time
-
-    resolved_by = body.get("resolved_by", "")
     # Scope: ?project_id=X / ?path=Y / daemon's bound project — mirroring
     # get_artifact. Until 2026-07-31 this used the single-project `_open_db()`
     # alias, so READS were multi-project and WRITES were not: a practice could
@@ -1522,99 +1519,117 @@ async def resolve_artifact(
         if not resolved:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
         artifact_type, _table, _id_col = resolved
-        cursor = db.conn.cursor()
-        now = time.time()
-        _superseded_by = None
-
-        if artifact_type == "unknown":
-            cursor.execute(
-                "UPDATE project_unknowns SET is_resolved = 1, resolved_by = ?, resolved_timestamp = ? WHERE id = ?",
-                (resolved_by, now, artifact_id),
-            )
-        elif artifact_type == "assumption":
-            # Borne out and falsified are OPPOSITE events; defaulting to verified
-            # manufactures confirmation the caller never claimed.
-            status = "verified" if body.get("verified") is True else "falsified"
-            cursor.execute(
-                "UPDATE assumptions SET status = ?, resolved_timestamp = ? WHERE id = ?",
-                (status, now, artifact_id),
-            )
-        elif artifact_type == "goal":
-            cursor.execute(
-                "UPDATE goals SET is_completed = 1, status = 'completed', completed_timestamp = ? WHERE id = ?",
-                (now, artifact_id),
-            )
-        elif artifact_type == "finding":
-            from empirica.data.resolution_kind import (
-                UnresolvableFindingRef,
-                canonical_finding_id,
-                normalize_resolution_kind,
-                require_resolution_kind,
-            )
-
-            # An unknown kind used to be coerced to NULL and the call answered ok, misclassifying the very thing the field measures.
-            try:
-                require_resolution_kind(body.get("resolution_kind"))
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            try:
-                _superseded_by = canonical_finding_id(cursor.execute, body.get("superseded_by"))
-            except UnresolvableFindingRef as exc:
-                # The caller's mistake, said as one: a pointer that names no
-                # single finding is refused, never stored.
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            _exec_lifecycle_update(
-                cursor,
-                artifact_type,
-                "UPDATE project_findings SET is_resolved = 1, resolution = ?, resolved_timestamp = ?, "
-                "resolution_kind = ?, superseded_by = ? WHERE id = ?",
-                (
-                    resolved_by or body.get("resolution") or "resolved",
-                    now,
-                    normalize_resolution_kind(body.get("resolution_kind")),
-                    _superseded_by,
-                    artifact_id,
-                ),
-                migration="057/061",
-            )
-        elif artifact_type in ("dead_end", "mistake"):
-            # INVALIDATION, not resolution (migration 060). A dead-end is never
-            # "done" — it is either still-constraining or wrong.
-            table = "project_dead_ends" if artifact_type == "dead_end" else "mistakes_made"
-            _exec_lifecycle_update(
-                cursor,
-                artifact_type,
-                f"UPDATE {table} SET is_invalidated = 1, invalidation_reason = ?, invalidated_at = ? WHERE id = ?",
-                (resolved_by or body.get("reason") or "invalidated", now, artifact_id),
-                migration="060",
-            )
-        else:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Artifact type '{artifact_type}' has no resolve semantics",
-            )
-
-        db.conn.commit()
-        if artifact_type == "goal":
-            from empirica.core.canonical.empirica_git.goal_note_state import restamp_goal_note
-
-            restamp_goal_note(db.conn, artifact_id, "completed")
-        if artifact_type in ("finding", "unknown"):
-            # Second layer after the read-time reconcile: stamp the vector point too.
-            from empirica.cli.command_handlers.graph_commands import _sync_resolution_to_qdrant
-            from empirica.data.resolution_kind import normalize_resolution_kind as _norm_kind
-
-            _sync_resolution_to_qdrant(
-                db,
-                "project_findings" if artifact_type == "finding" else "project_unknowns",
-                artifact_id,
-                _norm_kind(body.get("resolution_kind")) if artifact_type == "finding" else None,
-                _superseded_by if artifact_type == "finding" else None,
-            )
-        _stamp_note_after_resolve(project, artifact_type, artifact_id, resolved_by, body, now, _superseded_by)
-        return {"ok": True, "type": artifact_type, "id": artifact_id, "action": "resolved"}
+        return _apply_resolution(db, project, artifact_type, artifact_id, body)
     finally:
         db.close()
+
+
+def _apply_resolution(db, project: dict, artifact_type: str, artifact_id: str, body: dict) -> dict:
+    """Resolve ONE artifact of a known type: the sqlite lifecycle update, the goal / Qdrant follow-ups and the git-note stamp.
+
+    The single route and the bulk route both call this, so they cannot drift again: the bulk route answered findings, dead ends and
+    mistakes "no resolve semantics" for months after the single route learned them (migrations 057/060/061), and the refusal read as
+    deliberate. Raises HTTPException for a caller's mistake (400 bad kind / bad supersession pointer, 422 a type with no resolve
+    semantics); the bulk route turns those into a per-item outcome instead of aborting the batch.
+    """
+    import time
+
+    resolved_by = body.get("resolved_by", "")
+    cursor = db.conn.cursor()
+    now = time.time()
+    _superseded_by = None
+    status = None
+
+    if artifact_type == "unknown":
+        cursor.execute(
+            "UPDATE project_unknowns SET is_resolved = 1, resolved_by = ?, resolved_timestamp = ? WHERE id = ?",
+            (resolved_by, now, artifact_id),
+        )
+    elif artifact_type == "assumption":
+        # Borne out and falsified are OPPOSITE events; defaulting to verified
+        # manufactures confirmation the caller never claimed.
+        status = "verified" if body.get("verified") is True else "falsified"
+        cursor.execute(
+            "UPDATE assumptions SET status = ?, resolved_timestamp = ? WHERE id = ?",
+            (status, now, artifact_id),
+        )
+    elif artifact_type == "goal":
+        cursor.execute(
+            "UPDATE goals SET is_completed = 1, status = 'completed', completed_timestamp = ? WHERE id = ?",
+            (now, artifact_id),
+        )
+    elif artifact_type == "finding":
+        from empirica.data.resolution_kind import (
+            UnresolvableFindingRef,
+            canonical_finding_id,
+            normalize_resolution_kind,
+            require_resolution_kind,
+        )
+
+        # An unknown kind used to be coerced to NULL and the call answered ok, misclassifying the very thing the field measures.
+        try:
+            require_resolution_kind(body.get("resolution_kind"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            _superseded_by = canonical_finding_id(cursor.execute, body.get("superseded_by"))
+        except UnresolvableFindingRef as exc:
+            # The caller's mistake, said as one: a pointer that names no
+            # single finding is refused, never stored.
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _exec_lifecycle_update(
+            cursor,
+            artifact_type,
+            "UPDATE project_findings SET is_resolved = 1, resolution = ?, resolved_timestamp = ?, "
+            "resolution_kind = ?, superseded_by = ? WHERE id = ?",
+            (
+                resolved_by or body.get("resolution") or "resolved",
+                now,
+                normalize_resolution_kind(body.get("resolution_kind")),
+                _superseded_by,
+                artifact_id,
+            ),
+            migration="057/061",
+        )
+    elif artifact_type in ("dead_end", "mistake"):
+        # INVALIDATION, not resolution (migration 060). A dead-end is never
+        # "done" — it is either still-constraining or wrong.
+        table = "project_dead_ends" if artifact_type == "dead_end" else "mistakes_made"
+        _exec_lifecycle_update(
+            cursor,
+            artifact_type,
+            f"UPDATE {table} SET is_invalidated = 1, invalidation_reason = ?, invalidated_at = ? WHERE id = ?",
+            (resolved_by or body.get("reason") or "invalidated", now, artifact_id),
+            migration="060",
+        )
+    else:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Artifact type '{artifact_type}' has no resolve semantics",
+        )
+
+    db.conn.commit()
+    if artifact_type == "goal":
+        from empirica.core.canonical.empirica_git.goal_note_state import restamp_goal_note
+
+        restamp_goal_note(db.conn, artifact_id, "completed")
+    if artifact_type in ("finding", "unknown"):
+        # Second layer after the read-time reconcile: stamp the vector point too.
+        from empirica.cli.command_handlers.graph_commands import _sync_resolution_to_qdrant
+        from empirica.data.resolution_kind import normalize_resolution_kind as _norm_kind
+
+        _sync_resolution_to_qdrant(
+            db,
+            "project_findings" if artifact_type == "finding" else "project_unknowns",
+            artifact_id,
+            _norm_kind(body.get("resolution_kind")) if artifact_type == "finding" else None,
+            _superseded_by if artifact_type == "finding" else None,
+        )
+    _stamp_note_after_resolve(project, artifact_type, artifact_id, resolved_by, body, now, _superseded_by)
+    out = {"ok": True, "type": artifact_type, "id": artifact_id, "action": "resolved"}
+    if status is not None:
+        out["status"] = status
+    return out
 
 
 def _stamp_note_after_resolve(
@@ -1770,8 +1785,6 @@ async def post_artifacts_resolve(
 
     Scope: `?project_id=X`, `?path=Y`, or the daemon's bound project (default).
     """
-    import time
-
     # `ids` still wins when both are sent (as before); `items` carry a per-item `verified` for assumptions.
     ids = body.get("ids")
     items = (
@@ -1787,8 +1800,6 @@ async def post_artifacts_resolve(
     project = _resolve_project_dict(project_id, path)
     db = _open_db_for(project)
     try:
-        cursor = db.conn.cursor()
-        now = time.time()
         results: list[dict] = []
         for item in items:
             art_id = item.get("id")
@@ -1799,49 +1810,30 @@ async def post_artifacts_resolve(
             if not resolved:
                 results.append({"id": art_id, "outcome": "not_found"})
                 continue
-            artifact_type, _table, _id_col = resolved
-            if artifact_type == "unknown":
-                cursor.execute(
-                    "UPDATE project_unknowns SET is_resolved = 1, resolved_by = ?, resolved_timestamp = ? WHERE id = ?",
-                    (resolved_by, now, art_id),
+            artifact_type = resolved[0]
+            try:
+                done = _apply_resolution(
+                    db, project, artifact_type, art_id, {**item, "resolved_by": item.get("resolved_by", resolved_by)}
                 )
-                results.append({"id": art_id, "type": artifact_type, "outcome": "resolved"})
-            elif artifact_type == "assumption":
-                status = "verified" if item.get("verified") is True else "falsified"
-                cursor.execute(
-                    "UPDATE assumptions SET status = ?, resolved_timestamp = ? WHERE id = ?",
-                    (status, now, art_id),
-                )
-                results.append({"id": art_id, "type": artifact_type, "outcome": "resolved", "status": status})
-            elif artifact_type == "goal":
-                cursor.execute(
-                    "UPDATE goals SET is_completed = 1, status = 'completed', completed_timestamp = ? WHERE id = ?",
-                    (now, art_id),
-                )
-                results.append({"id": art_id, "type": artifact_type, "outcome": "resolved"})
-            else:
-                results.append(
-                    {
-                        "id": art_id,
-                        "type": artifact_type,
-                        "outcome": "skipped",
-                        "reason": "no resolve semantics",
-                    }
-                )
-        db.conn.commit()
-        from empirica.core.canonical.empirica_git.goal_note_state import restamp_goal_note
-
-        for r in results:
-            if r.get("type") == "goal" and r.get("outcome") == "resolved":
-                restamp_goal_note(db.conn, r["id"], "completed")
-            elif r.get("type") == "unknown" and r.get("outcome") == "resolved":
-                # Notes are the canonical log: without this a from-notes rebuild reopens the unknown (as the single route did until
-                # 2026-10-19).
-                _stamp_note_after_resolve(project, "unknown", r["id"], resolved_by, {}, now, None)
+            except HTTPException as exc:
+                if exc.status_code == 422:
+                    results.append(
+                        {"id": art_id, "type": artifact_type, "outcome": "skipped", "reason": "no resolve semantics"}
+                    )
+                else:
+                    results.append(
+                        {"id": art_id, "type": artifact_type, "outcome": "failed", "reason": str(exc.detail)}
+                    )
+                continue
+            entry = {"id": art_id, "type": artifact_type, "outcome": "resolved"}
+            if "status" in done:
+                entry["status"] = done["status"]
+            results.append(entry)
         return {
             "ok": True,
             "resolved": sum(1 for r in results if r["outcome"] == "resolved"),
             "skipped": sum(1 for r in results if r["outcome"] == "skipped"),
+            "failed": sum(1 for r in results if r["outcome"] == "failed"),
             "not_found": sum(1 for r in results if r["outcome"] == "not_found"),
             "results": results,
         }
