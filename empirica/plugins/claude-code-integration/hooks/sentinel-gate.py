@@ -330,13 +330,14 @@ SAFE_BASH_PREFIXES = (
     "top -b -n 1",
     "pgrep ",
     "jobs",
-    # Terminal/tmux inspection (read-only)
+    # Terminal/tmux inspection (read-only). The list-* and show-* verbs only print; has-session only answers. What runs a command or
+    # changes a session (send-keys, run-shell, pipe-pane, new-session/window and split-window with a command, source-file, kill-*) is
+    # deliberately absent and gates in every work type. (tmux 3.6 does not run `#(shell)` jobs for display-message -p or list-* -F.)
     "tmux capture-pane",
-    "tmux list-panes",
-    "tmux list-windows",
-    "tmux list-sessions",
+    "tmux list-",
+    "tmux show-",
+    "tmux has-session",
     "tmux display-message",
-    "tmux show-option",
     # Disk inspection
     "df ",
     "du ",
@@ -600,8 +601,6 @@ INFRA_SAFE_PREFIXES = (
     "ollama show",
     "nginx -t",
     "nginx -T",
-    # Tmux full access
-    "tmux ",
     # Cloud/infra read operations
     "kubectl get",
     "kubectl describe",
