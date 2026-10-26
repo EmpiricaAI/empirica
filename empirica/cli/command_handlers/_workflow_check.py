@@ -470,6 +470,15 @@ def _check_parse_inputs(args):
     }
 
 
+def _gate_vector(vectors, name, default):
+    """A vector the bootstrap gate can compare: the number sent, else `default` (which triggers nothing).
+
+    The gate reads the raw payload, where an unassessed vector arrives as null (or as text). Comparing that raised TypeError and
+    errored the whole CHECK; "did not assess" must behave like an absent key."""
+    value = vectors.get(name) if isinstance(vectors, dict) else None
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else default
+
+
 def _check_bootstrap_gate(session_id, vectors):
     """Ensure project context is loaded before CHECK.
 
@@ -488,8 +497,8 @@ def _check_bootstrap_gate(session_id, vectors):
     if isinstance(_vectors_for_check, dict) and "vectors" in _vectors_for_check:
         _vectors_for_check = _vectors_for_check["vectors"]
 
-    context_val = _vectors_for_check.get("context", 0.7) if isinstance(_vectors_for_check, dict) else 0.7
-    uncertainty_val = _vectors_for_check.get("uncertainty", 0.3) if isinstance(_vectors_for_check, dict) else 0.3
+    context_val = _gate_vector(_vectors_for_check, "context", 0.7)
+    uncertainty_val = _gate_vector(_vectors_for_check, "uncertainty", 0.3)
 
     needs_reground = False
     reground_reason = None
