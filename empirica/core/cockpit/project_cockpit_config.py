@@ -14,8 +14,9 @@ project.yaml's surface tidy as more cockpit features land):
       loops:
         - name: outreach-inbox-poll      # required
           kind: cron                      # cron | interval | monitor
-          cron: "8,23,38,53 * * * *"      # for kind=cron
-          interval: "15m"                  # for kind=interval (or as base for cron+backoff)
+          cron: "17 3 * * *"              # for kind=cron: a FIXED minute and hour, wildcard day/month/weekday
+          interval: "15m"                  # for kind=interval: use this for anything more often than daily
+                                           # (lists, ranges and steps such as "*/15" are refused by the schedulers)
           description: "Outreach Claude self-poll"
           base_interval: "15m"             # optional backoff floor
           max_interval: "4h"               # optional backoff ceiling

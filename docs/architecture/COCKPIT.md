@@ -342,7 +342,7 @@ cockpit:
   loops:
     - name: outreach-inbox-poll
       kind: cron
-      cron: "8,23,38,53 * * * *"
+      cron: "17 3 * * *"        # fixed minute + hour only; for "every 15 minutes" use `kind: interval` with `interval: "15m"`
       description: "Outreach Claude self-poll"
   listeners:
     - name: outreach-inbox
