@@ -270,7 +270,8 @@ EOF
   "ok": true,
   "session_id": "abc123...",
   "checkpoint_id": "git-sha",
-  "postflight_confidence": 0.88,
+  "internal_consistency": "good",
+  "internal_consistency_basis": "gap between completion and 1 - uncertainty, both self-reported: ...",
   "deltas": {
     "know": 0.28,
     "uncertainty": -0.28,

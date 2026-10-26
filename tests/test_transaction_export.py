@@ -565,3 +565,16 @@ def test_since_or_limit_without_transactions_is_an_error_not_a_silent_no_op(worl
     assert handle_grounding_export_command(args) == 1
     out = json.loads(capsys.readouterr().out)
     assert out["ok"] is False and "--since" in out["error"] and "--transactions" in out["error"]
+
+
+def test_a_postflight_that_could_not_assess_its_consistency_exports_that_instead_of_dropping_it(world):
+    """`internal_consistency` answers `not_assessed` when completion or uncertainty was not supplied (goal d275a838). The closed
+    vocabulary must carry it, or every such transaction exports a null and bumps dropped_unsafe_values."""
+    _tx(world, U("tx1"), NOW - 1000)
+    world.db.conn.execute(
+        "UPDATE reflexes SET reflex_data = json_set(reflex_data, '$.internal_consistency', 'not_assessed') WHERE phase = 'POSTFLIGHT'"
+    )
+    world.db.conn.commit()
+    exported = _export(world)
+    assert exported["transactions"][0]["postflight"]["internal_consistency"] == "not_assessed"
+    assert exported["dropped_unsafe_values"] == 0

@@ -657,7 +657,6 @@ class SessionDatabase:
         cascade_id: str | None,
         task_summary: str,
         vectors: dict[str, float],
-        postflight_confidence: float,
         calibration_accuracy: str,
         learning_notes: str = "",
     ) -> int:
@@ -669,7 +668,6 @@ class SessionDatabase:
         # Store postflight-specific data in metadata
         metadata = {
             "task_summary": task_summary,
-            "postflight_confidence": postflight_confidence,
             "calibration_accuracy": calibration_accuracy,
         }
 

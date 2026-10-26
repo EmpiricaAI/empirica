@@ -483,7 +483,6 @@ def _wsinit_run_postflight(db, session_id, initial_state, created_projects, outp
         cascade_id=None,
         task_summary=f"Workspace initialization: {len(created_projects)} projects registered",
         vectors=final_vectors,
-        postflight_confidence=1 - final_uncertainty,
         calibration_accuracy="high",
         learning_notes=f"Complete understanding achieved through systematic investigation and user input. Learning delta: know +{final_know - initial_state['know']:.2f}, uncertainty {final_uncertainty - initial_state['uncertainty']:.2f}",
     )

@@ -44,13 +44,14 @@ def test_spawn_writes_payload_and_detaches():
         patch("subprocess.Popen", side_effect=fake_popen),
         patch.object(wf, "_run_postflight_storage_pipeline") as inline,
     ):
-        wf._spawn_detached_storage_pipeline("sid-1", _V, {"know": 0.1}, "why", {"evidence_count": 5}, 0.82, "ckpt")
+        wf._spawn_detached_storage_pipeline("sid-1", _V, {"know": 0.1}, "why", {"evidence_count": 5}, "ckpt")
 
     assert seen["kwargs"]["start_new_session"] is True
     assert "_postflight_storage_worker" in seen["args"][2]
     assert seen["payload"]["session_id"] == "sid-1"
     assert seen["payload"]["grounded_verification"] == {"evidence_count": 5}
     assert seen["payload"]["checkpoint_id"] == "ckpt"
+    assert "postflight_confidence" not in seen["payload"], "the retired derived scalar is not staged for the worker"
     inline.assert_not_called()  # detached, NOT run inline
 
 
@@ -69,7 +70,7 @@ def test_spawn_detaches_with_non_json_serializable_grounded_verification():
         patch("subprocess.Popen", side_effect=fake_popen),
         patch.object(wf, "_run_postflight_storage_pipeline") as inline,
     ):
-        wf._spawn_detached_storage_pipeline("sid-gv", _V, {}, "why", gv, 0.8, None)
+        wf._spawn_detached_storage_pipeline("sid-gv", _V, {}, "why", gv, None)
 
     inline.assert_not_called()  # detached — did NOT fall back to inline
     assert isinstance(seen["payload"]["grounded_verification"], _NotJsonSerializable)
@@ -81,7 +82,7 @@ def test_spawn_falls_back_inline_on_popen_failure():
         patch("subprocess.Popen", side_effect=OSError("cannot spawn")),
         patch.object(wf, "_run_postflight_storage_pipeline") as inline,
     ):
-        wf._spawn_detached_storage_pipeline("sid-2", _V, {}, "why", None, 0.8, None)
+        wf._spawn_detached_storage_pipeline("sid-2", _V, {}, "why", None, None)
 
     inline.assert_called_once()  # spawn failed → work runs synchronously, never dropped
     assert inline.call_args.kwargs["session_id"] == "sid-2"
@@ -92,7 +93,7 @@ def test_spawn_falls_back_inline_when_staging_fails():
         patch("tempfile.mkstemp", side_effect=OSError("no temp")),
         patch.object(wf, "_run_postflight_storage_pipeline") as inline,
     ):
-        wf._spawn_detached_storage_pipeline("sid-3", _V, {}, "why", None, 0.8, None)
+        wf._spawn_detached_storage_pipeline("sid-3", _V, {}, "why", None, None)
 
     inline.assert_called_once()
 
@@ -107,7 +108,6 @@ def test_worker_runs_pipeline_and_cleans_up():
                 "deltas": {},
                 "reasoning": "r",
                 "grounded_verification": None,
-                "postflight_confidence": 0.8,
                 "checkpoint_id": None,
             },
             f,

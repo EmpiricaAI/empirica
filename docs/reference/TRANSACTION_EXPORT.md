@@ -45,7 +45,7 @@ Schema name: `empirica.transaction_export.v1`. Implementation: `empirica/core/tr
 | `transaction_id`, `session_id`, `ai_id` | `reflexes.transaction_id`, `.session_id`, `sessions.ai_id` | |
 | `preflight` | `reflexes` row, phase `PREFLIGHT` | `timestamp`, `vectors` (the 13), `git_commit_sha`, `git_notes_ref`. `null` if the PREFLIGHT row is missing. |
 | `checks` | `reflexes` rows, phase `CHECK`, in time order | One entry per CHECK, so multiplicity is the list length. Each has `timestamp`, `vectors`, `decision` (`proceed` or `investigate`), `confidence` (only on CHECKs recorded before 1.14.17, where it equalled `1 - uncertainty`; not written since), `cycle`, and `auto_checkpoint: true` on the phantom rows an old auto-checkpoint wrote. |
-| `postflight` | `reflexes` row, phase `POSTFLIGHT` (the last one) | `timestamp`, `vectors`, `work_type`, `internal_consistency`, `postflight_confidence`, `tool_call_count`, `auto_closed`, `git_commit_sha`, `git_notes_ref`. `null` for an open transaction. |
+| `postflight` | `reflexes` row, phase `POSTFLIGHT` (the last one) | `timestamp`, `vectors`, `work_type`, `internal_consistency`, `postflight_confidence` (only on POSTFLIGHTs recorded before 2026-10-26, where it equalled `1 - uncertainty`; not written since), `tool_call_count`, `auto_closed`, `git_commit_sha`, `git_notes_ref`. `null` for an open transaction. |
 | `grounded` | `grounded_verifications.transaction_id` | One entry per verification (`phase` is `combined`, `noetic` or `praxic`). See below. |
 | `goals` | `goals.transaction_id` | `id`, `status`, `created_timestamp`, `completed_timestamp` (and `objective` with `--content`). The goal is linked only to the transaction it was created or activated in. |
 | `goals_touched` | derived | The goals in play in this transaction, many-to-many, by the Sentinel's own definition: `via` lists every way a goal was touched, `created` (it is in `goals`), `artifact` (an artifact logged here carries its `goal_id`) and `task` (one of its tasks was created or completed between PREFLIGHT and POSTFLIGHT; an open transaction has no upper bound). Goals of other practices are never listed. |
@@ -70,7 +70,7 @@ a window far wider than the transaction; see `calibration_exclusions` in the con
 - Every string that survives is checked against what that field can legitimately be, because a single word fits any token
   pattern (a name, a client, a lowercased slug), so a pattern alone would not be a contract:
   - ids (`transaction_id`, `session_id`, goal and artifact ids) must be UUID- or hex-shaped;
-  - `decision`, `work_type`, `internal_consistency`, goal `status`, grounded `phase`, `compliance_status` and `source`
+  - `decision`, `work_type`, `internal_consistency` (`good`, `moderate`, `poor`, or `not_assessed` when completion or uncertainty was not supplied), goal `status`, grounded `phase`, `compliance_status` and `source`
     must be a member of a closed vocabulary (`compliance_status` from the `ComplianceStatus` enum);
   - `git_notes_ref` must be exactly `empirica/session/<uuid>/<PHASE>/<n>`; `git_commit_sha` must be hex;
   - numbers must be finite and below 1e12;

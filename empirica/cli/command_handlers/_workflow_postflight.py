@@ -346,7 +346,6 @@ def _pipeline_epistemic_snapshot(
     vectors,
     deltas,
     reasoning,
-    postflight_confidence,
     checkpoint_id,
 ):
     """Stage 8: Epistemic snapshot creation."""
@@ -359,7 +358,7 @@ def _pipeline_epistemic_snapshot(
         if session:
             provider = EpistemicSnapshotProvider()
             context_summary = ContextSummary(
-                semantic={"phase": "POSTFLIGHT", "confidence": postflight_confidence},
+                semantic={"phase": "POSTFLIGHT"},  # the old "confidence" was 1 - uncertainty, not a measurement
                 narrative=reasoning or "Session completed",
                 evidence_refs=[checkpoint_id] if checkpoint_id else [],
             )
@@ -384,7 +383,6 @@ def _run_postflight_storage_pipeline(
     deltas: dict,
     reasoning: str,
     grounded_verification: dict | None,
-    postflight_confidence: float,
     checkpoint_id: str | None,
 ) -> None:
     """Run all POSTFLIGHT storage operations: Qdrant embedding, Cortex push,
@@ -462,7 +460,6 @@ def _run_postflight_storage_pipeline(
         vectors,
         deltas,
         reasoning,
-        postflight_confidence,
         checkpoint_id,
     )
 
@@ -473,7 +470,6 @@ def _spawn_detached_storage_pipeline(
     deltas: dict,
     reasoning: str,
     grounded_verification: dict | None,
-    postflight_confidence: float,
     checkpoint_id: str | None,
 ) -> None:
     """Run the storage pipeline OFF the POSTFLIGHT response critical path.
@@ -494,7 +490,6 @@ def _spawn_detached_storage_pipeline(
             deltas=deltas,
             reasoning=reasoning,
             grounded_verification=grounded_verification,
-            postflight_confidence=postflight_confidence,
             checkpoint_id=checkpoint_id,
         )
 
@@ -504,7 +499,6 @@ def _spawn_detached_storage_pipeline(
         "deltas": deltas,
         "reasoning": reasoning,
         "grounded_verification": grounded_verification,
-        "postflight_confidence": postflight_confidence,
         "checkpoint_id": checkpoint_id,
     }
     # pickle, not json: grounded_verification is an EvidenceBundle object (+
@@ -1405,9 +1399,30 @@ _REPLY_SHAPE = (
 )
 
 
+_CONSISTENCY_BASIS = (
+    "gap between completion and 1 - uncertainty, both self-reported: under 0.2 good, under 0.4 moderate, otherwise poor; "
+    "not_assessed when either vector was not supplied"
+)
+
+
+def _internal_consistency(vectors: dict) -> tuple[str, str]:
+    """Do `completion` and `1 - uncertainty`, two self-reports that ought to agree, agree? Returns (label, basis).
+
+    This replaces a `postflight_confidence = 1 - uncertainty` that was reported and stored as if it were a measured confidence (3,244 of
+    3,244 stored rows equalled it). The comparison is legitimate; the derived scalar was not. A vector that was not supplied (or is not a
+    number) makes the answer `not_assessed`: it used to be scored against an invented 0.5.
+    """
+    completion = vectors.get("completion") if isinstance(vectors, dict) else None
+    uncertainty = vectors.get("uncertainty") if isinstance(vectors, dict) else None
+    numeric = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)  # noqa: E731
+    if not (numeric(completion) and numeric(uncertainty)):
+        return "not_assessed", _CONSISTENCY_BASIS
+    diff = abs(completion - (1.0 - uncertainty))
+    return ("good" if diff < 0.2 else ("moderate" if diff < 0.4 else "poor")), _CONSISTENCY_BASIS
+
+
 def _build_postflight_result(
     session_id,
-    postflight_confidence,
     internal_consistency,
     deltas,
     trajectory_issues,
@@ -1441,8 +1456,8 @@ def _build_postflight_result(
     result = {
         "ok": True,
         "session_id": session_id,
-        "postflight_confidence": postflight_confidence,
         "internal_consistency": internal_consistency,
+        "internal_consistency_basis": _CONSISTENCY_BASIS,
         "evidence_summary": evidence_summary,
         "deltas": deltas,
         "trajectory_issues": trajectory_issues if trajectory_issues else None,
@@ -1994,9 +2009,7 @@ def _run_postflight_cortex_sync(session_id, reasoning, resolved_project_path):
         pass  # Non-fatal
 
 
-def _postflight_publish_bus_event(
-    session_id, transaction_id, vectors, deltas, postflight_confidence, internal_consistency
-):
+def _postflight_publish_bus_event(session_id, transaction_id, vectors, deltas, internal_consistency):
     """Publish POSTFLIGHT_COMPLETE event on epistemic bus. Non-fatal."""
     try:
         from empirica.core.bus_persistence import wire_persistent_observers
@@ -2013,7 +2026,6 @@ def _postflight_publish_bus_event(
                     "transaction_id": transaction_id,
                     "vectors": vectors,
                     "deltas": deltas,
-                    "postflight_confidence": postflight_confidence,
                     "internal_consistency": internal_consistency,
                 },
             )
@@ -2215,11 +2227,7 @@ def handle_postflight_submit_command(args):
         try:
             logger_instance = GitEnhancedReflexLogger(session_id=session_id, enable_git_notes=True)
 
-            uncertainty = vectors.get("uncertainty", 0.5)
-            postflight_confidence = 1.0 - uncertainty
-            completion = vectors.get("completion", 0.5)
-            diff = abs(completion - postflight_confidence)
-            internal_consistency = "good" if diff < 0.2 else ("moderate" if diff < 0.4 else "poor")
+            internal_consistency, _consistency_basis = _internal_consistency(vectors)
 
             # Stage 2: Deltas
             preflight_vectors, deltas, trajectory_issues = _calculate_postflight_deltas(
@@ -2250,7 +2258,6 @@ def handle_postflight_submit_command(args):
                 metadata={
                     "reasoning": reasoning,
                     "task_summary": reasoning or "Task completed",
-                    "postflight_confidence": postflight_confidence,
                     "internal_consistency": internal_consistency,
                     "deltas": deltas,
                     "trajectory_issues": trajectory_issues,
@@ -2291,7 +2298,6 @@ def handle_postflight_submit_command(args):
                 tx_info["transaction_id"],
                 vectors,
                 deltas,
-                postflight_confidence,
                 internal_consistency,
             )
             # Stage 5b: Auto-edges — persist each artifact's structural goal-edge
@@ -2359,7 +2365,6 @@ def handle_postflight_submit_command(args):
                 deltas=deltas,
                 reasoning=reasoning,
                 grounded_verification=grounded_verification,
-                postflight_confidence=postflight_confidence,
                 checkpoint_id=checkpoint_id,
             )
 
@@ -2381,7 +2386,6 @@ def handle_postflight_submit_command(args):
 
             result = _build_postflight_result(
                 session_id=session_id,
-                postflight_confidence=postflight_confidence,
                 internal_consistency=internal_consistency,
                 deltas=deltas,
                 trajectory_issues=trajectory_issues,

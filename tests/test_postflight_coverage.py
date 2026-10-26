@@ -149,7 +149,6 @@ class TestBuildPostflightResultCoverage:
     def _kwargs():
         return {
             "session_id": "s1",
-            "postflight_confidence": 0.9,
             "internal_consistency": "good",
             "deltas": {},
             "trajectory_issues": None,

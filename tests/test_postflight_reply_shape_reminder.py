@@ -21,7 +21,6 @@ def _quiet(monkeypatch):
 def _build(**kw):
     args = {
         "session_id": "s",
-        "postflight_confidence": 0.8,
         "internal_consistency": "good",
         "deltas": {},
         "trajectory_issues": [],
@@ -58,7 +57,6 @@ def test_the_existing_keys_are_all_still_there():
     for key in (
         "ok",
         "session_id",
-        "postflight_confidence",
         "internal_consistency",
         "evidence_summary",
         "deltas",

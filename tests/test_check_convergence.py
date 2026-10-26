@@ -86,7 +86,7 @@ def test_missing_uncertainty_does_not_raise(monkeypatch):
 
     class _Provider:
         def create_snapshot_from_session(self, session_id, context_summary, cascade_phase, domain_vectors=None):
-            seen["conf"] = context_summary.semantic["confidence"]
+            seen["semantic"] = dict(context_summary.semantic)
 
             class _S:
                 snapshot_id = "x"
@@ -100,7 +100,9 @@ def test_missing_uncertainty_does_not_raise(monkeypatch):
     monkeypatch.setattr("empirica.data.snapshot_provider.EpistemicSnapshotProvider", _Provider)
 
     P._preflight_create_snapshot("s-1", {}, None, None, None)
-    assert seen["conf"] == pytest.approx(0.5), "absent uncertainty falls back to neutral, not a crash"
+    assert "confidence" not in seen["semantic"], (
+        "no derived confidence is reported, and absent uncertainty is not a crash"
+    )
 
 
 # ── the guard message ─────────────────────────────────────────────────

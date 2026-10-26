@@ -1324,10 +1324,9 @@ def _preflight_create_snapshot(session_id, vectors, reasoning, checkpoint_id, tr
         from empirica.data.epistemic_snapshot import ContextSummary
         from empirica.data.snapshot_provider import EpistemicSnapshotProvider
 
-        uncertainty = vectors.get("uncertainty", 0.5) if isinstance(vectors, dict) else 0.5
         provider = EpistemicSnapshotProvider()
         context_summary = ContextSummary(
-            semantic={"phase": "PREFLIGHT", "confidence": 1.0 - uncertainty},
+            semantic={"phase": "PREFLIGHT"},  # the old "confidence" was 1 - uncertainty, not a measurement
             narrative=reasoning or "PREFLIGHT: transaction opened",
             evidence_refs=[checkpoint_id] if checkpoint_id else [],
         )

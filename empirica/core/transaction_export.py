@@ -72,7 +72,7 @@ _VOCAB: dict[str, frozenset[str]] = {
     "work_type": frozenset(
         {"code", "research", "docs", "debug", "infra", "release", "remote-ops", "config", "data", "comms", "design", "audit"}
     ),
-    "consistency": frozenset({"good", "moderate", "poor"}),
+    "consistency": frozenset({"good", "moderate", "poor", "not_assessed"}),  # not_assessed: completion or uncertainty was not supplied
     "compliance": _compliance_values(),
     "source": frozenset(
         {
@@ -98,7 +98,7 @@ _REFLEX_FIELDS: dict[str, dict[str, str]] = {
         "work_type": "vocab:work_type",
         "internal_consistency": "vocab:consistency",
         "tool_call_count": "number",
-        "postflight_confidence": "number",
+        "postflight_confidence": "number",  # legacy rows only: it equalled 1 - uncertainty and is no longer written (2026-10-26)
         "auto_closed": "bool",
         "git_commit_sha": "sha",
         "git_notes_ref": "ref",

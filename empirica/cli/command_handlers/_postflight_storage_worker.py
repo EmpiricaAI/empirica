@@ -44,7 +44,6 @@ def main(payload_path: str) -> None:
         deltas=payload["deltas"],
         reasoning=payload["reasoning"],
         grounded_verification=payload["grounded_verification"],
-        postflight_confidence=payload["postflight_confidence"],
         checkpoint_id=payload["checkpoint_id"],
     )
 
