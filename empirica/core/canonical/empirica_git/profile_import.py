@@ -101,6 +101,29 @@ class ProfileImporter:
         except (ValueError, TypeError):
             return None
 
+    def _resolved_ts(self, data: dict[str, Any]) -> float | None:
+        """When a note says it was resolved: `resolved_at`, else `resolved_timestamp` (an unparseable first value falls through to the second)."""
+        return self._parse_timestamp(data.get("resolved_at")) or self._parse_timestamp(data.get("resolved_timestamp"))
+
+    def _restore_invalidation(self, cursor, table: str, row_id: str, data: dict[str, Any]) -> None:
+        """Re-apply the invalidation a dead-end or mistake note carries (migration 060). The insert above writes the row valid.
+
+        A database without the lifecycle columns keeps the row as it was imported: the UPDATE fails and is logged, the row is not lost."""
+        if not data.get("is_invalidated"):
+            return
+        try:
+            cursor.execute(
+                f"UPDATE {table} SET is_invalidated = 1, invalidation_reason = ?, invalidated_at = ?, invalidated_by = ? WHERE id = ?",
+                (
+                    data.get("invalidation_reason") or "invalidated",
+                    self._parse_timestamp(data.get("invalidated_at")) or datetime.now(timezone.utc).timestamp(),
+                    data.get("invalidated_by"),
+                    row_id,
+                ),
+            )
+        except Exception as e:
+            logger.debug(f"could not restore invalidation on {table} {row_id[:8]}: {e}")
+
     def import_findings(self, db) -> int:
         """Import findings from git notes into SQLite.
 
@@ -150,7 +173,7 @@ class ProfileImporter:
                         # resurrected resolved and retracted findings as open.
                         1 if data.get("is_resolved") else 0,
                         data.get("resolution"),
-                        self._parse_timestamp(data.get("resolved_at") or data.get("resolved_timestamp")),
+                        self._resolved_ts(data),
                         data.get("superseded_by"),
                         data.get("resolution_kind"),
                     ),
@@ -182,7 +205,7 @@ class ProfileImporter:
             if not ts:
                 ts = datetime.now(timezone.utc).timestamp()
 
-            resolved_ts = self._parse_timestamp(data.get("resolved_at") or data.get("resolved_timestamp"))
+            resolved_ts = self._resolved_ts(data)
             unknown_data_json = json.dumps({"unknown": data.get("unknown", "")})
 
             try:
@@ -267,6 +290,7 @@ class ProfileImporter:
                 )
                 if cursor.rowcount > 0:
                     imported += 1
+                    self._restore_invalidation(cursor, "project_dead_ends", data.get("dead_end_id", dead_end_id), data)
                 else:
                     skipped += 1
             except Exception as e:
@@ -326,6 +350,7 @@ class ProfileImporter:
                 )
                 if cursor.rowcount > 0:
                     imported += 1
+                    self._restore_invalidation(cursor, "mistakes_made", data.get("mistake_id", mistake_id), data)
                 else:
                     skipped += 1
             except Exception as e:

@@ -1806,12 +1806,16 @@ async def post_artifacts_resolve(
             if not art_id:
                 results.append({"outcome": "missing_id"})
                 continue
-            resolved = _resolve_artifact_by_id(db, art_id)
-            if not resolved:
-                results.append({"id": art_id, "outcome": "not_found"})
+            if not isinstance(art_id, str):
+                results.append({"id": str(art_id)[:80], "outcome": "failed", "reason": "id must be a string"})
                 continue
-            artifact_type = resolved[0]
+            artifact_type = "unknown"
             try:
+                resolved = _resolve_artifact_by_id(db, art_id)
+                if not resolved:
+                    results.append({"id": art_id, "outcome": "not_found"})
+                    continue
+                artifact_type = resolved[0]
                 done = _apply_resolution(
                     db, project, artifact_type, art_id, {**item, "resolved_by": item.get("resolved_by", resolved_by)}
                 )

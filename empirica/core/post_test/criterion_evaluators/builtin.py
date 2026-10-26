@@ -193,7 +193,9 @@ class EvidenceMetricEvaluator:
         # Skip if no metric name to look up
         if not ctx.criterion.description:
             return False
-        return ctx.evidence.has(ctx.criterion.description)
+        return ctx.evidence.has(ctx.criterion.description) and not _declared_partial(
+            ctx.evidence, ctx.criterion.description
+        )
 
     def evaluate(self, ctx: CriterionContext) -> CriterionResult:
         metric = ctx.criterion.description
@@ -242,6 +244,16 @@ class EvidenceMetricEvaluator:
         )
 
 
+def _declared_partial(evidence, metric: str) -> bool:
+    """True when the evidence for `metric` says it covers only part of what a criterion asks about (a `-k` rerun, a truncated JUnit read).
+
+    A 3-test green rerun is not "the tests pass". Shared by every method that reads a metric by name, because `quality_gate` names
+    `test_pass_rate` by its description and reaches the same evidence under another method name."""
+    raw = evidence.raw(metric)
+    scope = raw.get("scope") if isinstance(raw, dict) else None
+    return isinstance(scope, str) and scope.startswith("partial:")
+
+
 class BundleMetricThresholdEvaluator:
     """Shared engine for methods that are one named bundle metric vs a threshold.
 
@@ -273,15 +285,7 @@ class BundleMetricThresholdEvaluator:
         self._direction = direction
 
     def applies(self, ctx: CriterionContext) -> bool:
-        return ctx.evidence.has(self._metric) and not self._declared_partial(ctx)
-
-    def _declared_partial(self, ctx: CriterionContext) -> bool:
-        """True when the evidence says it covers only part of what the criterion asks about (a `-k` rerun, a truncated JUnit read).
-
-        A 3-test green rerun is not "the tests pass": it skips with the did-not-apply reason, like any other source that cannot answer."""
-        raw = ctx.evidence.raw(self._metric)
-        scope = raw.get("scope") if isinstance(raw, dict) else None
-        return isinstance(scope, str) and scope.startswith("partial:")
+        return ctx.evidence.has(self._metric) and not _declared_partial(ctx.evidence, self._metric)
 
     def evaluate(self, ctx: CriterionContext) -> CriterionResult:
         threshold = ctx.criterion.threshold if ctx.criterion.threshold is not None else self._default_threshold

@@ -177,3 +177,32 @@ async def test_an_unexpected_error_on_one_item_fails_that_item_and_the_batch_sti
     assert by_id["d-1"]["outcome"] == "failed" and "database is locked" in by_id["d-1"]["reason"]
     assert by_id["m-1"]["outcome"] == "resolved" and by_id["a-1"]["outcome"] == "resolved"
     assert out["resolved"] == 2 and out["failed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_non_string_id_fails_that_item_and_the_batch_still_answers(api_db):  # noqa: F811
+    out = await _bulk({"items": [{"id": ["f-1"]}, {"id": {"a": 1}}, {"id": "d-1"}], "resolved_by": "x"})
+    outcomes = [r["outcome"] for r in cast(list[dict], out["results"])]
+    assert outcomes == ["failed", "failed", "resolved"], out
+    assert "string" in out["results"][0]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_items_partial_write_is_rolled_back_and_not_committed_by_the_next_item(api_db, monkeypatch):  # noqa: F811
+    """The rollback must be real: the failing item has WRITTEN (uncommitted) before it raises, and the next item's commit would otherwise
+    persist it."""
+    routes = _routes()
+    real = routes._apply_resolution
+
+    def half_done(db, project, artifact_type, artifact_id, body):
+        if artifact_id == "f-1":
+            db.conn.execute("UPDATE project_findings SET is_resolved = 1, resolution = 'half' WHERE id = 'f-1'")
+            raise sqlite3.OperationalError("disk I/O error")
+        return real(db, project, artifact_type, artifact_id, body)
+
+    monkeypatch.setattr(routes, "_apply_resolution", half_done)
+    out = await _bulk({"ids": ["f-1", "d-1"], "resolved_by": "x"})
+    assert [r["outcome"] for r in cast(list[dict], out["results"])] == ["failed", "resolved"]
+    assert not _col(api_db, "SELECT is_resolved FROM project_findings WHERE id='f-1'"), (
+        "the half-written update must not persist"
+    )

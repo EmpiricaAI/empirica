@@ -224,3 +224,21 @@ def test_a_partial_junit_truncation_is_also_not_a_pass():
         )
     )
     assert r.skipped is True
+
+
+def test_quality_gate_on_the_test_pass_rate_metric_is_held_to_the_same_partial_rule():
+    """`quality_gate` names a metric by its description, so `test_pass_rate` reaches the same evidence under another method name: a 3-test
+    rerun cannot pass it either. (Second-pass review: only `tests_pass` had the rule.)"""
+    partial = dispatch(
+        _Ctx(_crit("test_pass_rate", "quality_gate", threshold=1.0), _rate_bundle(3, 0, "partial: -k plugin"))
+    )
+    assert partial.skipped is True and partial.passed is False
+    full = dispatch(_Ctx(_crit("test_pass_rate", "quality_gate", threshold=1.0), _rate_bundle(50, 0, "full run")))
+    assert full.passed is True and full.skipped is False
+
+
+def test_quality_gate_on_a_scalar_metric_is_unaffected_by_the_partial_rule():
+    r = dispatch(
+        _Ctx(_crit("ruff_violation_density", "quality_gate", threshold=0.5), _bundle(ruff_violation_density=0.9))
+    )
+    assert r.passed is True and r.skipped is False

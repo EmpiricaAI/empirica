@@ -665,7 +665,10 @@ the fields the single endpoint takes for its type (`verified` for an assumption;
 code (`_apply_resolution`), so findings, dead ends and mistakes resolve here exactly as they do singly. Types
 without resolve semantics (decisions, sources) are counted as `skipped`. A caller's mistake in one item
 (an unknown `resolution_kind`, a `superseded_by` that names no single finding) is that item's `failed` outcome,
-with its `reason`, and the rest of the batch still runs.
+with its `reason`, and the rest of the batch still runs. So is a project database that predates the lifecycle
+columns (migrations 057/060/061): that item is `failed` with a `reason` and a `hint` naming the migration, not `skipped`.
+An unexpected error on one item (a locked database) is rolled back and reported the same way, as `failed` with
+`reason: "<ExceptionType>: <message>"`; a non-string `id` is `failed` too. The batch always answers for every item.
 
 **Response:** `{ok, resolved, skipped, failed, not_found, results: [...]}` (`failed` added 2026-10-26)
 
