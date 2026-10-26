@@ -3064,6 +3064,10 @@ def migration_077_drop_empty_codebase_fact_tables(cursor: sqlite3.Cursor):
         return bool(cursor.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)).fetchone())
 
     dropped = []
+    if not exists("codebase_facts"):
+        # Its content table is already gone (dropped by hand, or by a partial earlier run), so the index over it is an orphan: the cleanup
+        # below lives in the branch that needs the table, and would never reach it.
+        cursor.execute("DROP TABLE IF EXISTS codebase_facts_fts")
     for table in ("codebase_facts", "codebase_constraints"):
         if not exists(table):
             continue

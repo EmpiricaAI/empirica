@@ -121,3 +121,21 @@ def test_migration_033_does_not_fail_on_a_database_without_the_facts_table(conn)
 
     migration_033_codebase_model(conn.cursor())
     assert "codebase_facts_fts" not in _names(conn, "table")
+
+
+def test_an_fts_index_left_behind_by_a_manual_drop_of_its_table_is_cleaned_too(conn):
+    """The FTS drop sat inside the 'table exists' branch, so a database where codebase_facts was already gone kept its FTS5 table forever."""
+    _legacy(conn)
+    conn.execute("DROP TABLE codebase_facts")  # the trigger goes with it; the content-less FTS5 table survives
+    assert "codebase_facts_fts" in _names(conn, "table")
+    run_077(conn.cursor())
+    assert not [t for t in _names(conn, "table") if t.startswith("codebase_facts_fts")]
+    assert "codebase_constraints" not in _names(conn, "table")
+
+
+def test_the_fts_index_of_a_table_that_holds_rows_is_not_touched_when_the_table_exists(conn):
+    """Control for the above: the extra cleanup is only for an ORPHAN index, never for one whose table is kept."""
+    _legacy(conn)
+    conn.execute("INSERT INTO codebase_facts (id, fact_text, valid_at) VALUES ('f1', 'a fact', 1.0)")
+    run_077(conn.cursor())
+    assert "codebase_facts_fts" in _names(conn, "table")
