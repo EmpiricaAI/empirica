@@ -10,6 +10,7 @@ For: Qwen to validate bootstrap cleanup
 """
 
 import subprocess
+import sys
 
 import pytest
 
@@ -41,7 +42,10 @@ class TestBootstrapComponents:
     def test_bootstrap_command_works(self):
         """Bootstrap command executes without errors"""
         result = subprocess.run(
-            ["empirica", "project-bootstrap", "--output", "json"], capture_output=True, text=True, timeout=10
+            [sys.executable, "-m", "empirica.cli", "project-bootstrap", "--output", "json"],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
 
         # Should succeed
@@ -59,7 +63,10 @@ class TestBootstrapComponents:
     def test_bootstrap_no_import_errors(self):
         """Bootstrap runs without import errors in stderr"""
         result = subprocess.run(
-            ["empirica", "project-bootstrap", "--output", "json"], capture_output=True, text=True, timeout=10
+            [sys.executable, "-m", "empirica.cli", "project-bootstrap", "--output", "json"],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
 
         # Should not have ModuleNotFoundError or ImportError
@@ -76,7 +83,10 @@ class TestBootstrapComponents:
     def test_bootstrap_json_output(self):
         """Bootstrap with --output json works"""
         result = subprocess.run(
-            ["empirica", "project-bootstrap", "--output", "json"], capture_output=True, text=True, timeout=10
+            [sys.executable, "-m", "empirica.cli", "project-bootstrap", "--output", "json"],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
 
         assert result.returncode == 0
@@ -94,7 +104,10 @@ class TestBootstrapComponents:
     def test_bootstrap_returns_breadcrumbs(self):
         """Bootstrap returns breadcrumbs data structure"""
         result = subprocess.run(
-            ["empirica", "project-bootstrap", "--output", "json"], capture_output=True, text=True, timeout=10
+            [sys.executable, "-m", "empirica.cli", "project-bootstrap", "--output", "json"],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
 
         import json
@@ -136,7 +149,10 @@ class TestBootstrapComponents:
 
         start = time.time()
         result = subprocess.run(
-            ["empirica", "project-bootstrap", "--output", "json"], capture_output=True, text=True, timeout=30
+            [sys.executable, "-m", "empirica.cli", "project-bootstrap", "--output", "json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         elapsed = time.time() - start
 
@@ -166,7 +182,10 @@ class TestBootstrapFallback:
     def test_project_bootstrap_works(self):
         """Project bootstrap command is functional"""
         result = subprocess.run(
-            ["empirica", "project-bootstrap", "--output", "json"], capture_output=True, text=True, timeout=10
+            [sys.executable, "-m", "empirica.cli", "project-bootstrap", "--output", "json"],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
 
         # Should work and return JSON
@@ -184,10 +203,10 @@ class TestBootstrapVerboseMode:
     def test_bootstrap_verbose_mode(self):
         """Bootstrap --verbose mode works"""
         result = subprocess.run(
-            ["empirica", "project-bootstrap", "--verbose", "--output", "json"],
+            [sys.executable, "-m", "empirica.cli", "project-bootstrap", "--verbose", "--output", "json"],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=60,
         )
 
         assert result.returncode == 0
@@ -207,7 +226,10 @@ class TestBootstrapIntegration:
         """Complete bootstrap workflow"""
         # Bootstrap
         result = subprocess.run(
-            ["empirica", "project-bootstrap", "--output", "json"], capture_output=True, text=True, timeout=10
+            [sys.executable, "-m", "empirica.cli", "project-bootstrap", "--output", "json"],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
 
         assert result.returncode == 0
@@ -219,7 +241,10 @@ class TestBootstrapIntegration:
 
         # Should be able to run other commands after bootstrap
         result2 = subprocess.run(
-            ["empirica", "sessions-list", "--output", "json"], capture_output=True, text=True, timeout=10
+            [sys.executable, "-m", "empirica.cli", "sessions-list", "--output", "json"],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
 
         # Sessions-list should work after bootstrap

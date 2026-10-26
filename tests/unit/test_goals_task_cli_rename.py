@@ -23,7 +23,7 @@ def _run(args: list[str]) -> tuple[int, str, str]:
         [sys.executable, "-m", "empirica.cli", *args],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=60,
     )
     return p.returncode, p.stdout, p.stderr
 

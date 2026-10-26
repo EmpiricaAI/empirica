@@ -13,6 +13,7 @@ Purpose: Catch integration bugs that unit tests miss
 
 import json
 import subprocess
+import sys
 import time
 
 import pytest
@@ -79,7 +80,10 @@ class TestCheckpointWorkflowE2E:
 
         # Step 1: Bootstrap session
         result = subprocess.run(
-            ["empirica", "bootstrap", "--ai-id", "e2e-test"], capture_output=True, text=True, cwd=test_repo
+            [sys.executable, "-m", "empirica.cli", "bootstrap", "--ai-id", "e2e-test"],
+            capture_output=True,
+            text=True,
+            cwd=test_repo,
         )
 
         if result.returncode == 0:
@@ -107,7 +111,9 @@ class TestCheckpointWorkflowE2E:
 
         result = subprocess.run(
             [
-                "empirica",
+                sys.executable,
+                "-m",
+                "empirica.cli",
                 "preflight-submit",
                 "--session-id",
                 session_id,
@@ -123,7 +129,18 @@ class TestCheckpointWorkflowE2E:
 
         # Step 3: Create checkpoint (should include vectors from database)
         result = subprocess.run(
-            ["empirica", "checkpoint-create", "--session-id", session_id, "--phase", "PREFLIGHT", "--round", "1"],
+            [
+                sys.executable,
+                "-m",
+                "empirica.cli",
+                "checkpoint-create",
+                "--session-id",
+                session_id,
+                "--phase",
+                "PREFLIGHT",
+                "--round",
+                "1",
+            ],
             capture_output=True,
             text=True,
             cwd=test_repo,
@@ -138,7 +155,10 @@ class TestCheckpointWorkflowE2E:
 
         # Step 4: List checkpoints (tests missing method bug)
         result = subprocess.run(
-            ["empirica", "checkpoint-list", "--session-id", session_id], capture_output=True, text=True, cwd=test_repo
+            [sys.executable, "-m", "empirica.cli", "checkpoint-list", "--session-id", session_id],
+            capture_output=True,
+            text=True,
+            cwd=test_repo,
         )
 
         # BUG CHECK: Should NOT crash with AttributeError
@@ -152,7 +172,10 @@ class TestCheckpointWorkflowE2E:
 
         # Step 6: Load checkpoint and verify vectors
         result = subprocess.run(
-            ["empirica", "checkpoint-load", "--session-id", session_id], capture_output=True, text=True, cwd=test_repo
+            [sys.executable, "-m", "empirica.cli", "checkpoint-load", "--session-id", session_id],
+            capture_output=True,
+            text=True,
+            cwd=test_repo,
         )
 
         if result.returncode == 0 and result.stdout:
@@ -182,12 +205,16 @@ class TestGoalsWorkflowE2E:
         session_id = f"goals-e2e-{int(time.time())}"
 
         # Step 1: Bootstrap session
-        result = subprocess.run(["empirica", "bootstrap", "--ai-id", "goals-test"], capture_output=True, text=True)
+        result = subprocess.run(
+            [sys.executable, "-m", "empirica.cli", "bootstrap", "--ai-id", "goals-test"], capture_output=True, text=True
+        )
 
         # Step 2: Create goal (--force bypasses fuzzy duplicate detection for tests)
         result = subprocess.run(
             [
-                "empirica",
+                sys.executable,
+                "-m",
+                "empirica.cli",
                 "goals-create",
                 "--session-id",
                 session_id,
@@ -231,7 +258,9 @@ class TestGoalsWorkflowE2E:
         for i, desc in enumerate(["Subtask 1", "Subtask 2", "Subtask 3"]):
             result = subprocess.run(
                 [
-                    "empirica",
+                    sys.executable,
+                    "-m",
+                    "empirica.cli",
                     "goals-add-task",
                     "--goal-id",
                     goal_id,
@@ -260,7 +289,9 @@ class TestGoalsWorkflowE2E:
 
         # Step 4: Check progress (should be 0%)
         result = subprocess.run(
-            ["empirica", "goals-progress", "--goal-id", goal_id, "--output", "json"], capture_output=True, text=True
+            [sys.executable, "-m", "empirica.cli", "goals-progress", "--goal-id", goal_id, "--output", "json"],
+            capture_output=True,
+            text=True,
         )
 
         assert result.returncode == 0, "Progress check should succeed"
@@ -275,7 +306,16 @@ class TestGoalsWorkflowE2E:
         # Step 5: Complete first subtask
         if subtask_ids:
             result = subprocess.run(
-                ["empirica", "goals-complete-task", "--task-id", subtask_ids[0], "--evidence", "E2E test completion"],
+                [
+                    sys.executable,
+                    "-m",
+                    "empirica.cli",
+                    "goals-complete-task",
+                    "--task-id",
+                    subtask_ids[0],
+                    "--evidence",
+                    "E2E test completion",
+                ],
                 capture_output=True,
                 text=True,
             )
@@ -284,7 +324,9 @@ class TestGoalsWorkflowE2E:
 
         # Step 6: Check progress again (should be >0%)
         result = subprocess.run(
-            ["empirica", "goals-progress", "--goal-id", goal_id, "--output", "json"], capture_output=True, text=True
+            [sys.executable, "-m", "empirica.cli", "goals-progress", "--goal-id", goal_id, "--output", "json"],
+            capture_output=True,
+            text=True,
         )
 
         if result.stdout:
