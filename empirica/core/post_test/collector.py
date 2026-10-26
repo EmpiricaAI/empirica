@@ -33,12 +33,49 @@ import os
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from enum import Enum
+from itertools import islice
 from pathlib import Path
 from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
+
+# What counts as source for the CODE profile. Scripts are listed apart: beside a component file they are a web project's own assets.
+CODE_EXTENSIONS = frozenset(
+    {
+        ".py",
+        ".go",
+        ".rs",
+        ".java",
+        ".kt",
+        ".kts",
+        ".scala",
+        ".swift",
+        ".c",
+        ".h",
+        ".cc",
+        ".cpp",
+        ".hpp",
+        ".cs",
+        ".rb",
+        ".php",
+    }
+)
+SCRIPT_EXTENSIONS = frozenset({".js", ".mjs", ".cjs", ".ts", ".mts", ".cts"})
+
+# Where runners leave JUnit XML without configuration (Maven surefire/failsafe, Gradle, cargo nextest, jest-junit, go-junit-report).
+JUNIT_GLOBS = (
+    "junit.xml",
+    "test-results/**/*.xml",
+    "target/surefire-reports/TEST-*.xml",
+    "target/failsafe-reports/TEST-*.xml",
+    "build/test-results/**/*.xml",
+    "target/nextest/**/junit.xml",
+)
+JUNIT_MAX_FILES = 200  # a hot-path glob must not scale with the size of a build directory
+JUNIT_MAX_BYTES = 10_000_000
 
 
 class EvidenceQuality(Enum):
@@ -85,6 +122,10 @@ class EvidenceBundle:
     in POSTFLIGHT response when sources_failed is non-empty so failures
     can be debugged from the output alone.
 
+    source_notes maps source name → why it came back empty, for the sources
+    that can say (pytest: no_test_report | stale_test_report | empty_test_report).
+    Only a source listed in sources_empty carries one.
+
     Helpers `has`, `get`, `direction` provide named-metric lookup for consumers
     like the goal-criterion EvidenceMetricEvaluator. They search items by
     metric_name and return the first match.
@@ -97,6 +138,7 @@ class EvidenceBundle:
     sources_failed: list[str] = field(default_factory=list)
     sources_empty: list[str] = field(default_factory=list)
     source_errors: dict[str, str] = field(default_factory=dict)
+    source_notes: dict[str, str] = field(default_factory=dict)
     coverage: float = 0.0
 
     def _find(self, metric_name: str) -> EvidenceItem | None:
@@ -139,7 +181,7 @@ class EvidenceProfile:
     """Evidence collection profile — determines which collectors run.
 
     Profiles:
-    - "code": ruff, radon, pyright, pytest, git (default for repos with .py files)
+    - "code": ruff, radon, pyright, test report, git (default when source files of any mainstream language changed)
     - "prose": textstat, proselint, vale, document metrics, source quality
     - "web": build verification, HTML validation, link integrity, terminology, assets
     - "hybrid": all evidence sources (code + prose + web when detected)
@@ -229,6 +271,7 @@ class PostTestCollector:
         self._owns_db = False
         self._session_goal_ids: list[str] | None = None
         self._project_root: str | None = None  # Lazy-resolved
+        self._source_notes: dict[str, str] = {}  # source name -> why it found nothing (set by collectors that can say)
         self._project_maturity: dict[str, Any] | None = None  # Lazy-resolved
 
     def _get_db(self):
@@ -281,15 +324,17 @@ class PostTestCollector:
         if profile == EvidenceProfile.AUTO:
             # Auto-detect from changed file extensions
             changed = self._get_session_changed_files()
-            has_code = any(f.endswith(".py") for f in changed)
+            suffixes = {Path(f).suffix.lower() for f in changed}
             from .web_collector import WEB_EXTENSIONS
 
-            has_web = any(Path(f).suffix in WEB_EXTENSIONS for f in changed)
+            has_web = bool(suffixes & WEB_EXTENSIONS)
+            has_code = bool(suffixes & CODE_EXTENSIONS)
             if has_web and has_code:
                 return EvidenceProfile.HYBRID
             elif has_web:
+                # a web project's own .js/.ts are web assets, not a second language
                 return EvidenceProfile.WEB
-            elif has_code:
+            elif has_code or suffixes & SCRIPT_EXTENSIONS:
                 return EvidenceProfile.CODE
             elif changed:
                 # Non-empty but neither code nor web → markdown, configs, data
@@ -541,6 +586,8 @@ class PostTestCollector:
                     # different from crashing — track it separately so
                     # genuine failures can be debugged.
                     bundle.sources_empty.append(source_name)
+                    if source_name in self._source_notes:
+                        bundle.source_notes[source_name] = self._source_notes[source_name]
             except Exception as e:
                 logger.debug(f"Evidence source {source_name} failed: {e}")
                 bundle.sources_failed.append(source_name)
@@ -1610,45 +1657,129 @@ class PostTestCollector:
 
         return items
 
-    def _collect_test_results(self) -> list[EvidenceItem]:
-        """Collect pytest results from JSON report if available."""
-        items = []
-        root = Path(self._resolve_project_root() or ".")
+    def _test_window_start(self) -> float | None:
+        """When this transaction's test evidence starts counting: CHECK for praxic work, else PREFLIGHT. None = unknown."""
+        if self.phase == "praxic" and self.check_timestamp:
+            return float(self.check_timestamp)
+        return float(self.preflight_timestamp) if self.preflight_timestamp else None
 
-        # Look for pytest JSON report in standard locations
-        report_paths = [
+    @staticmethod
+    def _made_at(path: Path, declared: Any = None) -> float:
+        """When a report was produced: the time it declares, else the file's mtime."""
+        if isinstance(declared, (int, float)) and not isinstance(declared, bool):
+            return float(declared)
+        return path.stat().st_mtime
+
+    def _read_json_test_report(self, root: Path, start: float | None) -> tuple[dict[str, Any] | None, bool]:
+        """First fresh JSON test report: the runner-agnostic file, then the legacy pytest names. Second value: a stale one was seen."""
+        stale = False
+        for path in (
+            root / ".empirica" / "test_report.json",
             root / ".empirica" / "pytest_report.json",
             root / "pytest_report.json",
             root / ".pytest_report.json",
-            root / "htmlcov" / "status.json",
-        ]
+        ):
+            try:
+                report = json.loads(path.read_text())
+                made = self._made_at(path, report.get("created") if isinstance(report, dict) else None)
+            except (OSError, ValueError):
+                continue
+            if not isinstance(report, dict) or not isinstance(report.get("summary"), dict):
+                continue
+            if start is not None and made < start:
+                stale = True
+                continue
+            summary = report["summary"]
+            passed = int(summary.get("passed", 0) or 0)
+            failed = int(summary.get("failed", 0) or 0)
+            return (
+                {
+                    "passed": passed,
+                    "failed": failed,
+                    "total": int(summary.get("total", passed + failed) or 0),
+                    "runner": str(report.get("runner") or "pytest"),
+                },
+                stale,
+            )
+        return None, stale
 
-        report = None
-        for path in report_paths:
-            if path.exists():
+    @staticmethod
+    def _junit_counts(suite_root: ET.Element) -> tuple[int, int]:
+        """(passed, failed) over a JUnit document. Skipped tests did not run and count for neither side."""
+        suites = [suite_root] if suite_root.tag == "testsuite" else [c for c in suite_root if c.tag == "testsuite"]
+        passed = failed = 0
+        for suite in suites:
+            if "tests" in suite.attrib:
                 try:
-                    report = json.loads(path.read_text())
-                    break
-                except (json.JSONDecodeError, OSError):
+                    tests, fails, errors, skipped = (
+                        int(suite.attrib.get(k, 0) or 0) for k in ("tests", "failures", "errors", "skipped")
+                    )
+                except ValueError:
                     continue
+                passed += max(tests - fails - errors - skipped, 0)
+                failed += fails + errors
+            else:  # a suite that does not total itself is counted from its cases
+                for case in suite.iter("testcase"):
+                    kids = {k.tag for k in case}
+                    if kids & {"failure", "error"}:
+                        failed += 1
+                    elif "skipped" not in kids:
+                        passed += 1
+        return passed, failed
 
-        if report is None:
+    def _read_junit_reports(self, root: Path, start: float | None) -> tuple[dict[str, Any] | None, bool]:
+        """Sum the fresh JUnit XML files at the standard paths. Bounded, and a malformed file is skipped, not fatal."""
+        seen: set[Path] = set()
+        for pattern in JUNIT_GLOBS:
+            seen.update(islice((p for p in root.glob(pattern) if p.is_file()), JUNIT_MAX_FILES))
+        passed = failed = 0
+        found = stale = False
+        for path in sorted(seen)[:JUNIT_MAX_FILES]:
+            try:
+                if path.stat().st_size > JUNIT_MAX_BYTES:
+                    continue
+                if start is not None and self._made_at(path) < start:
+                    stale = True
+                    continue
+                # Build output of the project's own runner; ElementTree resolves no external entities.
+                document = ET.fromstring(path.read_text(errors="replace"))  # noqa: S314
+            except (OSError, ET.ParseError):
+                continue
+            found = True
+            file_passed, file_failed = self._junit_counts(document)
+            passed += file_passed
+            failed += file_failed
+        if not found:
+            return None, stale
+        return {"passed": passed, "failed": failed, "total": passed + failed, "runner": "junit"}, stale
+
+    def _collect_test_results(self) -> list[EvidenceItem]:
+        """Test pass rate (and coverage) from a report made inside this transaction.
+
+        Reads the runner-agnostic `.empirica/test_report.json` first, then legacy pytest names, then JUnit XML. A report older than the
+        transaction is not evidence about it. When nothing usable is found, `_source_notes["pytest"]` says which way it failed.
+        """
+        self._source_notes.pop("pytest", None)
+        items = []
+        root = Path(self._resolve_project_root() or ".")
+        start = self._test_window_start()
+
+        counts, stale = self._read_json_test_report(root, start)
+        if counts is None:
+            counts, junit_stale = self._read_junit_reports(root, start)
+            stale = stale or junit_stale
+        if counts is None:
+            self._source_notes["pytest"] = "stale_test_report" if stale else "no_test_report"
             return items
 
-        # Parse pytest-json-report format
-        summary = report.get("summary", {})
-        passed = summary.get("passed", 0)
-        failed = summary.get("failed", 0)
-        total = summary.get("total", passed + failed)
-
+        passed, total = counts["passed"], counts["total"]
         if total > 0:
-            pass_rate = passed / total
             items.append(
                 EvidenceItem(
                     source="pytest",
                     metric_name="test_pass_rate",
-                    value=pass_rate,
-                    raw_value={"passed": passed, "failed": failed, "total": total},
+                    value=passed / total,
+                    raw_value=counts,
                     quality=EvidenceQuality.OBJECTIVE,
                     supports_vectors=["know", "do", "state"],
                 )
@@ -1664,6 +1795,8 @@ class PostTestCollector:
         for cov_path in coverage_paths:
             if cov_path.exists():
                 try:
+                    if start is not None and cov_path.stat().st_mtime < start:
+                        continue
                     cov_data = json.loads(cov_path.read_text())
                     total_pct = cov_data.get("totals", {}).get("percent_covered", 0)
                     if total_pct > 0:
@@ -1681,6 +1814,8 @@ class PostTestCollector:
                 except (json.JSONDecodeError, OSError):
                     continue
 
+        if not items:
+            self._source_notes["pytest"] = "empty_test_report"  # a report that ran zero tests grades nothing
         return items
 
     def _get_transaction_since(self) -> str | None:

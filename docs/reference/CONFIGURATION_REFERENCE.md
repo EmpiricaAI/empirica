@@ -89,6 +89,20 @@ empirica project-update --migrate        # upgrade a v1.0 file to v2.0
 | `beads` | `{default_enabled}` | `{}` (off) | Default for the BEADS integration |
 | `domain_config` | mapping | `{}` | Domain extension point |
 
+### Test evidence (any language)
+
+For the `code` and `hybrid` profiles POSTFLIGHT grades a **test pass rate** from a report made *inside the transaction*. With `auto`, a change set counts as code when it touches `.py .go .rs .java .kt .kts .scala .swift .c .h .cc .cpp .hpp .cs .rb .php`, or `.js/.ts` family files without any web component file (`.tsx .jsx .astro .vue .svelte .html .mdx`, which make it `web`, or `hybrid` beside real code). Set `evidence_profile` to override.
+
+The collector reads, in order, the first usable of:
+
+1. `.empirica/test_report.json`, the runner-agnostic contract: `{"runner": "go", "summary": {"passed": 8, "failed": 2}, "created": <epoch seconds>}`. `total` defaults to `passed + failed`; a skipped test belongs in neither count. Any runner or wrapper script can write it.
+2. Legacy pytest names: `.empirica/pytest_report.json`, `pytest_report.json`, `.pytest_report.json`.
+3. JUnit XML, summed over the files found at `junit.xml`, `test-results/**/*.xml`, `target/surefire-reports/TEST-*.xml`, `target/failsafe-reports/TEST-*.xml`, `build/test-results/**/*.xml` and `target/nextest/**/junit.xml` (at most 200 files). Maven and Gradle write these without configuration; for Go use `gotestsum --junitfile junit.xml`, for Jest `jest-junit`.
+
+**Python needs nothing:** the `empirica` package registers a pytest plugin that writes (1) when a session finishes, and only when the pytest rootdir holds `.empirica/`. On an editable install the entry point appears after `pip install -e . --no-deps`.
+
+A report older than the transaction (the CHECK time for praxic work, else PREFLIGHT) is ignored. When nothing usable is found the test source is reported empty and `source_notes` in the POSTFLIGHT response says why: `no_test_report`, `stale_test_report`, or `empty_test_report` (a report that ran zero tests). Code-quality evidence (ruff, radon, pyright) is Python-only; for other languages that source stays empty.
+
 ### Keys other code reads
 
 The loader ignores these; the modules named read them from the same file.
