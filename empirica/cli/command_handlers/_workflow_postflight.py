@@ -143,8 +143,10 @@ def _pipeline_cortex_cache_feedback(session_id, vectors, grounded_verification):
         req = urllib.request.Request(f"{cortex_url}/postflight", data=payload, headers=headers, method="POST")
         urllib.request.urlopen(req, timeout=1.0)
         logger.debug("Wrote verified predictions to Cortex cache")
-    except Exception:
-        pass  # Cortex not running
+    except Exception as e:
+        # Best-effort: no cortex on localhost is the normal state. Debug-level like the sibling stages, so a persistent failure
+        # (a wrong EMPIRICA_CORTEX_URL) is at least findable with --verbose.
+        logger.debug(f"Cortex cache feedback skipped: {e}")
 
 
 def _pipeline_trajectory_storage(session_id, project_id):

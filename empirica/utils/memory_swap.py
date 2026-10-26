@@ -283,6 +283,19 @@ def swap_memory(
     target_memory.mkdir(parents=True, exist_ok=True)
     backup_dir = target_memory / BACKUP_SUBDIR
 
+    # A backup with no manifest is what a swap leaves when its manifest write failed: the originals are in the backup, the swapped-in
+    # files are in this dir, and nothing records the swap. Backing the directory up again would put the swapped-in files over the
+    # originals, so refuse and say where they are.
+    if existing is None and backup_dir.is_dir() and any(backup_dir.iterdir()):
+        return {
+            "ok": False,
+            "action": "orphan_backup",
+            "message": (
+                f"{backup_dir} holds a backup but no swap manifest exists (an earlier swap did not finish). Not swapping over it: the "
+                f"original memory is in {BACKUP_SUBDIR}. Move those files back into {target_memory}, delete {BACKUP_SUBDIR}, then retry."
+            ),
+        }
+
     # Backup target memory dir contents (excluding the backup dir itself if it exists)
     backup_dir.mkdir(parents=True, exist_ok=True)
     backed_up = _copy_dir_entries(target_memory, backup_dir, "Backup")

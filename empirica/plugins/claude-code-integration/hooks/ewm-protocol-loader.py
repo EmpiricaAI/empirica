@@ -412,6 +412,28 @@ def _resolve_ai_id_for_poll() -> str | None:
     return None
 
 
+def _poll_failure_line(stdout: str) -> str:
+    """One line saying the inbox was NOT checked, when `mailbox poll` itself said so; "" for every other failure.
+
+    Since the unresolved-canonical-id fix the poll fails loudly (`ok: false`, exit 1, an error that says an empty result would have
+    meant "unknown", not "no mail"). Returning "" for that rendered the same as an empty inbox. Only a structured `ok: false` with an
+    error is surfaced: the plain-text failure of an install with no cortex configured stays silent, because that is the normal state
+    of most installs and must not nag on every session start.
+    """
+    try:
+        payload = json.loads(stdout)
+    except (ValueError, TypeError):
+        return ""
+    if not isinstance(payload, dict) or payload.get("ok") is not False:
+        return ""
+    error = str(payload.get("error") or "").strip()
+    if not error:
+        return ""
+    if len(error) > 300:
+        error = error[:297] + "..."
+    return f"## 📬 Mailbox NOT checked\n\n{error}\n\nCheck by hand: `empirica mailbox poll --status accepted`\n"
+
+
 def _build_pending_inbox_lead() -> str:
     """Render a 'handle these FIRST' lead block of pending mesh inbox messages.
 
@@ -440,7 +462,9 @@ def _build_pending_inbox_lead() -> str:
             timeout=6,
             check=False,
         )
-        if r.returncode != 0 or not r.stdout.strip():
+        if r.returncode != 0:
+            return _poll_failure_line(r.stdout)
+        if not r.stdout.strip():
             return ""
         payload = json.loads(r.stdout) or {}
         proposals = payload.get("proposals") or []
