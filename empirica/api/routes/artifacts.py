@@ -1816,14 +1816,29 @@ async def post_artifacts_resolve(
                     db, project, artifact_type, art_id, {**item, "resolved_by": item.get("resolved_by", resolved_by)}
                 )
             except HTTPException as exc:
-                if exc.status_code == 422:
+                detail = exc.detail
+                # Only the string 422 means "this TYPE has no resolve semantics" (decisions, sources). The other 422 is a dict carrying a
+                # migration hint for a project DB that predates the lifecycle columns: a failure to act on, not a type to skip.
+                if exc.status_code == 422 and isinstance(detail, str) and "no resolve semantics" in detail:
                     results.append(
                         {"id": art_id, "type": artifact_type, "outcome": "skipped", "reason": "no resolve semantics"}
                     )
                 else:
-                    results.append(
-                        {"id": art_id, "type": artifact_type, "outcome": "failed", "reason": str(exc.detail)}
-                    )
+                    entry_failed = {"id": art_id, "type": artifact_type, "outcome": "failed"}
+                    if isinstance(detail, dict):
+                        entry_failed["reason"] = str(detail.get("error") or detail)
+                        if detail.get("hint"):
+                            entry_failed["hint"] = str(detail["hint"])
+                    else:
+                        entry_failed["reason"] = str(detail)
+                    results.append(entry_failed)
+                continue
+            except Exception as exc:
+                # (earlier items are already committed, so an escape would report nothing about work that was done)
+                db.conn.rollback()
+                results.append(
+                    {"id": art_id, "type": artifact_type, "outcome": "failed", "reason": f"{type(exc).__name__}: {exc}"}
+                )
                 continue
             entry = {"id": art_id, "type": artifact_type, "outcome": "resolved"}
             if "status" in done:

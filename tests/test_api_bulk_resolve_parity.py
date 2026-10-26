@@ -112,3 +112,68 @@ async def test_bulk_resolving_a_dead_end_or_a_finding_stamps_the_note(project_re
     assert _note(project_repo, "dead_ends", "d-1")["is_invalidated"] is True
     note = _note(project_repo, "findings", "f-1")
     assert note["is_resolved"] is True and note["resolution_kind"] == "retracted" and note["finding"] == "a claim"
+
+
+# ── pre-publish sweep: what the batch says when an item cannot be resolved (E1, E3) ──────────────────────────────
+
+
+def _routes():
+    from empirica.api.routes import artifacts as routes
+
+    return routes
+
+
+def _raising(monkeypatch, by_id):
+    """Make _apply_resolution raise per artifact id (the real function for any id not listed)."""
+    routes = _routes()
+    real = routes._apply_resolution
+
+    def fake(db, project, artifact_type, artifact_id, body):
+        if artifact_id in by_id:
+            raise by_id[artifact_id]
+        return real(db, project, artifact_type, artifact_id, body)
+
+    monkeypatch.setattr(routes, "_apply_resolution", fake)
+
+
+@pytest.mark.asyncio
+async def test_an_old_schema_item_is_failed_with_its_migration_hint_not_skipped(api_db, monkeypatch):  # noqa: F811
+    """The single route returns the migration hint as a 422; the bulk route used to file the same 422 under 'no resolve semantics'."""
+    from fastapi import HTTPException
+
+    stale = HTTPException(
+        status_code=422,
+        detail={
+            "error": "this project's database predates the finding lifecycle",
+            "hint": "Missing columns from migration 057.",
+        },
+    )
+    _raising(monkeypatch, {"f-1": stale})
+    out = await _bulk({"ids": ["f-1", "d-1"], "resolved_by": "x"})
+    by_id = {r["id"]: r for r in cast(list[dict], out["results"])}
+    assert by_id["f-1"]["outcome"] == "failed" and "predates" in by_id["f-1"]["reason"]
+    assert "migration 057" in by_id["f-1"]["hint"]
+    assert by_id["d-1"]["outcome"] == "resolved", "one old-schema item does not stop the rest"
+    assert (out["failed"], out["skipped"]) == (1, 0)
+
+
+@pytest.mark.asyncio
+async def test_an_artifact_type_that_genuinely_has_no_resolve_semantics_is_still_skipped(api_db, monkeypatch):  # noqa: F811
+    from fastapi import HTTPException
+
+    _raising(
+        monkeypatch, {"f-1": HTTPException(status_code=422, detail="Artifact type 'decision' has no resolve semantics")}
+    )
+    out = await _bulk({"ids": ["f-1"], "resolved_by": "x"})
+    assert out["results"][0]["outcome"] == "skipped" and out["results"][0]["reason"] == "no resolve semantics"
+
+
+@pytest.mark.asyncio
+async def test_an_unexpected_error_on_one_item_fails_that_item_and_the_batch_still_answers(api_db, monkeypatch):  # noqa: F811
+    """A locked database used to escape as a 500 with no results, after earlier items had already committed."""
+    _raising(monkeypatch, {"d-1": sqlite3.OperationalError("database is locked")})
+    out = await _bulk({"ids": ["m-1", "d-1", "a-1"], "resolved_by": "x"})
+    by_id = {r["id"]: r for r in cast(list[dict], out["results"])}
+    assert by_id["d-1"]["outcome"] == "failed" and "database is locked" in by_id["d-1"]["reason"]
+    assert by_id["m-1"]["outcome"] == "resolved" and by_id["a-1"]["outcome"] == "resolved"
+    assert out["resolved"] == 2 and out["failed"] == 1

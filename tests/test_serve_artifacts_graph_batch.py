@@ -341,8 +341,12 @@ def test_batch_resolve_unknowns(tmp_path, monkeypatch, reset_daemon_cache):
     assert data["not_found"] == 0
 
 
-def test_batch_resolve_skips_types_without_resolve_semantics(tmp_path, monkeypatch, reset_daemon_cache):
-    """Findings have no resolve semantics — they should be skipped, not error the batch."""
+def test_batch_resolve_fails_a_finding_in_a_project_db_that_predates_the_lifecycle_with_its_hint(
+    tmp_path, monkeypatch, reset_daemon_cache
+):
+    """Findings DO have resolve semantics (migrations 057/060/061). This fixture project's database predates those columns, so the finding
+    cannot be resolved there: the item is FAILED with the migration hint and the batch still answers. It was once asserted as `skipped`
+    ("no resolve semantics"), which was false twice over: findings have the semantics, and the cause was an old schema."""
     pid = str(uuid.uuid4())
     proj = _make_project_with_db(tmp_path, pid)
     db_path = proj / ".empirica" / "sessions" / "sessions.db"
@@ -360,7 +364,31 @@ def test_batch_resolve_skips_types_without_resolve_semantics(tmp_path, monkeypat
 
     data = response.json()
     assert data["resolved"] == 1
-    assert data["skipped"] == 1
+    assert data["skipped"] == 0 and data["failed"] == 1
+    failed = next(r for r in data["results"] if r["outcome"] == "failed")
+    assert failed["id"] == f1 and "predates" in failed["reason"] and "migration" in failed["hint"].lower()
+
+
+def test_batch_resolve_still_skips_a_decision_which_genuinely_has_no_resolve_semantics(
+    tmp_path, monkeypatch, reset_daemon_cache
+):
+    """Control for the test above: a skip is for a TYPE with no lifecycle, not for a project whose schema is old."""
+    pid = str(uuid.uuid4())
+    proj = _make_project_with_db(tmp_path, pid)
+    db_path = proj / ".empirica" / "sessions" / "sessions.db"
+    d1 = _insert_decision(db_path, pid)
+    u1 = _insert_unknown(db_path, pid)
+
+    with patch("empirica.utils.session_resolver.InstanceResolver.project_path", return_value=str(proj)):
+        monkeypatch.chdir(proj)
+        data = (
+            TestClient(create_serve_app())
+            .post("/api/v1/artifacts/resolve", json={"ids": [d1, u1], "resolved_by": "x"})
+            .json()
+        )
+
+    assert (data["resolved"], data["skipped"], data["failed"]) == (1, 1, 0)
+    assert next(r for r in data["results"] if r["id"] == d1)["reason"] == "no resolve semantics"
 
 
 def test_batch_resolve_422_when_no_ids_or_items(tmp_path, monkeypatch, reset_daemon_cache):
