@@ -116,3 +116,25 @@ items:
     horizon: "1.15.0"
     steered: false
     status: predicted
+
+  - id: multi-runner-test-evidence
+    title: Two test runners keep both reports
+    prediction: A project that runs two test runners, for example pytest and cargo, has both reports read by the next POSTFLIGHT, and a later run no longer replaces the other's.
+    confidence: 0.8
+    evidence: reviewed
+    basis: Read at HEAD, the pytest plugin writes the single shared report file without checking for another runner's report, so whichever runner finishes last decides what is graded. A Rust project that also runs pytest hit the collision and works around it by switching the plugin off for that run.
+    falsifier: A project whose evidence directory holds reports from pytest and from a second runner produces a POSTFLIGHT whose test evidence names only one of them.
+    horizon: "1.14.19"
+    steered: true
+    status: predicted
+
+  - id: known-suite-size
+    title: A test report can state the suite's size
+    prediction: When a runner reports how many tests exist but were not run, POSTFLIGHT's test signal says what share of the suite the pass rate covers.
+    confidence: 0.65
+    evidence: reported
+    basis: A Rust project already writes the counts of ignored and filtered-out tests per test binary and offered to supply the suite total; the reader ignores both counts today, so a filtered rerun and a full run read alike apart from the declared scope.
+    falsifier: A report carrying ignored and filtered-out counts produces a POSTFLIGHT signal that does not state the share of the suite covered.
+    horizon: "1.14.19"
+    steered: true
+    status: predicted
