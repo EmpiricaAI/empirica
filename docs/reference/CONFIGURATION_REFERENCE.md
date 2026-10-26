@@ -101,6 +101,15 @@ The collector reads, in order, the first usable of:
 
 **Python needs nothing:** the `empirica` package registers a pytest plugin that writes (1) when a session finishes, and only when the pytest rootdir holds `.empirica/`. On an editable install the entry point appears after `pip install -e . --no-deps`.
 
+**Code quality (any language).** ruff, radon and pyright run on Python files only. For every other language the **practice defines what quality means** and its own tooling writes `.empirica/code_quality.json`; core reads it and runs nothing:
+
+```json
+{"runner": "broccoli.sh", "created": 1793030000, "scope": "owned crates: plugin, translator",
+ "metrics": {"rustfmt_ok": true, "clippy_warnings": 0}}
+```
+
+A metric is a boolean (a check that passed or failed) or a non-negative count (0 is clean); anything else is dropped, at most 50 are read, names are 1-64 characters. Core does not interpret the names: each becomes evidence under `code_quality` with the runner and scope, supporting `clarity` and `coherence` (the lint analogue), and the POSTFLIGHT signal reads "Code quality clean (broccoli.sh: clippy_warnings 0, rustfmt_ok true)" or "Code quality findings (broccoli.sh, scope: ...): clippy_warnings 3". It is read for any transaction, not only ones touching `.py`, under the same freshness rule as the test report. Unset means those vectors stay ungraded. Scope it to the code the practice owns: in a fork a repo-wide metric grades upstream's debt, not the transaction. `source_notes` says `no_code_quality_report` or `stale_code_quality_report` when nothing usable was found.
+
 A report older than the transaction (the CHECK time for praxic work, else PREFLIGHT) is ignored. When nothing usable is found the test source is reported empty and `source_notes` in the POSTFLIGHT response says why: `no_test_report`, `stale_test_report`, or `empty_test_report` (a report that ran zero tests). Code-quality evidence (ruff, radon, pyright) is Python-only; for other languages that source stays empty.
 
 ### Keys other code reads

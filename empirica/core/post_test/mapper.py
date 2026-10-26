@@ -647,6 +647,32 @@ def _signal_code_quality(summary: dict) -> str | None:
     return None
 
 
+def _signal_declared_quality(summary: dict) -> str | None:
+    """Signal for the code-quality metrics a practice declared (`.empirica/code_quality.json`): clean, or the findings with their figures."""
+    declared = {
+        name: raw
+        for name, raw in (summary.get("code_quality") or {}).items()
+        if isinstance(raw, dict) and raw.get("declared")
+    }
+    if not declared:
+        return None
+    first = declared[min(declared)]
+    scope = next((raw["scope"] for raw in declared.values() if raw.get("scope")), None)
+    who = f"{first.get('runner')}" + (f", scope: {scope}" if scope else "")
+
+    def figure(name: str) -> str:
+        value = declared[name]["value"]
+        return f"{name} {str(value).lower() if isinstance(value, bool) else value}"
+
+    def clean(value: Any) -> bool:
+        return value is True or (not isinstance(value, bool) and value == 0)
+
+    failing = [n for n in sorted(declared) if not clean(declared[n]["value"])]
+    if failing:
+        return f"Code quality findings ({who}): " + ", ".join(figure(n) for n in failing)
+    return f"Code quality clean ({who}: " + ", ".join(figure(n) for n in sorted(declared)) + ")"
+
+
 def _test_scope_note(rate: Any) -> str | None:
     """What the test count covers, for the signal: the report's declared scope, or "scope unknown" for JUnit (which cannot say)."""
     if not isinstance(rate, dict):
@@ -704,6 +730,7 @@ _SIGNAL_GENERATORS = [
     _signal_artifact_breadth,
     _signal_git_activity,
     _signal_code_quality,
+    _signal_declared_quality,
     _signal_test_results,
     _signal_noetic_activity,
     _signal_sentinel,

@@ -76,6 +76,7 @@ JUNIT_GLOBS = (
 )
 JUNIT_MAX_FILES = 200  # a hot-path glob must not scale with the size of a build directory
 JUNIT_MAX_BYTES = 10_000_000
+DECLARED_QUALITY_MAX_METRICS = 50  # a practice's declaration is a handful of checks, not a log
 
 
 class EvidenceQuality(Enum):
@@ -2166,7 +2167,65 @@ class PostTestCollector:
             pass
         return items
 
+    def _read_declared_quality(self, root: Path, start: float | None) -> tuple[list[EvidenceItem], bool]:
+        """Code-quality evidence the practice declared in `.empirica/code_quality.json`. Second value: a stale declaration was seen.
+
+        `{"runner": ..., "created": <epoch>, "scope": ..., "metrics": {name: bool | non-negative count}}`. Written by the practice's own
+        tooling (David, 2026-10-26: non-Python quality is defined by the practice); nothing is run here. A metric that is not a short-named
+        boolean or finite non-negative number is dropped alone."""
+        import math
+
+        path = root / ".empirica" / "code_quality.json"
+        try:
+            report = json.loads(path.read_text())
+            made = self._made_at(path, report.get("created") if isinstance(report, dict) else None)
+        except (OSError, ValueError):
+            return [], False
+        if not isinstance(report, dict) or not isinstance(report.get("metrics"), dict):
+            return [], False
+        if start is not None and made < start:
+            return [], True
+        runner = str(report.get("runner") or "declared")[:60]
+        scope = self._declared_scope(report.get("scope"))
+        items: list[EvidenceItem] = []
+        for name, value in report["metrics"].items():
+            if len(items) >= DECLARED_QUALITY_MAX_METRICS:
+                break
+            if not isinstance(name, str) or not 0 < len(name) <= 64:
+                continue
+            if isinstance(value, bool):
+                score = 1.0 if value else 0.0
+            elif isinstance(value, (int, float)) and math.isfinite(value) and value >= 0:
+                score = 1.0 / (1.0 + value)  # 0 findings is clean; the figure itself is in raw_value
+            else:
+                continue
+            items.append(
+                EvidenceItem(
+                    source="code_quality",
+                    metric_name=name,
+                    value=score,
+                    raw_value={"value": value, "runner": runner, "scope": scope, "declared": True},
+                    quality=EvidenceQuality.SEMI_OBJECTIVE,
+                    supports_vectors=["clarity", "coherence"],
+                )
+            )
+        return items, False
+
     def _collect_code_quality_metrics(self) -> list[EvidenceItem]:
+        """Code-quality evidence: what the practice declares, then ruff/radon/pyright on Python files.
+
+        The declaration is read first and is not behind the Python early returns, so a Go or Rust transaction gets it. When nothing is
+        found `_source_notes["code_quality"]` says whether the practice declared nothing or declared it before this transaction."""
+        self._source_notes.pop("code_quality", None)
+        declared, stale = self._read_declared_quality(
+            Path(self._resolve_project_root() or "."), self._test_window_start()
+        )
+        items = declared + self._collect_python_quality_metrics()
+        if not items:
+            self._source_notes["code_quality"] = "stale_code_quality_report" if stale else "no_code_quality_report"
+        return items
+
+    def _collect_python_quality_metrics(self) -> list[EvidenceItem]:
         """Collect code quality evidence from static analysis tools.
 
         Runs ruff, radon, and pyright on files changed during this session.
