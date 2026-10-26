@@ -1393,52 +1393,6 @@ class PostTestCollector:
                 )
             )
 
-        # Facts created this session
-        try:
-            fact_count = db.codebase_model.session_fact_count(self.session_id)
-        except Exception:
-            fact_count = 0
-
-        if fact_count > 0:
-            # Facts → signal (understanding of what changed and why)
-            signal_score = min(1.0, fact_count / 20.0)
-            items.append(
-                EvidenceItem(
-                    source="codebase_model",
-                    metric_name="facts_created",
-                    value=signal_score,
-                    raw_value={"count": fact_count},
-                    quality=EvidenceQuality.SEMI_OBJECTIVE,
-                    supports_vectors=["signal", "density"],
-                    metadata={"work_type": "entity_extraction"},
-                )
-            )
-
-        # Active constraints for the project → coherence (learned conventions)
-        if self.project_id:
-            try:
-                constraints = db.codebase_model.get_constraints(project_id=self.project_id)
-                if constraints:
-                    total_violations = sum(c.get("violation_count", 0) for c in constraints)
-                    # More constraints with violations = better convention awareness
-                    coherence_score = min(1.0, len(constraints) / 10.0)
-                    items.append(
-                        EvidenceItem(
-                            source="codebase_model",
-                            metric_name="convention_constraints",
-                            value=coherence_score,
-                            raw_value={
-                                "constraint_count": len(constraints),
-                                "total_violations": total_violations,
-                            },
-                            quality=EvidenceQuality.SEMI_OBJECTIVE,
-                            supports_vectors=["coherence", "signal"],
-                            metadata={"work_type": "entity_extraction"},
-                        )
-                    )
-            except Exception:
-                pass
-
         return items
 
     def _gather_non_git_files(self, git_root: str | None) -> set:

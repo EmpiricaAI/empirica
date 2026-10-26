@@ -647,7 +647,7 @@ def test_no_new_artifact_insert_omits_visibility_outside_the_restore_paths():
     )
 
 
-# ── A11b codebase constraints: an empty, writer-less store reports "no signal", not an empty list that reads as "none apply" ──
+# ── A11 codebase facts and constraints had no writer; the readers and the API are gone, and the CHECK context says only what it knows ──
 
 
 def _check_context(db, project_id, monkeypatch, tmp_path):
@@ -659,22 +659,35 @@ def _check_context(db, project_id, monkeypatch, tmp_path):
     return result.get("codebase_context")
 
 
-def test_an_empty_constraint_store_is_reported_as_no_signal_not_an_empty_list(db, project, monkeypatch, tmp_path):
+def test_the_check_codebase_context_reports_the_entity_count_and_no_constraints_key(db, project, monkeypatch, tmp_path):
     pid, _ = project
     db.codebase_model.upsert_entity("f", "function", file_path="a.py", project_id=pid)
     context = _check_context(db, pid, monkeypatch, tmp_path)
-    assert context["active_entities"] == 1
-    assert context["constraints"] is None, (
-        "[] reads as 'no constraint applies'; nothing is recorded, which is a different statement"
+    assert context == {"active_entities": 1}, (
+        "no 'constraints' key: nothing records constraints, so there is nothing to report"
     )
 
 
-def test_recorded_constraints_are_still_listed(db, project, monkeypatch, tmp_path):
+def test_a_project_with_no_entities_gets_no_codebase_context(db, project, monkeypatch, tmp_path):
     pid, _ = project
-    db.codebase_model.upsert_entity("f", "function", file_path="a.py", project_id=pid)
-    db.codebase_model.upsert_constraint(rule_name="no-print", description="no print()", project_id=pid)
-    context = _check_context(db, pid, monkeypatch, tmp_path)
-    assert [c["rule"] for c in context["constraints"]] == ["no-print"]
+    assert _check_context(db, pid, monkeypatch, tmp_path) is None
+
+
+def test_the_fact_and_constraint_api_is_gone_and_the_entity_api_is_not():
+    from empirica.data.repositories.codebase_model import CodebaseModelRepository as R
+
+    for name in (
+        "create_fact",
+        "query_facts",
+        "invalidate_fact",
+        "facts_for_file",
+        "upsert_constraint",
+        "get_constraints",
+        "session_fact_count",
+    ):
+        assert not hasattr(R, name), name
+    for name in ("upsert_entity", "find_entities", "count_entities", "upsert_relationship", "session_entity_stats"):
+        assert hasattr(R, name), name
 
 
 # ── R2 saving cortex/ntfy config never destroys a credentials file it could not parse ──

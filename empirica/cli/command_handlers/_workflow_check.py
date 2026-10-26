@@ -1237,23 +1237,7 @@ def _check_enrich_codebase_model(result, check_project_id):
         try:
             entity_count = codebase_db.codebase_model.count_entities(check_project_id, active_only=True)
             if entity_count > 0:
-                constraints = codebase_db.codebase_model.get_constraints(project_id=check_project_id)
-                result["codebase_context"] = {
-                    "active_entities": entity_count,
-                    "constraints": [
-                        {
-                            "rule": c["rule_name"],
-                            "type": c["constraint_type"],
-                            "violations": c["violation_count"],
-                            "description": c["description"],
-                        }
-                        for c in constraints[:5]
-                    ]
-                    if constraints
-                    # None, not []: an empty list reads as "no constraint applies". Nothing writes codebase constraints, so the
-                    # honest statement is that none are recorded, i.e. no signal.
-                    else None,
-                }
+                result["codebase_context"] = {"active_entities": entity_count}
         finally:
             codebase_db.close()
     except Exception as e:

@@ -109,15 +109,12 @@ def _get_db_path(claude_session_id: str | None = None) -> Path | None:
 _MIN_SUBSTRING_MATCH = 15
 
 
-def _find_matching_goal(
-    db_path: Path, task_subject: str, task_description: str, task_id: str | None = None
-) -> dict | None:
+def _find_matching_goal(db_path: Path, task_subject: str, task_description: str) -> dict | None:
     """
     Find an Empirica goal that matches the completed task.
 
-    Search strategy (priority order):
-    1. Exact claude_task_id match in goal_data metadata, against the task's id
-    2. Fuzzy objective match against task subject (threshold: 0.6)
+    Search strategy: fuzzy objective match against the task subject (threshold: 0.6). An exact match on a `claude_task_id` kept in the
+    goal's metadata was removed on 2026-10-26 (David's ruling): nothing ever wrote that key, so the branch could not match.
 
     Only goals in progress are candidates: `is_completed = 0` also holds abandoned and planned goals, and status is an
     open vocabulary that readers must filter on literally.
@@ -143,24 +140,7 @@ def _find_matching_goal(
         if not rows:
             return None
 
-        # Strategy 1: Check metadata for claude_task_id
-        for row in rows:
-            if not task_id:
-                break
-            try:
-                goal_data = json.loads(row["goal_data"])
-                metadata = goal_data.get("metadata", {})
-                if metadata.get("claude_task_id") == task_id:
-                    return {
-                        "goal_id": row["id"],
-                        "objective": row["objective"],
-                        "match_type": "task_id",
-                        "confidence": 1.0,
-                    }
-            except (json.JSONDecodeError, KeyError):
-                continue
-
-        # Strategy 2: Fuzzy match objective against task subject
+        # Fuzzy match objective against task subject
         best_match = None
         best_ratio = 0.0
 
@@ -250,7 +230,7 @@ def main():
     # --- Task↔Goal Bridge ---
     db_path = _get_db_path(hook_input.get("session_id"))
     if db_path and task_subject:
-        match = _find_matching_goal(db_path, task_subject, task_description, task_id=task_id)
+        match = _find_matching_goal(db_path, task_subject, task_description)
         if match:
             logger.info(
                 f"  Matched goal: {match['goal_id'][:8]}... ({match['match_type']}, conf={match['confidence']:.2f})"

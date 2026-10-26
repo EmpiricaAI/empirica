@@ -69,15 +69,11 @@ def test_an_in_progress_goal_with_the_same_objective_is_still_found(bridge, tmp_
     assert match and match["goal_id"] == "goal-1" and match["match_type"] == "fuzzy"
 
 
-def test_the_claude_task_id_is_matched_against_the_task_id(bridge, tmp_path):
+def test_a_goal_carrying_a_claude_task_id_in_its_metadata_is_not_matched_by_it(bridge, tmp_path):
+    """The exact-id branch is gone (nothing ever wrote the key): only the objective can match, so an unrelated objective never does."""
     db = _db(tmp_path, [("Something unrelated entirely", "in_progress", {"claude_task_id": "task-7"})])
-    match = bridge._find_matching_goal(db, "a different subject", "", task_id="task-7")
-    assert match and match["match_type"] == "task_id" and match["confidence"] == 1.0
-
-
-def test_a_task_subject_equal_to_the_recorded_id_is_not_a_match(bridge, tmp_path):
-    db = _db(tmp_path, [("Something unrelated entirely", "in_progress", {"claude_task_id": "task-7"})])
-    assert bridge._find_matching_goal(db, "task-7", "", task_id="task-8") is None
+    assert bridge._find_matching_goal(db, "a different subject", "") is None
+    assert bridge._find_matching_goal(db, "task-7", "") is None
 
 
 def test_a_short_subject_inside_a_long_objective_does_not_complete_it(bridge, tmp_path):

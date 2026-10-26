@@ -1,21 +1,24 @@
 """
 Codebase Model Data Repository
 
-Thin ORM layer for codebase entity, fact, relationship, and constraint storage.
+Thin ORM layer for codebase entity and relationship storage.
+
+The fact and constraint operations were removed on 2026-10-26 (David's ruling): nothing in production ever wrote a fact or a
+constraint, the tables held 0 rows, and the two evidence readers always saw nothing. The tables are still created by the schema
+(dropping them needs a migration); a writer would bring the API back with it.
 All operations use the shared sessions.db connection via BaseRepository.
 """
 
 import json
 import time
 import uuid
-from fnmatch import fnmatch
 from typing import Any
 
 from .base import BaseRepository
 
 
 class CodebaseModelRepository(BaseRepository):
-    """Data-layer repository for codebase model entities, facts, and constraints."""
+    """Data-layer repository for codebase model entities and relationships."""
 
     # ========================================================================
     # Entity Operations
@@ -144,88 +147,6 @@ class CodebaseModelRepository(BaseRepository):
         return [dict(row) for row in cursor.fetchall()]
 
     # ========================================================================
-    # Fact Operations
-    # ========================================================================
-
-    def create_fact(
-        self,
-        fact_text: str,
-        evidence_type: str = "source_code",
-        evidence_path: str = "",
-        entity_ids: list[str] | None = None,
-        confidence: float = 1.0,
-        project_id: str | None = None,
-        session_id: str | None = None,
-    ) -> str:
-        """Create a new fact. Returns fact ID."""
-        fact_id = str(uuid.uuid4())
-        self._execute(
-            """INSERT INTO codebase_facts
-               (id, fact_text, valid_at, invalid_at, status, entity_ids,
-                evidence_type, evidence_path, confidence, project_id, session_id)
-               VALUES (?, ?, ?, NULL, 'canonical', ?, ?, ?, ?, ?, ?)""",
-            (
-                fact_id,
-                fact_text,
-                time.time(),
-                json.dumps(entity_ids or []),
-                evidence_type,
-                evidence_path,
-                confidence,
-                project_id,
-                session_id,
-            ),
-        )
-        self.commit()
-        return fact_id
-
-    def query_facts(
-        self,
-        project_id: str | None = None,
-        entity_id: str | None = None,
-        current_only: bool = True,
-    ) -> list[dict[str, Any]]:
-        """Query facts with optional filters."""
-        query = "SELECT * FROM codebase_facts WHERE 1=1"
-        params: list = []
-
-        if project_id:
-            query += " AND project_id = ?"
-            params.append(project_id)
-        if current_only:
-            query += " AND invalid_at IS NULL"
-
-        query += " ORDER BY confidence DESC, valid_at DESC LIMIT 50"
-        cursor = self._execute(query, tuple(params))
-        rows = [dict(row) for row in cursor.fetchall()]
-
-        # Filter by entity_id in Python (entity_ids is JSON array)
-        if entity_id:
-            rows = [r for r in rows if entity_id in json.loads(r.get("entity_ids", "[]"))]
-
-        return rows
-
-    def invalidate_fact(self, fact_id: str) -> None:
-        """Mark a fact as no longer true."""
-        self._execute(
-            "UPDATE codebase_facts SET invalid_at = ?, status = 'superseded' WHERE id = ?",
-            (time.time(), fact_id),
-        )
-        self.commit()
-
-    def facts_for_file(self, file_path: str, project_id: str | None = None) -> list[dict[str, Any]]:
-        """Get current facts with evidence pointing to a file."""
-        query = """SELECT * FROM codebase_facts
-                   WHERE evidence_path LIKE ? AND invalid_at IS NULL"""
-        params: list = [f"{file_path}%"]
-        if project_id:
-            query += " AND project_id = ?"
-            params.append(project_id)
-        query += " ORDER BY confidence DESC"
-        cursor = self._execute(query, tuple(params))
-        return [dict(row) for row in cursor.fetchall()]
-
-    # ========================================================================
     # Relationship Operations
     # ========================================================================
 
@@ -290,100 +211,6 @@ class CodebaseModelRepository(BaseRepository):
         return results
 
     # ========================================================================
-    # Constraint Operations
-    # ========================================================================
-
-    def upsert_constraint(
-        self,
-        rule_name: str,
-        constraint_type: str = "convention",
-        file_pattern: str | None = None,
-        description: str = "",
-        examples: list[dict[str, str]] | None = None,
-        severity: str = "warning",
-        project_id: str | None = None,
-        session_id: str | None = None,
-    ) -> str:
-        """Create or update a constraint. Increments violation_count on update."""
-        now = time.time()
-
-        cursor = self._execute(
-            "SELECT id, violation_count, examples FROM codebase_constraints WHERE rule_name = ? AND project_id IS ?",
-            (rule_name, project_id),
-        )
-        existing = cursor.fetchone()
-
-        if existing:
-            cid = existing[0] if isinstance(existing, tuple) else existing["id"]
-            count = (existing[1] if isinstance(existing, tuple) else existing["violation_count"]) + 1
-            old_examples = json.loads((existing[2] if isinstance(existing, tuple) else existing["examples"]) or "[]")
-            all_examples = old_examples + (examples or [])
-            self._execute(
-                """UPDATE codebase_constraints
-                   SET violation_count = ?, last_violated = ?, examples = ?, description = ?
-                   WHERE id = ?""",
-                (count, now, json.dumps(all_examples), description, cid),
-            )
-            self.commit()
-            return cid
-
-        cid = str(uuid.uuid4())
-        self._execute(
-            """INSERT INTO codebase_constraints
-               (id, constraint_type, rule_name, file_pattern, description,
-                violation_count, last_violated, examples, severity,
-                project_id, session_id, created_at)
-               VALUES (?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?)""",
-            (
-                cid,
-                constraint_type,
-                rule_name,
-                file_pattern,
-                description,
-                json.dumps(examples or []),
-                severity,
-                project_id,
-                session_id,
-                now,
-            ),
-        )
-        self.commit()
-        return cid
-
-    def get_constraints(
-        self,
-        file_path: str | None = None,
-        project_id: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """Get constraints, optionally filtered by file glob pattern."""
-        query = "SELECT * FROM codebase_constraints WHERE 1=1"
-        params: list = []
-        if project_id:
-            query += " AND project_id = ?"
-            params.append(project_id)
-        query += " ORDER BY violation_count DESC"
-
-        cursor = self._execute(query, tuple(params))
-        constraints = [dict(row) for row in cursor.fetchall()]
-
-        # File pattern matching in Python (glob)
-        if file_path:
-            constraints = [
-                c for c in constraints if not c.get("file_pattern") or self._glob_match(file_path, c["file_pattern"])
-            ]
-
-        return constraints
-
-    @staticmethod
-    def _glob_match(path: str, pattern: str) -> bool:
-        """Match a file path against a glob pattern."""
-        if "**" in pattern:
-            flat = pattern.replace("**/", "")
-            recursive = pattern.replace("**", "*")
-            return fnmatch(path, flat) or fnmatch(path, recursive)
-        return fnmatch(path, pattern)
-
-    # ========================================================================
     # Aggregate Queries (for grounded calibration evidence)
     # ========================================================================
 
@@ -394,14 +221,6 @@ class CodebaseModelRepository(BaseRepository):
             (session_id,),
         )
         return {row[0]: row[1] for row in cursor.fetchall()}
-
-    def session_fact_count(self, session_id: str) -> int:
-        """Count facts created in a session."""
-        cursor = self._execute(
-            "SELECT COUNT(*) FROM codebase_facts WHERE session_id = ?",
-            (session_id,),
-        )
-        return cursor.fetchone()[0]
 
     def project_entity_count(self, project_id: str) -> int:
         """Count active entities in a project."""
