@@ -2936,13 +2936,17 @@ def _has_dangerous_tool_flags(cmd: str) -> bool:
         return not _nvidia_smi_is_read_only(stripped)
     flags = _TOOL_DANGEROUS_FLAGS.get(head)
     if flags:
-        for tok in stripped.split()[1:]:
+        for tok in _tool_tokens(stripped)[1:]:  # shlex, so a quoted flag ("-P", '--pager=cat') is the flag it names
             if tok in flags:
                 return True
             name = tok.split("=", 1)[0]
             if tok.startswith("--") and "=" in tok and name in flags:
                 return True
-            if head in _GETOPT_ABBREVIATING and _abbreviates_a_flag(name, flags):
+            if (
+                head in _GETOPT_ABBREVIATING
+                and name not in _REAL_LONG_FLAGS.get(head, ())
+                and _abbreviates_a_flag(name, flags)
+            ):
                 return True
             if head == "man" and _man_short_cluster_runs_a_program(tok):
                 return True
@@ -2951,9 +2955,14 @@ def _has_dangerous_tool_flags(cmd: str) -> bool:
 
 # Tools whose option parser is getopt_long: it accepts any UNAMBIGUOUS PREFIX of a long option (`man --conf cfg` is `--config-file cfg`,
 # `git blame --textco` is `--textconv`), so an exact-token denylist leaks. A prefix of a dangerous long flag gates, ambiguous or not: a
-# gate costs a CHECK, a leak runs a program. Three letters after the dashes are required so `--e` style stubs do not gate everything.
+# gate costs a CHECK, a leak runs a program. Two letters after the dashes are required so a one-letter stub does not gate everything.
 _GETOPT_ABBREVIATING = frozenset({"man", "git"})
-_MIN_ABBREVIATION = 5  # "--" plus three letters
+_MIN_ABBREVIATION = (
+    4  # "--" plus two letters: `man --co` (config-file) and `man --ht` (html) are unique prefixes getopt accepts
+)
+# Real long options of these tools that are ALSO a prefix of a dangerous one: an exact option beats a prefix match in getopt, so they are
+# what they say (git's `--text` is `-a`; it is also the start of `--textconv`).
+_REAL_LONG_FLAGS: dict[str, frozenset[str]] = {"git": frozenset({"--text"})}
 
 
 def _abbreviates_a_flag(name: str, flags: frozenset[str]) -> bool:

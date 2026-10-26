@@ -172,3 +172,41 @@ def test_an_abbreviated_or_attached_form_of_a_program_naming_flag_is_not_noetic(
 def test_ordinary_man_and_git_reads_stay_noetic(gate, command):
     """Controls: the broader match must not turn everyday reads into praxic ones."""
     assert gate.is_safe_bash_command({"command": command}) is True, command
+
+
+# ── second pass: two-letter unique prefixes, quoted tokens, and a real flag that collides ─────────────────────
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "man --ht=cat ls",
+        "man --co /tmp/x ls",
+        "man --pag=cat ls",
+        'man "-P" cat ls',
+        "man '--pager=cat' ls",
+        'man "--config-file" /tmp/m.conf ls',
+        'git diff "--ext-diff"',
+        "git diff '--textconv'",
+        "git blame '--textco' f",
+        'man -a"P"cat ls',
+    ],
+)
+def test_two_letter_prefixes_and_quoted_flags_of_a_program_naming_option_are_not_noetic(gate, command):
+    assert gate.is_safe_bash_command({"command": command}) is False, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git diff --text",
+        "git grep --text foo",
+        "git log '--stat' -3",
+        'git diff "--stat" HEAD~1',
+        "man 'ls'",
+        'git diff "--stat',  # unbalanced quote: falls back to plain splitting rather than raising
+    ],
+)
+def test_a_real_flag_that_is_also_a_prefix_and_ordinary_quoting_stay_noetic(gate, command):
+    """Controls: `--text` is git's own flag (`-a`), so an exact option wins over the prefix match; quoting a safe flag changes nothing."""
+    assert gate.is_safe_bash_command({"command": command}) is True, command
