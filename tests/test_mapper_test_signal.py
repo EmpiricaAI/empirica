@@ -46,13 +46,13 @@ def test_one_failure_outweighs_any_number_of_passes(tmp_path):
     assert not any(s.startswith("Tests passing") for s in signals)
 
 
-def test_the_signal_is_the_same_whichever_runner_wrote_the_report(tmp_path):
-    """The signal reads the collector's contract, not pytest: a Go report and a JUnit file give it too."""
+def test_a_junit_file_gives_the_signal_too_and_says_what_it_cannot_know(tmp_path):
+    """The signal reads the collector's contract, not pytest; JUnit cannot say what it covers, so the signal does."""
     (tmp_path / "junit.xml").write_text('<testsuite tests="4" failures="1" errors="0" skipped="0"/>')
     collector = PostTestCollector("s")
     collector._project_root = str(tmp_path)
     bundle = EvidenceBundle(session_id="s", items=collector._collect_test_results())
-    assert "Test regressions: 1 tests failing" in _signals(bundle)
+    assert "Test regressions: 1 tests failing (scope unknown)" in _signals(bundle)
 
 
 def test_no_test_evidence_gives_no_test_signal(tmp_path):
@@ -87,3 +87,39 @@ def test_a_work_type_that_is_blind_to_pytest_gets_no_test_signal(tmp_path):
 )
 def test_evidence_that_is_not_a_pass_count_never_crashes_the_signal(summary):
     assert _signal_test_results(summary) is None
+
+
+# ── scope in the signal ─────────────────────────────────────────────────────────────────────────────────────────
+
+
+def _scoped_bundle(tmp_path: Path, passed: int, failed: int, scope) -> EvidenceBundle:
+    (tmp_path / ".empirica").mkdir(exist_ok=True)
+    (tmp_path / ".empirica" / "test_report.json").write_text(
+        json.dumps(
+            {"runner": "pytest", "summary": {"passed": passed, "failed": failed}, "created": 2.0, "scope": scope}
+        )
+    )
+    collector = PostTestCollector("s", preflight_timestamp=1.0)
+    collector._project_root = str(tmp_path)
+    return EvidenceBundle(session_id="s", items=collector._collect_test_results())
+
+
+def test_a_declared_scope_is_named_in_the_passing_signal(tmp_path):
+    assert "Tests passing (62, scope: partial: -k plugin)" in _signals(
+        _scoped_bundle(tmp_path, 62, 0, "partial: -k plugin")
+    )
+
+
+def test_a_declared_scope_is_named_in_the_regression_signal(tmp_path):
+    assert "Test regressions: 2 tests failing (scope: full run)" in _signals(_scoped_bundle(tmp_path, 8, 2, "full run"))
+
+
+def test_a_junit_report_says_its_scope_is_unknown_in_both_directions(tmp_path):
+    (tmp_path / "junit.xml").write_text('<testsuite tests="62" failures="0" errors="0" skipped="0"/>')
+    collector = PostTestCollector("s")
+    collector._project_root = str(tmp_path)
+    ok = EvidenceBundle(session_id="s", items=collector._collect_test_results())
+    assert "Tests passing (62, scope unknown)" in _signals(ok)
+    (tmp_path / "junit.xml").write_text('<testsuite tests="62" failures="3" errors="0" skipped="0"/>')
+    bad = EvidenceBundle(session_id="s", items=collector._collect_test_results())
+    assert "Test regressions: 3 tests failing (scope unknown)" in _signals(bad)

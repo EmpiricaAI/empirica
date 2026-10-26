@@ -201,7 +201,7 @@ def test_a_surefire_report_is_read_without_any_configuration(root):
     _junit(root, "target/surefire-reports/TEST-a.xml", SUITE.format(t=10, f=1, e=1, s=2))
     item = _rate(_collector(root)._collect_test_results())
     # 10 tests: 2 skipped did not run, 1 failure + 1 error failed, so 6 passed of 8 that ran
-    assert item.raw_value == {"passed": 6, "failed": 2, "total": 8, "runner": "junit"}
+    assert item.raw_value == {"passed": 6, "failed": 2, "total": 8, "runner": "junit", "scope": None}
     assert item.value == pytest.approx(0.75)
 
 
@@ -308,3 +308,29 @@ def test_real_code_beside_web_files_is_hybrid(root):
 
 def test_an_empty_change_set_is_still_insufficient(root):
     assert _profile([], root) == EvidenceProfile.INSUFFICIENT
+
+
+# ── scope: what a report covers ─────────────────────────────────────────────────────────────────────────────────
+
+
+def test_a_declared_scope_is_carried_into_the_evidence(root):
+    _neutral(root, scope="owned crates: plugin, translator")
+    assert _rate(_collector(root)._collect_test_results()).raw_value["scope"] == "owned crates: plugin, translator"
+
+
+def test_a_report_that_declares_no_scope_carries_none_not_a_guess(root):
+    _neutral(root)
+    raw = _rate(_collector(root)._collect_test_results()).raw_value
+    assert "scope" in raw and raw["scope"] is None
+
+
+@pytest.mark.parametrize("bad", [7, ["a"], {"x": 1}, ""])
+def test_a_scope_that_is_not_a_nonempty_string_is_treated_as_undeclared(root, bad):
+    _neutral(root, scope=bad)
+    assert _rate(_collector(root)._collect_test_results()).raw_value["scope"] is None
+
+
+def test_junit_cannot_know_its_scope_and_says_so(root):
+    _junit(root, "junit.xml", SUITE.format(t=3, f=0, e=0, s=0))
+    raw = _rate(_collector(root)._collect_test_results()).raw_value
+    assert raw["runner"] == "junit" and raw["scope"] is None

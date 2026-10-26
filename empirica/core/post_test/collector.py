@@ -1664,6 +1664,11 @@ class PostTestCollector:
         return float(self.preflight_timestamp) if self.preflight_timestamp else None
 
     @staticmethod
+    def _declared_scope(value: Any) -> str | None:
+        """What a report says it covers (e.g. "owned crates: plugin"), or None. Anything but a non-empty string is undeclared."""
+        return value.strip()[:200] if isinstance(value, str) and value.strip() else None
+
+    @staticmethod
     def _made_at(path: Path, declared: Any = None) -> float:
         """When a report was produced: the time it declares, else the file's mtime."""
         if isinstance(declared, (int, float)) and not isinstance(declared, bool):
@@ -1698,6 +1703,7 @@ class PostTestCollector:
                     "failed": failed,
                     "total": int(summary.get("total", passed + failed) or 0),
                     "runner": str(report.get("runner") or "pytest"),
+                    "scope": self._declared_scope(report.get("scope")),
                 },
                 stale,
             )
@@ -1751,7 +1757,8 @@ class PostTestCollector:
             failed += file_failed
         if not found:
             return None, stale
-        return {"passed": passed, "failed": failed, "total": passed + failed, "runner": "junit"}, stale
+        # a JUnit file records only the last run's filter, so what it covers is unknown
+        return {"passed": passed, "failed": failed, "total": passed + failed, "runner": "junit", "scope": None}, stale
 
     def _collect_test_results(self) -> list[EvidenceItem]:
         """Test pass rate (and coverage) from a report made inside this transaction.

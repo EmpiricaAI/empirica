@@ -95,9 +95,9 @@ For the `code` and `hybrid` profiles POSTFLIGHT grades a **test pass rate** from
 
 The collector reads, in order, the first usable of:
 
-1. `.empirica/test_report.json`, the runner-agnostic contract: `{"runner": "go", "summary": {"passed": 8, "failed": 2}, "created": <epoch seconds>}`. `total` defaults to `passed + failed`; a skipped test belongs in neither count. Any runner or wrapper script can write it.
+1. `.empirica/test_report.json`, the runner-agnostic contract: `{"runner": "go", "summary": {"passed": 8, "failed": 2}, "created": <epoch seconds>, "scope": "owned crates: plugin"}`. `total` defaults to `passed + failed`; a skipped test belongs in neither count. `scope` is optional and says what the run covered; a rerun overwrites the file, so without it a one-test rerun reads as the suite. The POSTFLIGHT signal names it ("Tests passing (62, scope: owned crates: plugin)"). The pytest plugin writes `full run` or `partial: <selection>` itself. Any runner or wrapper script can write the file.
 2. Legacy pytest names: `.empirica/pytest_report.json`, `pytest_report.json`, `.pytest_report.json`.
-3. JUnit XML, summed over the files found at `junit.xml`, `test-results/**/*.xml`, `target/surefire-reports/TEST-*.xml`, `target/failsafe-reports/TEST-*.xml`, `build/test-results/**/*.xml` and `target/nextest/**/junit.xml` (at most 200 files). Maven and Gradle write these without configuration; for Go use `gotestsum --junitfile junit.xml`, for Jest `jest-junit`.
+3. JUnit XML, summed over the files found at `junit.xml`, `test-results/**/*.xml`, `target/surefire-reports/TEST-*.xml`, `target/failsafe-reports/TEST-*.xml`, `build/test-results/**/*.xml` and `target/nextest/**/junit.xml` (at most 200 files; a JUnit file records only its last run's filter, so the signal says "scope unknown"). Maven and Gradle write these without configuration; for Go use `gotestsum --junitfile junit.xml`, for Jest `jest-junit`.
 
 **Python needs nothing:** the `empirica` package registers a pytest plugin that writes (1) when a session finishes, and only when the pytest rootdir holds `.empirica/`. On an editable install the entry point appears after `pip install -e . --no-deps`.
 

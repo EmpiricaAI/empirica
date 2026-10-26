@@ -647,19 +647,31 @@ def _signal_code_quality(summary: dict) -> str | None:
     return None
 
 
-def _signal_test_results(summary: dict) -> str | None:
-    """Signal for test results, from the collector's `test_pass_rate` raw_value {passed, failed, total, runner}.
+def _test_scope_note(rate: Any) -> str | None:
+    """What the test count covers, for the signal: the report's declared scope, or "scope unknown" for JUnit (which cannot say)."""
+    if not isinstance(rate, dict):
+        return None
+    scope = rate.get("scope")
+    if isinstance(scope, str) and scope:
+        return f"scope: {scope}"
+    return "scope unknown" if rate.get("runner") == "junit" else None
 
-    It used to read `failed_count` / `passed_count`, which no collector writes, so it could never fire."""
+
+def _signal_test_results(summary: dict) -> str | None:
+    """Signal for test results, from the collector's `test_pass_rate` raw_value {passed, failed, total, runner, scope}.
+
+    It used to read `failed_count` / `passed_count`, which no collector writes, so it could never fire. A count is only
+    as good as what it covers, so the report's scope is named when it declares one (a `-k` rerun is not the suite)."""
     rate = (summary.get("pytest") or {}).get("test_pass_rate")
     if not rate:
         return None
+    note = _test_scope_note(rate)
     failed = _extract_int(rate, "failed")
     if failed > 0:
-        return f"Test regressions: {failed} tests failing"
+        return f"Test regressions: {failed} tests failing" + (f" ({note})" if note else "")
     passed = _extract_int(rate, "passed")
     if passed > 0:
-        return f"Tests passing ({passed})"
+        return f"Tests passing ({passed}" + (f", {note}" if note else "") + ")"
     return None
 
 

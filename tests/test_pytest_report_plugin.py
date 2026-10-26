@@ -133,3 +133,45 @@ def test_the_plugin_is_registered_as_a_pytest11_entry_point():
     """Pins the zero-config registration; it only takes effect on an editable install after `pip install -e . --no-deps` is re-run."""
     meta = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
     assert meta["project"]["entry-points"]["pytest11"]["empirica"] == PLUGIN
+
+
+# ── scope: what the report covers ───────────────────────────────────────────────────────────────────────────────
+# A -k or single-file rerun overwrites the report and, with no record of its selection, reads as the whole suite (ecodex, nextest).
+
+
+def test_a_run_with_no_selection_declares_a_full_run(tmp_path):
+    project = _project(tmp_path, empirica=True)
+    _run_pytest(project)
+    assert _report(project)["scope"] == "full run"
+
+
+def test_a_keyword_selection_is_declared_partial_and_names_the_expression(tmp_path):
+    project = _project(tmp_path, empirica=True)
+    _run_pytest(project, "-k", "test_one")
+    scope = _report(project)["scope"]
+    assert scope.startswith("partial:") and "-k test_one" in scope
+
+
+def test_a_marker_selection_is_declared_partial(tmp_path):
+    project = _project(tmp_path, empirica=True)
+    _run_pytest(project, "-m", "not slow")
+    assert "-m not slow" in _report(project)["scope"]
+
+
+def test_naming_a_file_is_declared_partial_and_names_it(tmp_path):
+    project = _project(tmp_path, empirica=True)
+    _run_pytest(project, "test_sample.py::test_two")
+    scope = _report(project)["scope"]
+    assert scope.startswith("partial:") and "test_sample.py::test_two" in scope
+
+
+def test_options_that_do_not_select_tests_leave_it_a_full_run(tmp_path):
+    project = _project(tmp_path, empirica=True)
+    _run_pytest(project, "-x", "--tb=short", "-W", "ignore")
+    assert _report(project)["scope"] == "full run"
+
+
+def test_a_very_long_selection_is_truncated_so_the_report_stays_small(tmp_path):
+    project = _project(tmp_path, empirica=True)
+    _run_pytest(project, "-k", " or ".join(f"test_{i}" for i in range(400)))
+    assert len(_report(project)["scope"]) <= 200

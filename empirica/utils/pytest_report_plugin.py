@@ -35,6 +35,23 @@ def _counts(terminalreporter: Any) -> dict[str, int]:
     }
 
 
+def _scope(config: Any) -> str:
+    """ "full run", or "partial: ..." naming the selection. A -k or single-file rerun overwrites the report and, with nothing recorded
+    about what it selected, would read as the suite (ecodex, nextest). Options that do not select tests leave it a full run."""
+    opt = config.option
+    parts: list[str] = []
+    if getattr(opt, "keyword", ""):
+        parts.append(f"-k {opt.keyword}")
+    if getattr(opt, "markexpr", ""):
+        parts.append(f"-m {opt.markexpr}")
+    parts.extend(f"--deselect {d}" for d in getattr(opt, "deselect", None) or [])
+    if getattr(opt, "lf", False):
+        parts.append("--lf")
+    invoked = {str(a) for a in getattr(config.invocation_params, "args", ())}
+    parts.extend(a for a in config.args if str(a) in invoked)  # a path the user named, not the rootdir default
+    return f"partial: {' '.join(parts)}"[:200] if parts else "full run"
+
+
 def _head(root: Path) -> str | None:
     try:
         out = subprocess.run(
@@ -70,6 +87,7 @@ def pytest_sessionfinish(session: Any, exitstatus: Any) -> None:
             {
                 "runner": "pytest",
                 "summary": _counts(reporter),
+                "scope": _scope(config),
                 "created": time.time(),
                 "head": _head(root),
                 "exitcode": int(exitstatus),
