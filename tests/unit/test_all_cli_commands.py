@@ -84,18 +84,31 @@ HELP_COMMANDS = [
 ]
 
 
+@pytest.fixture(scope="module")
+def cli_parser():
+    """The CLI's argument parser, built once: building it is what a spawned process pays for on every call (~1.4s)."""
+    from empirica.cli.cli_core import create_argument_parser
+
+    return create_argument_parser()
+
+
 @pytest.mark.parametrize("command", HELP_COMMANDS)
-def test_the_command_has_a_working_help_that_names_it(cli, command):
+def test_the_command_has_a_working_help_that_names_it(cli_parser, capsys, command):
     """Exit 0 alone passes on empty output; the usage line must name the command it documents.
 
     The prefix before the command differs by Python: 3.14 prints `empirica check [-h]`, 3.11 and 3.13 print the main parser's custom
     usage string first (`empirica [--version] [--verbose] <command> [args] check [-h]`), wrapped by terminal width. `<command> [-h]` is
     the part every version agrees on (the first version asserted `empirica <command>` and passed only on the developer's 3.14).
+
+    In process on one parser: this was a subprocess per command (21 spawns, ~30s). The end-to-end entry point is still exercised by the
+    subprocess tests below and by tests/integrity/test_cli_contracts.py.
     """
-    result = cli(command, "--help")
-    assert result.returncode == 0, result.stderr
-    assert f"{command} [-h]" in " ".join(result.stdout.split()), (
-        f"--help for {command} does not say what it documents:\n{result.stdout[:300]}"
+    with pytest.raises(SystemExit) as stopped:
+        cli_parser.parse_args([command, "--help"])
+    out = capsys.readouterr().out
+    assert stopped.value.code == 0
+    assert f"{command} [-h]" in " ".join(out.split()), (
+        f"--help for {command} does not say what it documents:\n{out[:300]}"
     )
 
 

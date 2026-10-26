@@ -15,6 +15,8 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from empirica.cli.command_handlers.doctor import (
     FAIL,
     PASS,
@@ -446,9 +448,15 @@ def test_handle_doctor_strict_warn_returns_two(capsys):
 # ─── Integration ──────────────────────────────────────────────────────
 
 
-def test_run_all_checks_returns_complete_list():
+@pytest.fixture(scope="module")
+def all_checks():
+    """One real run of every doctor check (~12s) shared by the tests that read its result, which each used to run it again."""
+    return run_all_checks()
+
+
+def test_run_all_checks_returns_complete_list(all_checks):
     """Smoke test: doctor returns all expected checks without crashing."""
-    checks = run_all_checks()
+    checks = all_checks
     names = {c.name for c in checks}
     # Core categories present
     assert "Python version" in names
@@ -470,7 +478,7 @@ def test_run_all_checks_returns_complete_list():
     assert "Deployed plugin fresh" in names
 
 
-def test_run_all_checks_count_is_47():
+def test_run_all_checks_count_is_47(all_checks):
     """+1 for check_mcp_version_skew (GH #404, injected-topology skew).
     +1 for check_engagement_registry_drift (engagement dual-write, 1.13.23).
     +1 for check_cli_matches_checkout (CLI/checkout skew the version cannot see).
@@ -526,7 +534,7 @@ def test_run_all_checks_count_is_47():
     A hardcoded count is a tripwire for "a check was added/removed without
     thinking about the suite" — when it fires, update it deliberately (and add
     the name assertion below), never by pasting the new number blind."""
-    checks = run_all_checks()
+    checks = all_checks
     assert len(checks) == 47
     # The tripwire earns its keep only if the NEW check is named. A bumped
     # number alone records that something changed, not what.
