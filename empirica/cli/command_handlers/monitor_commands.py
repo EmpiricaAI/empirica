@@ -196,37 +196,11 @@ def _load_checkpoint_vectors(session_id: str | None, verbose: bool) -> tuple[dic
             from empirica.data.session_database import SessionDatabase
 
             db = SessionDatabase()
-            cursor = db.conn.cursor()
-            cursor.execute(
-                """
-                SELECT engagement, know, do, context, clarity, coherence,
-                       signal, density, state, change, completion, impact, uncertainty
-                FROM reflexes
-                WHERE session_id = ?
-                ORDER BY timestamp DESC LIMIT 1
-            """,
-                (session_id,),
-            )
-            row = cursor.fetchone()
+            # Each vector's newest RECORDED value, whatever the phase: the newest row alone is a CHECK that assessed 7 of 13.
+            vectors = db.get_last_recorded_vectors(session_id)
             db.close()
 
-            if row:
-                vectors = {
-                    "engagement": row[0],
-                    "know": row[1],
-                    "do": row[2],
-                    "context": row[3],
-                    "clarity": row[4],
-                    "coherence": row[5],
-                    "signal": row[6],
-                    "density": row[7],
-                    "state": row[8],
-                    "change": row[9],
-                    "completion": row[10],
-                    "impact": row[11],
-                    "uncertainty": row[12],
-                }
-                vectors = {k: v for k, v in vectors.items() if v is not None}
+            if vectors:
                 checkpoint_data = {"vectors": vectors, "source": "reflexes_table"}
         except Exception as e:
             if verbose:
@@ -316,6 +290,71 @@ def handle_assess_state_command(args):
         handle_cli_error(e, "Assess State", getattr(args, "verbose", False))
 
 
+#: The four grounding layers and the vectors each averages. Safety inverts uncertainty (low uncertainty is good).
+_TURTLE_LAYERS = (
+    ("USER INTENT", ("context", "signal")),
+    ("NOETIC GRASP", ("know", "clarity", "coherence")),
+    ("PRAXIC PATH", ("do", "state", "change")),
+    ("EPISTEMIC SAFETY", ("uncertainty", "engagement", "impact")),
+)
+
+
+def _layer_score(vectors: dict, members: tuple) -> tuple:
+    """(score, missing): the mean over the member vectors that WERE assessed, and the names that were not.
+
+    Score is None when none were. A missing vector used to read 0.5, which turned "not assessed" into a middling score."""
+    values = []
+    missing = []
+    for member in members:
+        value = vectors.get(member)
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            missing.append(member)
+            continue
+        values.append(1 - value if member == "uncertainty" else value)
+    return (sum(values) / len(values) if values else None), missing
+
+
+def get_moon_phase(score: float) -> tuple:
+    """Return (emoji, status) tuple based on confidence score (moon phase indicators for the grounding layers)."""
+    if score >= 0.85:
+        return "🌕", "CRYSTALLINE"
+    elif score >= 0.70:
+        return "🌔", "SOLID"
+    elif score >= 0.50:
+        return "🌓", "EMERGENT"
+    elif score >= 0.30:
+        return "🌒", "FORMING"
+    else:
+        return "🌑", "DARK"
+
+
+def _print_turtle_overall(layers: list, safe_to_proceed: bool) -> None:
+    """The closing STATUS line of the turtle stack: certifies only when every layer was assessed and grounded."""
+    print("\n" + "-" * 70)
+    scored = [l["score"] for l in layers if l["score"] is not None]
+    if not scored:
+        print("STATUS: ⬛ [NOT ASSESSED] - NO GROUNDING DATA")
+        print("        No vectors were assessed. Run PREFLIGHT before relying on this stack.")
+        return
+    overall_score = sum(scored) / len(scored)
+    overall_moon, overall_status = get_moon_phase(overall_score)
+
+    if safe_to_proceed and overall_score >= 0.70:
+        print(f"STATUS: {overall_moon} [{overall_status}] - SAFE TO PROCEED")
+        print("        Observer is stable. Grounding verified.")
+    elif safe_to_proceed and overall_score >= 0.50:
+        print(f"STATUS: {overall_moon} [{overall_status}] - PROCEED WITH CAUTION")
+        print("        Observer is forming. Consider CHECK before praxic action.")
+    elif len(scored) < len(layers):
+        print(
+            f"STATUS: {overall_moon} [{overall_status}] - INCOMPLETE ({len(scored)} of {len(layers)} layers assessed)"
+        )
+        print("        A layer with no assessed vectors cannot be certified. Run PREFLIGHT or CHECK.")
+    else:
+        print(f"STATUS: {overall_moon} [{overall_status}] - HALT RECOMMENDED")
+        print("        Observer is unstable. Run PREFLIGHT or investigate unknowns.")
+
+
 def _display_turtle_stack(vectors: dict, session_id: str | None = None, prompt: str | None = None):
     """
     Display recursive grounding stack trace (the Noetic Handshake).
@@ -330,95 +369,32 @@ def _display_turtle_stack(vectors: dict, session_id: str | None = None, prompt: 
     print("🐢 TURTLE STACK REPORT (Recursive Grounding Check)")
     print("=" * 70)
 
-    # Moon phase indicators based on confidence levels
-    def get_moon_phase(score: float) -> tuple:
-        """Return (emoji, status) tuple based on confidence score."""
-        if score >= 0.85:
-            return "🌕", "CRYSTALLINE"
-        elif score >= 0.70:
-            return "🌔", "SOLID"
-        elif score >= 0.50:
-            return "🌓", "EMERGENT"
-        elif score >= 0.30:
-            return "🌒", "FORMING"
-        else:
-            return "🌑", "DARK"
-
-    # Calculate layer scores from vectors
+    # Calculate layer scores from vectors. A vector that was never assessed is not scored: a layer averages the vectors it has,
+    # and a layer with none is NOT ASSESSED and cannot certify (it used to read 0.5, which rendered "EMERGENT").
     layers = []
     safe_to_proceed = True
-
-    # Layer 0: User Intent (based on context + signal)
-    context = vectors.get("context", 0.5)
-    signal = vectors.get("signal", 0.5)
-    layer0_score = (context + signal) / 2
-    moon0, status0 = get_moon_phase(layer0_score)
-    layers.append(
-        {
-            "layer": 0,
-            "name": "USER INTENT",
-            "score": layer0_score,
-            "moon": moon0,
-            "status": status0,
-            "detail": f"Context={context:.2f}, Signal={signal:.2f}",
-        }
-    )
-
-    # Layer 1: Noetic Grasp (based on know + clarity + coherence)
-    know = vectors.get("know", 0.5)
-    clarity = vectors.get("clarity", 0.5)
-    coherence = vectors.get("coherence", 0.5)
-    layer1_score = (know + clarity + coherence) / 3
-    moon1, status1 = get_moon_phase(layer1_score)
-    layers.append(
-        {
-            "layer": 1,
-            "name": "NOETIC GRASP",
-            "score": layer1_score,
-            "moon": moon1,
-            "status": status1,
-            "detail": f"Know={know:.2f}, Clarity={clarity:.2f}, Coherence={coherence:.2f}",
-        }
-    )
-
-    # Layer 2: Praxic Path (based on do + state + change)
-    do = vectors.get("do", 0.5)
-    state = vectors.get("state", 0.5)
-    change = vectors.get("change", 0.5)
-    layer2_score = (do + state + change) / 3
-    moon2, status2 = get_moon_phase(layer2_score)
-    layers.append(
-        {
-            "layer": 2,
-            "name": "PRAXIC PATH",
-            "score": layer2_score,
-            "moon": moon2,
-            "status": status2,
-            "detail": f"Do={do:.2f}, State={state:.2f}, Change={change:.2f}",
-        }
-    )
-
-    # Layer 3: Epistemic Safety (based on uncertainty + engagement + impact)
-    uncertainty = vectors.get("uncertainty", 0.5)
-    engagement = vectors.get("engagement", 0.5)
-    impact = vectors.get("impact", 0.5)
-    # For safety, LOW uncertainty is GOOD, so we invert it
-    safety_score = ((1 - uncertainty) + engagement + impact) / 3
-    moon3, status3 = get_moon_phase(safety_score)
-    layers.append(
-        {
-            "layer": 3,
-            "name": "EPISTEMIC SAFETY",
-            "score": safety_score,
-            "moon": moon3,
-            "status": status3,
-            "detail": f"Uncertainty={uncertainty:.2f} (inverted), Engagement={engagement:.2f}",
-        }
-    )
+    for index, (name, members) in enumerate(_TURTLE_LAYERS):
+        score, missing = _layer_score(vectors, members)
+        shown = ", ".join(
+            f"{member.capitalize()}={vectors[member]:.2f}" if member not in missing else f"{member.capitalize()}=n/a"
+            for member in members
+        )
+        if score is None:
+            layers.append(
+                {"layer": index, "name": name, "score": None, "moon": "⬛", "status": "NOT ASSESSED", "detail": shown}
+            )
+            continue
+        moon, status = get_moon_phase(score)
+        layers.append({"layer": index, "name": name, "score": score, "moon": moon, "status": status, "detail": shown})
 
     # Display each layer
     for layer in layers:
         print(f"\n  🐢 [LAYER {layer['layer']}: {layer['name']}] -> {layer['moon']} {layer['status']}")
+        if layer["score"] is None:
+            print(f"     Score: n/a | {layer['detail']}")
+            print(f"     ⚠️  Warning: {layer['name']} has no assessed vectors and cannot be certified")
+            safe_to_proceed = False
+            continue
         print(f"     Score: {layer['score']:.2f} | {layer['detail']}")
 
         # Check for warnings
@@ -428,20 +404,7 @@ def _display_turtle_stack(vectors: dict, session_id: str | None = None, prompt: 
         elif layer["score"] < 0.70:
             print(f"     ⚡ Caution: {layer['name']} may need investigation")
 
-    # Overall status
-    print("\n" + "-" * 70)
-    overall_score = sum(l["score"] for l in layers) / len(layers)
-    overall_moon, overall_status = get_moon_phase(overall_score)
-
-    if safe_to_proceed and overall_score >= 0.70:
-        print(f"STATUS: {overall_moon} [{overall_status}] - SAFE TO PROCEED")
-        print("        Observer is stable. Grounding verified.")
-    elif safe_to_proceed and overall_score >= 0.50:
-        print(f"STATUS: {overall_moon} [{overall_status}] - PROCEED WITH CAUTION")
-        print("        Observer is forming. Consider CHECK before praxic action.")
-    else:
-        print(f"STATUS: {overall_moon} [{overall_status}] - HALT RECOMMENDED")
-        print("        Observer is unstable. Run PREFLIGHT or investigate unknowns.")
+    _print_turtle_overall(layers, safe_to_proceed)
 
     print("=" * 70)
     print()
@@ -519,54 +482,20 @@ def _resolve_current_vectors(db, session_id=None) -> tuple:
             project_id = session.get("project_id")
 
     if not vectors:
+        # Each vector's newest RECORDED value over the session, whatever the phase (a CHECK leaves six NULL). With no session
+        # given, the session of the newest reflexes row stands in; nothing recorded at all stays empty rather than becoming
+        # thirteen invented halves.
         try:
-            with sqlite3.connect(db.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT know, do, context, clarity, coherence, signal, density,
-                           engagement, state, change, completion, impact, uncertainty
-                    FROM reflexes ORDER BY id DESC LIMIT 1
-                """)
-                row = cursor.fetchone()
-                if row:
-                    names = [
-                        "know",
-                        "do",
-                        "context",
-                        "clarity",
-                        "coherence",
-                        "signal",
-                        "density",
-                        "engagement",
-                        "state",
-                        "change",
-                        "completion",
-                        "impact",
-                        "uncertainty",
-                    ]
-                    vectors = {n: row[i] for i, n in enumerate(names) if row[i] is not None}
+            target = session_id
+            if not target:
+                with sqlite3.connect(db.db_path) as conn:
+                    row = conn.execute("SELECT session_id FROM reflexes ORDER BY id DESC LIMIT 1").fetchone()
+                target = row[0] if row else None
+            if target:
+                vectors = db.get_last_recorded_vectors(target)
         except Exception:
             pass
 
-    if not vectors:
-        vectors = dict.fromkeys(
-            [
-                "know",
-                "do",
-                "context",
-                "clarity",
-                "coherence",
-                "signal",
-                "density",
-                "engagement",
-                "state",
-                "change",
-                "completion",
-                "impact",
-                "uncertainty",
-            ],
-            0.5,
-        )
     return vectors, project_id
 
 
@@ -746,19 +675,13 @@ def handle_trajectory_project_command(args):
             else:
                 return "🌑", "DARK"
 
-        # Layer calculations
-        layer0_score = (vectors.get("context", 0.5) + vectors.get("signal", 0.5)) / 2  # USER INTENT
-        layer1_score = (
-            vectors.get("know", 0.5) + vectors.get("clarity", 0.5) + vectors.get("coherence", 0.5)
-        ) / 3  # NOETIC GRASP
-        layer2_score = (
-            vectors.get("do", 0.5) + vectors.get("state", 0.5) + vectors.get("change", 0.5)
-        ) / 3  # PRAXIC PATH
-        uncertainty = vectors.get("uncertainty", 0.5)
-        layer3_score = (
-            (1 - uncertainty) + vectors.get("engagement", 0.5) + vectors.get("impact", 0.5)
-        ) / 3  # EPISTEMIC SAFETY
-
+        # Layer calculations. A layer with no assessed vectors scores 0.0 here, which fails closed: it can never make the PRAXIC path
+        # viable. (It used to average invented 0.5s and read "EMERGENT".) The names are reported in the output.
+        layer_results = [_layer_score(vectors, members) for _name, members in _TURTLE_LAYERS]
+        unassessed_layers = [name for (name, _m), (score, _x) in zip(_TURTLE_LAYERS, layer_results) if score is None]
+        layer0_score, layer1_score, layer2_score, layer3_score = (
+            score if score is not None else 0.0 for score, _missing in layer_results
+        )
         overall_grounding = (layer0_score + layer1_score + layer2_score + layer3_score) / 4
         overall_moon, overall_status = get_moon_phase(overall_grounding)
 
@@ -811,9 +734,16 @@ def handle_trajectory_project_command(args):
                 "moon": overall_moon,
                 "status": overall_status,
                 "layers": [
-                    {"name": l["name"], "score": l["score"], "moon": l["moon"][0], "status": l["moon"][1]}
+                    {
+                        "name": l["name"],
+                        "score": l["score"],
+                        "moon": l["moon"][0],
+                        "status": l["moon"][1],
+                        "assessed": l["name"] not in unassessed_layers,
+                    }
                     for l in layers
                 ],
+                "unassessed_layers": unassessed_layers,
             },
             "context": {
                 "session_id": session_id,

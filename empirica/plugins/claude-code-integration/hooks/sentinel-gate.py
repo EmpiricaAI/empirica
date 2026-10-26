@@ -6265,13 +6265,26 @@ def _check_expiry_and_compact(check_timestamp, empirica_root: Path | None) -> tu
     return None
 
 
+def _assessed(value, default):
+    """`default` only when the vector is missing (None). `value or default` also replaced a real 0.0, which is falsy."""
+    return default if value is None else value
+
+
 def _evaluate_check_threshold(know, uncertainty, db, env_annotation: str) -> tuple:
     """Evaluate CHECK vectors against dynamic thresholds.
 
     Returns (decision, reason) — always produces a final decision.
     """
-    raw_check_know = know or 0
-    raw_check_unc = uncertainty or 1
+    # A CHECK supplies 7 of the 13 vectors and the store keeps the rest NULL (1.14.16). `know or 0` / `uncertainty or 1` turned a
+    # NULL into a reported number ("U=100%") and, because 0.0 is falsy, a real 0.0 uncertainty into 1.0. Say what was not assessed.
+    if know is None or uncertainty is None:
+        missing = " and ".join(name for name, value in (("know", know), ("uncertainty", uncertainty)) if value is None)
+        return (
+            "allow",
+            f"ADVISORY: this CHECK did not assess {missing}, so the threshold was not evaluated. Supply it to certify the grounding.{env_annotation}",
+        )
+    raw_check_know = know
+    raw_check_unc = uncertainty
     _dyn_know, _dyn_unc = _get_dynamic_thresholds(db)
 
     if raw_check_know >= _dyn_know and raw_check_unc <= _dyn_unc:
@@ -6334,8 +6347,8 @@ def _run_authorization_pipeline(hook_input: dict, tool_name: str, tool_input: di
                 cursor, session_id, current_transaction_id, preflight_timestamp, tool_name, tool_input
             ),
             _check_auto_proceed(
-                preflight_know or 0,
-                preflight_uncertainty or 1,
+                _assessed(preflight_know, 0.0),
+                _assessed(preflight_uncertainty, 1.0),
                 db,
                 tx_file,
                 tx_state["_current_domain"],
