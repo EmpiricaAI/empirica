@@ -648,14 +648,16 @@ def _signal_code_quality(summary: dict) -> str | None:
 
 
 def _signal_test_results(summary: dict) -> str | None:
-    """Signal for pytest results."""
-    tests = summary.get("pytest", {})
-    if not tests:
+    """Signal for test results, from the collector's `test_pass_rate` raw_value {passed, failed, total, runner}.
+
+    It used to read `failed_count` / `passed_count`, which no collector writes, so it could never fire."""
+    rate = (summary.get("pytest") or {}).get("test_pass_rate")
+    if not rate:
         return None
-    failed = tests.get("failed_count", 0)
+    failed = _extract_int(rate, "failed")
     if failed > 0:
         return f"Test regressions: {failed} tests failing"
-    passed = tests.get("passed_count", 0)
+    passed = _extract_int(rate, "passed")
     if passed > 0:
         return f"Tests passing ({passed})"
     return None
