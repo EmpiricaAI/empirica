@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import time
 from datetime import datetime
@@ -339,6 +340,7 @@ def swap_memory(
         "harness_cwd_project": str(harness_cwd_project),
         "source_project": str(active_tx_project),
         "claude_session_id": claude_session_id,
+        "harness": current_harness(),
         "transaction_id": transaction_id,
         "backed_up_files": backed_up,
         "copied_files": copied,
@@ -489,15 +491,33 @@ def harness_project_for(cwd: Path) -> Path:
     return Path(cwd)
 
 
-def restore_if_swapped(harness_cwd: Path) -> dict | None:
+def current_harness() -> str:
+    """Which harness this process runs under: ``EMPIRICA_HARNESS``, defaulting to ``claude-code``."""
+    return (os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip().lower() or "claude-code"
+
+
+def restore_if_swapped(harness_cwd: Path, *, caller_harness: str | None = None) -> dict | None:
     """Restore the harness project's memory if a swap is active; None when there is nothing to restore.
+
+    A swap belongs to the harness that made it. ``EMPIRICA_MEMORY_SWAP=1`` exported for Claude Code is inherited by other harnesses' hooks, so
+    a codex session ending in the same repo restored a live Claude Code session's swap from under it (ecodex). When the caller names its
+    harness and the manifest names another, the swap is left alone. A manifest from before the harness was recorded, or a caller that does
+    not say, restores as before: nothing says who owns it, and leaving it swapped forever is the worse failure.
 
     Never raises: a failure comes back as ``{"ok": False, "action": "restore_failed", ...}`` so the
     caller can say so. A swallowed failure leaves another project's memory under this project's name."""
     try:
         project = harness_project_for(harness_cwd).resolve()
-        if not read_manifest(project):
+        manifest = read_manifest(project)
+        if not manifest:
             return None
+        owner = manifest.get("harness")
+        if caller_harness and owner and owner != caller_harness:
+            return {
+                "ok": True,
+                "action": "other_harness",
+                "message": f"The memory swap for {project} belongs to the {owner} harness; left in place for a {caller_harness} session end",
+            }
         return restore_memory(project)
     except Exception as e:
         return {"ok": False, "action": "restore_failed", "message": str(e)}

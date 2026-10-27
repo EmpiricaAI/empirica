@@ -407,3 +407,60 @@ def test_post_compact_swaps_only_when_the_operator_opted_in(fake_home, monkeypat
     monkeypatch.setenv("EMPIRICA_MEMORY_SWAP", "1")
     hook._try_memory_swap("cs-1", "/somewhere")
     assert len(calls) == 1
+
+
+# ── a swap belongs to the harness that made it (ecodex's sweep of 1.14.15, goal 8c106034, finding 3) ───────────────────────────────
+
+
+def _swapped(tmp_path, monkeypatch, harness_env: str | None = "claude-code"):
+    if harness_env is None:
+        monkeypatch.delenv("EMPIRICA_HARNESS", raising=False)
+    else:
+        monkeypatch.setenv("EMPIRICA_HARNESS", harness_env)
+    harness = _project(tmp_path, "harness", {"MEMORY.md": "harness original"})
+    active = _project(tmp_path, "active", {"MEMORY.md": "active content"})
+    assert swap_memory(harness, active, claude_session_id="live-cc-session")["action"] == "swapped"
+    return harness
+
+
+def test_a_swap_records_which_harness_made_it(fake_home, tmp_path, monkeypatch):
+    from empirica.utils.memory_swap import read_manifest
+
+    assert read_manifest(_swapped(tmp_path, monkeypatch, "claude-code"))["harness"] == "claude-code"
+
+
+def test_an_unset_harness_means_claude_code(fake_home, tmp_path, monkeypatch):
+    from empirica.utils.memory_swap import read_manifest
+
+    assert read_manifest(_swapped(tmp_path, monkeypatch, None))["harness"] == "claude-code"
+
+
+def test_a_session_ending_under_another_harness_does_not_undo_a_live_swap(fake_home, tmp_path, monkeypatch):
+    """EMPIRICA_MEMORY_SWAP=1 exported for Claude Code is inherited by codex hooks; a codex session ending in the same repo restored a live Claude
+    Code session's swap from under it."""
+    harness = _swapped(tmp_path, monkeypatch, "claude-code")
+    result = restore_if_swapped(harness, caller_harness="codex")
+    assert result is not None and result["ok"] is True and result["action"] == "other_harness"
+    assert is_swap_active(harness)
+    assert (_claude_memory_dir(harness) / "MEMORY.md").read_text() == "active content", "still swapped in"
+
+
+def test_the_harness_that_made_the_swap_still_restores_it(fake_home, tmp_path, monkeypatch):
+    harness = _swapped(tmp_path, monkeypatch, "claude-code")
+    result = restore_if_swapped(harness, caller_harness="claude-code")
+    assert result and result["action"] == "restored"
+    assert (_claude_memory_dir(harness) / "MEMORY.md").read_text() == "harness original"
+
+
+def test_a_manifest_from_before_the_harness_was_recorded_restores_for_anyone(fake_home, tmp_path, monkeypatch):
+    """Nothing says who owns it, so the old behaviour (the next session end restores) is kept rather than leaving it swapped forever."""
+    import json
+
+    from empirica.utils.memory_swap import MANIFEST_NAME
+
+    harness = _swapped(tmp_path, monkeypatch, "claude-code")
+    manifest_file = _claude_memory_dir(harness) / MANIFEST_NAME
+    manifest = json.loads(manifest_file.read_text())
+    manifest.pop("harness")
+    manifest_file.write_text(json.dumps(manifest))
+    assert restore_if_swapped(harness, caller_harness="codex")["action"] == "restored"
