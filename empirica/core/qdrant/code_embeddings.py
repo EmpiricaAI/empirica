@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import time
+from itertools import pairwise
 from pathlib import Path
 
 from empirica.core.qdrant.collections import _eidetic_collection
@@ -315,6 +316,24 @@ def search_code_api(
         return []
 
 
+DEFAULT_EXCLUDED_DIRS = ("__pycache__", ".git", "node_modules", ".venv", "venv")
+
+
+def _is_excluded(rel: Path, exclude: list[str]) -> bool:
+    """Whether a path (relative to the project root) is vendored, generated or a build copy, matched by whole path component.
+
+    The old test was a substring match on the ABSOLUTE path: it dropped `my_venv_tool.py`, dropped everything when the root itself sat
+    under a directory called `venv`, and missed setuptools' `build/lib/<pkg>` copy, which was then indexed as a duplicate module. Only the
+    setuptools layout under `build/` counts (`lib`, `lib.*`, `bdist.*`): a source package that happens to be called build is source."""
+    parts = rel.parts
+    if any(part in exclude for part in parts):
+        return True
+    return any(
+        part == "build" and nxt != parts[-1] and (nxt == "lib" or nxt.startswith(("lib.", "bdist.")))
+        for part, nxt in pairwise(parts)
+    )
+
+
 def embed_project_code(
     project_id: str,
     root_dir: Path,
@@ -326,10 +345,9 @@ def embed_project_code(
 
     Returns summary dict with counts.
     """
-    exclude = exclude_patterns or ["__pycache__", ".git", "node_modules", ".venv", "venv"]
+    exclude = exclude_patterns or list(DEFAULT_EXCLUDED_DIRS)
 
-    py_files = list(root_dir.glob(glob_pattern))
-    py_files = [f for f in py_files if not any(ex in str(f) for ex in exclude)]
+    py_files = [f for f in root_dir.glob(glob_pattern) if not _is_excluded(f.relative_to(root_dir), exclude)]
 
     embedded = 0
     skipped = 0
