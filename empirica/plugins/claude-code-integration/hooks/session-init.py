@@ -1620,6 +1620,32 @@ def _init_context_budget(session_id: str, project_context: dict, db_path=None, u
         return {"error": str(e)}
 
 
+def _one_line(text: object, limit: int = 160) -> str:
+    """First line of `text`, capped, so a reason cannot break the banner into pieces."""
+    first = (str(text).strip().splitlines() or [""])[0]
+    return first if len(first) <= limit else first[: limit - 1] + "…"
+
+
+def _budget_banner_line(summary: dict | None) -> str:
+    """The banner's Budget line, saying so when the budget state was not saved or could not be built.
+
+    `_init_context_budget` records `persist` as `persisted`, `skipped: <reason>` or `failed: ...`, and returns `{"error": ...}` when it raised.
+    The banner used to print only a clean Budget line, so a skipped or failed save left no trace where a person looks (ecodex, since 1bb10b937).
+    A summary with no `persist` key is an older shape, not a failure, and says nothing extra."""
+    if not summary:
+        return ""
+    if summary.get("error"):
+        return f"\nBudget: unavailable ({_one_line(summary['error'], 120)})"
+    line = (
+        f"\nBudget: {summary.get('tokens_used', 0):,}t used / {summary.get('tokens_available', 0):,}t avail "
+        f"({summary.get('utilization_pct', 0)}%)"
+    )
+    persist = summary.get("persist")
+    if persist and persist != "persisted":
+        line += f" - not saved ({_one_line(persist)})"
+    return line
+
+
 def _init_dashboard(session_id: str, ai_id: str) -> str | None:
     """Initialize System Dashboard. Returns summary string or None."""
     try:
@@ -1886,9 +1912,7 @@ def main():
 
     # User-visible message
     archive_msg = f"\nArchived {len(archived_plans)} stale plan(s)" if archived_plans else ""
-    budget_msg = ""
-    if budget_summary and not budget_summary.get("error"):
-        budget_msg = f"\nBudget: {budget_summary.get('tokens_used', 0):,}t used / {budget_summary.get('tokens_available', 0):,}t avail ({budget_summary.get('utilization_pct', 0)}%)"
+    budget_msg = _budget_banner_line(budget_summary)
     dash_msg = f"\n{dashboard_status}" if dashboard_status else ""
     # One staleness detector: the deploy-gap block. The VERSION-string compare
     # that used to sit beside it told practitioners to run `setup --force`,
