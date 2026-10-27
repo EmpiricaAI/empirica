@@ -11,7 +11,7 @@ WHEN AN AI SHOULD REACH FOR IT  (vs the mesh)
   ``artifact_edges`` traversal. It does NOT span the mesh — other practitioners'
   machines, or the tenant's practices retrieved server-side.
 
-  - Cortex CONNECTED: prefer the mesh — ``cortex investigate`` /
+  - Cortex CONNECTED: prefer the mesh — the Cortex MCP tools ``investigate`` /
     ``search_knowledge`` — for retrieval that should span practices across the
     tenant. Use project-search for THIS project's own docs/memory (and
     ``--global`` for quick local cross-project recall).
@@ -131,7 +131,7 @@ def _stamp_surfaced(results) -> int:
 def handle_project_search_command(args):
     """Run project-search: this project's docs + memory, plus (``--global``) a
     LOCAL cross-project pull. See the module docstring for when to use this vs
-    the mesh (``cortex investigate``) — and note the mesh is absent in
+    the mesh (the Cortex MCP tool ``investigate``) — and note the mesh is absent in
     empirica-only installs, where this is the cross-project tool, not a fallback."""
     try:
         from empirica.cli.utils.project_resolver import resolve_project_id
@@ -176,7 +176,7 @@ def handle_project_search_command(args):
         if use_global:
             # --global stays LOCAL: global_learnings pool + other local projects'
             # collections (this machine, semantic). Cross-PRACTICE/mesh retrieval
-            # is `cortex investigate` when Cortex is connected; this is the
+            # is the Cortex MCP tool `investigate` when Cortex is connected; this is the
             # cross-project tool in cortex-less installs. See module docstring.
             results["global"] = search_global(task, limit=limit)
             cross_results = search_cross_project(

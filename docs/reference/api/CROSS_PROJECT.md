@@ -39,7 +39,7 @@ Empirica is multi-project by design. Three mechanisms compose:
 | Mechanism | Direction | Use |
 |---|---|---|
 | `--visibility {public,shared,local}` on `*-log` commands | Push (opt-in) | Mark an artifact as shareable when logged |
-| `project-search --global` | Pull | Local cross-project recall (global-learnings pool + other local projects, semantic). Cross-practice/mesh retrieval is `cortex investigate`. |
+| `project-search --global` | Pull | Local cross-project recall (global-learnings pool + other local projects, semantic). Cross-practice/mesh retrieval is the Cortex MCP tool `investigate`. |
 | `--project-id <name>` on `*-log` commands | Cross-write | Log artifacts to OTHER projects without `project-switch` |
 
 The default workflow: **AIs log liberally with `--visibility shared` when an artifact
@@ -126,7 +126,7 @@ empirica project-search --project-id empirica --task "sentinel bypass" --global
 - **Semantic only.** Pure cosine top-k; it does not traverse `artifact_edges`
   (`related_to`). "Related" here means *similar*, not *graph-connected*.
 - **The true cross-practice surface is the mesh.** With Cortex connected,
-  `cortex investigate` / `search_knowledge` retrieve across the tenant's
+  the Cortex MCP tools `investigate` / `search_knowledge` retrieve across the tenant's
   practices server-side — that is the cross-practice retrieval path. Per the
   ecosystem lane split (Cortex / mesh-support own the Qdrant + glue layer),
   cross-practice traversal lives there. `project-search --global` is the
@@ -134,7 +134,7 @@ empirica project-search --project-id empirica --task "sentinel bypass" --global
 
 Practical guidance: log liberally with `--visibility shared` so high-value
 artifacts reach `global_learnings`; use `--global` for local cross-project
-recall; reach for `cortex investigate` when you need the whole mesh.
+recall; reach for the Cortex MCP tool `investigate` when you need the whole mesh.
 
 ### API
 

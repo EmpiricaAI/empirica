@@ -962,7 +962,7 @@ def add_checkpoint_parsers(subparsers):
         dest="global_search",
         action="store_true",
         help="Also search the global-learnings pool + other LOCAL projects (semantic, this machine). "
-        "Cross-practice/mesh search is `cortex investigate`.",
+        "Cross-practice/mesh search is the Cortex MCP tool `investigate`.",
     )
 
     # Project embed (build vectors) command

@@ -1566,7 +1566,7 @@ Semantic search for relevant docs/memory by task description
 - `--verbose` — optional · flag
   Show detailed operation info
 - `--global` — optional · flag
-  Also search the global-learnings pool + other LOCAL projects (semantic, this machine). Cross-practice/mesh search is `cortex investigate`.
+  Also search the global-learnings pool + other LOCAL projects (semantic, this machine). Cross-practice/mesh search is the Cortex MCP tool `investigate`.
 
 #### `empirica project-embed`
 
