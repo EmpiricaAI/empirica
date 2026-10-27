@@ -123,3 +123,33 @@ def test_a_junit_report_says_its_scope_is_unknown_in_both_directions(tmp_path):
     (tmp_path / "junit.xml").write_text('<testsuite tests="62" failures="3" errors="0" skipped="0"/>')
     bad = EvidenceBundle(session_id="s", items=collector._collect_test_results())
     assert "Test regressions: 3 tests failing (scope unknown)" in _signals(bad)
+
+
+# ── a known suite size (goal 98a21e8e): the signal says how much of the suite the count covers ─────────────────────
+
+
+def _sized_bundle(tmp_path: Path, **summary) -> EvidenceBundle:
+    (tmp_path / ".empirica").mkdir(exist_ok=True)
+    (tmp_path / ".empirica" / "test_report.cargo.json").write_text(
+        json.dumps({"runner": "cargo", "summary": summary, "created": 2.0, "scope": "owned crates"})
+    )
+    collector = PostTestCollector("s", preflight_timestamp=1.0)
+    collector._project_root = str(tmp_path)
+    return EvidenceBundle(session_id="s", items=collector._collect_test_results())
+
+
+def test_a_passing_run_over_part_of_the_suite_says_how_much(tmp_path):
+    bundle = _sized_bundle(tmp_path, passed=104, failed=0, ignored=6, filtered_out=2)
+    assert "Tests passing (104 of 112, scope: owned crates)" in _signals(bundle)
+
+
+def test_failures_over_part_of_the_suite_say_how_much_ran(tmp_path):
+    bundle = _sized_bundle(tmp_path, passed=100, failed=4, ignored=8)
+    assert "Test regressions: 4 tests failing (104 of 112 ran, scope: owned crates)" in _signals(bundle)
+
+
+def test_a_full_suite_with_nothing_ignored_keeps_the_plain_signal(tmp_path):
+    assert "Tests passing (104, scope: owned crates)" in _signals(_sized_bundle(tmp_path, passed=104, failed=0))
+    assert "Tests passing (104, scope: owned crates)" in _signals(
+        _sized_bundle(tmp_path, passed=104, failed=0, ignored=0, filtered_out=0)
+    )

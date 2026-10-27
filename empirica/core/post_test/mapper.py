@@ -693,11 +693,16 @@ def _signal_test_results(summary: dict) -> str | None:
         return None
     note = _test_scope_note(rate)
     failed = _extract_int(rate, "failed")
-    if failed > 0:
-        return f"Test regressions: {failed} tests failing" + (f" ({note})" if note else "")
     passed = _extract_int(rate, "passed")
+    suite = _extract_int(rate, "suite")
+    partial_suite = suite > passed + failed  # the runner knew of tests it did not run (ignored, filtered out)
+    if failed > 0:
+        notes = [f"{passed + failed} of {suite} ran"] if partial_suite else []
+        notes += [note] if note else []
+        return f"Test regressions: {failed} tests failing" + (f" ({', '.join(notes)})" if notes else "")
     if passed > 0:
-        return f"Tests passing ({passed}" + (f", {note}" if note else "") + ")"
+        count = f"{passed} of {suite}" if partial_suite else str(passed)
+        return f"Tests passing ({count}" + (f", {note}" if note else "") + ")"
     return None
 
 

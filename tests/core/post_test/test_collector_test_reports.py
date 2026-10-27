@@ -481,3 +481,39 @@ def test_the_legacy_pytest_file_is_only_a_fallback_for_when_no_runner_report_exi
     (root / "pytest_report.json").write_text(json.dumps({"summary": {"passed": 99, "failed": 0}}))
     _runner_report(root, "pytest", passed=3, failed=0)
     assert _rate(_collector(root)._collect_test_results()).raw_value["passed"] == 3
+
+
+# ── a known suite size: ignored and filtered_out tests (cargo prints both) say how much of the suite the count covers ─────
+
+
+def _sized(root: Path, runner="cargo", **summary) -> Path:
+    path = root / ".empirica" / f"test_report.{runner}.json"
+    path.write_text(json.dumps({"runner": runner, "summary": summary, "created": T0 + 100}))
+    return path
+
+
+def test_ignored_and_filtered_out_tests_make_the_suite_size_known_without_touching_the_rate(root):
+    _sized(root, passed=104, failed=0, ignored=6, filtered_out=2)
+    item = _rate(_collector(root)._collect_test_results())
+    assert item.value == 1.0, "an ignored or filtered-out test did not run: it is not a failure"
+    assert (item.raw_value["passed"], item.raw_value["total"], item.raw_value["suite"]) == (104, 104, 112)
+
+
+def test_a_report_that_says_nothing_about_them_has_no_suite_key(root):
+    _sized(root, passed=10, failed=1)
+    assert "suite" not in _rate(_collector(root)._collect_test_results()).raw_value
+
+
+def test_either_count_alone_is_enough_and_a_bad_one_is_not_believed(root):
+    _sized(root, passed=10, failed=0, ignored=3)
+    assert _rate(_collector(root)._collect_test_results()).raw_value["suite"] == 13
+    _sized(root, passed=10, failed=0, ignored=-3, filtered_out="many")
+    assert "suite" not in _rate(_collector(root)._collect_test_results()).raw_value
+
+
+def test_the_suite_size_is_summed_across_runners_and_a_runner_without_one_counts_what_it_ran(root):
+    _sized(root, "cargo", passed=104, failed=0, ignored=8)
+    _runner_report(root, "pytest", passed=8, failed=2)
+    raw = _rate(_collector(root)._collect_test_results()).raw_value
+    assert (raw["total"], raw["suite"]) == (114, 122)
+    assert raw["runners"]["cargo"]["suite"] == 112 and "suite" not in raw["runners"]["pytest"]

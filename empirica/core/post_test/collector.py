@@ -1739,14 +1739,20 @@ class PostTestCollector:
             passed is None or failed is None
         ):  # not a report of counts: try the next candidate, do not fail the whole source
             return None
-        return {
+        total = max(declared_total or 0, passed + failed)  # a total below passed + failed would give a rate above 1
+        entry = {
             "passed": passed,
             "failed": failed,
-            # a total below passed + failed would give a rate above 1
-            "total": max(declared_total or 0, passed + failed),
+            "total": total,
             "runner": str(report.get("runner") or named or "pytest"),
             "scope": self._declared_scope(report.get("scope")),
         }
+        # Tests the runner knew of and did not run (cargo prints both counts) make the suite size known; they are not failures, so the
+        # rate above does not move. Absent or unusable counts leave the key out: an unknown size is not a size of `total`.
+        unrun = [n for n in (self._count(summary.get(k)) for k in ("ignored", "filtered_out")) if n is not None]
+        if unrun:
+            entry["suite"] = max(total, passed + failed + sum(unrun))
+        return entry
 
     @staticmethod
     def _combine_runner_reports(reports: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -1760,16 +1766,20 @@ class PostTestCollector:
         scope = "; ".join(f"{runner}: {text}" for runner, text in scopes.items()) or None
         if scope and any(text.startswith("partial:") for text in scopes.values()):
             scope = f"partial: {scope}"[:200]
-        return {
+        combined = {
             "passed": sum(r["passed"] for r in reports.values()),
             "failed": sum(r["failed"] for r in reports.values()),
             "total": sum(r["total"] for r in reports.values()),
             "runner": "+".join(reports),
             "scope": scope,
             "runners": {
-                runner: {k: r[k] for k in ("passed", "failed", "total", "scope")} for runner, r in reports.items()
+                runner: {k: r[k] for k in ("passed", "failed", "total", "scope", "suite") if k in r}
+                for runner, r in reports.items()
             },
         }
+        if any("suite" in r for r in reports.values()):  # a runner that did not say counts what it ran
+            combined["suite"] = sum(r.get("suite", r["total"]) for r in reports.values())
+        return combined
 
     def _read_json_test_report(self, root: Path, start: float | None) -> tuple[dict[str, Any] | None, bool]:
         """The fresh per-runner reports combined; else the first fresh legacy pytest file. Second value: a stale one was seen."""
