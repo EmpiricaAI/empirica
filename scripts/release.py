@@ -11,6 +11,7 @@ Usage:
 """
 
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -204,8 +205,11 @@ def render_whats_new(changelog_text: str, version: str, earlier: int = _WHATS_NE
         lines.append(
             f"All {len(detail)} entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md)."
         )
-    else:
-        lines.append(f"Plus {len(detail) - len(shown)} more entries in the [CHANGELOG](CHANGELOG.md).")
+    elif len(detail) > len(shown):
+        left = len(detail) - len(shown)
+        lines.append(f"Plus {left} more {'entry' if left == 1 else 'entries'} in the [CHANGELOG](CHANGELOG.md).")
+    else:  # every title is already shown: counting what was left out would print "Plus 0 more entries"
+        lines.append("The full entry is in the [CHANGELOG](CHANGELOG.md).")
     previous = []
     for ver, body in entries[1 : 1 + earlier]:
         intro, secs = _entry_sections(body)
@@ -309,6 +313,11 @@ def validate_roadmap(data: object) -> dict:
                 raise ValueError(
                     f"roadmap item {n}: the last of revisions ends at {revisions[-1]['to']!r} but confidence is {conf!r}"
                 )
+            for r in revisions:
+                if not _is_calendar_day(r["on"]):
+                    raise ValueError(
+                        f"roadmap item {n}: a revision's `on` must be a day written YYYY-MM-DD (quoted), not {r['on']!r}"
+                    )
         if item["id"] in seen:
             raise ValueError(f"roadmap item {n}: duplicate id {item['id']!r}")
         seen.add(item["id"])
@@ -383,6 +392,40 @@ def items_past_horizon(roadmap: dict, version: str) -> list[dict]:
     ]
 
 
+def _is_calendar_day(value: object) -> bool:
+    """A string written YYYY-MM-DD that is a real day. A YAML date loads as a date object and a bare 20261102 as an int: neither is."""
+    if not (isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value)):
+        return False
+    try:
+        datetime.date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _same_confidence(a: object, b: object) -> bool:
+    return isinstance(a, (int, float)) and isinstance(b, (int, float)) and abs(a - b) < 1e-9
+
+
+def _revision_problems(old: dict, item: dict) -> list[str]:
+    """Revisions are the record of how a confidence moved, so the released ones are history: the list may only grow at its end, and the
+    first new entry must start from the confidence the item was released at, each next one from where the last ended. Checked whether or
+    not a guarded field changed, since rewording a released reason changes none of them."""
+    released = old.get("revisions") or []
+    now = item.get("revisions") or []
+    if now[: len(released)] != released:
+        return [f"{old['id']}: a released revision was edited or removed; revisions are history, append a new one instead"]
+    standing = old.get("confidence")
+    for r in now[len(released) :]:
+        if not _same_confidence(r.get("from"), standing):
+            return [
+                f"{old['id']}: the revision dated {r.get('on')} starts from {r.get('from')!r} but the item stood at {standing!r}; "
+                "each revision must start where the last one ended"
+            ]
+        standing = r.get("to")
+    return []
+
+
 def roadmap_silent_edits(released: dict, current: dict) -> list[str]:
     """What changed against the last RELEASED roadmap without leaving a trace, one message per problem.
 
@@ -413,6 +456,7 @@ def roadmap_silent_edits(released: dict, current: dict) -> list[str]:
             problems.append(
                 f"{old['id']}: steered changed from {old.get('steered')!r} to {item.get('steered')!r}; it records the moment of prediction"
             )
+        problems.extend(_revision_problems(old, item))
         changed = [f for f in _ROADMAP_GUARDED if old.get(f) != item.get(f)]
         if not changed:
             continue

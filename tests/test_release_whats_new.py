@@ -437,3 +437,19 @@ def test_an_earlier_highlight_that_opens_with_a_bold_title_is_not_nested_in_the_
     out = _mod().render_whats_new(text, "2.0.0")
     assert "**1.9.0** — Rebuild restores ids. The detail follows." in out
     assert "— **" not in out
+
+
+@pytest.mark.parametrize("count", [1, 3, 6])
+def test_a_release_whose_titles_are_all_shown_does_not_claim_zero_more_entries(count):
+    """`Plus 0 more entries` was printed whenever a release had six bullets or fewer and no highlights."""
+    bullets = "\n".join(f"- **Item {i}.** Detail {i}.\n" for i in range(count))
+    out = _mod().render_whats_new(f"# Changelog\n\n## [3.0.0] - 2026-03-01\n\n### Added\n\n{bullets}\n", "3.0.0")
+    assert "Plus 0" not in out and "more entries" not in out
+    assert "[CHANGELOG](CHANGELOG.md)" in out, "the reader is still pointed at the full entry"
+    assert len([ln for ln in out.splitlines() if ln.startswith("- Item ")]) == count
+
+
+def test_one_left_out_is_one_entry_not_one_entries():
+    bullets = "\n".join(f"- **Item {i}.** Detail {i}.\n" for i in range(7))
+    out = _mod().render_whats_new(f"# Changelog\n\n## [3.0.0] - 2026-03-01\n\n### Added\n\n{bullets}\n", "3.0.0")
+    assert "Plus 1 more entry in the" in out and "1 more entries" not in out

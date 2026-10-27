@@ -296,3 +296,66 @@ items:
     )
     with pytest.raises(ValueError, match=r"quote the `on` key"):
         _mod().validate_roadmap(parsed)
+
+
+# ── revisions are history: a released one cannot be rewritten, and the chain has to connect ───────────────────────────
+
+REV1 = {"on": "2026-11-02", "from": 0.6, "to": 0.5, "reason": "A wrong-pane wake was reported on one seat."}
+REV2 = {"on": "2026-11-20", "from": 0.5, "to": 0.4, "reason": "A second seat reported the same."}
+REVISED = {**ITEM, "confidence": 0.5, "revisions": [REV1]}
+
+
+def _edits(released_item, current_item):
+    return _mod().roadmap_silent_edits(_roadmap(released_item), _roadmap(current_item))
+
+
+def test_a_released_revision_cannot_be_edited_in_place():
+    """Only the LENGTH of the list was compared, and only when a guarded field changed: rewording the why passed unseen."""
+    rewritten = {**REVISED, "revisions": [{**REV1, "reason": "Reworded after the fact."}]}
+    problems = _edits(REVISED, rewritten)
+    assert problems and "revision" in problems[0] and ITEM["id"] in problems[0]
+
+
+def test_a_released_revision_cannot_be_dropped_by_adding_another_in_its_place():
+    swapped = {**REVISED, "confidence": 0.4, "revisions": [{**REV2, "from": 0.5}]}
+    assert _edits(REVISED, swapped), "one out and one in has the same length and is not an append"
+
+
+def test_a_new_revision_must_start_from_the_confidence_that_was_released():
+    wrong_start = {**REVISED, "confidence": 0.3, "revisions": [REV1, {**REV2, "from": 0.45, "to": 0.3}]}
+    problems = _edits(REVISED, wrong_start)
+    assert problems and "from" in problems[0]
+
+
+def test_the_new_revisions_form_a_chain():
+    broken = {
+        **REVISED,
+        "confidence": 0.3,
+        "revisions": [REV1, REV2, {**REV2, "on": "2026-12-01", "from": 0.45, "to": 0.3}],
+    }
+    problems = _edits(REVISED, broken)
+    assert problems and "from" in problems[0]
+
+
+def test_appending_a_connected_revision_is_accepted():
+    """Positive control for the three refusals above: the same shape, done correctly."""
+    extended = {**REVISED, "confidence": 0.4, "revisions": [REV1, REV2]}
+    assert _edits(REVISED, extended) == []
+    assert _edits(REVISED, REVISED) == []
+
+
+def test_a_revision_with_no_baseline_item_history_still_starts_from_the_released_confidence():
+    first = {**ITEM, "confidence": 0.5, "revisions": [{**REV1, "from": 0.7}]}
+    assert _edits(ITEM, first), (
+        "the item was released at 0.6, so a first revision from 0.7 is not a record of what happened"
+    )
+
+
+@pytest.mark.parametrize("on", ["soon", "2026-13-40", "02/11/2026", "2026-11-2", 20261102])
+def test_a_revision_date_must_be_a_real_calendar_day(on):
+    with pytest.raises(ValueError, match=r"YYYY-MM-DD"):
+        _mod().validate_roadmap(_roadmap({**REVISED, "revisions": [{**REV1, "on": on}]}))
+
+
+def test_a_real_date_passes_the_schema():
+    _mod().validate_roadmap(_roadmap(REVISED))
