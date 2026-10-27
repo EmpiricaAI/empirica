@@ -610,3 +610,17 @@ def test_every_monitor_block_loads_the_deferred_tool_first(payload):
     block = mod._build_monitor_block_from_cli(payload, "myai")
     assert 'ToolSearch(query="select:Monitor,TaskStop")' in block
     assert block.index("ToolSearch(") < block.index("Monitor("), "the load must come before the call"
+
+
+def test_hook_is_silent_off_claude_code_and_still_arms_on_it(monkeypatch):
+    """ecodex: the arm block names ToolSearch select:Monitor and Monitor(timeout_ms=...), tools that exist on Claude Code only. Under another
+    harness it was an instruction the session could not follow. Control: the same setup arms on Claude Code."""
+    monkeypatch.setenv("EMPIRICA_HARNESS", "codex")
+    off = _run_hook(monkeypatch, instance_id="cortex", active_loops=["cortex-mailbox-poll"])
+    assert off["rc"] == 0 and off["parsed"] == {}
+    monkeypatch.setenv("EMPIRICA_HARNESS", "claude-code")
+    on = _run_hook(monkeypatch, instance_id="cortex", active_loops=["cortex-mailbox-poll"])
+    assert "Monitor(" in on["parsed"]["hookSpecificOutput"]["additionalContext"]
+    monkeypatch.delenv("EMPIRICA_HARNESS")
+    default = _run_hook(monkeypatch, instance_id="cortex", active_loops=["cortex-mailbox-poll"])
+    assert "Monitor(" in default["parsed"]["hookSpecificOutput"]["additionalContext"], "unset means Claude Code"

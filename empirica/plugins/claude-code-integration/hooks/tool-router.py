@@ -1028,15 +1028,32 @@ _WAKE_MARKER = (
     "[wake]"  # what wake_instance types; empirica.core.cockpit.instance_actions.WAKE_MARKER is the other copy
 )
 
-_WAKE_HEADER = """## ⏰ Wake turn — this prompt was a wake, not a request
+_WAKE_REARM_STEP = (
+    "If your mesh Monitor is not running (it expires after 30 minutes), re-arm it: run `empirica listener on --dry-run --output json`,\n"
+    "   start the Monitor with the `next_step` args it returns, then `empirica listener arm <monitor_task_id>`."
+)
 
-The listener service gave you this turn because your practice has mail. Do these, in order, then stop:
-1. Read and react to the pending messages below per the mailbox protocol (`empirica mailbox show <id>`, `empirica mailbox reply`).
-2. If your mesh Monitor is not running (it expires after 30 minutes), re-arm it: run `empirica listener on --dry-run --output json`,
-   start the Monitor with the `next_step` args it returns, then `empirica listener arm <monitor_task_id>`.
-3. Run `empirica mailbox poll` once more: events written while no Monitor was running are not delivered to a new one.
-Then stop. A wake is meant to be cheap: do not start unrelated work and do not write a status report.
-"""
+
+def _wake_header() -> str:
+    """The wake turn's instructions. The Monitor re-arm step names Claude Code tools (Monitor, TaskStop), so it exists only there."""
+    on_claude_code = _harness() == "claude-code"
+    steps = [
+        "Read and react to the pending messages below per the mailbox protocol (`empirica mailbox show <id>`, `empirica mailbox reply`).",
+    ]
+    if on_claude_code:
+        steps.append(_WAKE_REARM_STEP)
+    steps.append(
+        "Run `empirica mailbox poll` once more: events written while no Monitor was running are not delivered to a new one."
+        if on_claude_code
+        else "Run `empirica mailbox poll` once more to catch anything that arrived while you were working."
+    )
+    numbered = "\n".join(f"{n}. {text}" for n, text in enumerate(steps, 1))
+    return (
+        "## ⏰ Wake turn — this prompt was a wake, not a request\n\n"
+        "The listener service gave you this turn because your practice has mail. Do these, in order, then stop:\n"
+        f"{numbered}\n"
+        "Then stop. A wake is meant to be cheap: do not start unrelated work and do not write a status report.\n"
+    )
 
 
 def _wake_inbox_context() -> str:
@@ -1060,7 +1077,7 @@ def _wake_inbox_context() -> str:
         lead = mod._build_pending_inbox_lead()
     except Exception:
         return ""
-    return f"{_WAKE_HEADER}\n{lead}" if lead else ""
+    return f"{_wake_header()}\n{lead}" if lead else ""
 
 
 def main():
@@ -1074,7 +1091,9 @@ def main():
 
     # Every user prompt resets the proportionality budget, short ones and slash commands included; only a prompt that carries
     # a hypothesis re-arms it. This runs BEFORE the early return below, or "yes" / "go" would leave the old budget counting.
-    is_wake = prompt.strip() in ("", _WAKE_MARKER)
+    # The marker is a wake on every harness. A blank prompt is one only on Claude Code, where an idle pane's bare Enter (older cockpits)
+    # is the only way a blank arrives; elsewhere it is an image-only turn (codex) and must not pay a mailbox poll (ecodex).
+    is_wake = prompt.strip() == _WAKE_MARKER or (not prompt.strip() and _harness() == "claude-code")
     is_command_or_short = is_wake or len(prompt) < 10 or prompt.startswith("/")
     proportionality_check = None if is_command_or_short else build_investigation_proportionality_check(prompt)
     budget_armed = _sync_proportionality_budget(input_data.get("session_id", ""), proportionality_check)

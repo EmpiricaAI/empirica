@@ -118,8 +118,34 @@ def test_a_failing_poll_adds_nothing(box):
 
 def test_other_harnesses_keep_their_own_output_shape(box):
     box([_prop(1)])
-    out = box.run(" ", harness="ecodex")
+    out = box.run("[wake]", harness="ecodex")
     assert "Pending mesh messages (1)" in out.get("context", "") and "hookSpecificOutput" not in out
+
+
+@pytest.mark.parametrize("blank", ["", " ", "\n  "])
+def test_off_claude_code_a_blank_prompt_is_not_a_wake(box, blank):
+    """ecodex: under codex an image-only turn arrives as prompt '' and was told it was a wake, paying a mailbox poll. Claude Code starts
+    no turn for a blank prompt, so a blank is a wake only there (older cockpits still send one); the marker is a wake everywhere."""
+    box([_prop(1)])
+    out = box.run(blank, harness="ecodex")
+    assert out == {"continue": True}
+    assert box.calls() == [], "an image-only turn must not pay for a mailbox poll"
+
+
+def test_off_claude_code_the_marker_still_wakes_and_does_not_mention_the_claude_code_monitor(box):
+    box([_prop(1)])
+    ctx = box.run("[wake]", harness="ecodex").get("context", "")
+    assert "Wake turn" in ctx and "Pending mesh messages (1)" in ctx and "mailbox poll" in ctx
+    assert "Monitor" not in ctx and "re-arm" not in ctx.lower() and "listener on" not in ctx, (
+        "those tools exist on Claude Code only"
+    )
+
+
+def test_on_claude_code_the_wake_header_still_carries_the_rearm_step(box):
+    """Control for the two tests above: the Monitor step is removed by the harness, not by accident."""
+    box([_prop(1)])
+    ctx = _context(box.run("[wake]"))
+    assert "Monitor" in ctx and "re-arm" in ctx.lower() and "listener on" in ctx
 
 
 def test_the_control_the_fake_empirica_is_actually_called(box):

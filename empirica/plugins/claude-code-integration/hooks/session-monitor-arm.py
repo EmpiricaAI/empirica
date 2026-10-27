@@ -19,6 +19,7 @@ systemd doesn't break SessionStart.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -441,7 +442,17 @@ off` TaskStops the recorded Monitor; re-arm, then `empirica listener arm
 {_build_orphan_warning()}"""
 
 
+def _harness() -> str:
+    """Which harness hosts this hook: ``EMPIRICA_HARNESS``, defaulting to ``claude-code``."""
+    return (os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip().lower() or "claude-code"
+
+
 def main() -> int:
+    # The arm block tells the session to ToolSearch for and start a Claude Code Monitor; under another harness those tools do not exist
+    # and the instruction cannot be followed (ecodex).
+    if _harness() != "claude-code":
+        print(json.dumps({}))
+        return 0
     # Use ai_id (project basename) for timer-name lookup, not the ephemeral
     # tmux pane id. Timers are named `empirica-loop-<ai_id>-<loop>.timer`
     # so they survive tmux restarts; the hook must query with the same
