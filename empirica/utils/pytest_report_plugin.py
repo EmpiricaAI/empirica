@@ -2,7 +2,8 @@
 
 Registered as a `pytest11` entry point, so every pytest run on a machine with Empirica installed loads it. It therefore does nothing unless the
 pytest rootdir holds an `.empirica/` directory, and nothing it does can fail or alter a test run: every step is guarded and a write error is
-dropped. The report is the runner-agnostic `.empirica/test_report.json`; this plugin is one writer of it, `runner` says which.
+dropped. The report is `.empirica/test_report.pytest.json`: one file per runner, so a project that also runs cargo or go test keeps both
+(`test_report.json` is the neutral name a wrapper script may write). The collector reads every fresh one.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-REPORT_NAME = "test_report.json"
+REPORT_NAME = "test_report.pytest.json"
 
 
 def _counts(terminalreporter: Any) -> dict[str, int]:

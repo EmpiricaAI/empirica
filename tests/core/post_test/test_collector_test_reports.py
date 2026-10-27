@@ -405,3 +405,79 @@ def test_counts_that_are_not_non_negative_integers_are_not_a_report(root, summar
 def test_a_total_smaller_than_passed_plus_failed_cannot_give_a_rate_above_one(root):
     _neutral(root, passed=10, failed=0, summary_total=4)
     assert _rate(_collector(root)._collect_test_results()).value == 1.0
+
+
+# ── several runners, one project: every fresh report is read (per-runner files; ecodex's last-writer-wins finding) ─────
+
+
+def _runner_report(root: Path, runner: str, passed=5, failed=0, created=T0 + 100, **extra) -> Path:
+    path = root / ".empirica" / f"test_report.{runner}.json"
+    path.write_text(
+        json.dumps({"runner": runner, "summary": {"passed": passed, "failed": failed}, "created": created, **extra})
+    )
+    return path
+
+
+def test_two_fresh_runners_are_both_read_and_their_counts_summed(root):
+    _neutral(root, passed=104, failed=0)  # runner "go" in the shared helper
+    _runner_report(root, "pytest", passed=8, failed=2)
+    raw = _rate(_collector(root)._collect_test_results()).raw_value
+    assert (raw["passed"], raw["failed"], raw["total"]) == (112, 2, 114)
+    assert raw["runner"] == "go+pytest"
+    assert raw["runners"] == {
+        "go": {"passed": 104, "failed": 0, "total": 104, "scope": None},
+        "pytest": {"passed": 8, "failed": 2, "total": 10, "scope": None},
+    }
+
+
+def test_scopes_are_joined_by_runner_and_a_partial_one_makes_the_whole_partial(root):
+    _neutral(root, passed=10, failed=0, scope="owned crates")
+    _runner_report(root, "pytest", passed=3, failed=0, scope="partial: -k plugin")
+    scope = _rate(_collector(root)._collect_test_results()).raw_value["scope"]
+    assert scope == "partial: go: owned crates; pytest: partial: -k plugin"
+
+
+def test_complete_scopes_from_two_runners_do_not_make_it_partial(root):
+    _neutral(root, passed=10, failed=0, scope="owned crates")
+    _runner_report(root, "pytest", passed=3, failed=0, scope="full run")
+    assert _rate(_collector(root)._collect_test_results()).raw_value["scope"] == "go: owned crates; pytest: full run"
+
+
+def test_a_stale_runner_is_left_out_and_the_fresh_one_still_counts(root):
+    _neutral(root, passed=10, failed=0)
+    _runner_report(root, "pytest", passed=99, failed=99, created=T0 - 5000)
+    raw = _rate(_collector(root)._collect_test_results()).raw_value
+    assert (raw["passed"], raw["failed"], raw["runner"]) == (10, 0, "go") and "runners" not in raw
+
+
+def test_two_fresh_reports_from_the_same_runner_count_once_the_newest_wins(root):
+    """After the upgrade the old plugin's test_report.json and the new test_report.pytest.json can both be fresh: no double count."""
+    (root / ".empirica" / "test_report.json").write_text(
+        json.dumps({"runner": "pytest", "summary": {"passed": 50, "failed": 0}, "created": T0 + 100})
+    )
+    _runner_report(root, "pytest", passed=7, failed=1, created=T0 + 200)
+    raw = _rate(_collector(root)._collect_test_results()).raw_value
+    assert (raw["passed"], raw["failed"], raw["runner"]) == (7, 1, "pytest")
+
+
+def test_a_malformed_runner_file_is_skipped_alone(root):
+    (root / ".empirica" / "test_report.cargo.json").write_text("{not json")
+    _runner_report(root, "pytest", passed=4, failed=0)
+    assert _rate(_collector(root)._collect_test_results()).raw_value["runner"] == "pytest"
+
+
+def test_a_single_report_keeps_exactly_its_old_shape(root):
+    _neutral(root, passed=8, failed=2)
+    assert set(_rate(_collector(root)._collect_test_results()).raw_value) == {
+        "passed",
+        "failed",
+        "total",
+        "runner",
+        "scope",
+    }
+
+
+def test_the_legacy_pytest_file_is_only_a_fallback_for_when_no_runner_report_exists(root):
+    (root / "pytest_report.json").write_text(json.dumps({"summary": {"passed": 99, "failed": 0}}))
+    _runner_report(root, "pytest", passed=3, failed=0)
+    assert _rate(_collector(root)._collect_test_results()).raw_value["passed"] == 3

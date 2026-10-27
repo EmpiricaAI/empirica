@@ -1,7 +1,7 @@
 """The pytest plugin that leaves a summary for the post-test collector (goal 561c1aea, David's ruling 2026-10-26).
 
 `PostTestCollector._collect_test_results` read a pytest-json-report-shaped file from four fixed paths and nothing in core ever wrote one: no
-`verification_evidence` row on any practice was sourced from pytest, and the absence was silent. The plugin writes `.empirica/test_report.json`
+`verification_evidence` row on any practice was sourced from pytest, and the absence was silent. The plugin writes `.empirica/test_report.pytest.json`
 (`summary.passed/failed/total`, `created`, `head`, `invocation`) when a pytest session finishes, but ONLY when the pytest rootdir holds an
 `.empirica/` directory, so it is inert in every other project that happens to share the machine, and it is registered as a `pytest11` entry
 point so a practice needs no configuration. It never fails a test run. Each test runs a real pytest in a throwaway project.
@@ -55,7 +55,7 @@ def _run_pytest(project: Path, *extra: str) -> subprocess.CompletedProcess:
 
 
 def _report(project: Path) -> dict:
-    return json.loads((project / ".empirica" / "test_report.json").read_text())
+    return json.loads((project / ".empirica" / "test_report.pytest.json").read_text())
 
 
 def test_a_finished_session_leaves_the_counts_where_the_collector_reads_them(tmp_path):
@@ -84,7 +84,9 @@ def test_total_excludes_skipped_so_a_skip_does_not_lower_the_pass_rate(tmp_path)
 def test_the_plugin_is_inert_outside_an_empirica_project(tmp_path):
     project = _project(tmp_path, empirica=False)
     _run_pytest(project)
-    assert not list(project.rglob("test_report.json")), "no .empirica/ in the rootdir: nothing is written anywhere"
+    assert not list(project.rglob("test_report.pytest.json")), (
+        "no .empirica/ in the rootdir: nothing is written anywhere"
+    )
     assert not (project / ".empirica").exists()
 
 
@@ -126,7 +128,7 @@ def test_a_second_run_replaces_the_report_and_leaves_no_temp_file_behind(tmp_pat
     time.sleep(0.05)
     _run_pytest(project)
     assert _report(project)["created"] > first
-    assert sorted(p.name for p in (project / ".empirica").iterdir()) == ["test_report.json"]
+    assert sorted(p.name for p in (project / ".empirica").iterdir()) == ["test_report.pytest.json"]
 
 
 def test_the_plugin_is_registered_as_a_pytest11_entry_point():
@@ -204,3 +206,15 @@ def test_a_run_whose_only_result_is_a_collection_error_is_still_written(tmp_path
     project = _project(tmp_path, empirica=True, body="import definitely_not_a_module\n")
     _run_pytest(project)
     assert _report(project)["summary"]["failed"] >= 1
+
+
+def test_the_plugin_leaves_another_runners_report_alone(tmp_path):
+    """Per-runner files: another runner's test_report.json is not the plugin's to replace (the last-writer-wins collision ecodex found)."""
+    project = _project(tmp_path, empirica=True, body="def test_a(): pass\n")
+    other = project / ".empirica" / "test_report.json"
+    other.write_text('{"runner": "cargo", "summary": {"passed": 104, "failed": 0}}')
+    _run_pytest(project)
+    assert (
+        json.loads(other.read_text())["runner"] == "cargo" and json.loads(other.read_text())["summary"]["passed"] == 104
+    )
+    assert (project / ".empirica" / "test_report.pytest.json").exists()

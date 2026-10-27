@@ -1700,11 +1700,83 @@ class PostTestCollector:
             value = int(value)
         return value if isinstance(value, int) and value >= 0 else None
 
-    def _read_json_test_report(self, root: Path, start: float | None) -> tuple[dict[str, Any] | None, bool]:
-        """First fresh JSON test report: the runner-agnostic file, then the legacy pytest names. Second value: a stale one was seen."""
+    def _read_runner_reports(self, root: Path, start: float | None) -> tuple[dict[str, dict[str, Any]], bool]:
+        """Every fresh per-runner report: `.empirica/test_report.json` and each `.empirica/test_report.<runner>.json`.
+
+        One entry per runner, the newest wins (the old pytest plugin's shared file and its per-runner file can both be fresh after an
+        upgrade, and counting both would double the suite). A stale or malformed file is skipped alone. Second value: a stale one was seen."""
         stale = False
+        found: dict[str, tuple[float, dict[str, Any]]] = {}
+        directory = root / ".empirica"
+        named = sorted(islice((p for p in directory.glob("test_report.*.json") if p.is_file()), JUNIT_MAX_CANDIDATES))
+        for path in [directory / "test_report.json", *named]:
+            try:
+                report = json.loads(path.read_text())
+                made = self._made_at(path, report.get("created") if isinstance(report, dict) else None)
+            except (OSError, ValueError):
+                continue
+            entry = self._report_counts(report, made, start, path.name.split(".")[1] if path in named else None)
+            if entry is None:
+                stale = stale or (start is not None and made < start and self._is_report(report))
+                continue
+            runner = entry["runner"]
+            if runner not in found or made > found[runner][0]:
+                found[runner] = (made, entry)
+        return {runner: entry for runner, (_, entry) in sorted(found.items())}, stale
+
+    @staticmethod
+    def _is_report(report: Any) -> bool:
+        return isinstance(report, dict) and isinstance(report.get("summary"), dict)
+
+    def _report_counts(self, report: Any, made: float, start: float | None, named: str | None) -> dict[str, Any] | None:
+        """One report as counts, or None when it is not a report of counts or is older than the window."""
+        if not self._is_report(report) or (start is not None and made < start):
+            return None
+        summary = report["summary"]
+        passed, failed = self._count(summary.get("passed", 0)), self._count(summary.get("failed", 0))
+        declared_total = self._count(summary.get("total", 0))
+        if (
+            passed is None or failed is None
+        ):  # not a report of counts: try the next candidate, do not fail the whole source
+            return None
+        return {
+            "passed": passed,
+            "failed": failed,
+            # a total below passed + failed would give a rate above 1
+            "total": max(declared_total or 0, passed + failed),
+            "runner": str(report.get("runner") or named or "pytest"),
+            "scope": self._declared_scope(report.get("scope")),
+        }
+
+    @staticmethod
+    def _combine_runner_reports(reports: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        """One report keeps exactly its own shape. Several are summed, with each runner's share under `runners`.
+
+        The joined scope names each runner that declared one; if any of them is partial the whole is, because a sum that includes a filtered
+        run is not the suite."""
+        if len(reports) == 1:
+            return next(iter(reports.values()))
+        scopes = {runner: r["scope"] for runner, r in reports.items() if r["scope"]}
+        scope = "; ".join(f"{runner}: {text}" for runner, text in scopes.items()) or None
+        if scope and any(text.startswith("partial:") for text in scopes.values()):
+            scope = f"partial: {scope}"[:200]
+        return {
+            "passed": sum(r["passed"] for r in reports.values()),
+            "failed": sum(r["failed"] for r in reports.values()),
+            "total": sum(r["total"] for r in reports.values()),
+            "runner": "+".join(reports),
+            "scope": scope,
+            "runners": {
+                runner: {k: r[k] for k in ("passed", "failed", "total", "scope")} for runner, r in reports.items()
+            },
+        }
+
+    def _read_json_test_report(self, root: Path, start: float | None) -> tuple[dict[str, Any] | None, bool]:
+        """The fresh per-runner reports combined; else the first fresh legacy pytest file. Second value: a stale one was seen."""
+        reports, stale = self._read_runner_reports(root, start)
+        if reports:
+            return self._combine_runner_reports(reports), stale
         for path in (
-            root / ".empirica" / "test_report.json",
             root / ".empirica" / "pytest_report.json",
             root / "pytest_report.json",
             root / ".pytest_report.json",
@@ -1714,29 +1786,10 @@ class PostTestCollector:
                 made = self._made_at(path, report.get("created") if isinstance(report, dict) else None)
             except (OSError, ValueError):
                 continue
-            if not isinstance(report, dict) or not isinstance(report.get("summary"), dict):
-                continue
-            if start is not None and made < start:
-                stale = True
-                continue
-            summary = report["summary"]
-            passed, failed = self._count(summary.get("passed", 0)), self._count(summary.get("failed", 0))
-            declared_total = self._count(summary.get("total", 0))
-            if (
-                passed is None or failed is None
-            ):  # not a report of counts: try the next candidate, do not fail the whole source
-                continue
-            return (
-                {
-                    "passed": passed,
-                    "failed": failed,
-                    # a total below passed + failed would give a rate above 1
-                    "total": max(declared_total or 0, passed + failed),
-                    "runner": str(report.get("runner") or "pytest"),
-                    "scope": self._declared_scope(report.get("scope")),
-                },
-                stale,
-            )
+            entry = self._report_counts(report, made, start, None)
+            if entry is not None:
+                return entry, stale
+            stale = stale or (start is not None and made < start and self._is_report(report))
         return None, stale
 
     @staticmethod
@@ -1796,7 +1849,7 @@ class PostTestCollector:
     def _collect_test_results(self) -> list[EvidenceItem]:
         """Test pass rate (and coverage) from a report made inside this transaction.
 
-        Reads the runner-agnostic `.empirica/test_report.json` first, then legacy pytest names, then JUnit XML. A report older than the
+        Reads the per-runner `.empirica/test_report*.json` files first (every fresh one, combined), then legacy pytest names, then JUnit XML. A report older than the
         transaction is not evidence about it. When nothing usable is found, `_source_notes["pytest"]` says which way it failed.
         """
         self._source_notes.pop("pytest", None)
