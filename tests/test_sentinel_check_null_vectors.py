@@ -7,8 +7,10 @@ CHECK's two vectors with `know or 0` and `uncertainty or 1`, which does two wron
 * a REAL 0.0 uncertainty (maximal certainty) is falsy, so it also became 1.0, and a PREFLIGHT reporting uncertainty 0.0 was refused the
   auto-proceed it had earned.
 
-The gate stays advisory in both cases (every branch of `_evaluate_check_threshold` allows); what changes is that it no longer prints or
-decides on a number nobody reported.
+A below-threshold CHECK stays advisory (the Sentinel judges readiness holistically, not by fixed numbers). A CHECK that did not assess one of the
+two is a different thing: there is nothing to be advisory about, `check-submit` computes `investigate` for the same payload, and a gate's floor for
+what was not assessed is not certified, never allow (ecodex, prop_h2ofrznefjcjpj3b3b44rgrizm; the "decision downgraded across a boundary" row). It
+denies and names what to resubmit; it still never prints or decides on a number nobody reported.
 """
 
 from __future__ import annotations
@@ -46,18 +48,34 @@ def test_a_real_zero_uncertainty_is_maximal_certainty_not_total_doubt(gate):
     assert reason.startswith("CHECK passed"), reason
 
 
-def test_a_null_uncertainty_is_reported_as_not_assessed_not_as_100_percent(gate):
+def test_a_null_uncertainty_is_not_certified_and_is_not_reported_as_100_percent(gate):
     decision, reason = gate._evaluate_check_threshold(0.9, None, None, "")
-    assert decision == "allow"
+    assert decision == "deny"
     assert "100%" not in reason, reason
-    assert "uncertainty" in reason.lower() and "not assess" in reason.lower(), reason
+    assert "uncertainty" in reason.lower() and "not assess" in reason.lower() and "check-submit" in reason, reason
 
 
-def test_a_null_know_is_reported_as_not_assessed_not_as_0_percent(gate):
+def test_a_null_know_is_not_certified_and_is_not_reported_as_0_percent(gate):
     decision, reason = gate._evaluate_check_threshold(None, 0.2, None, "")
-    assert decision == "allow"
+    assert decision == "deny"
     assert "K=0%" not in reason, reason
     assert "know" in reason.lower() and "not assess" in reason.lower(), reason
+
+
+def test_a_check_that_assessed_neither_names_both(gate):
+    decision, reason = gate._evaluate_check_threshold(None, None, None, "")
+    assert decision == "deny" and "know and uncertainty" in reason, reason
+
+
+def test_the_denial_keeps_the_environment_annotation(gate):
+    assert gate._evaluate_check_threshold(None, 0.2, None, " [env]")[1].endswith(" [env]")
+
+
+def test_a_non_numeric_vector_is_not_assessed_either_so_it_is_not_a_threshold_comparison(gate):
+    """A string would raise on `>=`; whatever the store holds, only a number is an assessment."""
+    for bad in ("0.9", [], {}, True):
+        decision, reason = gate._evaluate_check_threshold(bad, 0.2, None, "")
+        assert decision == "deny" and "know" in reason, (bad, reason)
 
 
 def test_a_check_below_threshold_still_reports_its_real_numbers(gate):

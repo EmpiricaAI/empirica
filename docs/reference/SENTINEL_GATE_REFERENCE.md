@@ -13,7 +13,7 @@ The Sentinel Gate is a `PreToolUse` hook. It sorts every tool call it sees into 
 `empirica setup` registers it twice, with a 10 second timeout, for the matchers `Edit|Write` and `Bash` (`_register_all_hooks` in `empirica/cli/command_handlers/setup_claude_code.py`). A second PreToolUse hook, `ruling-shape.py`, matches `AskUserQuestion` and never blocks. Consequences worth knowing:
 
 - Under Claude Code the gate never sees `Read`, `Grep`, `Glob`, `WebFetch` or MCP calls. The noetic tool sets below matter for harnesses that route more tools to the hook, for the phase counters, and for the closed-loop paths.
-- The gate certifies **structure**, not vector values. Nearly everything it denies is "no open transaction", "loop closed", "no CHECK and no grounded claims", "rushed CHECK". A CHECK whose vectors miss the threshold is allowed with an advisory.
+- The gate certifies **structure**, not vector values. Nearly everything it denies is "no open transaction", "loop closed", "no CHECK and no grounded claims", "rushed CHECK". A CHECK whose vectors miss the threshold is allowed with an advisory; a CHECK that did not assess `know` or `uncertainty` at all is denied (below).
 
 ---
 
@@ -41,6 +41,7 @@ The Sentinel Gate is a `PreToolUse` hook. It sorts every tool call it sees into 
    - *CHECK decision `investigate`:* noetic work counts toward a cool-down; a `check-submit` before 3 noetic calls have passed since the `investigate` is denied; other praxic calls are allowed with an advisory.
    - Optional expiry (30 minutes) and compaction invalidation: deny.
    - *CHECK thresholds:* allow. A shortfall against the thresholds is surfaced as an `ADVISORY:` message, never a deny.
+   - *CHECK that did not assess `know` or `uncertainty`:* deny, naming the missing vector and telling the practitioner to resubmit `check-submit`. There is nothing to be advisory about, and `check-submit` computes `investigate` for the same payload; a null, text or boolean value counts as not assessed. A real `0.0` is an assessment.
 
 ### Certifying claims
 

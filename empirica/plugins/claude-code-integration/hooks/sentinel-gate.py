@@ -6310,6 +6310,11 @@ def _assessed(value, default):
     return default if value is None else value
 
 
+def _is_assessed(value) -> bool:
+    """A number the practitioner reported. None (NULL in the store), text and booleans are not an assessment."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == value
+
+
 def _evaluate_check_threshold(know, uncertainty, db, env_annotation: str) -> tuple:
     """Evaluate CHECK vectors against dynamic thresholds.
 
@@ -6317,11 +6322,16 @@ def _evaluate_check_threshold(know, uncertainty, db, env_annotation: str) -> tup
     """
     # A CHECK supplies 7 of the 13 vectors and the store keeps the rest NULL (1.14.16). `know or 0` / `uncertainty or 1` turned a
     # NULL into a reported number ("U=100%") and, because 0.0 is falsy, a real 0.0 uncertainty into 1.0. Say what was not assessed.
-    if know is None or uncertainty is None:
-        missing = " and ".join(name for name, value in (("know", know), ("uncertainty", uncertainty)) if value is None)
+    # A below-threshold CHECK stays advisory below; one that assessed nothing to be advisory about is not certified: check-submit computes
+    # `investigate` for it, and a gate's floor for what was not assessed is deny, not allow (ecodex, prop_h2ofrznefjcjpj3b3b44rgrizm).
+    if not _is_assessed(know) or not _is_assessed(uncertainty):
+        missing = " and ".join(
+            name for name, value in (("know", know), ("uncertainty", uncertainty)) if not _is_assessed(value)
+        )
         return (
-            "allow",
-            f"ADVISORY: this CHECK did not assess {missing}, so the threshold was not evaluated. Supply it to certify the grounding.{env_annotation}",
+            "deny",
+            f"CHECK did not assess {missing}, so it certifies nothing and the threshold was not evaluated. "
+            f"Resubmit with `empirica check-submit` supplying know and uncertainty.{env_annotation}",
         )
     raw_check_know = know
     raw_check_unc = uncertainty
