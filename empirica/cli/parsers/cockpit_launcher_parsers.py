@@ -82,7 +82,7 @@ when the previous session ended without writing a clean-shutdown marker
     # refresh
     refresh = actions.add_parser(
         "refresh",
-        help="Relaunch, in place, every claude pane whose claude exited — same identity, conversation resumed",
+        help="Relaunch, in place, every claude, codex or ecodex pane that exited — same identity, conversation resumed — then wake each resumed claude once it is idle",
     )
     refresh.add_argument("--config", metavar="PATH", help="Override the default config path")
     refresh.add_argument("--profile", metavar="NAME", help="Use ~/.empirica/cockpit/config-NAME.yaml")

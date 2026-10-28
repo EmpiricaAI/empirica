@@ -354,6 +354,21 @@ def _print_stripped(stripped: str | None) -> None:
         )
 
 
+def _wake_resumed_panes(respawned: list[dict], *, quiet: bool) -> list[dict]:
+    """Wake each respawned claude pane once it is idle. Never raises: a refresh that brought panes back has succeeded whatever the wake does."""
+    try:
+        from empirica.core.cockpit.wake_after_resume import wake_resumed
+
+        if not quiet and any(not r["error"] for r in respawned):
+            print("  waiting for resumed claude panes to be idle, then waking them (up to 90 s)...")
+        return wake_resumed(respawned)
+    except Exception as e:
+        return [
+            {"key": r["key"], "pane_id": r.get("pane_id"), "woken": False, "detail": f"not woken: {e}"}
+            for r in respawned
+        ]
+
+
 def handle_cockpit_refresh_command(args) -> int:
     """``empirica cockpit refresh``. Respawn dead claude panes in place,
     with their identity and conversation. Live panes are never touched."""
@@ -366,6 +381,8 @@ def handle_cockpit_refresh_command(args) -> int:
     result = refresh_cockpit(config)
     failed = [r for r in result.respawned if r["error"]]
     ok = result.error is None and not failed
+    # A resumed claude has had its SessionStart and then sits idle; its Monitor is armed by a turn, so give it one (David's ruling (a)).
+    woken = _wake_resumed_panes(result.respawned, quiet=output == "json") if result.respawned else []
     if output == "json":
         print(
             json.dumps(
@@ -378,6 +395,7 @@ def handle_cockpit_refresh_command(args) -> int:
                     "session_identity_stripped": result.session_identity_stripped,
                     "adopted": result.adopted,
                     "unkeyed_panes": result.unkeyed,
+                    "woken": woken,
                     "error": result.error,
                 },
                 indent=2,
@@ -398,6 +416,8 @@ def handle_cockpit_refresh_command(args) -> int:
             print(f"  ✗ {r['key']:24s} {who} — {r['error']}")
         else:
             print(f"  ↻ {r['key']:24s} {who} — {r['command']}")
+    for w in woken:
+        print(f"  {'⏰' if w['woken'] else '⚠'} {w['key']:24s} {w['detail']}")
     if not result.respawned:
         print(f"  nothing to do: {len(result.alive)} claude pane(s) running")
     if result.missing:

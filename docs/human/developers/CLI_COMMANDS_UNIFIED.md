@@ -3859,7 +3859,7 @@ Bring up the cockpit (idempotent — attaches if already running)
 
 ##### `empirica cockpit refresh`
 
-Relaunch, in place, every claude pane whose claude exited — same identity, conversation resumed
+Relaunch, in place, every claude, codex or ecodex pane that exited — same identity, conversation resumed — then wake each resumed claude once it is idle
 
 **Arguments:**
 
