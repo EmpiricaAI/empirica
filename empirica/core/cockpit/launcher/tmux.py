@@ -486,11 +486,29 @@ def _stamp_pane(pane_id: str, key: str, instance_id: str | None, remain: bool) -
         _tmux("set-option", "-p", "-t", pane_id, "remain-on-exit", "on")
 
 
-def _runs_claude(pane: PaneSpec, config: LauncherConfig) -> bool:
+def _pane_program(pane: PaneSpec, config: LauncherConfig) -> str | None:
+    """The program a configured pane launches, or None when the pane names no known project."""
     if not pane.project_ref:
-        return False
+        return None
     proj = config.project_by_name(pane.project_ref)
-    return proj is not None and _launch_program(proj.launch) == "claude"
+    return _launch_program(proj.launch) if proj is not None else None
+
+
+def _runs_resumable(pane: PaneSpec, config: LauncherConfig) -> bool:
+    """A pane `refresh` can bring back: claude, or a program `resume_command` knows how to resume (codex, ecodex)."""
+    program = _pane_program(pane, config)
+    return program == "claude" or program in _RESUME_LAST_PROGRAMS
+
+
+def _keeps_on_exit(pane: PaneSpec, instance_id: str | None, config: LauncherConfig) -> bool:
+    """Whether the pane stays in the layout, dead, when its program exits, so refresh has something to respawn.
+
+    A claude pane needs a bound identity to be worth respawning (an explicitly empty instance_id disables both). A codex-family pane gets
+    no identity bound (ecodex puts its own UUID in EMPIRICA_INSTANCE_ID), so it is kept on the program alone."""
+    program = _pane_program(pane, config)
+    if program == "claude":
+        return bool(instance_id)
+    return program in _RESUME_LAST_PROGRAMS
 
 
 def _configure_session(config: LauncherConfig, session_name: str) -> None:
@@ -557,7 +575,7 @@ def _open_pane(base: list[str], pane: PaneSpec, key: str, config: LauncherConfig
     if result.returncode == 0:
         pane_id = result.stdout.strip()
         _set_pane_title(pane_id, _pane_title(pane))
-        _stamp_pane(pane_id, key, iid, remain=bool(iid) and _runs_claude(pane, config))
+        _stamp_pane(pane_id, key, iid, remain=_keeps_on_exit(pane, iid, config))
         if base and base[0] == "new-session" and (session := _session_of(base)):
             strip_session_identity(session)  # -e on new-session is session-wide; the pane keeps its copy
     return result
@@ -921,7 +939,7 @@ def _adopt(
         row = rows[idx]
         key = candidates[0]
         iid = identities.get(key)
-        _stamp_pane(row["pane_id"], key, iid, remain=bool(iid) and _runs_claude(specs[key], config))
+        _stamp_pane(row["pane_id"], key, iid, remain=_keeps_on_exit(specs[key], iid, config))
         row["key"], row["iid"] = key, iid or ""
         seen.add(key)
         adopted.append(key)
@@ -929,7 +947,7 @@ def _adopt(
 
 
 def refresh_cockpit(config: LauncherConfig) -> RefreshResult:
-    """Respawn, in place, every claude pane whose claude has exited.
+    """Respawn, in place, every claude, codex or ecodex pane whose program has exited.
 
     A pane counts as dead when tmux reports it dead (remain-on-exit keeps it
     in the layout) or when a shell is in its foreground where claude should
@@ -971,13 +989,13 @@ def refresh_cockpit(config: LauncherConfig) -> RefreshResult:
             # Only an untracked pane that COULD be a configured claude pane makes
             # absence undecidable; a spare shell in a fully matched window cannot.
             if any(
-                k not in seen and k.rsplit("/", 1)[0] == row["window"] and _runs_claude(p, config)
+                k not in seen and k.rsplit("/", 1)[0] == row["window"] and _runs_resumable(p, config)
                 for k, p in specs.items()
             ):
                 out.unkeyed += 1
             continue
         pane = specs.get(key)
-        if pane is None or not _runs_claude(pane, config):
+        if pane is None or not _runs_resumable(pane, config):
             continue
         if row["dead"] != "1" and row["current"] not in _SHELLS:
             out.alive.append(key)
@@ -1013,5 +1031,5 @@ def refresh_cockpit(config: LauncherConfig) -> RefreshResult:
 
     # With untracked panes left, absence cannot be told from "not adopted".
     if not out.unkeyed:
-        out.missing = [k for k, p in specs.items() if k not in seen and _runs_claude(p, config)]
+        out.missing = [k for k, p in specs.items() if k not in seen and _runs_resumable(p, config)]
     return out
