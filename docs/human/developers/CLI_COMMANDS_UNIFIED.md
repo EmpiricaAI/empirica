@@ -1557,8 +1557,8 @@ Semantic search for relevant docs/memory by task description
   Task description to search for
 - `--include-resolved` — optional · flag
   Also return findings and unknowns that were resolved, superseded or retracted. They are left out by default: a retracted finding used to rank above its own correction. Use this to read history.
-- `--type` — optional · type=`choice` · choices={focused, all, intelligence, docs, memory, eidetic, episodic, assumptions, decisions, goals} · default=`focused`
-  Result type: focused (docs+memory+eidetic+episodic — this project's own knowledge), all (alias of focused, backward compat), intelligence (goals+decisions+assumptions), or a single collection
+- `--type` — optional · type=`choice` · choices={focused, all, intelligence, docs, memory, eidetic, episodic, assumptions, decisions, goals, code} · default=`focused`
+  Result type: focused (docs+memory+eidetic+episodic — this project's own knowledge), all (alias of focused, backward compat), intelligence (goals+decisions+assumptions), code (module signatures, which the other types leave out), or a single collection
 - `--limit` — optional · type=`int` · default=`5`
   Number of results to return (default: 5)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`

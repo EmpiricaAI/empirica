@@ -375,6 +375,8 @@ def search(
         search_kinds = ["docs", "memory", "eidetic", "episodic"]
     elif kind == "intelligence":
         search_kinds = ["memory", "eidetic", "episodic", "assumptions", "decisions", "goals"]
+    elif kind == "code":
+        search_kinds = ["eidetic"]  # module signatures live in eidetic, typed code_api; see _scope_eidetic
     else:
         search_kinds = [kind]
     empty_result = {k: [] for k in search_kinds}
@@ -418,16 +420,17 @@ def search(
         "docs": 0.5,
     }
 
-    # For intelligence searches, filter out code_api entries from eidetic
-    # (module doc signatures are 52% of eidetic — noise for cross-project queries)
-    _intelligence_filter = None
-    if kind == "intelligence":
-        try:
-            from qdrant_client.models import FieldCondition, Filter, MatchValue
+    # Module signatures (type code_api) are about half of eidetic and crowd facts out of every query that is not about code: a live default
+    # search returned 4 signatures and 1 finding (David, 2026-10-28). Every eidetic read excludes them unless the caller asked for them
+    # with kind="code". The server-side filter keeps the candidate depth for real facts; _scope_eidetic repeats it on the rows.
+    _eidetic_filter = None
+    try:
+        from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-            _intelligence_filter = Filter(must_not=[FieldCondition(key="type", match=MatchValue(value="code_api"))])
-        except ImportError:
-            pass
+        _is_code = FieldCondition(key="type", match=MatchValue(value="code_api"))
+        _eidetic_filter = Filter(must=[_is_code]) if kind == "code" else Filter(must_not=[_is_code])
+    except ImportError:
+        pass
 
     results: dict[str, list[dict]] = {}
     client = _get_qdrant_client(qdrant_url=qdrant_url, project_id=project_id)
@@ -440,7 +443,7 @@ def search(
             continue
         coll_fn, fields = _SEARCH_COLLECTIONS[kind_name]
         boost = _COLLECTION_BOOST.get(kind_name, 1.0)
-        query_filter = _intelligence_filter if (kind_name == "eidetic" and _intelligence_filter) else None
+        query_filter = _eidetic_filter if kind_name == "eidetic" else None
         candidates = _search_single_collection(
             client,
             coll_fn,
@@ -452,6 +455,8 @@ def search(
             query_filter,
         )
         candidates = _drop_resolved_memory(kind_name, candidates, include_resolved)
+        if kind_name == "eidetic":
+            candidates = _scope_eidetic(kind, candidates)
         results[kind_name] = _confirm_band(kind_name, query_text, candidates, limit)
 
     if results:
@@ -478,11 +483,22 @@ def search(
             # transport happened to answer — and the transport is invisible to the
             # caller, so the inconsistency would be unattributable.
             candidates = _drop_resolved_memory(kind_name, candidates, include_resolved)
+            if kind_name == "eidetic":
+                candidates = _scope_eidetic(kind, candidates)
             results[kind_name] = _confirm_band(kind_name, query_text, candidates, limit)
         return results
     except Exception as e:
         logger.debug(f"REST search also failed: {e}")
         return empty_result
+
+
+def _scope_eidetic(kind: str, candidates: list[dict]) -> list[dict]:
+    """Eidetic rows for this search: module signatures (type code_api) only for kind="code", everything else otherwise.
+
+    An untyped older row is a fact, not a signature. This is applied to the rows as well as sent as a server-side filter because the REST
+    fallback cannot take one."""
+    want_code = kind == "code"
+    return [c for c in candidates if (c.get("type") == "code_api") == want_code]
 
 
 def _confirm_band(kind_name: str, query_text: str, candidates: list[dict], limit: int) -> list[dict]:

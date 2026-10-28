@@ -948,11 +948,12 @@ def add_checkpoint_parsers(subparsers):
             "assumptions",
             "decisions",
             "goals",
+            "code",
         ],
         default="focused",
         help="Result type: focused (docs+memory+eidetic+episodic — this project's own knowledge), "
         "all (alias of focused, backward compat), intelligence (goals+decisions+assumptions), "
-        "or a single collection",
+        "code (module signatures, which the other types leave out), or a single collection",
     )
     project_search_parser.add_argument("--limit", type=int, default=5, help="Number of results to return (default: 5)")
     project_search_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
