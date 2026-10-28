@@ -906,6 +906,13 @@ class ReleaseManager:
                 r'__version__\s*=\s*"[^"]+"',
                 f'__version__ = "{self.version}"',
             ),
+            # The core version the hooks were released with; session-init warns when the installed core is older. A sweep that missed it
+            # would ship hooks claiming an older vintage and never warn (tests/test_hook_vintage.py pins it equal to __version__).
+            (
+                self.repo_root / "empirica" / "plugins" / "claude-code-integration" / "lib" / "hook_vintage.py",
+                r'^HOOK_VINTAGE\s*=\s*"[^"]+"',
+                f'HOOK_VINTAGE = "{self.version}"',
+            ),
             # empirica_mcp's own __version__. MISSING from this sweep until 1.13.48:
             # it sat at "1.8.14" for roughly five minors while pyproject beside it
             # read the current release — wrong in the repo AND in every install, so
@@ -1710,6 +1717,7 @@ class ReleaseManager:
         "Dockerfile.alpine",
         "README.md",
         "empirica/__init__.py",
+        "empirica/plugins/claude-code-integration/lib/hook_vintage.py",
         "empirica-mcp/pyproject.toml",
         "empirica-mcp/empirica_mcp/__init__.py",
         "empirica/plugins/claude-code-integration/.claude-plugin/plugin.json",

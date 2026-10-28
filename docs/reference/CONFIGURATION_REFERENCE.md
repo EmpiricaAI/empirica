@@ -300,6 +300,7 @@ Semantic search is on when `qdrant-client` is installed, unless `EMPIRICA_ENABLE
 | Stop-hook turn limits | `transaction-enforcer.py` warns after 12 turns with an open transaction and blocks stopping after 20. Override in `.empirica-project/PROJECT_CONFIG.yaml` (or `PROJECT_CONFIG.yaml`) in the working directory with `transaction: {soft_reminder_turns: N, max_transaction_turns: N}`, or with `EMPIRICA_TX_SOFT_TURNS` and `EMPIRICA_TX_HARD_TURNS`, which win |
 | Workflow protocol | `workflow-protocol.yaml`, searched in the project then `~/.empirica/`; created by `/ewm-interview`, loaded at session start |
 | Trusted hosts | `~/.empirica/trusted_hosts`: a remote, container or CI host listed there is annotated trusted in Sentinel messages |
+| Hook vintage | `lib/hook_vintage.py` (`HOOK_VINTAGE`) is the core version the hooks were released with, swept with `empirica/__init__.py` at every release. SessionStart warns, in the banner and the injected context, when the installed core is older, since a hook may call code added since (the session-end hook imports `restore_if_swapped`, absent before 1.14.15). A harness that vendors the hooks without that module loses the warning, not the session. Nothing to configure |
 
 ---
 

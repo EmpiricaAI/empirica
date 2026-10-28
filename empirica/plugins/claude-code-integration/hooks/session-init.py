@@ -1716,6 +1716,23 @@ def _harness() -> str:
     return (os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip().lower() or "claude-code"
 
 
+def _core_version_notice() -> str:
+    """A line when the installed core is older than these hooks (lib/hook_vintage.py), else "". Never raises."""
+    try:
+        # Imported here, not at the top: a harness that vendors this hook without the newer lib module must lose the notice, not SessionStart.
+        from hook_vintage import startup_notice
+
+        return startup_notice()
+    except Exception:
+        return ""
+
+
+def _startup_notices(project_root: Path) -> str:
+    """The notices SessionStart shows after the context: hooks newer than the installed core first (it is the more urgent and one line, so
+    it is what the banner's first line shows), then the cached deploy-gap verdict. Empty when there is nothing to say."""
+    return "\n\n".join(part for part in (_core_version_notice(), _deploy_gap_block(project_root)) if part)
+
+
 def _deploy_gap_block(project_root: Path) -> str:
     """The cached deploy-gap verdict for this box, or a line saying why there
     is none. Never runs the detector (2.1 s); reads a cache and spawns a
@@ -1889,7 +1906,7 @@ def main():
     # Deploy-gap verdict (cached; the detector never runs on this path). Goes
     # into the injected context so the model sees it, and into the stderr
     # banner so the human does. Empty only when fresh and clean.
-    deploy_gap_text = _deploy_gap_block(project_root)
+    deploy_gap_text = _startup_notices(project_root)
     if deploy_gap_text:
         prompt = f"{prompt}\n\n{deploy_gap_text}\n"
 
