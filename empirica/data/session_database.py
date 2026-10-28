@@ -74,6 +74,12 @@ def _resolve_canonical_project_root() -> str | None:
     return None
 
 
+def _coverage_entry(shown: int, total: int | None, truncated: bool, source: str) -> dict:
+    """One type's line in bootstrap `coverage`: how many are shown, how many exist (None when the cap hid an unknown number), whether a cap hid
+    any, and where they were read from (sqlite, qdrant, or unavailable when the read did not happen)."""
+    return {"shown": shown, "total": total, "truncated": truncated, "source": source}
+
+
 class SessionDatabase:
     """Central database for all session data (supports SQLite and PostgreSQL)"""
 
@@ -1804,40 +1810,86 @@ class SessionDatabase:
         Warns when items are truncated - AI should use Qdrant search for full context.
         """
         truncation_warnings = []
+        coverage: dict[str, dict] = {}
 
         # Define limits for session_start mode
         FINDINGS_LIMIT = 10
         UNKNOWNS_LIMIT = 10
         DEAD_ENDS_LIMIT = 5
         MISTAKES_LIMIT = 5
+        ASSUMPTIONS_LIMIT = 10
+
+        def _read_capped(getter, limit: int, key: str, **kwargs):
+            """Read `limit` rows and one more: the extra row says the cap hid something without counting the rest.
+
+            A getter that applies its limit after filtering (findings) cannot be counted without a second read, so the total is
+            None when truncated and the exact length when not."""
+            fetched = getter(**kwargs, limit=limit + 1)
+            cut = len(fetched) > limit
+            rows = fetched[:limit]
+            coverage[key] = _coverage_entry(len(rows), None if cut else len(rows), cut, "sqlite")
+            return rows
+
+        def _read_all(rows: list, key: str):
+            coverage[key] = _coverage_entry(len(rows), len(rows), False, "sqlite")
+            return rows
 
         if mode == "session_start":
             # FAST: Recent items only with limits
-            findings = self.breadcrumbs.get_project_findings(project_id, limit=FINDINGS_LIMIT, subject=subject)
+            findings = _read_capped(
+                self.breadcrumbs.get_project_findings,
+                FINDINGS_LIMIT,
+                "findings",
+                project_id=project_id,
+                subject=subject,
+            )
 
             # Get unknowns with limit, count total for warning
             all_unknowns = self.breadcrumbs.get_project_unknowns(project_id, resolved=False, subject=subject)
             total_unknowns = len(all_unknowns)
             unknowns = all_unknowns[:UNKNOWNS_LIMIT]
+            coverage["unknowns"] = _coverage_entry(
+                len(unknowns), total_unknowns, total_unknowns > UNKNOWNS_LIMIT, "sqlite"
+            )
             if total_unknowns > UNKNOWNS_LIMIT:
                 truncation_warnings.append(
                     f"unknowns: showing {UNKNOWNS_LIMIT} of {total_unknowns} unresolved (use 'empirica project-search' for full list)"
                 )
 
-            dead_ends = self.breadcrumbs.get_project_dead_ends(project_id, limit=DEAD_ENDS_LIMIT, subject=subject)
-            recent_mistakes = self.breadcrumbs.get_project_mistakes(project_id, limit=MISTAKES_LIMIT)
+            dead_ends = _read_capped(
+                self.breadcrumbs.get_project_dead_ends,
+                DEAD_ENDS_LIMIT,
+                "dead_ends",
+                project_id=project_id,
+                subject=subject,
+            )
+            recent_mistakes = _read_capped(
+                self.breadcrumbs.get_project_mistakes, MISTAKES_LIMIT, "mistakes_to_avoid", project_id=project_id
+            )
+            all_assumptions = self.breadcrumbs.get_project_assumptions(project_id)
+            assumptions = all_assumptions[:ASSUMPTIONS_LIMIT]
+            coverage["assumptions"] = _coverage_entry(
+                len(assumptions), len(all_assumptions), len(all_assumptions) > ASSUMPTIONS_LIMIT, "sqlite"
+            )
+            if len(all_assumptions) > ASSUMPTIONS_LIMIT:
+                truncation_warnings.append(
+                    f"assumptions: showing {ASSUMPTIONS_LIMIT} of {len(all_assumptions)} unverified (use 'empirica project-search --type assumptions')"
+                )
         else:  # mode == "live"
             # COMPLETE: All items (no limits)
-            findings = self.breadcrumbs.get_project_findings(project_id, subject=subject)
-            unknowns = self.breadcrumbs.get_project_unknowns(project_id, subject=subject)
-            dead_ends = self.breadcrumbs.get_project_dead_ends(project_id, subject=subject)
-            recent_mistakes = self.breadcrumbs.get_project_mistakes(project_id)
+            findings = _read_all(self.breadcrumbs.get_project_findings(project_id, subject=subject), "findings")
+            unknowns = _read_all(self.breadcrumbs.get_project_unknowns(project_id, subject=subject), "unknowns")
+            dead_ends = _read_all(self.breadcrumbs.get_project_dead_ends(project_id, subject=subject), "dead_ends")
+            recent_mistakes = _read_all(self.breadcrumbs.get_project_mistakes(project_id), "mistakes_to_avoid")
+            assumptions = _read_all(self.breadcrumbs.get_project_assumptions(project_id), "assumptions")
 
         reference_docs = self.breadcrumbs.get_project_reference_docs(project_id)
 
         # Decisions are permanent audit trail — load from Qdrant (static, no decay)
         decisions = []
         DECISIONS_LIMIT = 10
+        decisions_source = "unavailable"  # a read that did not happen is not "no decisions"
+        decisions_cut = False
         try:
             from empirica.core.qdrant.vector_store import (
                 _check_qdrant_available,
@@ -1848,20 +1900,30 @@ class SessionDatabase:
             if _check_qdrant_available():
                 client = _get_qdrant_client()
                 coll = _decisions_collection(project_id)
-                if client and client.collection_exists(coll):
-                    results = client.scroll(collection_name=coll, limit=DECISIONS_LIMIT, with_payload=True)
-                    for pt in results[0]:
-                        p = pt.payload or {}
-                        decisions.append(
-                            {
-                                "choice": p.get("choice", ""),
-                                "rationale": p.get("rationale", ""),
-                                "reversibility": p.get("reversibility", "exploratory"),
-                                "confidence": p.get("confidence_at_decision"),
-                            }
-                        )
+                if client:
+                    decisions_source = "qdrant"
+                    if client.collection_exists(coll):
+                        # one more than the cap says whether the cap hid anything
+                        points = client.scroll(collection_name=coll, limit=DECISIONS_LIMIT + 1, with_payload=True)[0]
+                        decisions_cut = len(points) > DECISIONS_LIMIT
+                        for pt in points[:DECISIONS_LIMIT]:
+                            p = pt.payload or {}
+                            decisions.append(
+                                {
+                                    "choice": p.get("choice", ""),
+                                    "rationale": p.get("rationale", ""),
+                                    "reversibility": p.get("reversibility", "exploratory"),
+                                    "confidence": p.get("confidence_at_decision"),
+                                }
+                            )
         except Exception:
-            pass  # Qdrant unavailable — decisions won't load (non-fatal)
+            decisions, decisions_source, decisions_cut = [], "unavailable", False  # Qdrant failed: non-fatal, but said
+        coverage["decisions"] = _coverage_entry(
+            len(decisions),
+            None if (decisions_source == "unavailable" or decisions_cut) else len(decisions),
+            decisions_cut,
+            decisions_source,
+        )
 
         result = {
             "findings": findings,
@@ -1870,6 +1932,8 @@ class SessionDatabase:
             "decisions": decisions,
             "mistakes_to_avoid": recent_mistakes,
             "reference_docs": reference_docs,
+            "assumptions": assumptions,
+            "coverage": coverage,
         }
 
         if truncation_warnings:
@@ -2238,6 +2302,7 @@ class SessionDatabase:
         # 10. Apply adaptive depth filtering LAST (after all fields populated)
         if depth != "auto" or trigger == "post_compact":
             breadcrumbs = self._apply_depth_filter(breadcrumbs, depth, trigger)
+        self._reconcile_coverage(breadcrumbs)
 
         # 11. Reorder so `situation` appears first in JSON output
         # (attention-decay-aware — AI sees state-narrative before deep lists).
@@ -2420,6 +2485,25 @@ class SessionDatabase:
             pass
         return "moderate"
 
+    @staticmethod
+    def _reconcile_coverage(breadcrumbs: dict) -> None:
+        """Make `coverage` describe what is in `breadcrumbs` NOW: the depth filter runs last and cuts the lists again.
+
+        A list that was cut further reports the smaller `shown` and `truncated`; a list that was removed outright reports 0 shown and
+        truncated, not empty, since "left out" and "none exist" are different answers."""
+        coverage = breadcrumbs.get("coverage")
+        if not isinstance(coverage, dict):
+            return
+        for key, entry in coverage.items():
+            before = entry.get("shown", 0)
+            if key not in breadcrumbs or not isinstance(breadcrumbs.get(key), list):
+                if before or entry.get("total"):
+                    entry["shown"], entry["truncated"] = 0, True
+                continue
+            now = len(breadcrumbs[key])
+            if now < before:
+                entry["shown"], entry["truncated"] = now, True
+
     def _apply_depth_filter(self, breadcrumbs: dict, depth: str, trigger: str | None) -> dict:
         """
         Apply adaptive depth filtering to breadcrumbs based on drift or explicit depth.
@@ -2456,6 +2540,13 @@ class SessionDatabase:
         def _slim_dead_end(d: dict) -> dict:
             return {"approach": d.get("approach"), "why_failed": d.get("why_failed")}
 
+        def _slim_assumption(a: dict) -> dict:
+            return {
+                "id": str(a.get("id", ""))[:8],
+                "assumption": a.get("assumption"),
+                "confidence": a.get("confidence"),
+            }
+
         def _slim_decision(d: dict) -> dict:
             return {"choice": d.get("choice"), "rationale": d.get("rationale")}
 
@@ -2467,6 +2558,7 @@ class SessionDatabase:
             breadcrumbs["dead_ends"] = [_slim_dead_end(d) for d in breadcrumbs.get("dead_ends", [])[:3]]
             breadcrumbs["decisions"] = [_slim_decision(d) for d in breadcrumbs.get("decisions", [])[:3]]
             breadcrumbs["mistakes_to_avoid"] = breadcrumbs.get("mistakes_to_avoid", [])[:2]
+            breadcrumbs["assumptions"] = [_slim_assumption(a) for a in breadcrumbs.get("assumptions", [])[:3]]
             breadcrumbs["goals"] = [_slim_goal(g) for g in breadcrumbs.get("goals", [])[:1]]
             breadcrumbs["active_goals"] = [_slim_goal(g) for g in breadcrumbs.get("active_goals", [])[:2]]
             breadcrumbs["reference_docs"] = breadcrumbs.get("reference_docs", [])[:2]
@@ -2500,6 +2592,7 @@ class SessionDatabase:
             breadcrumbs["unknowns"] = [_slim_unknown(u) for u in breadcrumbs.get("unknowns", [])[:10]]
             breadcrumbs["dead_ends"] = [_slim_dead_end(d) for d in breadcrumbs.get("dead_ends", [])[:5]]
             breadcrumbs["mistakes_to_avoid"] = breadcrumbs.get("mistakes_to_avoid", [])[:5]
+            breadcrumbs["assumptions"] = [_slim_assumption(a) for a in breadcrumbs.get("assumptions", [])[:5]]
             breadcrumbs["goals"] = [_slim_goal(g) for g in breadcrumbs.get("goals", [])[:5]]
             breadcrumbs["decisions"] = [_slim_decision(d) for d in breadcrumbs.get("decisions", [])[:5]]
             breadcrumbs["active_goals"] = [_slim_goal(g) for g in breadcrumbs.get("active_goals", [])[:5]]

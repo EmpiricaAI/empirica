@@ -405,6 +405,21 @@ empirica project-list --output json
 empirica project-bootstrap --session-id <ID> --output json
 ```
 
+### What `project-bootstrap` leaves out
+
+`breadcrumbs.coverage` says, per artifact type, what the capped lists hid. The types are `findings`, `unknowns`, `dead_ends`, `mistakes_to_avoid`, `decisions` and `assumptions` (open, unverified ones, newest first).
+
+```json
+"coverage": {"assumptions": {"shown": 10, "total": 94, "truncated": true, "source": "sqlite"},
+             "findings":    {"shown": 10, "total": null, "truncated": true, "source": "sqlite"},
+             "decisions":   {"shown": 0, "total": null, "truncated": false, "source": "unavailable"}}
+```
+
+- `shown` is the length of the list as returned, after the depth filter: a list the filter cut reports the smaller number, and one it removed reports `0` with `truncated: true`.
+- `total` is the number that exist, or `null` when the cap hid an unknown number. Findings, dead ends and mistakes are read as the cap plus one row, because their getters apply the limit after filtering; a `null` total with `truncated: true` means "at least one more".
+- `source` is where the list was read: `sqlite`, `qdrant` (decisions), or `unavailable` when the read did not happen. An unavailable source is not "none exist".
+- `truncation_warnings` keeps its prose for readers of the old shape.
+
 ### Handoffs
 ```bash
 empirica handoff-create --session-id <ID> --task-summary "..." --key-findings '[...]'

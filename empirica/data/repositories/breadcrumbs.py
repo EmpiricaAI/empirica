@@ -1022,6 +1022,24 @@ class BreadcrumbRepository(BaseRepository):
         cursor = self._execute(query, tuple(params))
         return [dict(row) for row in cursor.fetchall()]
 
+    def get_project_assumptions(
+        self, project_id: str, status: str | None = "unverified", limit: int | None = None
+    ) -> list[dict]:
+        """Assumptions for a project, newest first. `status=None` returns every status (unverified, verified, falsified)."""
+        query = (
+            "SELECT id, assumption, confidence, status, created_timestamp, goal_id "
+            "FROM assumptions WHERE project_id = ?"
+        )
+        params: list = [project_id]
+        if status is not None:
+            query += " AND status = ?"
+            params.append(status)
+        query += " ORDER BY created_timestamp DESC, rowid DESC"
+        if limit:
+            query += f" LIMIT {int(limit)}"
+        cursor = self._execute(query, tuple(params))
+        return [dict(row) for row in cursor.fetchall()]
+
     def get_project_dead_ends(
         self, project_id: str, limit: int | None = None, subject: str | None = None
     ) -> list[dict]:
