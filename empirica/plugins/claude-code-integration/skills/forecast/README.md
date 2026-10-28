@@ -2,10 +2,10 @@
 
 # Forecast
 
-**When to load:** Use when deciding what to build next or preparing a release or quarter — 'what's next', 'what's coming', 'roadmap', 'plan the next release', 'turn this into goals', 'are we on track' — and when grading earlier predictions. Drafts predicted directions with an evidence kind and a capped confidence, turns thin evidence into at most three questions, routes human attention by impact and confidence, creates planned goals only after confirmation, and gardens the forecast so it stays honest.
+**When to load:** Use when deciding what to build next, asking where a practice stands, or checking how good its predictions are — 'what's next', 'what's coming', 'roadmap', 'plan the next release', 'turn this into goals', 'are we on track', 'where are we', 'status of the practice', 'what have we done this session', 'is the forecast still true', 'how good are our predictions' — and when grading earlier predictions. Drafts predicted directions with an evidence kind and a capped confidence, turns thin evidence into at most three questions, routes human attention by impact and confidence, creates planned goals only after confirmation, and gardens the forecast so it stays honest. Modes: status, verify, grade, record, away.
 
-Load this when the question is "what comes next", or when a release is about to grade the last forecast.
+Load this when the question is "what comes next", "where are we", or "were we right", or when a release is about to grade the last forecast.
 
-Skill `forecast` · version 1.0.0 · load with `/forecast` in Claude Code.
+Skill `forecast` · version 1.1.0 · load with `/forecast` in Claude Code.
 
 Full skill: [SKILL.md](SKILL.md)
