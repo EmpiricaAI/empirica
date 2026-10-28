@@ -179,6 +179,18 @@
       "reason": "Read in full on 2026-10-12; NOT still true in places. Known stale: (1) the retrieval weight omits the relevance blend (RELEVANCE_SHARE 0.65 / RECENCY_SHARE 0.35 in epistemic_summarizer.py); (2) 'Track 2 is more trustworthy' contradicts the current calibration architecture, where evidence informs the AI's beliefs and the AI is the calibrator; (3) the Memory Bridge (top 12 artifacts into MEMORY.md) is not how memory promotion works now (promoted_*.md files, at most 3 per POSTFLIGHT); (4) the vector grouping differs from the current tiers. The cognitive-immune-system section is unverified. Rewrite queued; acknowledged here so the gate reflects a decision, not a reset clock.",
       "decided_by": "empirica (2026-10-12, CI gate)",
       "review_by": "2026-11-01"
+    },
+    "docs/architecture/UNIVERSAL_GOVERNANCE_PATTERN.md": {
+      "status": "pending_review",
+      "reason": "Brand document in David's voice, mostly narrative; its subject (governance gates, Epistemic Candor PROCEED/HEDGE/HALT) still exists and the Candor part was verified. NOT verified current: 'UQ gate' appears nowhere else in the repo; it names five autonomy levels incl. ECO against four SentinelModes in empirica-autonomy (ECO is a separate gate); OBSERVER/ADVISORY semantics differ from EARNED_AUTONOMY.md; '200+ calibrated transactions', '~20/day', '~1/week' and the week-1/week-12 convergence are unsourced. Rewriting a brand document is a separate decision.",
+      "decided_by": "empirica (2026-10-27 gate crossing; read 2026-10-13, goal 61c3bd28)",
+      "review_by": "2026-12-31"
+    },
+    "docs/architecture/DISCIPLINE_IS_SPEED.md": {
+      "status": "pending_review",
+      "reason": "The Sentinel check-submit deadlock anecdote is verified (CHANGELOG 1.8.9). CONTRADICTED: 'the AI cannot act until it demonstrates understanding' (PREFLIGHT claims skip CHECK; CHECK certifies, it does not unlock). Unsourced: 2-3X rework, 0.14-0.16 vs 0.20-0.25, 10 minutes, 'measurably faster'; the document calls its claim testable and it is untested. Rewriting a brand document is a separate decision.",
+      "decided_by": "empirica (2026-10-27 gate crossing; read 2026-10-13, goal 61c3bd28)",
+      "review_by": "2026-12-31"
     }
   }
 }
