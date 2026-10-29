@@ -713,7 +713,7 @@ def _register_in_workspace_db(
     trajectory_path: str,
     description: str | None = None,
     git_remote_url: str | None = None,
-    project_type: str = "software",
+    project_type: str | None = None,
     metadata: str | None = None,
 ) -> bool:
     """

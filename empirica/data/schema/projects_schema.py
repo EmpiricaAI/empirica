@@ -28,7 +28,7 @@ SCHEMAS = [
                     total_epistemic_deltas TEXT,
 
                     project_data TEXT NOT NULL,
-                    project_type TEXT DEFAULT 'product',
+                    project_type TEXT,
                     project_tags TEXT,
                     parent_project_id TEXT
                 )

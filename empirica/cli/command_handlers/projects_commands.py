@@ -1897,7 +1897,7 @@ def handle_project_register_command(args) -> None:
 
         name = project_yaml.get("display_name") or project_yaml.get("name") or project_path.name
         description = project_yaml.get("description") or ""
-        project_type = project_yaml.get("type") or "software"
+        project_type = project_yaml.get("type") or None  # unclassified stays unclassified
         repo_url = project_yaml.get("repository") or _git_remote_for_path(project_path)
 
         # 3. Dual-write workspace.db (global_projects + entity_registry)

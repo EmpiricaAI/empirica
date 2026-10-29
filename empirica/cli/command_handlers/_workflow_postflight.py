@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from empirica.config.path_resolver import resolve_session_db_path
+from empirica.core.project_types import calibration_domain
 from empirica.utils.session_resolver import InstanceResolver as R
 
 from ..cli_utils import handle_cli_error, parse_json_safely
@@ -28,17 +29,6 @@ from ._workflow_shared import (
 )
 
 logger = logging.getLogger(__name__)
-
-_TYPE_TO_DOMAIN = {
-    "product": "software",
-    "application": "software",
-    "feature": "software",
-    "infrastructure": "operations",
-    "operations": "operations",
-    "research": "research",
-    "documentation": "consulting",
-}
-
 
 #: The only top-level keys `postflight-submit` accepts. Anything else is refused before anything is recorded (GH #409). Callers that
 #: build a payload, and text that teaches one, are tested against this set so the two cannot drift apart unseen.
@@ -633,7 +623,7 @@ def _run_grounded_verification(
 
         # Resolve domain + Tier 2 weights
         project_type = session.get("project_type", "") if session else ""
-        domain = _TYPE_TO_DOMAIN.get(project_type, "default")
+        domain = calibration_domain(project_type)
 
         tier2_weights = None
         try:

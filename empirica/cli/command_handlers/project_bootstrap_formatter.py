@@ -643,7 +643,7 @@ def _format_workspace_context_section(project_id, breadcrumbs):
         )
 
         # Look up project_type from workspace.db
-        ws_project_type = "product"
+        ws_project_type = None  # unclassified unless the registry says otherwise
         try:
             import sqlite3 as _sqlite3
             from pathlib import Path as _Path
@@ -674,7 +674,7 @@ def _format_workspace_context_section(project_id, breadcrumbs):
         proj_info = breadcrumbs.get("project", {})
         workspace_ctx = get_project_bootstrap_context(
             project_id=proj_info.get("id", project_id),
-            project_type=ws_project_type,
+            project_type=ws_project_type or "",  # the external hook expects a string; "" = unclassified
             project_root=ws_project_root,
         )
         if workspace_ctx:

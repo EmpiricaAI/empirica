@@ -11,6 +11,8 @@ import time
 import uuid
 from typing import ClassVar
 
+from empirica.core import project_types as _project_types
+
 from .base import BaseRepository
 
 logger = logging.getLogger(__name__)
@@ -20,23 +22,8 @@ class ProjectRepository(BaseRepository):
     """Repository for project-level management and context"""
 
     # Valid project types (v2.0 universal taxonomy)
-    PROJECT_TYPES: ClassVar[list[str]] = [
-        "software",
-        "content",
-        "research",
-        "data",
-        "design",
-        "operations",
-        "strategic",
-        "engagement",
-        "legal",
-        # Legacy types (backward compat)
-        "product",
-        "application",
-        "feature",
-        "documentation",
-        "infrastructure",
-    ]
+    # The one list lives in empirica.core.project_types; the legacy values stay readable there until rows are reclassified.
+    PROJECT_TYPES: ClassVar[list[str]] = list(_project_types.accepted_types())
 
     def create_project(
         self,
@@ -55,7 +42,7 @@ class ProjectRepository(BaseRepository):
             name: Project name (e.g., "Empirica Core")
             description: Project description
             repos: List of repository names (e.g., ["empirica", "empirica-dev"])
-            project_type: Category (product, application, feature, research, documentation, infrastructure, operations)
+            project_type: one of empirica.core.project_types.PROJECT_TYPES, or None for unclassified
             project_tags: List of tags for flexible categorization
             parent_project_id: Optional parent project for hierarchy
 
@@ -67,11 +54,15 @@ class ProjectRepository(BaseRepository):
         # to a new UUID for normal creation.
         project_id = project_id or str(uuid.uuid4())
 
-        # Validate project_type
-        if project_type and project_type not in self.PROJECT_TYPES:
-            logger.warning(f"Unknown project_type '{project_type}', defaulting to 'software'")
-            project_type = "software"
-        project_type = project_type or "software"
+        # A type nobody set stays unclassified (NULL) instead of becoming `software`; an unknown one is refused with the list. A legacy value
+        # from a project.yaml written before the list was cleaned is stored as given, with a warning that names the fix.
+        if project_type in _project_types.LEGACY_TYPES:
+            logger.warning(
+                f"Legacy project_type '{project_type}' stored as given; reclassify it with "
+                f"`empirica project-update --type <{'|'.join(_project_types.PROJECT_TYPES)}>`"
+            )
+        else:
+            project_type = _project_types.validate_input(project_type)
 
         project_data = {
             "name": name,
@@ -105,7 +96,7 @@ class ProjectRepository(BaseRepository):
         )
 
         self.commit()
-        logger.info(f"📁 Project created: {name} [{project_type}] ({project_id[:8]}...)")
+        logger.info(f"📁 Project created: {name} [{project_type or 'unclassified'}] ({project_id[:8]}...)")
 
         return project_id
 

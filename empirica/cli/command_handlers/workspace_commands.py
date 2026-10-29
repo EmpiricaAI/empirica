@@ -433,12 +433,12 @@ def _wslist_print_by_type(projects):
     """Print projects grouped by type."""
     from empirica.data.repositories.projects import ProjectRepository
 
-    types_order = ProjectRepository.PROJECT_TYPES
+    types_order = [*ProjectRepository.PROJECT_TYPES, None]  # None last: projects nobody has classified yet
     for ptype in types_order:
         type_projects = [p for p in projects if p.get("project_type") == ptype]
         if type_projects:
             icon = _get_type_icon(ptype)
-            print(f"{icon} {ptype.upper()}")
+            print(f"{icon} {(ptype or 'unclassified').upper()}")
             print("─" * 60)
             for p in type_projects:
                 tags_str = ", ".join(p["project_tags"]) if p["project_tags"] else ""
@@ -486,7 +486,7 @@ def handle_workspace_list_command(args):
 
         type_counts = {}
         for p in projects:
-            ptype = p.get("project_type", "product")
+            ptype = p.get("project_type") or "unclassified"
             type_counts[ptype] = type_counts.get(ptype, 0) + 1
 
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -505,13 +505,22 @@ def handle_workspace_list_command(args):
 def _get_type_icon(project_type):
     """Get emoji icon for project type"""
     icons = {
-        "product": "📦",
-        "application": "🖥️",
-        "feature": "⚡",
-        "research": "🔬",
-        "documentation": "📚",
+        "web-app": "🌐",
+        "service": "🛰️",
+        "cli": "⌨️",
+        "library": "📚",
+        "desktop-app": "🖥️",
+        "mobile-app": "📱",
+        "browser-extension": "🧩",
         "infrastructure": "🏗️",
+        "content": "📝",
+        "research": "🔬",
+        "data": "📊",
+        "design": "🎨",
         "operations": "⚙️",
+        "strategic": "🧭",
+        "engagement": "🤝",
+        "legal": "⚖️",
     }
     return icons.get(project_type, "📁")
 
@@ -533,10 +542,10 @@ def _display_project_tree(projects):
 
     def print_tree(project, indent=0):
         prefix = "   " * indent
-        icon = _get_type_icon(project.get("project_type", "product"))
+        icon = _get_type_icon(project.get("project_type"))
         tags_str = f" [{', '.join(project['project_tags'])}]" if project["project_tags"] else ""
         print(f"{prefix}{icon} {project['name']}{tags_str}")
-        print(f"{prefix}   ID: {project['id'][:8]}... | Type: {project.get('project_type', 'product')}")
+        print(f"{prefix}   ID: {project['id'][:8]}... | Type: {project.get('project_type') or 'unclassified'}")
 
         # Print children
         children = children_map.get(project["id"], [])

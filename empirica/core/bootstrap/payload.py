@@ -268,7 +268,7 @@ def _build_project_block(db_path: Path, project_id: str) -> dict | None:
             "total_sessions": ts,
             "total_transactions": tt,
             "total_goals": tg,
-            "type": row["project_type"] or "product",
+            "type": row["project_type"],  # None = unclassified; never invent one
         }
     finally:
         conn.close()

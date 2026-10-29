@@ -2,6 +2,7 @@
 
 import argparse
 
+from empirica.core.project_types import PROJECT_TYPES, accepted_types
 from empirica.data.id_guard import is_blank_id
 from empirica.data.resolution_kind import RESOLUTION_KIND_HELP, RESOLUTION_KINDS
 
@@ -314,18 +315,8 @@ def add_checkpoint_parsers(subparsers):
     )
     project_init_parser.add_argument(
         "--type",
-        choices=[
-            "software",
-            "content",
-            "research",
-            "data",
-            "design",
-            "operations",
-            "strategic",
-            "engagement",
-            "legal",
-        ],
-        help="Project type (default: software)",
+        choices=list(PROJECT_TYPES),
+        help="Project type: what the project is. Left unset the project is stored as unclassified (set it later with project-update --type)",
     )
     project_init_parser.add_argument("--domain", help="Domain taxonomy (e.g., ai/measurement)")
     project_init_parser.add_argument(
@@ -350,17 +341,7 @@ def add_checkpoint_parsers(subparsers):
     )
     project_update_parser.add_argument(
         "--type",
-        choices=[
-            "software",
-            "content",
-            "research",
-            "data",
-            "design",
-            "operations",
-            "strategic",
-            "engagement",
-            "legal",
-        ],
+        choices=list(PROJECT_TYPES),
         help="Project type",
     )
     project_update_parser.add_argument("--domain", help="Domain taxonomy (e.g., ai/measurement)")
@@ -402,9 +383,9 @@ def add_checkpoint_parsers(subparsers):
     )
     project_create_parser.add_argument(
         "--type",
-        choices=["product", "application", "feature", "research", "documentation", "infrastructure", "operations"],
-        default="product",
-        help="Project type for workspace categorization",
+        choices=list(PROJECT_TYPES),
+        default=None,
+        help="Project type for workspace categorization (left unset the project is stored as unclassified)",
     )
     project_create_parser.add_argument("--tags", help="Tags for categorization (comma-separated or JSON array)")
     project_create_parser.add_argument("--parent", help="Parent project ID for hierarchical organization")
@@ -849,8 +830,8 @@ def add_checkpoint_parsers(subparsers):
     )
     workspace_list_parser.add_argument(
         "--type",
-        choices=["product", "application", "feature", "research", "documentation", "infrastructure", "operations"],
-        help="Filter by project type",
+        choices=list(accepted_types()),
+        help="Filter by project type (legacy values are listed until their rows are reclassified)",
     )
     workspace_list_parser.add_argument("--tags", help="Filter by tags (comma-separated, matches any)")
     workspace_list_parser.add_argument("--parent", help="Show only children of this project ID")

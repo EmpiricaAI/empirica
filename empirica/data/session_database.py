@@ -1450,7 +1450,7 @@ class SessionDatabase:
             name: Project name (e.g., "Empirica Core")
             description: Project description
             repos: List of repository names (e.g., ["empirica", "empirica-dev"])
-            project_type: Category (product, application, feature, research, documentation, infrastructure, operations)
+            project_type: one of empirica.core.project_types.PROJECT_TYPES, or None for unclassified
             project_tags: List of tags for flexible categorization
             parent_project_id: Optional parent project for hierarchy
 

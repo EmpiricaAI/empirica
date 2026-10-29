@@ -11,6 +11,8 @@ from typing import Any, ClassVar
 
 import yaml
 
+from empirica.core import project_types as _project_types
+
 logger = logging.getLogger(__name__)
 
 
@@ -18,23 +20,7 @@ class ProjectConfig:
     """Project configuration with subject mappings and v2.0 identity metadata."""
 
     # Valid project types (universal across domains)
-    VALID_TYPES: ClassVar[list[str]] = [
-        "software",
-        "content",
-        "research",
-        "data",
-        "design",
-        "operations",
-        "strategic",
-        "engagement",
-        "legal",
-        # Legacy types (backward compat with v1.x project.yaml files)
-        "product",
-        "application",
-        "feature",
-        "documentation",
-        "infrastructure",
-    ]
+    VALID_TYPES: ClassVar[list[str]] = list(_project_types.accepted_types())
 
     VALID_CLASSIFICATIONS: ClassVar[list[str]] = ["open", "internal", "restricted"]
 
@@ -51,7 +37,9 @@ class ProjectConfig:
         self.description = config_data.get("description", "")
 
         # Identity enrichment (v2.0)
-        self.type = self._validated(config_data.get("type", "software"), self.VALID_TYPES, "software", "type")
+        # A missing type is unclassified (None), not software; an unknown one is also None, with a warning.
+        raw_type = config_data.get("type")
+        self.type: str | None = None if raw_type is None else self._validated(raw_type, self.VALID_TYPES, None, "type")
         self.domain = config_data.get("domain", "")
         self.classification = self._validated(
             config_data.get("classification", "internal"), self.VALID_CLASSIFICATIONS, "internal", "classification"
@@ -88,7 +76,7 @@ class ProjectConfig:
         self.domain_config = config_data.get("domain_config", {})
 
     @staticmethod
-    def _validated(value: str, valid_set: list[str], default: str, field_name: str) -> str:
+    def _validated(value: str, valid_set: list[str], default: str | None, field_name: str) -> str | None:
         """Validate value against known set, warn and default if invalid."""
         if value in valid_set:
             return value
@@ -104,7 +92,8 @@ class ProjectConfig:
         }
         if self.project_id:
             d["project_id"] = self.project_id
-        d["type"] = self.type
+        if self.type:
+            d["type"] = self.type
         if self.domain:
             d["domain"] = self.domain
         d["classification"] = self.classification

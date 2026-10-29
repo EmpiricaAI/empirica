@@ -405,6 +405,17 @@ empirica project-list --output json
 empirica project-bootstrap --session-id <ID> --output json
 ```
 
+### Project types
+
+A project has one primary type, the shape of what it is. The list lives in one place, `empirica/core/project_types.py`, and every parser, validator and consumer reads it:
+
+- Software shapes: `web-app`, `service`, `cli`, `library`, `desktop-app`, `mobile-app`, `browser-extension`, `infrastructure`. They follow the software-types 1.0.0 vocabulary and schema.org where those cover them; the extension and infrastructure types are ours.
+- Non-code: `content`, `research`, `data`, `design`, `operations`, `strategic`, `engagement`, `legal`.
+
+A secondary shape goes in the project tags, not a second type. A project left unclassified stores no type (NULL); there is no silent default. An unknown value is refused with this list. Rows written before the list (`software`, `product`, `application`, `feature`, `documentation`) stay readable until they are reclassified with `empirica project-update --type`, and are not accepted as input.
+
+The type sets two defaults, both overridable per transaction: the calibration domain whose category weights apply at POSTFLIGHT (software shapes use `software`, `infrastructure` and `operations` use `operations`, `research` and `data` use `research`, the rest use `consulting`), and a transaction's starting compliance domain and criticality when PREFLIGHT declares none (`research` starts in the research domain, `operations` in operations, `engagement` and `strategic` in consulting, `content` in marketing, `infrastructure` at high criticality).
+
 ### What `project-bootstrap` leaves out
 
 `breadcrumbs.coverage` says, per artifact type, what the capped lists hid. The types are `findings`, `unknowns`, `dead_ends`, `mistakes_to_avoid`, `decisions` and `assumptions` (open, unverified ones, newest first).

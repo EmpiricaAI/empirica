@@ -59,7 +59,7 @@ def _ensure_workspace_schema(conn: sqlite3.Connection) -> None:
             last_transaction_timestamp REAL,
             last_sync_timestamp REAL,
             status TEXT DEFAULT 'active',
-            project_type TEXT DEFAULT 'product',
+            project_type TEXT,
             project_tags TEXT,
             created_timestamp REAL NOT NULL,
             updated_timestamp REAL NOT NULL,
@@ -494,7 +494,7 @@ class WorkspaceDBRepository(BaseRepository):
         git_remote_url: str = "",
         git_branch: str = "main",
         status: str = "active",
-        project_type: str = "product",
+        project_type: str | None = None,
         metadata: str | None = None,
     ) -> None:
         """Insert or update a project in the global registry."""

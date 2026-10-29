@@ -1059,7 +1059,7 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `total_goals` INTEGER DEFAULT 0
 - `total_epistemic_deltas` TEXT
 - `project_data` TEXT NOT NULL
-- `project_type` TEXT DEFAULT 'product'
+- `project_type` TEXT
 - `project_tags` TEXT
 - `parent_project_id` TEXT
 - *indexes:* `idx_projects_parent`, `idx_projects_type`

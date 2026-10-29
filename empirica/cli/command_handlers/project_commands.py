@@ -8,6 +8,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from empirica.core.project_types import validate_input as validate_project_type
 from empirica.utils.session_resolver import InstanceResolver as R
 
 from ..cli_utils import handle_cli_error, run_empirica_subprocess
@@ -54,7 +55,7 @@ def ensure_workspace_schema(conn) -> None:
             last_transaction_timestamp REAL,
             last_sync_timestamp REAL,
             status TEXT DEFAULT 'active',
-            project_type TEXT DEFAULT 'product',
+            project_type TEXT,
             project_tags TEXT,
             created_timestamp REAL NOT NULL,
             updated_timestamp REAL NOT NULL,
@@ -565,7 +566,7 @@ def _init_filesystem_at_path(target_path, project_id, name, description, project
         "name": name,
         "description": description or f"{name} project",
         "project_id": project_id,
-        "type": project_type or "software",
+        "type": project_type,
         "domain": "",
         "classification": "internal",
         "status": "active",
@@ -603,8 +604,6 @@ def _init_filesystem_at_path(target_path, project_id, name, description, project
 
 def _parse_project_create_args(args):
     """Parse and validate project-create arguments. Returns parsed dict."""
-    from empirica.data.repositories.projects import ProjectRepository
-
     name = args.name
     description = getattr(args, "description", None)
     repos_str = getattr(args, "repos", None)
@@ -617,9 +616,9 @@ def _parse_project_create_args(args):
     if tags_str:
         tags = json.loads(tags_str) if tags_str.startswith("[") else [t.strip() for t in tags_str.split(",")]
 
-    if project_type and project_type not in ProjectRepository.PROJECT_TYPES:
-        print(f"⚠️  Unknown type '{project_type}'. Valid types: {', '.join(ProjectRepository.PROJECT_TYPES)}")
-        project_type = "software"
+    project_type = validate_project_type(
+        project_type
+    )  # refuses an unknown or legacy value with the list, never defaults it
 
     return {
         "name": name,
@@ -703,7 +702,7 @@ def handle_project_create_command(args):
                 "ok": True,
                 "project_id": project_id,
                 "name": name,
-                "project_type": project_type or "product",
+                "project_type": project_type,
                 "tags": tags or [],
                 "repos": repos or [],
                 "parent_project_id": parent,
@@ -716,7 +715,7 @@ def handle_project_create_command(args):
             print("✅ Project created successfully")
             print(f"   Project ID: {project_id}")
             print(f"   Name: {name}")
-            print(f"   Type: {project_type or 'product'}")
+            print(f"   Type: {project_type or 'unclassified'}")
             if tags:
                 print(f"   Tags: {', '.join(tags)}")
             if description:
@@ -1088,7 +1087,7 @@ def _ensure_local_project_record(project_path, project_id, project, output_forma
                 0,
                 None,
                 "{}",
-                project.get("project_type", "software"),
+                project.get("project_type"),
                 project.get("project_tags", ""),
                 None,
             ),

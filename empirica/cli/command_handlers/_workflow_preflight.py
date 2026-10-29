@@ -9,6 +9,7 @@ import os
 import time
 from pathlib import Path
 
+from empirica.core.project_types import default_work_frame
 from empirica.utils.session_resolver import InstanceResolver as R
 
 from ..cli_utils import handle_cli_error, parse_json_safely
@@ -412,6 +413,21 @@ def _preflight_create_checkpoint(session_id, vectors, reasoning, transaction_id,
     )
 
 
+def _project_type_of(project_path) -> str | None:
+    """The top-level `type:` in the project's .empirica/project.yaml, or None (unclassified, no file, unreadable).
+
+    A line match rather than a YAML parse: PREFLIGHT is on the hot path, and parsing this file (it carries calibration weights) cost about 5 ms
+    against well under 0.1 ms for the match."""
+    import re
+
+    try:
+        text = (Path(project_path) / ".empirica" / "project.yaml").read_text()
+    except OSError:
+        return None
+    match = re.search(r"^type:[ \t]*[\"']?([A-Za-z0-9_-]+)", text, re.MULTILINE)
+    return match.group(1) if match else None
+
+
 def _preflight_enrich_transaction_file(resolved_project_path, parsed):
     """Inject work parameters and cascade profile into the transaction file. Non-fatal."""
     import json as _json
@@ -422,6 +438,14 @@ def _preflight_enrich_transaction_file(resolved_project_path, parsed):
     criticality = parsed["criticality"]
     predicted_check_outcomes = parsed["predicted_check_outcomes"]
     engagement_id = parsed.get("engagement_id")
+
+    # What the transaction does not declare starts from its project's type (empirica.core.project_types). Only a value that differs from the
+    # baseline is written, so a project whose type implies default/medium behaves exactly as before.
+    default_domain, default_criticality = default_work_frame(_project_type_of(resolved_project_path))
+    if not domain and default_domain != "default":
+        domain = default_domain
+    if not criticality and default_criticality != "medium":
+        criticality = default_criticality
 
     if not (work_context or work_type or domain or criticality or engagement_id or parsed.get("task_context")):
         return

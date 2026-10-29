@@ -22,6 +22,8 @@ import os
 import sys
 from pathlib import Path
 
+from empirica.core.project_types import PROJECT_TYPES, calibration_domain
+
 logger = logging.getLogger(__name__)
 
 
@@ -131,7 +133,7 @@ def _register_project_in_workspace(
             trajectory_path=str(git_root / ".empirica"),
             description=project_description,
             git_remote_url=git_url,
-            project_type=project_config.get("type", "software"),
+            project_type=project_config.get("type"),
             metadata=ws_metadata,
         )
         if output_format != "json":
@@ -151,9 +153,9 @@ def _collect_project_config_interactive(git_root) -> dict:
     project_name = input(f"Project name [{default_name}]: ").strip() or default_name
     project_description = input("Project description (optional): ").strip() or None
 
-    type_choices = "software|content|research|data|design|operations|strategic|engagement|legal"
-    type_input = input(f"\nProject type [{type_choices}] (software): ").strip().lower()
-    project_type = type_input if type_input in type_choices.split("|") else "software"
+    type_choices = "|".join(PROJECT_TYPES)
+    type_input = input(f"\nProject type [{type_choices}] (blank = decide later): ").strip().lower()
+    project_type = type_input if type_input in PROJECT_TYPES else None
 
     project_domain = input("Domain (e.g., ai/measurement, bio/genomics): ").strip()
     ep_input = input("Evidence profile [code/prose/hybrid/auto] (auto): ").strip().lower()
@@ -183,7 +185,7 @@ def _collect_project_config_from_args(args, git_root) -> dict:
         "project_description": getattr(args, "project_description", None),
         "enable_beads": getattr(args, "enable_beads", False),
         "create_semantic_index": getattr(args, "create_semantic_index", False),
-        "project_type": getattr(args, "type", None) or "software",
+        "project_type": getattr(args, "type", None),
         "project_domain": getattr(args, "domain", None) or "",
         "evidence_profile": getattr(args, "evidence_profile", None) or "auto",
         "classification": getattr(args, "classification", None) or "internal",
@@ -729,19 +731,8 @@ def _seed_calibration_weights(project_type: str) -> dict:
     - Praxic phase: systematically overestimates know/context/completion,
       underestimates uncertainty/impact
     """
-    # Map project_type to calibration domain
-    _TYPE_TO_DOMAIN = {
-        "software": "software",
-        "content": "consulting",
-        "research": "research",
-        "data": "research",
-        "design": "consulting",
-        "operations": "operations",
-        "strategic": "consulting",
-        "engagement": "consulting",
-        "legal": "operations",
-    }
-    domain = _TYPE_TO_DOMAIN.get(project_type, "default")
+    # The project type's calibration domain comes from the one module, shared with POSTFLIGHT.
+    domain = calibration_domain(project_type)
 
     # Base noetic weights: investigation phase — execution vectors low
     noetic_base = {
