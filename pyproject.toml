@@ -32,7 +32,7 @@ dependencies = [
     "pydantic>=2.4.0",          # Security: CVE-2024-3772 ReDoS fix
     "pydantic-settings>=2.14.2", # Security: GHSA-4xgf-cpjx-pc3j fix (2.14.2 floor)
     "python-dotenv>=1.2.2",     # Security: CVE-2026-28684 set_key/unset_key symlink follow (transitive via pydantic-settings)
-    "msgpack>=1.2.1",           # Security: GHSA-6v7p-g79w-8964 fix (transitive via CacheControl; pinned defensively)
+    "msgpack>=1.2.3",           # Security: CVE-2026-114613 fix (1.2.3 floor); GHSA-6v7p-g79w-8964 fixed in 1.2.1 (transitive via CacheControl; pinned defensively)
     "sqlalchemy>=2.0",
 
     # Configuration and file handling
