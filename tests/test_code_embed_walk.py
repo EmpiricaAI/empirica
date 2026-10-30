@@ -61,3 +61,26 @@ def test_a_source_directory_that_happens_to_be_called_build_is_kept(tmp_path, mo
     """Only the setuptools layout (build/lib, build/bdist.*) is an artefact; a package named build is source."""
     _write(tmp_path, "src/build/runner.py")
     assert _walk(tmp_path, monkeypatch) == {"src.build.runner"}
+
+
+@pytest.mark.parametrize(
+    "junk",
+    [
+        ".venv-311/lib/z.py",
+        "venv3/b.py",
+        "Venv/d.py",
+        ".venv_old/x.py",
+        "site-packages/pkg/m.py",
+        ".tox/py311/x.py",
+        "pkg.egg-info/x.py",
+    ],
+)
+def test_virtualenv_like_and_packaging_directories_stay_excluded(tmp_path, monkeypatch, junk):
+    """The old substring test dropped `.venv-311` and `venv3`; an exact-component match let them in and embedded site-packages as code_api (sweep S2)."""
+    _write(tmp_path, "pkg/mod.py", junk)
+    assert _walk(tmp_path, monkeypatch) == {"pkg.mod"}
+
+
+def test_a_file_or_directory_that_merely_contains_venv_in_a_longer_word_is_kept(tmp_path, monkeypatch):
+    _write(tmp_path, "tools/venvtool/runner.py", "tools/inventory/x.py", "tools/my_venv_tool.py")
+    assert _walk(tmp_path, monkeypatch) == {"tools.venvtool.runner", "tools.inventory.x", "tools.my_venv_tool"}

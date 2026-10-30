@@ -39,35 +39,43 @@ def wake_resumed(
     The idle check and the wake marker are claude's (a codex pane's prompt is drawn differently), and a pane whose respawn failed has nothing
     running to wake. A refusal is retried every ``interval`` seconds until ``timeout``; an unreachable pane (no tmux) is not retried.
     """
-    results: dict[str, dict[str, Any]] = {}
-    pending: dict[str, str] = {}  # key -> tmux instance id
-    for entry in respawned:
-        key = str(entry.get("key"))
-        base = {"key": key, "pane_id": entry.get("pane_id"), "woken": False}
+    results: list[dict[str, Any]] = []
+    pending: dict[
+        int, str
+    ] = {}  # index into `respawned` -> tmux instance id. Indexed, not keyed: two entries may share a key.
+    for i, entry in enumerate(respawned):
+        base = {"key": str(entry.get("key")), "pane_id": entry.get("pane_id"), "woken": False}
         if entry.get("error"):
-            results[key] = {**base, "detail": f"not woken: the respawn failed ({entry['error']})"}
+            results.append({**base, "detail": f"not woken: the respawn failed ({entry['error']})"})
         elif not entry.get("command") or _launch_program(str(entry["command"])) != "claude" or not entry.get("pane_id"):
-            results[key] = {**base, "detail": "not woken: not a claude pane"}
+            results.append({**base, "detail": "not woken: not a claude pane"})
         else:
-            results[key] = {**base, "detail": "waiting for the pane to be idle"}
-            pending[key] = _tmux_instance(str(entry["pane_id"]))
+            results.append({**base, "detail": "waiting for the pane to be idle"})
+            pending[i] = _tmux_instance(str(entry["pane_id"]))
 
     start = now()
-    while pending:
-        for key, instance in list(pending.items()):
+    expired = False
+    while pending and not expired:
+        for i, instance in list(pending.items()):
+            if now() - start >= timeout:  # checked between panes too: one slow pass must not run far past the bound
+                expired = True
+                break
             try:
                 outcome = wake(instance)
             except Exception as e:
-                results[key]["detail"] = f"not woken: {e}"
-                del pending[key]
+                results[i]["detail"] = f"not woken: {e}"
+                del pending[i]
                 continue
-            results[key]["detail"] = outcome.detail
+            results[i]["detail"] = outcome.detail
             if outcome.success:
-                results[key]["woken"] = True
-                del pending[key]
+                results[i]["woken"] = True
+                del pending[i]
             elif outcome.method != "refused":  # unreachable: waiting will not change it
-                del pending[key]
-        if not pending or now() - start >= timeout:
+                del pending[i]
+        if not pending or expired:
             break
-        sleep(interval)
-    return [results[str(e.get("key"))] for e in respawned]
+        remaining = timeout - (now() - start)
+        if remaining <= 0:
+            break
+        sleep(min(interval, remaining))
+    return results

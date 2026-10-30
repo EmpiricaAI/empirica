@@ -163,3 +163,35 @@ def test_a_wake_that_fails_does_not_fail_the_refresh(monkeypatch, capsys):
     out = h._wake_resumed_panes([_entry()], quiet=True)
     assert out[0]["woken"] is False and "boom" in out[0]["detail"]
     json.dumps(out)
+
+
+# ── sweep S3, S4 ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+def test_two_respawned_panes_with_the_same_key_are_each_woken_and_reported_once():
+    """Results and pending were keyed by `key`, so the second entry replaced the first: %5 was never woken and was reported as woken."""
+    woken = []
+
+    def wake(pane):
+        woken.append(pane)
+        return _woke(pane)
+
+    got, _ = _run([_entry("%5", "g/0"), _entry("%9", "g/0")], wake)
+    assert sorted(woken) == ["tmux_5", "tmux_9"]
+    assert [g["pane_id"] for g in got] == ["%5", "%9"] and all(g["woken"] for g in got)
+
+
+def test_the_deadline_is_checked_between_panes_and_the_sleep_is_clipped():
+    """With many slow panes one pass could run far past the bound; the sleep also ran a full interval past the deadline."""
+    clock = Clock()
+    calls = []
+
+    def slow(pane):
+        calls.append(pane)
+        clock.t += 3.0  # each probe costs 3 s, like a capture-pane timeout
+        return _refused(pane)
+
+    entries = [_entry(f"%{i}", f"g/{i}") for i in range(12)]
+    wake_resumed(entries, wake=slow, sleep=clock.sleep, now=clock.now, timeout=30.0, interval=3.0)
+    assert clock.t <= 33.0, clock.t
+    assert len(calls) < 36

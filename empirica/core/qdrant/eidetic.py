@@ -141,7 +141,10 @@ def search_eidetic(
         if min_confidence > 0:
             conditions.append(FieldCondition(key="confidence", range=Range(gte=min_confidence)))
 
-        query_filter = Filter(must=conditions) if conditions else None
+        # Module signatures (type code_api) are about half of eidetic and crowd real facts out of every reader; only a caller that asks for
+        # that type gets them (David, 2026-10-28). The same scope as memory.search, applied at the chokepoint all five readers share.
+        must_not = [] if fact_type == "code_api" else [FieldCondition(key="type", match=MatchValue(value="code_api"))]
+        query_filter = Filter(must=conditions or None, must_not=must_not or None) if (conditions or must_not) else None
 
         results = client.query_points(
             collection_name=coll,
@@ -172,6 +175,7 @@ def search_eidetic(
                 "last_confirmed": r.payload.get("last_confirmed"),
             }
             for r in results.points
+            if fact_type == "code_api" or (r.payload or {}).get("type") != "code_api"
         ]
         if include_resolved:
             return facts

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import re
 import time
 from itertools import pairwise
 from pathlib import Path
@@ -319,6 +320,18 @@ def search_code_api(
 DEFAULT_EXCLUDED_DIRS = ("__pycache__", ".git", "node_modules", ".venv", "venv")
 
 
+_ARTEFACT_DIR = re.compile(
+    r"^\.?venv\d*([-_.][A-Za-z0-9._-]+)?$|^site-packages$|^\.(tox|nox|eggs)$|\.egg-info$", re.IGNORECASE
+)
+
+
+def _is_artefact_dir(part: str) -> bool:
+    """A virtualenv under any of its usual names (venv, .venv, venv3, .venv-311, Venv), site-packages, tox/nox/eggs, or an egg-info directory.
+
+    Whole-name matches only: `venvtool` and `my_venv_tool.py` are source."""
+    return bool(_ARTEFACT_DIR.search(part))
+
+
 def _is_excluded(rel: Path, exclude: list[str]) -> bool:
     """Whether a path (relative to the project root) is vendored, generated or a build copy, matched by whole path component.
 
@@ -326,7 +339,7 @@ def _is_excluded(rel: Path, exclude: list[str]) -> bool:
     under a directory called `venv`, and missed setuptools' `build/lib/<pkg>` copy, which was then indexed as a duplicate module. Only the
     setuptools layout under `build/` counts (`lib`, `lib.*`, `bdist.*`): a source package that happens to be called build is source."""
     parts = rel.parts
-    if any(part in exclude for part in parts):
+    if any(part in exclude or _is_artefact_dir(part) for part in parts):
         return True
     return any(
         part == "build" and nxt != parts[-1] and (nxt == "lib" or nxt.startswith(("lib.", "bdist.")))

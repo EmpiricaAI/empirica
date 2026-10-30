@@ -460,6 +460,8 @@ def search_cross_project(
             hits = _query_collection_safe(client, coll_name, qvec, limit, min_points)
             for r in hits:
                 result = _build_cross_project_result(r, pid, coll_type)
+                if coll_type == "eidetic" and result["type"] == "code_api":
+                    continue  # module signatures crowd out facts; project-search --type code asks for them
                 all_results.append(result)
 
     deduped = _deduplicate_results(all_results)

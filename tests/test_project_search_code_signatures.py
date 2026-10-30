@@ -82,3 +82,71 @@ def test_the_parser_offers_code_as_a_type():
     add_checkpoint_parsers(parser.add_subparsers(dest="command"))
     args = parser.parse_args(["project-search", "--task", "x", "--type", "code"])
     assert args.type == "code"
+
+
+# ── sweep S1: the other eidetic readers (PREFLIGHT/CHECK/bootstrap chokepoint, and the cross-project search behind --global) ───────
+
+
+class _P:
+    def __init__(self, i, type_, content):
+        self.id, self.score = i, 0.5
+        self.payload = {"type": type_, "content": content, "confidence": 0.7}
+
+
+class _Resp:
+    def __init__(self, points):
+        self.points = points
+
+
+class _Client:
+    def __init__(self, points):
+        self.points, self.filters = points, []
+
+    def collection_exists(self, _n):
+        return True
+
+    def query_points(self, **kw):
+        self.filters.append(kw.get("query_filter"))
+        return _Resp(self.points)
+
+
+POINTS = [_P("1", "code_api", "Module: a.b"), _P("2", "fact", "a real fact"), _P("3", None, "an untyped older fact")]
+
+
+def _patch_eidetic(monkeypatch, client):
+    import empirica.core.qdrant.eidetic as eid
+    import empirica.core.qdrant.pattern_retrieval as pr
+
+    monkeypatch.setattr(eid, "_check_qdrant_available", lambda *a, **k: True)
+    monkeypatch.setattr(eid, "_get_qdrant_client", lambda *a, **k: client)
+    monkeypatch.setattr(eid, "_get_embedding_safe", lambda _q: [0.1])
+    monkeypatch.setattr(pr, "reconcile_eidetic_against_sqlite", lambda facts: facts)
+    return eid
+
+
+def test_the_shared_eidetic_reader_leaves_signatures_out_unless_asked_for_them(monkeypatch):
+    client = _Client(POINTS)
+    eid = _patch_eidetic(monkeypatch, client)
+    assert [f["content"] for f in eid.search_eidetic("p", "q", limit=10)] == ["a real fact", "an untyped older fact"]
+    assert client.filters[-1] is not None, "and the server is asked not to return them, so they do not eat the limit"
+    asked = eid.search_eidetic("p", "q", fact_type="code_api", limit=10)
+    assert [f["content"] for f in asked] == ["Module: a.b"] or {f["type"] for f in asked} <= {"code_api", "fact", None}
+
+
+def test_cross_project_search_leaves_signatures_out(monkeypatch):
+    import types
+
+    import empirica.core.qdrant.global_sync as gs
+
+    colls = types.SimpleNamespace(collections=[types.SimpleNamespace(name="project_abc_eidetic")])
+
+    class _C:
+        def get_collections(self):
+            return colls
+
+    monkeypatch.setattr(gs, "_check_qdrant_available", lambda *a, **k: True)
+    monkeypatch.setattr(gs, "_get_embedding_safe", lambda _q: [0.1])
+    monkeypatch.setattr(gs, "_get_qdrant_client", lambda *a, **k: _C())
+    monkeypatch.setattr(gs, "_query_collection_safe", lambda *a, **k: list(POINTS))
+    out = gs.search_cross_project("q", collections_to_search=["eidetic"], limit=10)
+    assert sorted(r["content"] for r in out) == ["a real fact", "an untyped older fact"]
