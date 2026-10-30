@@ -37,9 +37,14 @@ class ProjectConfig:
         self.description = config_data.get("description", "")
 
         # Identity enrichment (v2.0)
-        # A missing type is unclassified (None), not software; an unknown one is also None, with a warning.
+        # A missing type is unclassified (None), not software. A type this code does not recognise is KEPT as written (with a warning): erasing
+        # what we do not understand made project-update write NULL into the databases while the yaml still said `outreach`.
         raw_type = config_data.get("type")
-        self.type: str | None = None if raw_type is None else self._validated(raw_type, self.VALID_TYPES, None, "type")
+        if isinstance(raw_type, str) and raw_type not in self.VALID_TYPES:
+            logger.warning(
+                f"Unrecognised project type '{raw_type}' kept as written; reclassify it with project-update --type"
+            )
+        self.type: str | None = raw_type if isinstance(raw_type, str) and raw_type else None
         self.domain = config_data.get("domain", "")
         self.classification = self._validated(
             config_data.get("classification", "internal"), self.VALID_CLASSIFICATIONS, "internal", "classification"

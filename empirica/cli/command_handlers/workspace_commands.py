@@ -433,7 +433,11 @@ def _wslist_print_by_type(projects):
     """Print projects grouped by type."""
     from empirica.data.repositories.projects import ProjectRepository
 
-    types_order = [*ProjectRepository.PROJECT_TYPES, None]  # None last: projects nobody has classified yet
+    known = [*ProjectRepository.PROJECT_TYPES, None]  # None: projects nobody has classified yet
+    others = sorted(
+        {p.get("project_type") for p in projects if p.get("project_type") not in known}
+    )  # a type outside the list is still printed
+    types_order = [*ProjectRepository.PROJECT_TYPES, *others, None]
     for ptype in types_order:
         type_projects = [p for p in projects if p.get("project_type") == ptype]
         if type_projects:

@@ -156,6 +156,8 @@ def _collect_project_config_interactive(git_root) -> dict:
     type_choices = "|".join(PROJECT_TYPES)
     type_input = input(f"\nProject type [{type_choices}] (blank = decide later): ").strip().lower()
     project_type = type_input if type_input in PROJECT_TYPES else None
+    if type_input and project_type is None:
+        print(f"   '{type_input}' is not a project type; left unclassified (set it with project-update --type).")
 
     project_domain = input("Domain (e.g., ai/measurement, bio/genomics): ").strip()
     ep_input = input("Evidence profile [code/prose/hybrid/auto] (auto): ").strip().lower()
@@ -323,7 +325,7 @@ def _repair_missing_store(git_root, output_format):
             cfg.get("name") or Path(git_root).name,
             cfg.get("description"),
             _get_git_remote_url(),
-            cfg.get("project_type"),
+            cfg.get("type"),
             cfg.get("tags"),
             output_format,
         )
@@ -446,7 +448,7 @@ def _build_project_config(config_input, git_root, git_url):
         "description": config_input["project_description"] or f"{project_name} project",
         "project_id": None,
         "ai_id": _derive_ai_id(git_root),
-        "type": config_input["project_type"],
+        **({"type": config_input["project_type"]} if config_input["project_type"] else {}),
         "domain": config_input["project_domain"],
         "classification": config_input["classification"],
         "status": "active",

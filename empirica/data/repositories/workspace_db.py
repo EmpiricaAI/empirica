@@ -519,7 +519,7 @@ class WorkspaceDBRepository(BaseRepository):
                    git_remote_url = excluded.git_remote_url,
                    git_branch = excluded.git_branch,
                    status = excluded.status,
-                   project_type = excluded.project_type,
+                   project_type = COALESCE(excluded.project_type, global_projects.project_type),  -- NULL never erases a classification
                    metadata = excluded.metadata,
                    updated_timestamp = excluded.updated_timestamp
             """,

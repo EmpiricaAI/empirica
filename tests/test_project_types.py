@@ -264,3 +264,119 @@ def test_a_project_yaml_that_is_not_utf8_does_not_fail_the_enrichment(tmp_path, 
         "the type is still found: only the undecodable byte is replaced"
     )
     assert json.loads(tx.read_text())["domain"] == "research"
+
+
+# ── sweep D2-D6: a missing or unrecognised type must not erase what a store already holds ───────────────────────────────────────────
+
+
+def test_a_registry_upsert_without_a_type_keeps_the_type_the_row_already_has():
+    """Both upserts wrote project_type unconditionally, so a re-register from a project.yaml with no type erased the classification."""
+    import inspect
+
+    import empirica.cli.command_handlers.workspace_init as wi
+    import empirica.data.repositories.workspace_db as wdb
+
+    assert "COALESCE(excluded.project_type" in inspect.getsource(wdb), (
+        "workspace_db upsert must not overwrite a type with NULL"
+    )
+    assert "project_type = COALESCE(?, project_type)" in inspect.getsource(wi), (
+        "workspace_init update must not overwrite a type with NULL"
+    )
+
+
+def test_project_create_registers_its_type_in_the_workspace_registry(monkeypatch, tmp_path):
+    import types
+
+    import empirica.cli.command_handlers.project_commands as pc
+    import empirica.cli.command_handlers.workspace_init as wi
+
+    seen = {}
+    monkeypatch.setattr(wi, "_register_in_workspace_db", lambda **kw: seen.update(kw) or True)
+    monkeypatch.setattr("empirica.config.path_resolver.get_git_root", lambda: tmp_path)
+    pc._register_project_in_workspace_db("pid", "n", "d", None, project_type="cli")
+    assert seen["project_type"] == "cli"
+    _ = types  # keep the import local to the test
+
+
+def test_project_config_keeps_a_type_it_does_not_recognise_instead_of_erasing_it(caplog):
+    """project-update on a yaml with `type: outreach` made it None in the databases while the yaml kept it."""
+    from empirica.config.project_config_loader import ProjectConfig
+
+    with caplog.at_level("WARNING"):
+        cfg = ProjectConfig({"type": "outreach"})
+    assert cfg.type == "outreach" and cfg.to_dict()["type"] == "outreach"
+    assert "outreach" in caplog.text and "None" not in caplog.text.split("outreach", 1)[1][:60]
+    assert ProjectConfig({}).type is None and "type" not in ProjectConfig({}).to_dict()
+    assert ProjectConfig({"type": 5}).type is None
+
+
+def test_workspace_list_by_type_prints_a_row_whose_type_is_not_in_the_list(capsys):
+    from empirica.cli.command_handlers.workspace_commands import _wslist_print_by_type
+
+    rows = [
+        {
+            "id": "a" * 36,
+            "name": "x",
+            "project_type": "outreach",
+            "project_tags": [],
+            "parent_project_id": None,
+            "status": "active",
+            "total_sessions": 0,
+            "description": None,
+        },
+        {
+            "id": "b" * 36,
+            "name": "y",
+            "project_type": None,
+            "project_tags": [],
+            "parent_project_id": None,
+            "status": "active",
+            "total_sessions": 0,
+            "description": None,
+        },
+        {
+            "id": "c" * 36,
+            "name": "z",
+            "project_type": "cli",
+            "project_tags": [],
+            "parent_project_id": None,
+            "status": "active",
+            "total_sessions": 0,
+            "description": None,
+        },
+    ]
+    _wslist_print_by_type(rows)
+    out = capsys.readouterr().out
+    assert "OUTREACH" in out and "UNCLASSIFIED" in out and "CLI" in out
+
+
+def test_project_init_repair_reads_the_yaml_key_type_not_project_type():
+    import inspect
+
+    import empirica.cli.command_handlers.project_init as pi
+
+    assert 'cfg.get("project_type")' not in inspect.getsource(pi), (
+        "the yaml key is `type`; the old key made every repaired row NULL"
+    )
+
+
+def test_an_unclassified_project_writes_no_type_key_into_project_yaml(tmp_path):
+    from empirica.cli.command_handlers.project_init import _build_project_config
+
+    cfg = _build_project_config(
+        {
+            "project_name": "p",
+            "project_description": None,
+            "enable_beads": False,
+            "create_semantic_index": False,
+            "project_type": None,
+            "project_domain": "",
+            "evidence_profile": "auto",
+            "classification": "internal",
+            "languages": ["python"],
+            "tags": [],
+        },
+        tmp_path,
+        None,
+    )
+    assert "type" not in cfg

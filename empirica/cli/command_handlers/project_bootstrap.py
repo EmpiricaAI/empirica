@@ -186,7 +186,7 @@ def _backfill_calibration_weights():
         if "calibration_weights" not in _proj_cfg:
             from .project_init import _seed_calibration_weights
 
-            _ptype = _proj_cfg.get("type", "software")
+            _ptype = _proj_cfg.get("type")
             _proj_cfg["calibration_weights"] = _seed_calibration_weights(_ptype)
             with open(_proj_yaml, "w") as _f:
                 yaml.dump(_proj_cfg, _f, default_flow_style=False, sort_keys=False)

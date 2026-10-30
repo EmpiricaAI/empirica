@@ -786,7 +786,7 @@ def _register_in_workspace_db(
                 """
                 UPDATE global_projects
                 SET id = ?, name = ?, description = ?, git_remote_url = ?,
-                    project_type = ?, metadata = ?, updated_timestamp = ?
+                    project_type = COALESCE(?, project_type), metadata = ?, updated_timestamp = ?
                 WHERE trajectory_path = ?
             """,
                 (project_id, name, description, git_remote_url, project_type, metadata, now, trajectory_path),

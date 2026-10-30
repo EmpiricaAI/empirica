@@ -566,7 +566,7 @@ def _init_filesystem_at_path(target_path, project_id, name, description, project
         "name": name,
         "description": description or f"{name} project",
         "project_id": project_id,
-        "type": project_type,
+        **({"type": project_type} if project_type else {}),
         "domain": "",
         "classification": "internal",
         "status": "active",
@@ -630,7 +630,7 @@ def _parse_project_create_args(args):
     }
 
 
-def _register_project_in_workspace_db(project_id, name, description, repos):
+def _register_project_in_workspace_db(project_id, name, description, repos, project_type=None):
     """Register project in workspace.db for cross-project visibility. Non-fatal."""
     try:
         from empirica.config.path_resolver import get_git_root
@@ -652,6 +652,7 @@ def _register_project_in_workspace_db(project_id, name, description, repos):
                 trajectory_path=trajectory_path,
                 description=description,
                 git_remote_url=None,
+                project_type=project_type,
             )
             logger.debug(f"Registered project {name} in workspace.db")
     except Exception as e:
@@ -682,7 +683,7 @@ def handle_project_create_command(args):
         )
         db.close()
 
-        _register_project_in_workspace_db(project_id, name, description, repos)
+        _register_project_in_workspace_db(project_id, name, description, repos, project_type)
 
         init_result = None
         target_path = getattr(args, "path", None)
