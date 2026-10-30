@@ -201,10 +201,12 @@ def render_whats_new(changelog_text: str, version: str, earlier: int = _WHATS_NE
         )
 
     lines = [f"## What's New in {version}", "", *[f"- {item}" for item in shown], ""]
-    if highlights:
+    if highlights and detail:
         lines.append(
             f"All {len(detail)} entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md)."
         )
+    elif highlights:  # nothing but highlights: there is no count of other entries to give
+        lines.append("The full entry, with the measurements behind each highlight, is in the [CHANGELOG](CHANGELOG.md).")
     elif len(detail) > len(shown):
         left = len(detail) - len(shown)
         lines.append(f"Plus {left} more {'entry' if left == 1 else 'entries'} in the [CHANGELOG](CHANGELOG.md).")
@@ -404,7 +406,13 @@ def _is_calendar_day(value: object) -> bool:
 
 
 def _same_confidence(a: object, b: object) -> bool:
-    return isinstance(a, (int, float)) and isinstance(b, (int, float)) and abs(a - b) < 1e-9
+    return (
+        isinstance(a, (int, float))
+        and isinstance(b, (int, float))
+        and not isinstance(a, bool)
+        and not isinstance(b, bool)
+        and abs(a - b) < 1e-9
+    )
 
 
 def _revision_problems(old: dict, item: dict) -> list[str]:
@@ -413,10 +421,14 @@ def _revision_problems(old: dict, item: dict) -> list[str]:
     not a guarded field changed, since rewording a released reason changes none of them."""
     released = old.get("revisions") or []
     now = item.get("revisions") or []
+    if not (isinstance(released, list) and isinstance(now, list)):
+        return [f"{old['id']}: revisions must be a list of dated entries"]
     if now[: len(released)] != released:
         return [f"{old['id']}: a released revision was edited or removed; revisions are history, append a new one instead"]
     standing = old.get("confidence")
     for r in now[len(released) :]:
+        if not isinstance(r, dict):
+            return [f"{old['id']}: a revision must be an entry with on, from, to and reason"]
         if not _same_confidence(r.get("from"), standing):
             return [
                 f"{old['id']}: the revision dated {r.get('on')} starts from {r.get('from')!r} but the item stood at {standing!r}; "

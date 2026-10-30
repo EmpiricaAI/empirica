@@ -414,7 +414,7 @@ A project has one primary type, the shape of what it is. The list lives in one p
 
 A secondary shape goes in the project tags, not a second type. A project left unclassified stores no type (NULL); there is no silent default. An unknown value is refused with this list. Rows written before the list (`software`, `product`, `application`, `feature`, `documentation`) stay readable until they are reclassified with `empirica project-update --type`, and are not accepted as input.
 
-The type sets two defaults, both overridable per transaction: the calibration domain whose category weights apply at POSTFLIGHT (software shapes use `software`, `infrastructure` and `operations` use `operations`, `research` and `data` use `research`, the rest use `consulting`), and a transaction's starting compliance domain and criticality when PREFLIGHT declares none (`research` starts in the research domain, `operations` in operations, `engagement` and `strategic` in consulting, `content` in marketing, `infrastructure` at high criticality).
+The type sets two defaults, both overridable per transaction: the calibration domain whose category weights apply at POSTFLIGHT (software shapes use `software`; `infrastructure`, `operations` and `legal` use `operations`; `research` and `data` use `research`; `content`, `design`, `strategic` and `engagement` use `consulting`), and a transaction's starting compliance domain and criticality when PREFLIGHT declares none (`research` starts in the research domain, `operations` in operations, `engagement` and `strategic` in consulting, `content` in marketing, `infrastructure` at high criticality).
 
 ### What `project-bootstrap` leaves out
 

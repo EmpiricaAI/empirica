@@ -453,3 +453,18 @@ def test_one_left_out_is_one_entry_not_one_entries():
     bullets = "\n".join(f"- **Item {i}.** Detail {i}.\n" for i in range(7))
     out = _mod().render_whats_new(f"# Changelog\n\n## [3.0.0] - 2026-03-01\n\n### Added\n\n{bullets}\n", "3.0.0")
     assert "Plus 1 more entry in the" in out and "1 more entries" not in out
+
+
+def test_a_highlights_only_entry_does_not_claim_all_zero_entries():
+    """The highlights branch counted `detail`, which is empty when the entry has only a Highlights section (sweep T4)."""
+    text = "# Changelog\n\n## [3.0.0] - 2026-03-01\n\n### Highlights\n\n- **One.** Detail.\n- **Two.** Detail.\n"
+    out = _mod().render_whats_new(text, "3.0.0")
+    assert "All 0" not in out and "All 1 entries" not in out
+    assert "[CHANGELOG](CHANGELOG.md)" in out
+
+
+def test_highlights_with_detail_bullets_still_count_them():
+    text = (
+        "# Changelog\n\n## [3.0.0] - 2026-03-01\n\n### Highlights\n\n- **One.** Detail.\n\n### Fixed\n\n- a\n- b\n- c\n"
+    )
+    assert "All 3 entries for this release" in _mod().render_whats_new(text, "3.0.0")

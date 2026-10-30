@@ -359,3 +359,18 @@ def test_a_revision_date_must_be_a_real_calendar_day(on):
 
 def test_a_real_date_passes_the_schema():
     _mod().validate_roadmap(_roadmap(REVISED))
+
+
+# ── sweep T8: a malformed RELEASED baseline is reported, not raised ──────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("bad", [["not a dict"], {"on": "2026-11-02"}, [None], 5])
+def test_a_malformed_released_revisions_value_is_a_problem_not_a_crash(bad):
+    released = {**ITEM, "revisions": bad}
+    problems = _mod().roadmap_silent_edits(_roadmap(released), _roadmap(ITEM))
+    assert problems and ITEM["id"] in problems[0]
+
+
+def test_a_boolean_is_not_a_confidence():
+    assert _mod()._same_confidence(True, 1) is False
+    assert _mod()._same_confidence(0.6, 0.6) is True

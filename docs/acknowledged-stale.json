@@ -55,21 +55,21 @@
     },
     "docs/reference/api/architecture_assessment.md": {
       "status": "pending_review",
-      "reason": "Module-level API reference; empirica/core/architecture_assessment/ is present. These api/ docs are hand-written against module surfaces and are the likeliest of the set to have drifted.",
-      "decided_by": "empirica (2026-09-06 pre-1.13.39 sweep)",
-      "review_by": "2026-11-01"
+      "reason": "Audited 2026-10-30: about 50 claims checked, about 49 hold (13 vector fields, CouplingMetrics and StabilityMetrics fields, method names, to_vectors mappings). Gap, not an error: ComponentAssessor (empirica/core/architecture_assessment/assessor.py:23), the orchestrator that combines the analyzers, and ComponentAssessment's analyzed_at, analyzer_version and improvement_priority (schema.py:168-174) are undocumented. A reader is not misled, only under-informed.",
+      "decided_by": "empirica (2026-10-30, pre-publish sweep T7; claims audited by a read-only reviewer against HEAD, not independently re-verified by me)",
+      "review_by": "2027-01-31"
     },
     "docs/reference/api/config_profiles.md": {
       "status": "pending_review",
-      "reason": "Module-level API reference, hand-written against a module surface. Same drift risk as its siblings in docs/reference/api/.",
-      "decided_by": "empirica (2026-09-06 pre-1.13.39 sweep)",
-      "review_by": "2026-11-01"
+      "reason": "STALE and MISLEADING, audited 2026-10-30: about 45 claims, about 36 hold. WRONG: InvestigationProfile.from_yaml(path) does not exist (loading is ProfileLoader.load_profile(name), profile_loader.py:390); GoalScopeLoader.get_recommendations(vectors) is get_scope_recommendations(epistemic_vectors, context=None) (goal_scope_loader.py:123); validate_scope(scope, vectors) is validate_scope_coherence(scope_vector) (:279); the example output of breadth 0.3 / duration 0.2 / coordination 0.1 is wrong (a run gave 0.7 / 0.6 / 0.4 plus pattern, match_score, rationale, context_applied); empirica/config/mco/ does not hold the profile YAML (it is empirica/config/investigation_profiles.yaml). Undocumented: encourage_experimentation, TuningParameters, StrategyConfig, LearningConfig, UniversalConstraints, ProfileLoader. Rewrite tracked in a goal; do not renew a third time.",
+      "decided_by": "empirica (2026-10-30, pre-publish sweep T7; claims audited by a read-only reviewer against HEAD, not independently re-verified by me)",
+      "review_by": "2026-11-30"
     },
     "docs/reference/api/identity_persona.md": {
       "status": "pending_review",
-      "reason": "Module-level API reference for the persona/identity surface, which exists. Hand-written, so same drift risk as its api/ siblings.",
-      "decided_by": "empirica (2026-09-06 pre-1.13.39 sweep)",
-      "review_by": "2026-11-01"
+      "reason": "STALE and MISLEADING, the worst of the four, audited 2026-10-30: about 40 claims, about 22 hold. WRONG: the AIIdentity(...) example raises TypeError (the constructor is AIIdentity(ai_id, identity_dir=None), ai_identity.py:73); sign takes and returns bytes (:267); verify is a staticmethod verify(signature, message, public_key_bytes) (:285); a keypair must be created or loaded first (generate_keypair :98, load_keypair :199) or signing raises RuntimeError (:281); PersonaMetadata fields are wrong (persona_profile.py:141-152: created_by, created_at str, modified_at, description, tags, parent_persona, derived_from, verified_sessions). Undocumented: IdentityManager, export_public_key, create_eep1_payload, sign_assessment, verify_eep1_payload, PersonaProfile, SentinelConfig, SigningIdentityConfig, PersonaManager. Rewrite tracked in a goal; do not renew a third time.",
+      "decided_by": "empirica (2026-10-30, pre-publish sweep T7; claims audited by a read-only reviewer against HEAD, not independently re-verified by me)",
+      "review_by": "2026-11-30"
     },
     "docs/reference/api/qdrant.md": {
       "status": "pending_review",
@@ -79,9 +79,9 @@
     },
     "docs/reference/api/signaling.md": {
       "status": "pending_review",
-      "reason": "Module-level API reference paired with ASSESSMENT_AND_SIGNALING.md; subject present, content unread.",
-      "decided_by": "empirica (2026-09-06 pre-1.13.39 sweep)",
-      "review_by": "2026-11-01"
+      "reason": "Audited 2026-10-30: about 35 claims checked, about 34 hold; the format_vectors_compact example output was confirmed by running it. One WRONG sentence: it says inverted=True means lower is better for uncertainty, density, change and impact, but only uncertainty is inverted (signaling.py:73-87). Undocumented: get_vector_health, get_vector_emoji, get_health_emoji, format_vector_state, HEALTH_EMOJIS, VectorConfig, and three format_vectors_compact parameters (keys, show_values, use_percentage).",
+      "decided_by": "empirica (2026-10-30, pre-publish sweep T7; claims audited by a read-only reviewer against HEAD, not independently re-verified by me)",
+      "review_by": "2027-01-31"
     },
     "empirica/components/edit_verification/README.md": {
       "status": "pending_review",
@@ -91,9 +91,9 @@
     },
     "packaging/chocolatey/packaging/chocolatey/README.md": {
       "status": "pending_review",
-      "reason": "Sits under a DOUBLED path (packaging/chocolatey/packaging/chocolatey/) which looks like an accidental copy, and the sibling nupkg is pinned at 1.1.3 against a current 1.13.x. Chocolatey is kars85's lane, so core does not delete it unilaterally — flagged for them rather than removed.",
-      "decided_by": "empirica (2026-09-06 pre-1.13.39 sweep)",
-      "review_by": "2026-11-01"
+      "reason": "Audited 2026-10-30: the doubled directory is an accidental partial copy added in 0a8e0f19e (2025-12-18, README only); it holds README.md, VERIFICATION.txt and tools/ files pinned to v1.0.0, no nuspec or nupkg. Nothing references it: scripts/release.py uses only the outer packaging/chocolatey paths, .github has no reference. Recommendation: delete it. Not done here because Chocolatey packaging is kars85's lane (release.py:47); ask first. The outer directory's nuspec is current (1.14.18); the tracked empirica.1.1.3.nupkg beside it is stale.",
+      "decided_by": "empirica (2026-10-30, pre-publish sweep T7; claims audited by a read-only reviewer against HEAD, not independently re-verified by me)",
+      "review_by": "2026-11-30"
     },
     "tests/integration/README_STORAGE_FLOW_TESTS.md": {
       "status": "pending_review",
@@ -176,9 +176,9 @@
     },
     "docs/architecture/claude-code-symbiosis.md": {
       "status": "pending_review",
-      "reason": "Read in full on 2026-10-12; NOT still true in places. Known stale: (1) the retrieval weight omits the relevance blend (RELEVANCE_SHARE 0.65 / RECENCY_SHARE 0.35 in epistemic_summarizer.py); (2) 'Track 2 is more trustworthy' contradicts the current calibration architecture, where evidence informs the AI's beliefs and the AI is the calibrator; (3) the Memory Bridge (top 12 artifacts into MEMORY.md) is not how memory promotion works now (promoted_*.md files, at most 3 per POSTFLIGHT); (4) the vector grouping differs from the current tiers. The cognitive-immune-system section is unverified. Rewrite queued; acknowledged here so the gate reflects a decision, not a reset clock.",
-      "decided_by": "empirica (2026-10-12, CI gate)",
-      "review_by": "2026-11-01"
+      "reason": "STALE in five places, audited 2026-10-30 (17 of about 24 claims hold): (1) the retrieval weight omits the relevance blend: it is impact x type_confidence x (0.65 x relevance + 0.35 x recency), and without task context or Qdrant impact x type_confidence x recency (epistemic_summarizer.py:56-57,133-147); (2) the type-confidence order omits subtask (finding 0.9, dead_end 0.85, mistake 0.85, subtask 0.80, goal 0.75, unknown 0.6), and decay.py has a different table; (3) the cognitive immune system section describes behaviour that is DISABLED (artifact_log_commands.py:1243-1275 return [], disabled 2026-05-28, retired in 1.13.27); (4) MEMORY.md is also refreshed at POSTFLIGHT, not only at session end; (5) there are two writers with different markers (hook HTML comments vs memory_manager headings), capped at 100 lines of auto content. Rewrite tracked in a goal.",
+      "decided_by": "empirica (2026-10-30, pre-publish sweep T7; claims audited by a read-only reviewer against HEAD, not independently re-verified by me)",
+      "review_by": "2026-11-30"
     },
     "docs/architecture/UNIVERSAL_GOVERNANCE_PATTERN.md": {
       "status": "pending_review",

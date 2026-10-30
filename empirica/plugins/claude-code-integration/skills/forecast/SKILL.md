@@ -17,7 +17,8 @@ its goals; every mode below applies unchanged, and creating a public roadmap is 
 
 The skill takes arguments (`/forecast status`) or reads the user's words. One word picks the mode; none is the **full pass**. A modifier
 `since <tag, commit or date>` moves the window every mode reads from (default: this session's first PREFLIGHT for `status`, the last tag
-for the rest).
+for the rest). A tag or commit is a range, `<ref>..HEAD` (`git log <ref>..HEAD`, `empirica commit-context --range <ref>..HEAD`); a date is
+`--since=<date>`. Both `--since` flags take dates only: `--since=v1.14.18` silently reads the whole history.
 
 | Mode | Question it answers | Writes? |
 |---|---|---|
@@ -65,8 +66,8 @@ predicted *before* any goal and shipped anyway is unplanned foresight. Do not cr
 
 Read-only, one screen. No questions, no goals, no files. Three blocks, each from commands:
 
-- **This session.** Commits since the window start (`git log --oneline --since=<start>`), what the artifacts logged in that window say
-  (`empirica commit-context --since <start>`), goals created or tasks closed (`goals-list`, then `goals-progress` on the ones that moved),
+- **This session.** Commits since the window start (`git log --oneline`, with the range or date as above), what the artifacts logged in that
+  window say (`empirica commit-context`, with `--range` or `--since`), goals created or tasks closed (`goals-list`, then `goals-progress` on the ones that moved),
   open falsifiers (`falsifier-list`), notes not yet triaged (`note --list`).
 - **Related work.** Open goals ranked by how many tasks are left, mail waiting on this practice (`mailbox poll --status accepted`), the
   open unknowns and assumptions that touch the same goals, and anything parked as load-bearing.

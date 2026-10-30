@@ -39,7 +39,7 @@ Primary table tracking all registered projects.
 | `last_transaction_timestamp` | REAL | NULL | Unix timestamp of last transaction |
 | `last_sync_timestamp` | REAL | NULL | When stats were last refreshed |
 | `status` | TEXT | `'active'` | `'active'`, `'dormant'`, `'archived'` |
-| `project_type` | TEXT | `'product'` | `'software'`, `'content'`, `'research'`, `'data'`, `'design'`, `'operations'`, `'strategic'`, `'engagement'`, `'legal'` |
+| `project_type` | TEXT | NULL (unclassified) | one of `empirica.core.project_types.PROJECT_TYPES`: `'web-app'`, `'service'`, `'cli'`, `'library'`, `'desktop-app'`, `'mobile-app'`, `'browser-extension'`, `'infrastructure'`, `'content'`, `'research'`, `'data'`, `'design'`, `'operations'`, `'strategic'`, `'engagement'`, `'legal'`; rows written earlier may still hold a legacy value (`software`, `product`, ...) until reclassified |
 | `project_tags` | TEXT | NULL | JSON array of tags |
 | `created_timestamp` | REAL | (required) | Unix timestamp of creation |
 | `updated_timestamp` | REAL | (required) | Unix timestamp of last update |
