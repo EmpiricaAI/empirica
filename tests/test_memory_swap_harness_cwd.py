@@ -464,3 +464,33 @@ def test_a_manifest_from_before_the_harness_was_recorded_restores_for_anyone(fak
     manifest.pop("harness")
     manifest_file.write_text(json.dumps(manifest))
     assert restore_if_swapped(harness, caller_harness="codex")["action"] == "restored"
+
+
+@pytest.mark.parametrize("owner", [5, ["x"], True, "", None])
+def test_a_manifest_owner_that_is_not_a_name_is_treated_as_unknown_and_restores(
+    fake_home, tmp_path, monkeypatch, owner
+):
+    """Only a hand-edited manifest can hold these, and the stated rule is that an unknown owner restores rather than staying swapped forever."""
+    import json
+
+    from empirica.utils.memory_swap import MANIFEST_NAME
+
+    harness = _swapped(tmp_path, monkeypatch, "claude-code")
+    manifest_file = _claude_memory_dir(harness) / MANIFEST_NAME
+    manifest = json.loads(manifest_file.read_text())
+    manifest["harness"] = owner
+    manifest_file.write_text(json.dumps(manifest))
+    assert restore_if_swapped(harness, caller_harness="codex")["action"] == "restored"
+
+
+def test_case_and_surrounding_space_do_not_make_two_names_different_harnesses(fake_home, tmp_path, monkeypatch):
+    import json
+
+    from empirica.utils.memory_swap import MANIFEST_NAME
+
+    harness = _swapped(tmp_path, monkeypatch, "claude-code")
+    manifest_file = _claude_memory_dir(harness) / MANIFEST_NAME
+    manifest = json.loads(manifest_file.read_text())
+    manifest["harness"] = " Claude-Code "
+    manifest_file.write_text(json.dumps(manifest))
+    assert restore_if_swapped(harness, caller_harness="claude-code")["action"] == "restored"

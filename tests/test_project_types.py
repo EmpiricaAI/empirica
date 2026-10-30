@@ -235,3 +235,32 @@ def test_a_software_shape_or_an_unclassified_project_changes_nothing(tmp_path, m
         sub.mkdir()
         out = _enrich(sub, monkeypatch, kind)
         assert "domain" not in out and "criticality" not in out, kind
+
+
+# ── sweep H1: a project.yaml that is not valid UTF-8 must not fail PREFLIGHT ───────────────────────────────────────────────────────
+
+
+def test_a_project_yaml_that_is_not_utf8_does_not_fail_the_enrichment(tmp_path, monkeypatch):
+    """The type read is a convenience on the hot path. It raised UnicodeDecodeError out of PREFLIGHT, after the transaction file was written."""
+    import json
+
+    import empirica.cli.command_handlers._workflow_preflight as pre
+
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / "project.yaml").write_bytes(b"name: p\ntype: research\n# caf\xe9\n")
+    tx = tmp_path / ".empirica" / "active_transaction.json"
+    tx.write_text(json.dumps({"transaction_id": "t"}))
+    monkeypatch.setattr(pre.R, "instance_suffix", staticmethod(lambda: ""))
+    parsed = {
+        "work_context": None,
+        "work_type": None,
+        "domain": None,
+        "criticality": None,
+        "predicted_check_outcomes": None,
+        "task_context": "x",
+    }
+    pre._preflight_enrich_transaction_file(str(tmp_path), parsed)  # must not raise
+    assert pre._project_type_of(tmp_path) == "research", (
+        "the type is still found: only the undecodable byte is replaced"
+    )
+    assert json.loads(tx.read_text())["domain"] == "research"

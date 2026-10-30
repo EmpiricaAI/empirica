@@ -76,6 +76,9 @@ JUNIT_GLOBS = (
 )
 JUNIT_MAX_FILES = 200  # a hot-path glob must not scale with the size of a build directory
 JUNIT_MAX_BYTES = 10_000_000
+TEST_REPORT_MAX_FILES = 32  # per-runner report files read; more is a build directory's worth, and the scope says so
+TEST_REPORT_MAX_BYTES = 1_000_000  # a report is a few hundred bytes; a bigger file is not one
+RUNNER_NAME_MAX = 64
 REPORT_CLOCK_SKEW_SECONDS = 300  # how far ahead of this clock a report's own `created` may be before it is not believed
 JUNIT_MAX_CANDIDATES = (
     2000  # per glob; past this the pick of the first 200 is no longer deterministic, which `partial:` already says
@@ -1700,20 +1703,29 @@ class PostTestCollector:
             value = int(value)
         return value if isinstance(value, int) and value >= 0 else None
 
-    def _read_runner_reports(self, root: Path, start: float | None) -> tuple[dict[str, dict[str, Any]], bool]:
+    def _read_runner_reports(self, root: Path, start: float | None) -> tuple[dict[str, dict[str, Any]], bool, bool]:
         """Every fresh per-runner report: `.empirica/test_report.json` and each `.empirica/test_report.<runner>.json`.
 
         One entry per runner, the newest wins (the old pytest plugin's shared file and its per-runner file can both be fresh after an
-        upgrade, and counting both would double the suite). A stale or malformed file is skipped alone. Second value: a stale one was seen."""
+        upgrade, and counting both would double the suite). A stale, malformed, hostile (deeply nested) or oversized file is skipped alone.
+        Second value: a stale one was seen. Third: more per-runner files exist than are read (the first TEST_REPORT_MAX_FILES by name)."""
         stale = False
         found: dict[str, tuple[float, dict[str, Any]]] = {}
         directory = root / ".empirica"
-        named = sorted(islice((p for p in directory.glob("test_report.*.json") if p.is_file()), JUNIT_MAX_CANDIDATES))
+        candidates = sorted(p for p in directory.glob("test_report.*.json") if p.is_file())
+        truncated = len(candidates) > TEST_REPORT_MAX_FILES
+        named = candidates[:TEST_REPORT_MAX_FILES]
         for path in [directory / "test_report.json", *named]:
             try:
+                if path.stat().st_size > TEST_REPORT_MAX_BYTES:
+                    continue
                 report = json.loads(path.read_text())
                 made = self._made_at(path, report.get("created") if isinstance(report, dict) else None)
-            except (OSError, ValueError):
+            except (
+                OSError,
+                ValueError,
+                RecursionError,
+            ):  # RecursionError: json.loads on deeply nested input is not a ValueError
                 continue
             entry = self._report_counts(report, made, start, path.name.split(".")[1] if path in named else None)
             if entry is None:
@@ -1722,7 +1734,7 @@ class PostTestCollector:
             runner = entry["runner"]
             if runner not in found or made > found[runner][0]:
                 found[runner] = (made, entry)
-        return {runner: entry for runner, (_, entry) in sorted(found.items())}, stale
+        return {runner: entry for runner, (_, entry) in sorted(found.items())}, stale, truncated
 
     @staticmethod
     def _is_report(report: Any) -> bool:
@@ -1744,7 +1756,7 @@ class PostTestCollector:
             "passed": passed,
             "failed": failed,
             "total": total,
-            "runner": str(report.get("runner") or named or "pytest"),
+            "runner": str(report.get("runner") or named or "pytest")[:RUNNER_NAME_MAX],
             "scope": self._declared_scope(report.get("scope")),
         }
         # Tests the runner knew of and did not run (cargo prints both counts) make the suite size known; they are not failures, so the
@@ -1783,18 +1795,24 @@ class PostTestCollector:
 
     def _read_json_test_report(self, root: Path, start: float | None) -> tuple[dict[str, Any] | None, bool]:
         """The fresh per-runner reports combined; else the first fresh legacy pytest file. Second value: a stale one was seen."""
-        reports, stale = self._read_runner_reports(root, start)
+        reports, stale, truncated = self._read_runner_reports(root, start)
         if reports:
-            return self._combine_runner_reports(reports), stale
+            combined = dict(self._combine_runner_reports(reports))
+            if truncated:  # the same honesty as the JUnit path: a count over some of the files is not the suite
+                note = f"first {TEST_REPORT_MAX_FILES} of more than {TEST_REPORT_MAX_FILES} test reports"
+                combined["scope"] = f"partial: {note}" + (f"; {combined['scope']}" if combined.get("scope") else "")
+            return combined, stale
         for path in (
             root / ".empirica" / "pytest_report.json",
             root / "pytest_report.json",
             root / ".pytest_report.json",
         ):
             try:
+                if path.stat().st_size > TEST_REPORT_MAX_BYTES:
+                    continue
                 report = json.loads(path.read_text())
                 made = self._made_at(path, report.get("created") if isinstance(report, dict) else None)
-            except (OSError, ValueError):
+            except (OSError, ValueError, RecursionError):
                 continue
             entry = self._report_counts(report, made, start, None)
             if entry is not None:

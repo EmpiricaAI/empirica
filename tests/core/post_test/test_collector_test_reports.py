@@ -517,3 +517,40 @@ def test_the_suite_size_is_summed_across_runners_and_a_runner_without_one_counts
     raw = _rate(_collector(root)._collect_test_results()).raw_value
     assert (raw["total"], raw["suite"]) == (114, 122)
     assert raw["runners"]["cargo"]["suite"] == 112 and "suite" not in raw["runners"]["pytest"]
+
+
+# ── sweep P1, P2: a hostile or oversized neighbour must not hide a fresh report, and the read is bounded ───────────────────────────
+
+
+def test_deeply_nested_json_in_a_neighbour_is_skipped_alone(root):
+    """json.loads raises RecursionError, which is not a ValueError: the whole pytest source was dropped."""
+    (root / ".empirica" / "test_report.cargo.json").write_text("[" * 200_000)
+    _runner_report(root, "pytest", passed=4, failed=0)
+    assert _rate(_collector(root)._collect_test_results()).raw_value["runner"] == "pytest"
+
+
+def test_an_oversized_report_file_is_not_read(root):
+    big = root / ".empirica" / "test_report.huge.json"
+    big.write_text(
+        json.dumps(
+            {"runner": "huge", "summary": {"passed": 1, "failed": 0}, "created": T0 + 100, "pad": "x" * 2_000_000}
+        )
+    )
+    _runner_report(root, "pytest", passed=4, failed=0)
+    assert _rate(_collector(root)._collect_test_results()).raw_value["runner"] == "pytest"
+
+
+def test_a_runner_name_from_the_file_is_capped(root):
+    _runner_report(root, "pytest", passed=4, failed=0)
+    path = root / ".empirica" / "test_report.json"
+    path.write_text(json.dumps({"runner": "r" * 100_000, "summary": {"passed": 1, "failed": 0}, "created": T0 + 100}))
+    raw = _rate(_collector(root)._collect_test_results()).raw_value
+    assert len(raw["runner"]) < 200
+
+
+def test_more_report_files_than_the_bound_says_so_in_the_scope(root):
+    for i in range(40):
+        _runner_report(root, f"r{i:02d}", passed=1, failed=0)
+    raw = _rate(_collector(root)._collect_test_results()).raw_value
+    assert raw["scope"].startswith("partial:") and "test reports" in raw["scope"]
+    assert len(raw["runners"]) == 32, "the first 32 by name, the same on every filesystem"

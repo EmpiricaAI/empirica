@@ -67,3 +67,9 @@ def test_a_summary_without_a_persist_key_is_not_called_unsaved(session_init):
 def test_a_long_reason_stays_one_line(session_init):
     line = session_init._budget_banner_line({**USAGE, "persist": "skipped: " + "x" * 400 + "\nsecond line"})
     assert line.count("\n") == 1 and len(line) < 400
+
+
+def test_an_error_with_an_empty_message_is_still_an_error(session_init):
+    """str(e) is empty for some exceptions. Truthiness of the message turned that into a healthy-looking zero Budget line (sweep H2)."""
+    line = session_init._budget_banner_line({"error": ""})
+    assert line.startswith("\nBudget: unavailable") and "0t used" not in line

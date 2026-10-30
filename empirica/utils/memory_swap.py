@@ -512,7 +512,9 @@ def restore_if_swapped(harness_cwd: Path, *, caller_harness: str | None = None) 
         if not manifest:
             return None
         owner = manifest.get("harness")
-        if caller_harness and owner and owner != caller_harness:
+        # Names compare normalised; an owner that is not a name (a hand-edited manifest) is unknown, and an unknown owner restores.
+        owner = owner.strip().lower() if isinstance(owner, str) else None
+        if caller_harness and owner and owner != caller_harness.strip().lower():
             return {
                 "ok": True,
                 "action": "other_harness",

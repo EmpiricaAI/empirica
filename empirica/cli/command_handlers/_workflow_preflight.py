@@ -421,8 +421,9 @@ def _project_type_of(project_path) -> str | None:
     import re
 
     try:
-        text = (Path(project_path) / ".empirica" / "project.yaml").read_text()
-    except OSError:
+        # errors="replace": a byte that is not valid UTF-8 elsewhere in the file must not cost the type, and must never fail PREFLIGHT
+        text = (Path(project_path) / ".empirica" / "project.yaml").read_text(encoding="utf-8", errors="replace")
+    except (OSError, ValueError):
         return None
     match = re.search(r"^type:[ \t]*[\"']?([A-Za-z0-9_-]+)", text, re.MULTILINE)
     return match.group(1) if match else None
@@ -441,7 +442,10 @@ def _preflight_enrich_transaction_file(resolved_project_path, parsed):
 
     # What the transaction does not declare starts from its project's type (empirica.core.project_types). Only a value that differs from the
     # baseline is written, so a project whose type implies default/medium behaves exactly as before.
-    default_domain, default_criticality = default_work_frame(_project_type_of(resolved_project_path))
+    try:
+        default_domain, default_criticality = default_work_frame(_project_type_of(resolved_project_path))
+    except Exception:  # non-fatal by contract: enrichment is never a reason for PREFLIGHT to fail
+        default_domain, default_criticality = "default", "medium"
     if not domain and default_domain != "default":
         domain = default_domain
     if not criticality and default_criticality != "medium":

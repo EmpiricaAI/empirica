@@ -1634,8 +1634,8 @@ def _budget_banner_line(summary: dict | None) -> str:
     A summary with no `persist` key is an older shape, not a failure, and says nothing extra."""
     if not summary:
         return ""
-    if summary.get("error"):
-        return f"\nBudget: unavailable ({_one_line(summary['error'], 120)})"
+    if "error" in summary:  # key presence, not truthiness: some exceptions have an empty message
+        return f"\nBudget: unavailable ({_one_line(summary['error'] or 'no detail', 120)})"
     line = (
         f"\nBudget: {summary.get('tokens_used', 0):,}t used / {summary.get('tokens_available', 0):,}t avail "
         f"({summary.get('utilization_pct', 0)}%)"
