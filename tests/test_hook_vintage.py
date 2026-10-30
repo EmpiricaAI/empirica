@@ -57,7 +57,7 @@ def test_the_notice_names_both_versions_and_what_to_do_when_the_core_is_older(vi
     )
 
 
-@pytest.mark.parametrize("installed", ["1.14.18", "2.0.0", None, "garbage"])
+@pytest.mark.parametrize("installed", ["99.0.0", "2.0.0", None, "garbage"])
 def test_no_notice_when_the_core_is_new_enough_or_unreadable(vintage, monkeypatch, installed):
     monkeypatch.setattr(vintage, "_installed_core_version", lambda: installed)
     assert vintage.startup_notice() == ""
@@ -134,3 +134,9 @@ def test_a_harness_without_the_lib_module_loses_the_notice_not_session_start(mon
         pass
     monkeypatch.setitem(sys.modules, "hook_vintage", None)  # makes `from hook_vintage import ...` raise ImportError
     assert mod._core_version_notice() == ""
+
+
+def test_a_core_exactly_at_the_hooks_vintage_gets_no_notice(vintage, monkeypatch):
+    """The release sweep rewrites HOOK_VINTAGE every release, so this must not hard-code a version."""
+    monkeypatch.setattr(vintage, "_installed_core_version", lambda: vintage.HOOK_VINTAGE)
+    assert vintage.startup_notice() == ""

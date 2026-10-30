@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.14.18
-**Generated:** 2026-10-26 18:17:33 UTC
+**Framework version:** 1.14.19
+**Generated:** 2026-10-30 12:41:01 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1378,8 +1378,8 @@ Initialize Empirica in a new git repository (creates config files)
   Enable BEADS by default
 - `--create-semantic-index` — optional · flag
   Create SEMANTIC_INDEX.yaml template
-- `--type` — optional · type=`choice` · choices={software, content, research, data, design, operations, strategic, engagement, legal}
-  Project type (default: software)
+- `--type` — optional · type=`choice` · choices={web-app, service, cli, library, desktop-app, mobile-app, browser-extension, infrastructure, content, research, data, design, operations, strategic, engagement, legal}
+  Project type: what the project is. Left unset the project is stored as unclassified (set it later with project-update --type)
 - `--domain` — optional
   Domain taxonomy (e.g., ai/measurement)
 - `--classification` — optional · type=`choice` · choices={open, internal, restricted} · default=`internal`
@@ -1405,7 +1405,7 @@ Update project.yaml fields (type, domain, contacts, edges, etc.)
 
 **Arguments:**
 
-- `--type` — optional · type=`choice` · choices={software, content, research, data, design, operations, strategic, engagement, legal}
+- `--type` — optional · type=`choice` · choices={web-app, service, cli, library, desktop-app, mobile-app, browser-extension, infrastructure, content, research, data, design, operations, strategic, engagement, legal}
   Project type
 - `--domain` — optional
   Domain taxonomy (e.g., ai/measurement)
@@ -1456,8 +1456,8 @@ Create a new project for multi-repo tracking
   Path to git repo — also initializes .empirica/ filesystem config (bridges project-create + project-init)
 - `--repos` — optional
   JSON array of repository names (e.g., '["empirica", "empirica-dev"]')
-- `--type` — optional · type=`choice` · choices={product, application, feature, research, documentation, infrastructure, operations} · default=`product`
-  Project type for workspace categorization
+- `--type` — optional · type=`choice` · choices={web-app, service, cli, library, desktop-app, mobile-app, browser-extension, infrastructure, content, research, data, design, operations, strategic, engagement, legal}
+  Project type for workspace categorization (left unset the project is stored as unclassified)
 - `--tags` — optional
   Tags for categorization (comma-separated or JSON array)
 - `--parent` — optional
@@ -1816,8 +1816,8 @@ List projects with types, tags, and hierarchical relationships
 
 **Arguments:**
 
-- `--type` — optional · type=`choice` · choices={product, application, feature, research, documentation, infrastructure, operations}
-  Filter by project type
+- `--type` — optional · type=`choice` · choices={web-app, service, cli, library, desktop-app, mobile-app, browser-extension, infrastructure, content, research, data, design, operations, strategic, engagement, legal, application, documentation, feature, product, software}
+  Filter by project type (legacy values are listed until their rows are reclassified)
 - `--tags` — optional
   Filter by tags (comma-separated, matches any)
 - `--parent` — optional

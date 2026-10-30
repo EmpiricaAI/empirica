@@ -5,6 +5,43 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.19] - 2026-10-30
+
+### Highlights
+
+- **Test evidence from several runners.** The pytest plugin writes `.empirica/test_report.pytest.json`; the collector reads every fresh `test_report*.json`, keeps the newest per runner, sums the counts and joins the scopes (any `partial:` runner makes the whole partial), so cargo or go test beside pytest no longer overwrite each other. `ignored` and `filtered_out` give a suite size.
+- **Project types are one list.** Sixteen values (web-app, service, cli, library, desktop-app, mobile-app, browser-extension, infrastructure, and eight non-code types) are defined once and read by every parser. A project nobody classified is stored as unclassified instead of becoming `software`, and PREFLIGHT starts a missing domain or criticality from the type.
+- **project-bootstrap says what it left out.** It lists open assumptions and carries a `coverage` object per artifact type (`shown`, `total`, `truncated`, `source`). A Qdrant outage reads `unavailable` instead of "no decisions", and `total` is `null` where a cap hid an unknown number.
+- **project-search stops burying findings under module signatures.** Every eidetic read leaves them out, `--global` included; `--type code` asks for them. A live query had returned four signatures and one finding.
+- **Hooks know their vintage, and the Sentinel will not certify what was not assessed.** SessionStart warns when the installed core is older than the hooks; the banner names an unsaved budget persist; a CHECK with no `know` or `uncertainty` is denied with a resubmit message (below-threshold CHECKs stay advisory).
+- **cockpit refresh** respawns dead codex and ecodex panes, then wakes each resumed claude pane once it is idle so it takes its first turn. The wake is tested with fakes; it has not been measured on a live cockpit.
+- **The forecast skill has modes:** `status`, `verify`, `grade`, `record` and `away`, every figure from a command run in that pass.
+
+### Changed
+
+- **Project type validation.** `project-init`, `project-create` and `project-update` offer the same list; an unknown or legacy value is refused with the list. `software`, `product`, `application`, `feature` and `documentation` stay readable on existing rows until they are reclassified with `project-update --type`; emptying one set in `empirica/core/project_types.py` removes them. The two type-to-calibration-domain maps are one function.
+- **Test reports.** The reader is bounded (32 per-runner files, 1 MB each, runner names cut at 64 characters; a truncation is marked `partial:`), and a deeply nested JSON neighbour is skipped alone.
+- **Hooks.** A blank prompt is a wake only on Claude Code (the `[wake]` marker everywhere); the wake header's Monitor step and `session-monitor-arm` are Claude Code only; a memory swap belongs to the harness that made it.
+- **Release tooling.** The What's New fallback no longer prints "Plus 0 more entries" or "All 0 entries", and released roadmap revisions are history: they may only be appended to, must chain from the released confidence, and carry a real `YYYY-MM-DD` day.
+- **Packaging.** The accidental v1.0.0 copy at `packaging/chocolatey/packaging/chocolatey/` is removed; nothing referenced it.
+- **The `cortex investigate` text** in a skill, two docs and a help string named a command the `cortex` CLI does not have; it is the Cortex MCP tool.
+
+### Fixed
+
+- A project.yaml that is not valid UTF-8 failed PREFLIGHT after the transaction was opened.
+- A missing or unrecognised project type erased the classification already held in the workspace registry or the databases (`project-create`, the registry upserts, `project-update`, the `project-init` repair path read the wrong key, `workspace-list` dropped unlisted types).
+- `code-embed` indexed setuptools `build/lib` copies as duplicate modules and dropped files whose names merely contained `venv`; virtualenv names, `site-packages`, tox/nox and egg-info are excluded by whole path component.
+- `wake_after_resume`: two respawned panes sharing a key woke only one and reported it twice; the 90 s bound ran over.
+- An exception with an empty message printed a healthy-looking zero Budget line.
+- **Security:** the `msgpack` floor is raised to 1.2.3 for CVE-2026-114613.
+
+### Known, not changed
+
+- **POSTFLIGHT never receives a project type.** The session record carries no `project_type`, so the calibration domain is always `default` there, before and after this release; switching it on would move calibration scores, so it is left for a deliberate change.
+- **Existing registry rows keep their old type** (21 of 34 hold `product`, which was the column default) until each practice reclassifies itself.
+- **A stale runner's report is skipped without a trace** in a fresh result.
+- Two reference docs (`config_profiles`, `identity_persona`) and the symbiosis doc carry known wrong claims, recorded with a 2026-11-30 review date.
+
 ## [1.14.18] - 2026-10-26
 
 ### Highlights

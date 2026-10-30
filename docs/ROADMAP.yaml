@@ -47,7 +47,7 @@ items:
     prediction: project-bootstrap lists open assumptions, includes the links between artifacts, and says when it capped findings, decisions, dead ends or mistakes.
     confidence: 0.65
     evidence: measured
-    basis: Measured on this project today, it shows 10 of 3,173 findings, 10 of 758 decisions, 5 of 835 dead ends and 5 of 447 mistakes with no notice (goals and unknowns do get one), none of the 115 open assumptions, and only project-level relations, not the links between artifacts.
+    basis: Open assumptions and a per-type coverage of what the caps hid (shown, total, truncated, source) shipped in 1.14.19. Still absent are the links between artifacts and the status of the last blindspot scan, and decisions are still read from an unordered Qdrant page.
     falsifier: A bootstrap run on a graph larger than its caps that omits open assumptions or caps findings without saying so.
     horizon: "1.14.20"
     steered: true
@@ -67,7 +67,9 @@ items:
     falsifier: A session start with no resolvable sessions.db prints a banner that does not mention the unsaved budget state.
     horizon: "1.14.19"
     steered: true
-    status: predicted
+    status: shipped
+    resolved_in: "1.14.19"
+    reason: Graded at 1.14.19. The session-start banner now appends the reason when the context-budget state was skipped or failed to save, and says when budget initialisation errored. Shown by tests of the banner line; not exercised by a live session start with no resolvable sessions.db.
     revisions:
       - "on": "2026-10-25"
         from: 0.8
@@ -95,7 +97,7 @@ items:
     prediction: After a cockpit restart, resumed sessions re-arm their listener and catch up on mail without anyone typing, using the wake and inbox poll added in 1.14.14.
     confidence: 0.45
     evidence: reported
-    basis: Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. Read in the code, cockpit refresh does not yet call the wake or the inbox poll.
+    basis: Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. As of 1.14.19 cockpit refresh wakes each resumed claude pane once it is idle, which gives it the turn that arms the listener; that is tested with fakes and has not been measured on a live cockpit.
     falsifier: After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later.
     horizon: "1.14.20"
     steered: true
@@ -126,7 +128,9 @@ items:
     falsifier: A project whose evidence directory holds reports from pytest and from a second runner produces a POSTFLIGHT whose test evidence names only one of them.
     horizon: "1.14.19"
     steered: true
-    status: predicted
+    status: shipped
+    resolved_in: "1.14.19"
+    reason: Graded at 1.14.19. The collector now reads every fresh per-runner test report, keeps the newest per runner, sums the counts and joins the scopes, and the pytest plugin writes its own file, so a second runner's report is no longer replaced. Shown by tests with two fresh runners, a stale one, duplicates of one runner and a malformed neighbour; not yet observed on a project that runs a second runner, since the Rust side has not re-vendored the plugin.
 
   - id: known-suite-size
     title: A test report can state the suite's size
@@ -137,4 +141,6 @@ items:
     falsifier: A report carrying ignored and filtered-out counts produces a POSTFLIGHT signal that does not state the share of the suite covered.
     horizon: "1.14.19"
     steered: true
-    status: predicted
+    status: shipped
+    resolved_in: "1.14.19"
+    reason: Graded at 1.14.19. A report that carries ignored and filtered_out counts gives the evidence a suite size and POSTFLIGHT's signal reads, for example, 104 of 112, without moving the pass rate. Shown by tests on the collector and the signal; the cargo emitter has not started writing the two counts, so no live report has carried them yet.

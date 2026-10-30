@@ -437,20 +437,22 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.14.18
+## What's New in 1.14.19
 
-- **Test evidence exists, for any language.** A `pytest11` plugin now writes `.empirica/test_report.json`; nothing wrote the file the collector read, so no practice ever had test evidence. The collector also reads JUnit XML, ignores a report older than the transaction, and says why a source is empty (`source_notes`). A `partial:` scope no longer passes `tests_pass`.
-- **Code quality is defined by the practice.** A practice's own tooling writes `.empirica/code_quality.json`; core reads it under the same freshness rule and runs nothing. Go, Rust and Java changes are graded as code, not prose.
-- **POSTFLIGHT's signals fire.** Three signal generators read keys no collector wrote and could never appear. They now report test results (with their scope), repeated investigation, and CHECKs held at `investigate`.
-- **An unassessed vector no longer crashes CHECK or POSTFLIGHT.** A null `context` or `uncertainty` raised `TypeError` across the gate, the detector, the drift calculation and the POSTFLIGHT delta loop. The gate now holds it at `investigate`, and no override can rescue it.
-- **The Sentinel closes a fail-open class, and a terminal 401 is remembered.** Abbreviated, attached and quoted forms of program-running flags (`man --co`, `man -Pcat`, `git diff "--ext-diff"`) now gate, and the cortex loops stop re-presenting a rejected credential.
+- **Test evidence from several runners.** The pytest plugin writes `.empirica/test_report.pytest.json`; the collector reads every fresh `test_report*.json`, keeps the newest per runner, sums the counts and joins the scopes (any `partial:` runner makes the whole partial), so cargo or go test beside pytest no longer overwrite each other. `ignored` and `filtered_out` give a suite size.
+- **Project types are one list.** Sixteen values (web-app, service, cli, library, desktop-app, mobile-app, browser-extension, infrastructure, and eight non-code types) are defined once and read by every parser. A project nobody classified is stored as unclassified instead of becoming `software`, and PREFLIGHT starts a missing domain or criticality from the type.
+- **project-bootstrap says what it left out.** It lists open assumptions and carries a `coverage` object per artifact type (`shown`, `total`, `truncated`, `source`). A Qdrant outage reads `unavailable` instead of "no decisions", and `total` is `null` where a cap hid an unknown number.
+- **project-search stops burying findings under module signatures.** Every eidetic read leaves them out, `--global` included; `--type code` asks for them. A live query had returned four signatures and one finding.
+- **Hooks know their vintage, and the Sentinel will not certify what was not assessed.** SessionStart warns when the installed core is older than the hooks; the banner names an unsaved budget persist; a CHECK with no `know` or `uncertainty` is denied with a resubmit message (below-threshold CHECKs stay advisory).
+- **cockpit refresh** respawns dead codex and ecodex panes, then wakes each resumed claude pane once it is idle so it takes its first turn. The wake is tested with fakes; it has not been measured on a live cockpit.
+- **The forecast skill has modes:** `status`, `verify`, `grade`, `record` and `away`, every figure from a command run in that pass.
 
-All 21 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 16 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.14.18** — Test evidence exists, for any language. A `pytest11` plugin now writes `.empirica/test_report.json`; nothing wrote the file the collector read, so no pract…
 - **1.14.17** — CHECK no longer reports `1 - uncertainty` as a confidence. The old `confidence` equalled `1 - uncertainty` in 1,933 of 1,933 recorded rows, so it added not…
-- **1.14.16** — A vector nobody assessed is stored as "not assessed", not as 0.5. `store_vectors` filled every missing vector with 0.5, and every reader then took the 0.5…
 
 ## What's Coming
 
@@ -458,13 +460,12 @@ Empirica's own forecast, made in 1.14.14 from its open work, the demand it has m
 
 | Direction | Confidence | Why we expect it | What would change our mind |
 |---|---|---|---|
-| **Session start reports a skipped budget save**: When session start cannot save the context-budget state, the banner says so instead of only recording it. | 70% (reviewed, planned) | Read in the session-init hook, the skip reason is recorded in the budget summary but the banner prints only the budget line. The deploy-gap check already skips outside Claude Code, so that half of the gap is closed. | A session start with no resolvable sessions.db prints a banner that does not mention the unsaved budget state. |
-| **Bootstrap shows the whole picture**: project-bootstrap lists open assumptions, includes the links between artifacts, and says when it capped findings, decisions, dead ends or mistakes. | 65% (measured, planned) | Measured on this project today, it shows 10 of 3,173 findings, 10 of 758 decisions, 5 of 835 dead ends and 5 of 447 mistakes with no notice (goals and unknowns do get one), none of the 115 open assumptions, and only project-level relations, not the links between artifacts. | A bootstrap run on a graph larger than its caps that omits open assumptions or caps findings without saying so. |
+| **Bootstrap shows the whole picture**: project-bootstrap lists open assumptions, includes the links between artifacts, and says when it capped findings, decisions, dead ends or mistakes. | 65% (measured, planned) | Open assumptions and a per-type coverage of what the caps hid (shown, total, truncated, source) shipped in 1.14.19. Still absent are the links between artifacts and the status of the last blindspot scan, and decisions are still read from an unordered Qdrant page. | A bootstrap run on a graph larger than its caps that omits open assumptions or caps findings without saying so. |
 | **Listener memory stays flat**: Within three releases a listener's memory stops growing with uptime, and a dead notification stream is restarted. | 55% (reported, planned) | Operators of long-running listeners report about 30 MB an hour in one case and over 1 GB at 29 hours in another, with a stream process that was not respawned after a drop. We have not yet reproduced it on a fresh unit. | On a release that claims the fix, a listener's memory grows by more than 50 MB between hour 4 and hour 24 of uptime. |
-| **Restarted cockpit panes rejoin the mesh unprompted**: After a cockpit restart, resumed sessions re-arm their listener and catch up on mail without anyone typing, using the wake and inbox poll added in 1.14.14. | 45% (reported, planned) | Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. Read in the code, cockpit refresh does not yet call the wake or the inbox poll. | After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later. |
+| **Restarted cockpit panes rejoin the mesh unprompted**: After a cockpit restart, resumed sessions re-arm their listener and catch up on mail without anyone typing, using the wake and inbox poll added in 1.14.14. | 45% (reported, planned) | Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. As of 1.14.19 cockpit refresh wakes each resumed claude pane once it is idle, which gives it the turn that arms the listener; that is tested with fakes and has not been measured on a live cockpit. | After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later. |
 | **Wake service on by default**: The wake service stops being opt-in once a few weeks of live use show no wake into a busy pane. | 35% (measured) | It passed a live trial on two seats and refuses busy panes, drafts and dialogs. Open edge cases are an image-only prompt that can read as blank and a spinner scrolled out of view that reads as idle. | A report of a wake that interrupted a running turn or submitted a half-typed draft. |
 
-Forecast record: 1 shipped (0 of them not on the plan when predicted), 0 dropped, 0 retracted, 0 superseded so far.
+Forecast record: 4 shipped (0 of them not on the plan when predicted), 0 dropped, 0 retracted, 0 superseded so far.
 
 ## Privacy & Data
 

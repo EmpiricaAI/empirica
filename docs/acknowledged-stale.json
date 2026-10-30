@@ -89,12 +89,6 @@
       "decided_by": "empirica (2026-09-06 pre-1.13.39 sweep)",
       "review_by": "2026-12-01"
     },
-    "packaging/chocolatey/packaging/chocolatey/README.md": {
-      "status": "pending_review",
-      "reason": "Audited 2026-10-30: the doubled directory is an accidental partial copy added in 0a8e0f19e (2025-12-18, README only); it holds README.md, VERIFICATION.txt and tools/ files pinned to v1.0.0, no nuspec or nupkg. Nothing references it: scripts/release.py uses only the outer packaging/chocolatey paths, .github has no reference. Recommendation: delete it. Not done here because Chocolatey packaging is kars85's lane (release.py:47); ask first. The outer directory's nuspec is current (1.14.18); the tracked empirica.1.1.3.nupkg beside it is stale.",
-      "decided_by": "empirica (2026-10-30, pre-publish sweep T7; claims audited by a read-only reviewer against HEAD, not independently re-verified by me)",
-      "review_by": "2026-11-30"
-    },
     "tests/integration/README_STORAGE_FLOW_TESTS.md": {
       "status": "pending_review",
       "reason": "Describes the integration storage-flow suite, which still exists under tests/integration/. Subject live, content unread.",
