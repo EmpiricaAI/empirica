@@ -119,13 +119,12 @@ def test_the_type_flag_of_init_and_update_offers_exactly_the_list(verb):
         parser.parse_args([verb, "--type", "product"])
 
 
-def test_project_create_offers_the_same_list_and_no_longer_defaults_to_product():
+def test_project_create_is_gone_and_project_init_is_the_one_way_in():
+    """David 2026-11-02: one command, no deprecation period. A removed verb must fail to parse, not warn."""
     parser = _parser()
-    args = parser.parse_args(["project-create", "--name", "x"])
-    assert args.type is None
-    assert parser.parse_args(["project-create", "--name", "x", "--type", "cli"]).type == "cli"
+    assert parser.parse_args(["project-init", "--project-name", "x", "--type", "cli"]).type == "cli"
     with pytest.raises(SystemExit):
-        parser.parse_args(["project-create", "--name", "x", "--type", "application"])
+        parser.parse_args(["project-create", "--name", "x"])
 
 
 def test_workspace_list_can_still_filter_rows_that_hold_a_legacy_value():
@@ -282,20 +281,6 @@ def test_a_registry_upsert_without_a_type_keeps_the_type_the_row_already_has():
     assert "project_type = COALESCE(?, project_type)" in inspect.getsource(wi), (
         "workspace_init update must not overwrite a type with NULL"
     )
-
-
-def test_project_create_registers_its_type_in_the_workspace_registry(monkeypatch, tmp_path):
-    import types
-
-    import empirica.cli.command_handlers.project_commands as pc
-    import empirica.cli.command_handlers.workspace_init as wi
-
-    seen = {}
-    monkeypatch.setattr(wi, "_register_in_workspace_db", lambda **kw: seen.update(kw) or True)
-    monkeypatch.setattr("empirica.config.path_resolver.get_git_root", lambda: tmp_path)
-    pc._register_project_in_workspace_db("pid", "n", "d", None, project_type="cli")
-    assert seen["project_type"] == "cli"
-    _ = types  # keep the import local to the test
 
 
 def test_project_config_keeps_a_type_it_does_not_recognise_instead_of_erasing_it(caplog):

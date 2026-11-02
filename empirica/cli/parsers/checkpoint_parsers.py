@@ -370,28 +370,6 @@ def add_checkpoint_parsers(subparsers):
     project_update_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     project_update_parser.add_argument("--verbose", action="store_true", help="Show detailed info")
 
-    # Project create command
-    project_create_parser = subparsers.add_parser("project-create", help="Create a new project for multi-repo tracking")
-    project_create_parser.add_argument("--name", required=True, help="Project name")
-    project_create_parser.add_argument("--description", help="Project description")
-    project_create_parser.add_argument(
-        "--path",
-        help="Path to git repo — also initializes .empirica/ filesystem config (bridges project-create + project-init)",
-    )
-    project_create_parser.add_argument(
-        "--repos", help='JSON array of repository names (e.g., \'["empirica", "empirica-dev"]\')'
-    )
-    project_create_parser.add_argument(
-        "--type",
-        choices=list(PROJECT_TYPES),
-        default=None,
-        help="Project type for workspace categorization (left unset the project is stored as unclassified)",
-    )
-    project_create_parser.add_argument("--tags", help="Tags for categorization (comma-separated or JSON array)")
-    project_create_parser.add_argument("--parent", help="Parent project ID for hierarchical organization")
-    project_create_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
-    project_create_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
-
     # Project handoff command
     project_handoff_parser = subparsers.add_parser("project-handoff", help="Create project-level handoff report")
     project_handoff_parser.add_argument("--project-id", required=True, help="Project UUID")

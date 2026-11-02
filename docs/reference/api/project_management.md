@@ -399,8 +399,7 @@ For command-line usage, see [CLI Commands Reference](../../human/developers/CLI_
 
 ### Project Management
 ```bash
-empirica project-init --name "Project Name"
-empirica project-create --name "Project Name" --output json
+empirica project-init --project-name "Project Name" --output json
 empirica project-list --output json
 empirica project-bootstrap --session-id <ID> --output json
 ```

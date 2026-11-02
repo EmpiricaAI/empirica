@@ -121,7 +121,7 @@ def _resolve_project_via_git(output_format: str):
             return None, _bootstrap_error_output(
                 output_format,
                 f"No project found for git repo: {git_repo}",
-                "Create a project with: empirica project-create --name <name>",
+                "Create a project with: empirica project-init (run it inside the git repo)",
             )
 
         return project_id, None

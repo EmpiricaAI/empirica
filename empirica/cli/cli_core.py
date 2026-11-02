@@ -551,7 +551,6 @@ _HELP_CATEGORIES = {
     "project": [
         "project-init",
         "project-update",
-        "project-create",
         "project-list",
         "project-switch",
         "project-bootstrap",
@@ -1102,7 +1101,6 @@ def main(args=None):
             # Project commands
             "project-init": handle_project_init_command,
             "project-update": handle_project_update_command,
-            "project-create": handle_project_create_command,
             "project-handoff": handle_project_handoff_command,
             "project-list": handle_project_list_command,
             "project-switch": handle_project_switch_command,

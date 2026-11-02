@@ -289,7 +289,7 @@ Error: Project with ID 'xyz' not found
 empirica project-list
 
 # Create new project if needed
-empirica project-create --name "My Project"
+cd /path/to/your/repo && empirica project-init --project-name "My Project"
 
 # Project auto-detection requires git
 git remote -v  # Check git remotes

@@ -303,9 +303,7 @@ def _wsmap_print_dashboard(parent_dir, git_repos, eco_graph):
             print(f"   Path: {repo['path']}")
             if repo["has_remote"]:
                 print(f"   Remote: {repo['remote_url']}")
-                print(
-                    f"   → To track: empirica project-create --name '{repo['name']}' --repos '[\"{repo['remote_url']}\"]'"
-                )
+                print(f"   → To track: cd '{repo['path']}' && empirica project-init")
             else:
                 print("   ⚠️  No remote configured")
             print()

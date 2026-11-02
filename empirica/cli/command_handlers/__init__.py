@@ -186,7 +186,6 @@ from .profile_commands import (
 )
 from .project_bootstrap import handle_project_bootstrap_command
 from .project_commands import (
-    handle_project_create_command,
     handle_project_handoff_command,
     handle_project_list_command,
     handle_project_switch_command,
@@ -416,7 +415,6 @@ __all__ = [  # noqa: RUF022
     "handle_profile_sync_command",
     "handle_project_bootstrap_command",
     # Project Tracking commands (Multi-repo/multi-session)
-    "handle_project_create_command",
     "handle_project_embed_command",
     "handle_project_handoff_command",
     "handle_project_init_command",

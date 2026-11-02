@@ -201,8 +201,14 @@ The legacy local `crm.db` query that used to stand here is retired.
 
 ### 1. Create Project
 ```bash
-empirica project-create --name "My App" --repos "frontend,backend,shared"
+# In the first repo
+cd ~/code/frontend
+empirica project-init --project-name "My App"
 # Returns: project_id = abc-123
+
+# In each further repo, link to the same project instead of creating another
+cd ~/code/backend
+empirica project-init --project-id abc-123
 ```
 
 ### 2. Link Sessions to Project

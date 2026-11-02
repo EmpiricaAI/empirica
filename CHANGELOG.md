@@ -5,6 +5,12 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **`project-create` is gone, with no deprecation period.** `project-init` is the one way to create a project: run it inside the git repo, and in each further repo of a multi-repo project run `project-init --project-id <id>` to link to the first. The `--repos` and `--parent` flags went with it: `parent_project_id` is empty in every local practice database that has the column, and `repos` is filled in by ordinary registration. The two hint messages that named `project-create` (`workspace-list` and `project-bootstrap`) now name `project-init`, and a script that still calls `project-create` fails at argument parsing.
+
 ## [1.14.19] - 2026-10-30
 
 ### Highlights

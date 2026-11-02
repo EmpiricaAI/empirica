@@ -23,8 +23,8 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.19
-**Generated:** 2026-10-30 12:41:01 UTC
-**Total commands:** 241 (across 24 categories)
+**Generated:** 2026-11-02 17:50:59 UTC
+**Total commands:** 240 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -66,7 +66,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [workflow](#workflow) | 4 | `preflight-submit`, `check`, `check-submit`, … |
 | [goals](#goals) | 16 | `goals-create`, `goals-list`, `goals-search`, … |
 | [logging](#logging) | 27 | `finding-log`, `finding-resolve`, `unknown-log`, … |
-| [project](#project) | 18 | `project-init`, `project-update`, `project-create`, … |
+| [project](#project) | 17 | `project-init`, `project-update`, `project-list`, … |
 | [workspace](#workspace) | 18 | `workspace-init`, `workspace-map`, `workspace-list`, … |
 | [checkpoint](#checkpoint) | 7 | `checkpoint-create`, `checkpoint-load`, `checkpoint-list`, … |
 | [sync](#sync) | 6 | `sync-config`, `sync-push`, `sync-pull`, … |
@@ -1441,31 +1441,6 @@ Update project.yaml fields (type, domain, contacts, edges, etc.)
   Output format
 - `--verbose` — optional · flag
   Show detailed info
-
-#### `empirica project-create`
-
-Create a new project for multi-repo tracking
-
-**Arguments:**
-
-- `--name` — **required**
-  Project name
-- `--description` — optional
-  Project description
-- `--path` — optional
-  Path to git repo — also initializes .empirica/ filesystem config (bridges project-create + project-init)
-- `--repos` — optional
-  JSON array of repository names (e.g., '["empirica", "empirica-dev"]')
-- `--type` — optional · type=`choice` · choices={web-app, service, cli, library, desktop-app, mobile-app, browser-extension, infrastructure, content, research, data, design, operations, strategic, engagement, legal}
-  Project type for workspace categorization (left unset the project is stored as unclassified)
-- `--tags` — optional
-  Tags for categorization (comma-separated or JSON array)
-- `--parent` — optional
-  Parent project ID for hierarchical organization
-- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-  Output format
-- `--verbose` — optional · flag
-  Show detailed operation info
 
 #### `empirica project-list`
 
