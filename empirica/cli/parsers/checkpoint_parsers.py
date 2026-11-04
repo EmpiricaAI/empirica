@@ -2128,14 +2128,14 @@ Example:
     )
     goals_list_parser.add_argument(
         "--status",
-        choices=["planned", "in_progress", "blocked", "completed", "all", "drift"],
+        choices=["planned", "in_progress", "blocked", "completed", "abandoned", "all", "drift"],
         help='Filter by lifecycle status. Takes precedence over --completed. "drift" surfaces rows where status text disagrees with is_completed (canonical).',
     )
     goals_list_parser.add_argument("--limit", type=int, default=20, help="Max results (default: 20)")
     goals_list_parser.add_argument(
         "--include-archived",
         action="store_true",
-        help="Include archived completed goals (hidden by default; archive via goals-archive)",
+        help="Include archived goals (hidden by default; archive via goals-archive)",
     )
     goals_list_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     goals_list_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
@@ -2156,7 +2156,7 @@ Example:
     goals_search_parser.add_argument("--project-id", help="Project ID (auto-detects if not provided)")
     goals_search_parser.add_argument("--type", choices=["goal", "task"], help="Filter by type (default: both)")
     goals_search_parser.add_argument(
-        "--status", choices=["in_progress", "complete", "pending", "completed"], help="Filter by status"
+        "--status", choices=["in_progress", "pending", "completed"], help="Filter by status"
     )
     goals_search_parser.add_argument("--ai-id", help="Filter by AI identifier")
     goals_search_parser.add_argument("--limit", type=int, default=10, help="Maximum results (default: 10)")
@@ -2402,8 +2402,8 @@ written to git notes (breadcrumbs ref) for audit trail.
         "goals-archive",
         aliases=["goal-archive"],
         help=(
-            "Archive completed goals older than N days so the completed list "
-            "doesn't grow unbounded (mirrors source-archive). Archived goals drop "
+            "Archive completed and abandoned goals that ended more than N days ago so "
+            "the lists don't grow unbounded (mirrors source-archive). Archived goals drop "
             "out of goals-list unless --include-archived; goals-reopen un-archives. "
             "Dry-run by default; pass --apply to archive."
         ),
@@ -2413,12 +2413,12 @@ written to git notes (breadcrumbs ref) for audit trail.
         type=int,
         default=30,
         dest="older_than",
-        help="Age threshold in days on completion time (default: 30)",
+        help="Age threshold in days on when the goal ended: completion, or abandonment (default: 30)",
     )
     goals_archive_parser.add_argument(
         "--goal-id",
         type=nonblank_id,
-        help="Archive one completed goal by id/prefix (ignores --older-than)",
+        help="Archive one completed or abandoned goal by id/prefix (ignores --older-than)",
     )
     goals_archive_parser.add_argument("--apply", action="store_true", help="Actually archive (default: dry-run report)")
     goals_archive_parser.add_argument("--output", choices=["human", "json"], default="json", help="Output format")

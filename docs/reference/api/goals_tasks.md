@@ -72,6 +72,14 @@ if goal:
     print(f"Status: {goal['status']}")
 ```
 
+### Goal statuses
+
+A goal holds one of five values in `goals.status`: `planned`, `in_progress`, `blocked`, `completed`, `abandoned`. There is one spelling of the finished state, `completed`. `is_completed` is the canonical done flag and is 1 only for `completed`; `abandoned` keeps it at 0 on purpose, because abandoned is not done.
+
+`goals-list` shows live work by default: every goal that is not `completed` and not `abandoned`. `--status <value>` lists one status, `--status abandoned` lists the dead ones, `--status all` lists everything.
+
+The word `open`, used by the cowork state-card contract, is not a status. It means `planned` + `in_progress` + `blocked`, which is exactly the default `goals-list` view.
+
 ### `update_goal_status(project_id: str, goal_id: str, status: str, completion_evidence: Optional[str] = None)`
 
 Update goal status with optional completion evidence.
@@ -86,8 +94,8 @@ Update goal status with optional completion evidence.
 **Parameters:**
 - `project_id: str` - Project identifier
 - `goal_id: str` - Goal identifier
-- `status: str` - New status ('in_progress', 'complete', 'blocked', 'paused')
-- `completion_evidence: Optional[str]` - Evidence of completion (required for 'complete' status)
+- `status: str` - New status ('planned', 'in_progress', 'blocked', 'completed', 'abandoned')
+- `completion_evidence: Optional[str]` - Evidence of completion (required for 'completed' status)
 
 **Example:**
 ```python
@@ -96,7 +104,7 @@ from empirica.core.qdrant.goals import update_goal_status
 update_goal_status(
     project_id="proj-123",
     goal_id="xyz-789",
-    status="complete",
+    status="completed",
     completion_evidence="Authentication system implemented with tests passing"
 )
 ```

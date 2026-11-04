@@ -53,7 +53,7 @@ def embed_goal(
         scope_coordination: Multi-agent coordination needed (0-1)
         estimated_complexity: Complexity estimate (0-1)
         success_criteria: List of success criteria descriptions
-        status: Goal status (in_progress, complete, blocked)
+        status: Goal status (planned, in_progress, blocked, completed, abandoned)
         tags: Optional tags for filtering
         timestamp: Creation timestamp
 
@@ -112,7 +112,7 @@ def embed_goal(
             "status": status,
             "tags": tags or [],
             "timestamp": timestamp or time.time(),
-            "is_completed": status == "complete",
+            "is_completed": status == "completed",
         }
 
         point_id = int(hashlib.md5(goal_id.encode()).hexdigest()[:15], 16)
@@ -334,7 +334,7 @@ def update_goal_status(
     Args:
         project_id: Project UUID
         goal_id: Goal UUID
-        status: New status (in_progress, complete, blocked)
+        status: New status (planned, in_progress, blocked, completed, abandoned)
         completion_evidence: Evidence of completion
 
     Returns:
@@ -364,11 +364,7 @@ def update_goal_status(
         point = points[0]
         payload = point.payload or {}
         payload["status"] = status
-        # Both spellings are live: the SQL layer writes 'completed', this module's
-        # embed default docstring says 'complete'. Normalizing here keeps the flag
-        # true for either — an exact-match on one spelling silently recorded
-        # is_completed=False for the other.
-        payload["is_completed"] = status in ("complete", "completed")
+        payload["is_completed"] = status == "completed"
         # Backfill: points embedded before goal_id rode the payload can gain it
         # here, so the PREFLIGHT/CHECK reconciler can look them up from now on.
         payload.setdefault("goal_id", goal_id)

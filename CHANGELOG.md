@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`goals-list` no longer shows abandoned goals as active.** The default view filtered on `is_completed = 0` alone, and an abandoned goal keeps that at 0 on purpose, so all 19 abandoned goals on one practice were listed with the live work (87 shown against 68). `--status abandoned` lists them.
+- **One spelling for a finished goal: `completed`.** Migration 078 rewrites the 6 legacy `complete` goal rows found across 36 practice databases; the readers that tolerated both spellings, the `goals-search --status` choice and the goal docs now name the one. The compliance loop's own result status is a different enumeration and is unchanged.
+
+### Changed
+
+- **`goals-archive` reaches abandoned goals.** The sweep ages a goal from when it ended (completion, or `abandoned_at`, or creation for a row abandoned some other way), and `--goal-id` takes an abandoned goal, so a gardening pass can clear them; the gardening skill now says so.
+
 ### Removed
 
 - **`project-create` is gone, with no deprecation period.** `project-init` is the one way to create a project: run it inside the git repo, and in each further repo of a multi-repo project run `project-init --project-id <id>` to link to the first. The `--repos` and `--parent` flags went with it: `parent_project_id` is empty in every local practice database that has the column, and `repos` is filled in by ordinary registration. The two hint messages that named `project-create` (`workspace-list` and `project-bootstrap`) now name `project-init`, and a script that still calls `project-create` fails at argument parsing.

@@ -690,7 +690,7 @@ class GoalDataRepository(BaseRepository):
     def archive_stale_completed(
         self, older_than_days: int = 30, apply: bool = False, goal_id: str | None = None
     ) -> list[dict]:
-        """Archive completed goals whose completion is older than N days (hygiene).
+        """Archive completed and abandoned goals that ended more than N days ago (hygiene).
 
         Mirrors the source-archive lifecycle: archived goals are hidden from the
         completed list by default (``goals-list --include-archived`` surfaces them)
@@ -698,10 +698,10 @@ class GoalDataRepository(BaseRepository):
         Dry-run by default (apply=False) — returns the affected goals either way.
 
         Args:
-            older_than_days: age threshold on completed_timestamp (default 30)
+            older_than_days: age threshold on when the goal ended: completed_timestamp, or abandoned_at for an abandoned goal (default 30)
             apply: actually archive when True; dry-run report only when False
-            goal_id: archive a single completed goal by id/prefix (ignores the age
-                threshold); when None, archive all completed goals older than N days
+            goal_id: archive a single completed or abandoned goal by id/prefix (ignores the age
+                threshold); when None, archive all completed and abandoned goals that ended more than N days ago
 
         Returns:
             List of {id, objective, completed_timestamp} that were (or would be) archived
@@ -717,17 +717,23 @@ class GoalDataRepository(BaseRepository):
                 return []  # an ambiguous prefix archived every goal sharing it
             cursor = self._execute(
                 "SELECT id, objective, completed_timestamp FROM goals "
-                "WHERE id = ? AND (status = 'completed' OR is_completed = 1) "
+                "WHERE id = ? AND (status IN ('completed', 'abandoned') OR is_completed = 1) "
                 "AND COALESCE(archived, 0) = 0",
                 (resolved_id,),
             )
         else:
             cutoff = time.time() - older_than_days * 86400
+            # A terminal goal ages from when it ended: completion time, or for an abandoned goal the abandoned_at stamp in goal_data,
+            # falling back to creation for rows abandoned some other way. json_valid guards the query against a malformed goal_data.
+            ended = (
+                "COALESCE(completed_timestamp, CASE WHEN status = 'abandoned' THEN "
+                "COALESCE(CASE WHEN json_valid(goal_data) THEN json_extract(goal_data, '$.abandoned_at') END, created_timestamp) END)"
+            )
             cursor = self._execute(
                 "SELECT id, objective, completed_timestamp FROM goals "
-                "WHERE (status = 'completed' OR is_completed = 1) "
+                "WHERE (status IN ('completed', 'abandoned') OR is_completed = 1) "
                 "AND COALESCE(archived, 0) = 0 "
-                "AND completed_timestamp IS NOT NULL AND completed_timestamp < ?",
+                f"AND {ended} IS NOT NULL AND {ended} < ?",
                 (cutoff,),
             )
         rows = [{"id": r[0], "objective": r[1], "completed_timestamp": r[2]} for r in cursor.fetchall()]

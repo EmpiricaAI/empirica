@@ -36,7 +36,7 @@ Never garden mid-investigation — you will prune branches you are standing on.
 | Lever | Effect | Use when | Reverses? |
 |---|---|---|---|
 | **resolve** | kept for history, dropped from live retrieval | was true/open, now stale, answered, superseded or verified — **the common case** | yes |
-| **archive** | hidden from default lists, kept whole | completed goal, or stale-but-citable source | yes |
+| **archive** | hidden from default lists, kept whole | completed or abandoned goal, or stale-but-citable source | yes |
 | **delete** | gone, no history | test-noise, duplicates, mistaken logs — **no epistemic value** | no |
 
 Bias to resolve. When unsure, resolve.
@@ -95,6 +95,7 @@ artifacts under divergent `project_id`s are invisible.** One real pass found art
 
 ```bash
 empirica goals-list --all-projects
+empirica goals-list --all-projects --status abandoned   # dead goals: archive them, do not leave them to accumulate
 empirica unknown-list --all-projects
 sqlite3 .empirica/sessions/sessions.db \
   "SELECT project_id, COUNT(*) FROM project_findings WHERE is_resolved IS NOT 1 GROUP BY project_id ORDER BY 2 DESC"
@@ -163,7 +164,8 @@ durables. `null` impact is not a noise signal.
 
 ```bash
 empirica goals-complete --goal-id <id> --reason "<evidence>"
-empirica goals-archive  --goal-id <id>
+empirica goals-archive  --goal-id <id>            # one completed or abandoned goal
+empirica goals-archive  --older-than 30 --apply   # the sweep: every completed or abandoned goal that ended 30+ days ago (dry run without --apply)
 empirica goals-mark-stale --goal-id <id>
 empirica source-archive --source-id <id> --reason {user_deleted,file_missing,url_unreachable,superseded}
 empirica source-update  --source-id <id> --url <new-path-or-url>   # re-point a source whose file moved

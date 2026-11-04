@@ -674,7 +674,7 @@ Goals organize work with **epistemic context** and enable **cross-AI coordinatio
         "task_id": "uuid-1",
         "description": "Review authentication code",
         "importance": "high",
-        "status": "complete",
+        "status": "completed",
         "evidence": "Found JWT validation gap",
         "completed_at": "2025-01-29T10:15:00Z"
       },

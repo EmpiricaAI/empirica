@@ -200,8 +200,11 @@ def test_aggregates_keep_their_special_meaning():
 
 
 def test_no_status_still_defaults_to_open_goals():
-    """The unfiltered default must not change — every bare `goals-list` uses it."""
-    assert _build_goals_status_filter(None, False) == (" AND g.is_completed = 0", [])
+    """The unfiltered default is live work: not completed, and not abandoned (abandoned keeps is_completed = 0 on purpose)."""
+    assert _build_goals_status_filter(None, False) == (
+        " AND g.is_completed = 0 AND COALESCE(g.status, '') != 'abandoned'",
+        [],
+    )
     assert _build_goals_status_filter(None, True) == (" AND g.is_completed = 1", [])
 
 

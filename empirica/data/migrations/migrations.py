@@ -1624,6 +1624,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Drop codebase_facts (with its FTS5 index, shadow tables and triggers from migration 033) and codebase_constraints when they are empty. Nothing in production ever wrote either: both held 0 rows on the empirica practice and lost their last readers in 456e64a94 (David's dead-code ruling, 2026-10-26). Judged per table: one that holds rows is kept and logged, so a cleanup cannot lose data. Idempotent; absent tables are skipped.",
         lambda cursor: migration_077_drop_empty_codebase_fact_tables(cursor),
     ),
+    (
+        "078_goal_status_vocabulary",
+        "Normalize `goals.status` 'complete' -> 'completed', the same one-word fix migration 064 made for subtasks. Measured 2026-11-04 across 36 practice databases: 6 goal rows spelled 'complete' (all on one practice, all with is_completed = 1), none anywhere else. Dead legacy data, so a one-time rewrite and not a reader contract: the readers that tolerated both spellings (bootstrap circles, the qdrant goal payload) now name the one. Only the status text changes; is_completed is already the canonical flag and is not touched.",
+        lambda cursor: migration_078_goal_status_vocabulary(cursor),
+    ),
 ]
 
 
@@ -3047,6 +3052,16 @@ def migration_066_normalize_text_created_timestamp(cursor: sqlite3.Cursor):
         except sqlite3.OperationalError:
             continue  # table absent on a partial/older DB — defensive skip
     logger.info(f"✅ Migration 066 complete: normalized {fixed} TEXT created_timestamp value(s) to REAL")
+
+
+def migration_078_goal_status_vocabulary(cursor: sqlite3.Cursor):
+    """Rewrite the legacy status 'complete' on goals to 'completed'. Idempotent; leaves every other status and is_completed alone."""
+    cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'goals'")
+    if cursor.fetchone() is None:
+        return
+    cursor.execute("UPDATE goals SET status = 'completed' WHERE status = 'complete'")
+    if cursor.rowcount:
+        logger.info(f"✅ Migration 078 complete: normalized {cursor.rowcount} goal(s) from 'complete' to 'completed'")
 
 
 def migration_077_drop_empty_codebase_fact_tables(cursor: sqlite3.Cursor):

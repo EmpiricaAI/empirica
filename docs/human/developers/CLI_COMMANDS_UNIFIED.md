@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.19
-**Generated:** 2026-11-02 17:50:59 UTC
+**Generated:** 2026-11-04 09:57:03 UTC
 **Total commands:** 240 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -386,12 +386,12 @@ List goals in the current project. Default: active (in_progress). Use --status {
   Show this project's FULL backlog — no 20-goal cap, project scope unchanged. The header's truncation notice used to point at --all-projects, which also widens the project scope: the advertised remedy did something other than what was wanted.
 - `--completed` — optional · flag
   Show completed goals (default: active). Use --status for finer filtering.
-- `--status` — optional · type=`choice` · choices={planned, in_progress, blocked, completed, all, drift}
+- `--status` — optional · type=`choice` · choices={planned, in_progress, blocked, completed, abandoned, all, drift}
   Filter by lifecycle status. Takes precedence over --completed. "drift" surfaces rows where status text disagrees with is_completed (canonical).
 - `--limit` — optional · type=`int` · default=`20`
   Max results (default: 20)
 - `--include-archived` — optional · flag
-  Include archived completed goals (hidden by default; archive via goals-archive)
+  Include archived goals (hidden by default; archive via goals-archive)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 - `--verbose` — optional · flag
@@ -409,7 +409,7 @@ Semantic search across goals + tasks (Qdrant embeddings). Finds matches by meani
   Project ID (auto-detects if not provided)
 - `--type` — optional · type=`choice` · choices={goal, task}
   Filter by type (default: both)
-- `--status` — optional · type=`choice` · choices={in_progress, complete, pending, completed}
+- `--status` — optional · type=`choice` · choices={in_progress, pending, completed}
   Filter by status
 - `--ai-id` — optional
   Filter by AI identifier
@@ -4947,14 +4947,14 @@ Flip a planned goal to in_progress and link it to the OPEN transaction (run PREF
 
 #### `empirica goals-archive`  _(aliases: `goal-archive`)_
 
-Archive completed goals older than N days so the completed list doesn't grow unbounded (mirrors source-archive). Archived goals drop out of goals-list unless --include-archived; goals-reopen un-archives. Dry-run by default; pass --apply to archive.
+Archive completed and abandoned goals that ended more than N days ago so the lists don't grow unbounded (mirrors source-archive). Archived goals drop out of goals-list unless --include-archived; goals-reopen un-archives. Dry-run by default; pass --apply to archive.
 
 **Arguments:**
 
 - `--older-than` — optional · type=`int` · default=`30`
-  Age threshold in days on completion time (default: 30)
+  Age threshold in days on when the goal ended: completion, or abandonment (default: 30)
 - `--goal-id` — optional · type=`nonblank_id`
-  Archive one completed goal by id/prefix (ignores --older-than)
+  Archive one completed or abandoned goal by id/prefix (ignores --older-than)
 - `--apply` — optional · flag
   Actually archive (default: dry-run report)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`

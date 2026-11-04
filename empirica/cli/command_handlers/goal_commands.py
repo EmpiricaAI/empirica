@@ -1408,7 +1408,9 @@ def _build_goals_status_filter(status_filter, show_completed):
         return " AND g.status = ? AND g.is_completed = 0", [status_filter]
     if show_completed:
         return " AND g.is_completed = 1", []
-    return " AND g.is_completed = 0", []
+    # The default view is live work. Abandoned keeps is_completed = 0 on purpose (it is not done), so is_completed alone listed every
+    # abandoned goal as active: 87 shown against 68 live rows. `--status abandoned` lists them.
+    return " AND g.is_completed = 0 AND COALESCE(g.status, '') != 'abandoned'", []
 
 
 def _handle_goals_list_command_helper(cursor, project_id, session_id):
@@ -2456,10 +2458,10 @@ def handle_goals_reopen_command(args):
 
 
 def handle_goals_archive_command(args):
-    """Handle goals-archive command — archive completed goals older than N days.
+    """Handle goals-archive command — archive completed and abandoned goals that ended more than N days ago.
 
     Goal-lifecycle hygiene (mirrors source-archive): archived goals drop out of
-    the completed list unless `goals-list --include-archived`. Dry-run by default;
+    the lists unless `goals-list --include-archived`. Dry-run by default;
     pass --apply to actually archive. goals-reopen un-archives.
     """
     try:

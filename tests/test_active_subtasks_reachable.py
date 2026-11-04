@@ -83,12 +83,12 @@ def test_the_failure_path_is_not_silent():
     assert not _re.search(r"^\s*pass\s*$", tail, _re.M), "silent pass reintroduced"
 
 
-def test_both_completed_spellings_are_excluded():
-    """`status` carries BOTH 'complete' and 'completed'. Matching one spelling
-    silently leaks the other back into 'active'."""
+def test_the_one_completed_spelling_is_excluded():
+    """There is one spelling, `completed` (migrations 064 and 078 normalized the legacy rows), so the query excludes that and names no singular."""
     src = _CIRCLES.read_text()
 
-    assert "'complete', 'completed'" in src or '"complete", "completed"' in src
+    assert "COALESCE(status, '') != 'completed'" in src
+    assert "'complete'" not in src
 
 
 def test_open_subtasks_surface_and_completed_ones_do_not():

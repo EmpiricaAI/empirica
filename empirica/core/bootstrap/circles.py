@@ -130,13 +130,12 @@ def circle_1_active_state(
             # unreachable, and the appearance of disuse was the bug: tasks never
             # surfaced in retrieval, so nothing rewarded logging them.
             #
-            # `status` carries BOTH 'complete' and 'completed' (67 / 1146 rows) —
-            # matching one spelling silently drops the other, so both are excluded.
+            # One spelling, `completed` (migration 064 normalized the legacy rows).
             try:
                 cur.execute(
                     f"SELECT id, description, status, epistemic_importance, goal_id, created_timestamp "
                     f"FROM subtasks WHERE goal_id IN ({placeholders}) "
-                    f"AND COALESCE(status, '') NOT IN ('complete', 'completed') "
+                    f"AND COALESCE(status, '') != 'completed' "
                     f"ORDER BY created_timestamp DESC LIMIT ?",
                     (*active_goal_ids, cap("active_subtasks", 20)),
                 )
