@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.14.19
-**Generated:** 2026-11-04 09:57:03 UTC
+**Framework version:** 1.14.20
+**Generated:** 2026-11-04 12:54:03 UTC
 **Total commands:** 240 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1491,7 +1491,7 @@ Show epistemic breadcrumbs for project
 - `--trigger` — optional · type=`choice` · choices={pre_compact, post_compact, manual}
   Compact boundary trigger for session auto-resolution
 - `--depth` — optional · type=`choice` · choices={minimal, moderate, full, auto} · default=`auto`
-  Context depth: minimal (~500 tokens), moderate (~1500), full (~3000-5000), auto (drift-based)
+  Context depth: minimal (~500 tokens), moderate (~1500), auto (drift-based), full (no caps: every open finding, unknown, dead end, mistake, assumption, decision and edge; unbounded, hundreds of KB on a large practice)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 - `--verbose` — optional · flag

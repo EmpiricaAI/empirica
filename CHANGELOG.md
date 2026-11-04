@@ -5,7 +5,16 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.14.20] - 2026-11-04
+
+### Highlights
+
+- **project-bootstrap shows the whole picture.** Decisions come newest first from SQLite with an exact total, the semantic links among the artifacts shown are listed, and the last blindspot scan status is included; `--depth full` returns every open finding and unknown (3,255 and 86 on one practice). Output grows 2 KB and runs about 45 ms faster.
+- **A quiet listener stream no longer sits dead for five minutes.** A stream that connected and then dropped took the 300 s auth-failure sleep with no curl child, which `mesh status` read as "curl subscription dead". It now gets the normal short backoff. Confirmed in the code and by test, not yet watched on a live listener.
+- **The listener logs its memory beside its activity,** and `listener arm` keeps an arm history, so RSS growth and a first-arm-after-resume gap can be read instead of guessed.
+- **Abandoned goals are no longer listed as active.** `goals-list` showed all 19 on one practice (87 against 68), and about a dozen more readers (the bootstrap circle, the artifact attach tiers, the serve route, the cockpit counts) had the same filter; `goals-archive` now clears abandoned goals.
+- **One word for a finished goal, `completed`,** with a migration for six legacy rows; and **`project-create` is removed** in favour of `project-init`, with no deprecation period.
+- **Security:** the `pyasn1` floor is raised to 0.6.5 for four CVEs fixed there.
 
 ### Fixed
 
@@ -31,6 +40,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - **`project-create` is gone, with no deprecation period.** `project-init` is the one way to create a project: run it inside the git repo, and in each further repo of a multi-repo project run `project-init --project-id <id>` to link to the first. The `--repos` and `--parent` flags went with it: `parent_project_id` is empty in every local practice database that has the column, and `repos` is filled in by ordinary registration. The two hint messages that named `project-create` (`workspace-list` and `project-bootstrap`) now name `project-init`, and a script that still calls `project-create` fails at argument parsing.
+
+### Known, not changed
+
+- **The listener's memory growth is attributed from this release, not fixed.** The stats line shows the growth against reconnects and catch-ups; the cause is not reproduced yet.
+- **A listener that drops often still waits up to 60 s between streams,** because the backoff resets only on a real event; `mesh status` can read a dead stream for that long (it was 300 s). Behind an HTTP proxy a real 401 might read as connected; not checked.
+- **Old vector-store goal points keep `complete`** (six rows on one practice), and PREFLIGHT related-goal retrieval can still show an abandoned goal, labelled as such.
+- **An abandoned goal whose `abandoned_at` is a string** never archives; the only writer stores a number.
+- **`--depth auto` that resolves to full after a post-compact drift keeps the session-start caps;** only an explicit `--depth full` lifts them.
 
 ## [1.14.19] - 2026-10-30
 

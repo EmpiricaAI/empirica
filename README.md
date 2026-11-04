@@ -437,22 +437,21 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.14.19
+## What's New in 1.14.20
 
-- **Test evidence from several runners.** The pytest plugin writes `.empirica/test_report.pytest.json`; the collector reads every fresh `test_report*.json`, keeps the newest per runner, sums the counts and joins the scopes (any `partial:` runner makes the whole partial), so cargo or go test beside pytest no longer overwrite each other. `ignored` and `filtered_out` give a suite size.
-- **Project types are one list.** Sixteen values (web-app, service, cli, library, desktop-app, mobile-app, browser-extension, infrastructure, and eight non-code types) are defined once and read by every parser. A project nobody classified is stored as unclassified instead of becoming `software`, and PREFLIGHT starts a missing domain or criticality from the type.
-- **project-bootstrap says what it left out.** It lists open assumptions and carries a `coverage` object per artifact type (`shown`, `total`, `truncated`, `source`). A Qdrant outage reads `unavailable` instead of "no decisions", and `total` is `null` where a cap hid an unknown number.
-- **project-search stops burying findings under module signatures.** Every eidetic read leaves them out, `--global` included; `--type code` asks for them. A live query had returned four signatures and one finding.
-- **Hooks know their vintage, and the Sentinel will not certify what was not assessed.** SessionStart warns when the installed core is older than the hooks; the banner names an unsaved budget persist; a CHECK with no `know` or `uncertainty` is denied with a resubmit message (below-threshold CHECKs stay advisory).
-- **cockpit refresh** respawns dead codex and ecodex panes, then wakes each resumed claude pane once it is idle so it takes its first turn. The wake is tested with fakes; it has not been measured on a live cockpit.
-- **The forecast skill has modes:** `status`, `verify`, `grade`, `record` and `away`, every figure from a command run in that pass.
+- **project-bootstrap shows the whole picture.** Decisions come newest first from SQLite with an exact total, the semantic links among the artifacts shown are listed, and the last blindspot scan status is included; `--depth full` returns every open finding and unknown (3,255 and 86 on one practice). Output grows 2 KB and runs about 45 ms faster.
+- **A quiet listener stream no longer sits dead for five minutes.** A stream that connected and then dropped took the 300 s auth-failure sleep with no curl child, which `mesh status` read as "curl subscription dead". It now gets the normal short backoff. Confirmed in the code and by test, not yet watched on a live listener.
+- **The listener logs its memory beside its activity,** and `listener arm` keeps an arm history, so RSS growth and a first-arm-after-resume gap can be read instead of guessed.
+- **Abandoned goals are no longer listed as active.** `goals-list` showed all 19 on one practice (87 against 68), and about a dozen more readers (the bootstrap circle, the artifact attach tiers, the serve route, the cockpit counts) had the same filter; `goals-archive` now clears abandoned goals.
+- **One word for a finished goal, `completed`,** with a migration for six legacy rows; and **`project-create` is removed** in favour of `project-init`, with no deprecation period.
+- **Security:** the `pyasn1` floor is raised to 0.6.5 for four CVEs fixed there.
 
-All 16 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 18 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.14.19** — Test evidence from several runners. The pytest plugin writes `.empirica/test_report.pytest.json`; the collector reads every fresh `test_report*.json`, keep…
 - **1.14.18** — Test evidence exists, for any language. A `pytest11` plugin now writes `.empirica/test_report.json`; nothing wrote the file the collector read, so no pract…
-- **1.14.17** — CHECK no longer reports `1 - uncertainty` as a confidence. The old `confidence` equalled `1 - uncertainty` in 1,933 of 1,933 recorded rows, so it added not…
 
 ## What's Coming
 
@@ -460,12 +459,11 @@ Empirica's own forecast, made in 1.14.14 from its open work, the demand it has m
 
 | Direction | Confidence | Why we expect it | What would change our mind |
 |---|---|---|---|
-| **Bootstrap shows the whole picture**: project-bootstrap lists open assumptions, includes the links between artifacts, and says when it capped findings, decisions, dead ends or mistakes. | 65% (measured, planned) | Open assumptions and a per-type coverage of what the caps hid (shown, total, truncated, source) shipped in 1.14.19. Still absent are the links between artifacts and the status of the last blindspot scan, and decisions are still read from an unordered Qdrant page. | A bootstrap run on a graph larger than its caps that omits open assumptions or caps findings without saying so. |
-| **Listener memory stays flat**: Within three releases a listener's memory stops growing with uptime, and a dead notification stream is restarted. | 55% (reported, planned) | Operators of long-running listeners report about 30 MB an hour in one case and over 1 GB at 29 hours in another, with a stream process that was not respawned after a drop. We have not yet reproduced it on a fresh unit. | On a release that claims the fix, a listener's memory grows by more than 50 MB between hour 4 and hour 24 of uptime. |
-| **Restarted cockpit panes rejoin the mesh unprompted**: After a cockpit restart, resumed sessions re-arm their listener and catch up on mail without anyone typing, using the wake and inbox poll added in 1.14.14. | 45% (reported, planned) | Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. As of 1.14.19 cockpit refresh wakes each resumed claude pane once it is idle, which gives it the turn that arms the listener; that is tested with fakes and has not been measured on a live cockpit. | After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later. |
+| **Listener memory stays flat**: Within three releases a listener's memory stops growing with uptime, and a dead notification stream is restarted. | 50% (reported, planned) | Operators of long-running listeners report about 30 MB an hour in one case and over 1 GB at 29 hours in another, with a stream process that was not respawned after a drop. We have not yet reproduced it on a fresh unit. From 1.14.20 the listener logs its memory next to its activity, so the growth can be attributed, and a quiet stream that drops no longer waits five minutes with no stream process. | On a release that claims the fix, a listener's memory grows by more than 50 MB between hour 4 and hour 24 of uptime. |
+| **Restarted cockpit panes rejoin the mesh unprompted**: After a cockpit restart, resumed sessions re-arm their listener and catch up on mail without anyone typing, using the wake and inbox poll added in 1.14.14. | 40% (reported, planned) | Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. As of 1.14.19 cockpit refresh wakes each resumed claude pane once it is idle, which gives it the turn that arms the listener; that is tested with fakes and has not been measured on a live cockpit. | After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later. |
 | **Wake service on by default**: The wake service stops being opt-in once a few weeks of live use show no wake into a busy pane. | 35% (measured) | It passed a live trial on two seats and refuses busy panes, drafts and dialogs. Open edge cases are an image-only prompt that can read as blank and a spinner scrolled out of view that reads as idle. | A report of a wake that interrupted a running turn or submitted a half-typed draft. |
 
-Forecast record: 4 shipped (0 of them not on the plan when predicted), 0 dropped, 0 retracted, 0 superseded so far.
+Forecast record: 5 shipped (0 of them not on the plan when predicted), 0 dropped, 0 retracted, 0 superseded so far.
 
 ## Privacy & Data
 
