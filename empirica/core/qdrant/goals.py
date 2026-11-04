@@ -245,7 +245,7 @@ def search_goals(
         project_id: Project UUID
         query: Semantic search query (e.g., "authentication system")
         item_type: Filter by type ("goal" or "subtask"), None for both
-        status: Filter by status (in_progress, complete, pending, etc.)
+        status: Filter by status (planned, in_progress, blocked, completed, abandoned; tasks also pending)
         ai_id: Filter by AI that created it
         include_subtasks: If False, only return goals
         limit: Maximum results

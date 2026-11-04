@@ -125,8 +125,12 @@ ECO actor decision (phone / extension)
 - **Failure handling:**
   - Connection drop → exponential backoff (1s → 60s cap), reconnect,
     catch-up poll on reconnect (no missed events).
-  - Auth failure (no `connected_ok` flag set on a stream cycle) → 5min
-    backoff (auth issues rarely self-fix in seconds).
+  - Failure to connect (the response was never a 2xx: no headers, or a
+    curl-level failure) → 5min backoff (auth issues rarely self-fix in
+    seconds). A stream that connected (HTTP 2xx) and then dropped, even
+    with only keepalives, is a normal drop and takes the exponential
+    backoff above. 4xx/5xx responses have their own branches (429 has a
+    longer window with periodic catch-up).
   - SIGTERM/SIGINT → clean exit code 0 (systemd / Monitor lifecycle
     knows the listener stopped intentionally).
 
@@ -370,7 +374,7 @@ authority — at most they waste polling round-trips.
 |---|---|---|
 | Network blip | curl stream EOF | reconnect with exponential backoff; catch-up poll on reconnect |
 | ntfy server restart | stream EOF mid-message | same as network blip |
-| ntfy auth credential rotation | stream never gets a message (`connected_ok=False`) | 5min backoff, retry indefinitely |
+| ntfy auth credential rotation | the response is a 4xx, or never a 2xx (`connected_ok=False`) | 5min backoff, retry indefinitely |
 | Cortex unreachable during catch-up | both inbox + outbox fetch raise | state file untouched, retry on next push or reconnect |
 | Listener process killed | systemd / Monitor sees process exit | systemd `Restart=on-failure` (Type=oneshot — re-armed via Monitor on next AI session start) |
 | AI session restarts | SessionStart hook re-fires | Monitor re-armed; listener subprocess re-spawned |

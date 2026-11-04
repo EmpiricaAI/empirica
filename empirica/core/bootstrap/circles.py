@@ -90,7 +90,7 @@ def circle_1_active_state(
         cur.execute(
             "SELECT id, objective, status, is_completed, goal_data, "
             "session_id, transaction_id, created_timestamp "
-            "FROM goals WHERE project_id = ? AND is_completed = 0 "
+            "FROM goals WHERE project_id = ? AND is_completed = 0 AND COALESCE(status, '') != 'abandoned' "
             "ORDER BY created_timestamp DESC LIMIT ?",
             (project_id, cap("in_progress_goals", 10)),
         )

@@ -672,6 +672,7 @@ class GoalDataRepository(BaseRepository):
         goal_data.setdefault("reopen_history", []).append(entry)
 
         params: list = [json.dumps(goal_data)]
+        # open-goal-ok: a write, reopening puts the goal back to work
         sql = (
             "UPDATE goals SET status = 'in_progress', is_completed = 0, "
             "completed_timestamp = NULL, archived = 0, archived_at = NULL, goal_data = ?"

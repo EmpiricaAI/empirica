@@ -2135,6 +2135,14 @@ def handle_listener_on_command(args) -> int:
         "monitor_description": description,
     }
     if not dry_run:
+        # The canonical flow is `on` then `arm`, so rewriting the file from the placeholder reset the arm history every session. Carry it over.
+        try:
+            previous = _json.loads(active_path.read_text(encoding="utf-8")) if active_path.exists() else {}
+        except (OSError, ValueError):
+            previous = {}
+        for key in ("first_armed_at", "arm_count", "arm_history"):
+            if key in previous:
+                placeholder[key] = previous[key]
         active_path.write_text(_json.dumps(placeholder, indent=2), encoding="utf-8")
 
     payload = {

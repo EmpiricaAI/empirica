@@ -683,7 +683,7 @@ def _resolve_goal_for_artifact(goal_id, session_id, db, transaction_id=None, pro
     if transaction_id:
         tiers.append(
             (
-                "SELECT id FROM goals WHERE transaction_id = ? AND is_completed = 0 "
+                "SELECT id FROM goals WHERE transaction_id = ? AND is_completed = 0 AND COALESCE(status, '') != 'abandoned' "
                 "ORDER BY created_timestamp DESC LIMIT 1",
                 (transaction_id,),
             )
@@ -691,7 +691,7 @@ def _resolve_goal_for_artifact(goal_id, session_id, db, transaction_id=None, pro
     if session_id:
         tiers.append(
             (
-                "SELECT id FROM goals WHERE session_id = ? AND is_completed = 0 "
+                "SELECT id FROM goals WHERE session_id = ? AND is_completed = 0 AND COALESCE(status, '') != 'abandoned' "
                 "ORDER BY created_timestamp DESC LIMIT 1",
                 (session_id,),
             )

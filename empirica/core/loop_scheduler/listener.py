@@ -1174,9 +1174,9 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
                 except subprocess.TimeoutExpired:
                     proc.kill()
 
-            # Stream ended. If we never got a message, this might be auth
-            # failure — backoff harder. Otherwise it's a normal drop —
-            # reconnect with exponential backoff. Always catch up first.
+            # Stream ended. If the response was never a 2xx (connected_ok False) this is a failed connect, possibly auth — backoff
+            # harder. A stream that connected and then dropped, quietly or not, is a normal drop — reconnect with exponential backoff.
+            # Always catch up first.
             err_stream.write(f"listener: stream ended (connected_ok={connected_ok}), reconnecting\n")
             try:
                 _catchup()

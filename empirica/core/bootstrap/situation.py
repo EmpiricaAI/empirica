@@ -86,6 +86,7 @@ def _active_goal(conn: sqlite3.Connection, project_id: str) -> dict | None:
     backfill project_id — do not widen the read.
     """
     try:
+        # open-goal-ok: the status IN ('in_progress', 'planned') filter follows, which leaves out abandoned
         cur = conn.execute(
             """
             SELECT g.id, g.objective, g.description, g.scope,

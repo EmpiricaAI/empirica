@@ -49,7 +49,11 @@ def state(tmp_path, monkeypatch):
         assert handle_listener_arm_command(args(task_id=task_id)) == 0
         return json.loads(path.read_text())
 
-    return types.SimpleNamespace(arm=arm, path=path)
+    def on_again():
+        with patch("empirica.core.loop_scheduler.persistent_listener.is_listener_running", return_value=False):
+            assert handle_listener_on_command(args()) == 0
+
+    return types.SimpleNamespace(arm=arm, path=path, on_again=on_again)
 
 
 def test_the_first_arm_sets_first_armed_at_and_a_count_of_one(state):
@@ -83,3 +87,15 @@ def test_a_state_file_from_before_this_change_gets_a_history_from_its_next_arm(s
     state.path.write_text(json.dumps(data))
     after = state.arm("tk1")
     assert after["arm_count"] == 1 and after["first_armed_at"] == after["armed_at"]
+
+
+def test_listener_on_between_arms_does_not_wipe_the_history(state):
+    """Sweep C1: the canonical flow is `listener on` then `listener arm`, and `on` rewrote the file from a placeholder, so the history reset to one
+    arm every session and the feature recorded nothing across the very resumes it exists to measure."""
+    first = state.arm("tk1")
+    state.on_again()
+    second = state.arm("tk2")
+    state.on_again()
+    third = state.arm("tk3")
+    assert third["arm_count"] == 3 and third["first_armed_at"] == first["armed_at"]
+    assert third["arm_history"] == [first["armed_at"], second["armed_at"], third["armed_at"]]

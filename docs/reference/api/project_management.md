@@ -436,7 +436,7 @@ The type sets two defaults, both overridable per transaction: the calibration do
 
 **`blindspot_status`** is `{total, surfaced, acknowledged, dismissed, regretted, last_event_at, source, note}`: the CHECK-time scan telemetry for this practice and when the newest event happened. It is not a fresh scan. `source: "unavailable"` with `total: null` means the read failed. The `minimal` depth drops it.
 
-**`--depth full`** lifts every cap: all findings, unknowns, dead ends, mistakes, assumptions, decisions and edges are returned, and `coverage` says `truncated: false`.
+**`--depth full`** lifts every cap and the findings relevance filter: every open (unresolved) finding, unknown, dead end, mistake, assumption and decision and every listed edge is returned, and `coverage` says `truncated: false`. The output is unbounded (about 3 MB on a practice with 3,000 findings). Only an explicit `--depth full` does this: `auto` depth, which a post-compact drift can resolve to full, keeps the session-start caps, and `coverage` says so. At the default depth the findings figure counts the findings that pass the default relevance filter.\n\nWhen no project root resolves, `situation` is `{"unavailable": "no project root resolved"}` and the rest of the output is returned.
 
 ### Handoffs
 ```bash

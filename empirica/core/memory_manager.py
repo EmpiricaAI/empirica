@@ -151,7 +151,7 @@ def fetch_ranked_artifacts(session_id: str, db_path: str | None = None, limit: i
             pf_args = (project_id,)
             uf = "WHERE is_resolved = 0 AND project_id = ?"
             uf_args = (project_id,)
-            gf = "WHERE is_completed = 0 AND project_id = ?"
+            gf = "WHERE is_completed = 0 AND COALESCE(status, '') != 'abandoned' AND project_id = ?"
             gf_args = (project_id,)
             # Dead-ends and mistakes are never "resolved": they carry
             # `is_invalidated`. They reused `pf`, so when `pf` gained
@@ -162,7 +162,7 @@ def fetch_ranked_artifacts(session_id: str, db_path: str | None = None, limit: i
         else:
             pf, pf_args = "WHERE is_resolved = 0", ()
             uf, uf_args = "WHERE is_resolved = 0", ()
-            gf, gf_args = "WHERE is_completed = 0", ()
+            gf, gf_args = "WHERE is_completed = 0 AND COALESCE(status, '') != 'abandoned'", ()
             vf, vf_args = "WHERE COALESCE(is_invalidated, 0) = 0", ()
 
         # Findings

@@ -434,7 +434,7 @@ def add_checkpoint_parsers(subparsers):
         "--depth",
         choices=["minimal", "moderate", "full", "auto"],
         default="auto",
-        help="Context depth: minimal (~500 tokens), moderate (~1500), full (~3000-5000), auto (drift-based)",
+        help="Context depth: minimal (~500 tokens), moderate (~1500), auto (drift-based), full (no caps: every open finding, unknown, dead end, mistake, assumption, decision and edge; unbounded, hundreds of KB on a large practice)",
     )
     project_bootstrap_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     project_bootstrap_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")

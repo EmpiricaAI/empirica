@@ -136,3 +136,33 @@ def test_the_shutdown_line_counts_what_the_loop_did(monkeypatch):
     assert "connects=2" in line and "events=1" in line
     assert "catchup_failures=1" in line
     assert f"catchups={len(calls)}" in line and len(calls) >= 3
+
+
+# ── sweep C2 and C3: the interval ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("bad", ["0", "-5", "nan", "inf", "-inf", "abc", "", "0.5"])
+def test_a_bad_interval_falls_back_to_the_default_instead_of_spinning_or_breaking_import(monkeypatch, bad):
+    """0, negative and NaN made the logger a busy loop (130,000 lines in 0.3 s); inf killed its thread; a non-numeric value raised at import time,
+    and the package imports the listener eagerly, so every command failed."""
+    from empirica.core.loop_scheduler import listener_stats as ls
+
+    monkeypatch.setenv("EMPIRICA_LISTENER_STATS_INTERVAL_SEC", bad)
+    assert ls.stats_interval_from_env() == ls.DEFAULT_INTERVAL_SEC
+
+
+def test_a_good_interval_is_honoured(monkeypatch):
+    from empirica.core.loop_scheduler import listener_stats as ls
+
+    monkeypatch.setenv("EMPIRICA_LISTENER_STATS_INTERVAL_SEC", "30")
+    assert ls.stats_interval_from_env() == 30.0
+
+
+@pytest.mark.parametrize("bad", [0, -1.0, float("nan"), float("inf")])
+def test_the_logger_never_accepts_an_interval_that_would_spin(bad):
+    from empirica.core.loop_scheduler import listener_stats as ls
+
+    assert (
+        StatsLogger(ListenerStats(rss_fn=lambda: 1.0), io.StringIO(), interval_sec=bad)._interval
+        == ls.DEFAULT_INTERVAL_SEC
+    )

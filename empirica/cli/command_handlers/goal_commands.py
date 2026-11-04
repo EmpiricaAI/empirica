@@ -188,6 +188,7 @@ def _check_for_similar_goals(objective: str, session_id: str | None = None, thre
         from empirica.data.session_database import SessionDatabase
 
         db = SessionDatabase()
+        # open-goal-ok: duplicate-objective check; a recently abandoned objective is a duplicate worth seeing
         cursor = db.conn.execute("""
             SELECT id, objective, session_id, is_completed, created_timestamp
             FROM goals
@@ -1276,6 +1277,7 @@ def handle_goals_progress_command(args):
         handle_cli_error(e, "Get goal progress", getattr(args, "verbose", False))
 
 
+# open-goal-ok: the drift predicate looks for status and is_completed disagreeing, so it names both on purpose
 _DRIFT_PREDICATE = (
     "((g.status = 'completed' AND g.is_completed = 0) "
     "OR (g.status IN ('in_progress','planned') AND g.is_completed = 1))"
@@ -1288,6 +1290,7 @@ def _count_goal_drift(cursor, project_id, status_filter, show_completed) -> int 
     if not project_id or show_completed or status_filter in ("completed", "drift", "all"):
         return 0
     try:
+        # open-goal-ok: the drift count looks for status and is_completed disagreeing
         cursor.execute(
             "SELECT COUNT(*) FROM goals WHERE project_id = ? "
             "AND ((status = 'completed' AND is_completed = 0) "
@@ -3467,6 +3470,7 @@ def _prune_by_status_planned(cursor, project_id: str, dry_run: bool) -> list[dic
     """Close all goals with status='planned' in the project. Goals that
     were planned but never activated are noise — collaboratively-defined
     futures that the team chose not to pursue."""
+    # open-goal-ok: status literal, the pruning names the status it closes
     cursor.execute(
         "SELECT id, objective, created_timestamp FROM goals "
         "WHERE is_completed = 0 AND status = 'planned' AND project_id = ?",
@@ -3509,6 +3513,7 @@ def _prune_test_pollution(cursor, project_id: str, dry_run: bool) -> list[dict]:
     # development phases leave behind.
     # ai_id lives on sessions, not goals — LEFT JOIN so test-pollution goals
     # with a NULL session_id still match on the objective patterns.
+    # open-goal-ok: gardening finds test-pollution goals in any unfinished state
     cursor.execute(
         "SELECT g.id, g.objective, s.ai_id FROM goals g "
         "LEFT JOIN sessions s ON g.session_id = s.session_id "
@@ -3566,6 +3571,7 @@ def _prune_auto_stale(cursor, project_id: str, days: int, dry_run: bool) -> list
     # Match unscoped (NULL project_id) goals too — those accumulate from
     # one-off test runs and CLI invocations outside any project context,
     # and are exactly the noise this command exists to clean up.
+    # open-goal-ok: status literal, the pruning names the status it closes
     cursor.execute(
         "SELECT id, objective, created_timestamp FROM goals "
         "WHERE is_completed = 0 AND status = 'in_progress' "
@@ -3610,6 +3616,7 @@ def _prune_duplicates_via_qdrant(cursor, project_id: str, threshold: float, dry_
     if client is None:
         return [{"mode": "duplicates", "error": "Qdrant not running — start with empirica-server"}]
 
+    # open-goal-ok: gardening duplicate detection across every unfinished goal
     cursor.execute(
         "SELECT id, objective, created_timestamp FROM goals "
         "WHERE is_completed = 0 AND project_id = ? "

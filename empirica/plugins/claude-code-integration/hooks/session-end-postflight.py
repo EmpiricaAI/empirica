@@ -330,7 +330,7 @@ def _fetch_breadcrumbs(session_id: str) -> dict:
             uf_args = (project_id,)
             df = "WHERE project_id = ?"
             df_args = (project_id,)
-            gf = "WHERE is_completed = 0 AND project_id = ?"
+            gf = "WHERE is_completed = 0 AND COALESCE(status, '') != 'abandoned' AND project_id = ?"
             gf_args = (project_id,)
         else:
             pf = ""
@@ -339,7 +339,7 @@ def _fetch_breadcrumbs(session_id: str) -> dict:
             uf_args = ()
             df = ""
             df_args = ()
-            gf = "WHERE is_completed = 0"
+            gf = "WHERE is_completed = 0 AND COALESCE(status, '') != 'abandoned'"
             gf_args = ()
 
         # Recent findings (last 20)

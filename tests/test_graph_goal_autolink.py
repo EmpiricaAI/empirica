@@ -29,8 +29,13 @@ class _DB:
     def __init__(self, rows):
         self.conn = sqlite3.connect(":memory:")
         self.conn.row_factory = sqlite3.Row
-        self.conn.execute("CREATE TABLE goals (id TEXT, session_id TEXT, is_completed INT, created_timestamp REAL)")
-        self.conn.executemany("INSERT INTO goals VALUES (?,?,?,?)", rows)
+        # `status` is in the real schema and the attach tiers read it, so the fixture has it too
+        self.conn.execute(
+            "CREATE TABLE goals (id TEXT, session_id TEXT, is_completed INT, created_timestamp REAL, status TEXT DEFAULT 'in_progress')"
+        )
+        self.conn.executemany(
+            "INSERT INTO goals (id, session_id, is_completed, created_timestamp) VALUES (?,?,?,?)", rows
+        )
         self.conn.commit()
 
     def get_session(self, _):

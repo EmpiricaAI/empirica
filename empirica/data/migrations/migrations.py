@@ -1626,7 +1626,7 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
     ),
     (
         "078_goal_status_vocabulary",
-        "Normalize `goals.status` 'complete' -> 'completed', the same one-word fix migration 064 made for subtasks. Measured 2026-11-04 across 36 practice databases: 6 goal rows spelled 'complete' (all on one practice, all with is_completed = 1), none anywhere else. Dead legacy data, so a one-time rewrite and not a reader contract: the readers that tolerated both spellings (bootstrap circles, the qdrant goal payload) now name the one. Only the status text changes; is_completed is already the canonical flag and is not touched.",
+        "Normalize `goals.status` 'complete' -> 'completed', the same one-word fix migration 064 made for subtasks. Measured 2026-11-04 across 36 practice databases: 6 goal rows spelled 'complete' (all on one practice, all with is_completed = 1), none anywhere else. Dead legacy data, so a one-time rewrite and not a reader contract: the qdrant goal payload, which tolerated both spellings, now names the one (and bootstrap circles stopped tolerating the singular for subtasks too, since migration 064 normalized those rows). Only the status text changes; is_completed is already the canonical flag and is not touched.",
         lambda cursor: migration_078_goal_status_vocabulary(cursor),
     ),
 ]

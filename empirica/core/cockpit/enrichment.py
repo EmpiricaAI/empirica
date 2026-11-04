@@ -227,7 +227,7 @@ def _live_statusline_from_db(
     """Pull the most-recent vectors + open-goal count from project DB.
 
     Open-goal count mirrors statusline_empirica.get_open_counts:
-      WHERE is_completed = 0 AND project_id = ?
+      WHERE is_completed = 0 AND status != 'abandoned' AND project_id = ?
 
     `is_completed` is the source of truth (the `status` column has
     historical inconsistencies); `project_id` filter scopes to the
@@ -361,12 +361,12 @@ def open_goals_list(
     """Return the N most recent open goals for the current project.
 
     Mirrors statusline_empirica.get_open_counts logic:
-      WHERE is_completed = 0 AND project_id = ?
+      WHERE is_completed = 0 AND status != 'abandoned' AND project_id = ?
 
     project_id is resolved from the `sessions` table via the passed
     session_id. If session_id is None or no project_id can be resolved,
     falls back to project-wide is_completed=0 (still excludes 'completed'
-    goals via the boolean source-of-truth).
+    goals via the boolean source-of-truth), and abandoned goals are never open.
 
     `is_completed` is the canonical column for done-ness; the textual
     `status` column has historical inconsistencies. Sorted newest first.
@@ -390,14 +390,14 @@ def open_goals_list(
         if project_id:
             cur.execute(
                 "SELECT objective, status, created_timestamp FROM goals "
-                "WHERE is_completed = 0 AND project_id = ? "
+                "WHERE is_completed = 0 AND COALESCE(status, '') != 'abandoned' AND project_id = ? "
                 "ORDER BY created_timestamp DESC LIMIT ?",
                 (project_id, limit),
             )
         else:
             cur.execute(
                 "SELECT objective, status, created_timestamp FROM goals "
-                "WHERE is_completed = 0 "
+                "WHERE is_completed = 0 AND COALESCE(status, '') != 'abandoned' "
                 "ORDER BY created_timestamp DESC LIMIT ?",
                 (limit,),
             )
@@ -433,18 +433,18 @@ def _resolve_project_id(cur: sqlite3.Cursor, session_id: str) -> str | None:
 
 
 def _count_open_goals(cur: sqlite3.Cursor, project_id: str | None) -> int | None:
-    """Count goals with is_completed = 0 (canonical source of truth).
+    """Count open goals: not completed, and not abandoned (abandoned keeps is_completed = 0 on purpose).
 
     Project-scoped when project_id is available; otherwise project-wide.
     """
     try:
         if project_id:
             cur.execute(
-                "SELECT COUNT(*) FROM goals WHERE is_completed = 0 AND project_id = ?",
+                "SELECT COUNT(*) FROM goals WHERE is_completed = 0 AND COALESCE(status, '') != 'abandoned' AND project_id = ?",
                 (project_id,),
             )
         else:
-            cur.execute("SELECT COUNT(*) FROM goals WHERE is_completed = 0")
+            cur.execute("SELECT COUNT(*) FROM goals WHERE is_completed = 0 AND COALESCE(status, '') != 'abandoned'")
         row = cur.fetchone()
         if row:
             return int(row[0])

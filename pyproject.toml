@@ -66,7 +66,7 @@ dependencies = [
                                 # CVE-2026-102265..102274 + 101917 (fix 2.14.0), CVE-2026-101918 (fix 2.15.0),
                                 # CVE-2026-103001 (no fix version listed; clean on 2.15.1). Transitive via mcp.
     "urllib3>=2.8.0",           # Security: CVE-2026-97687/97688/97689 (fix 2.8.0). Transitive via requests/qdrant-client; direct pin
-    "pyasn1>=0.6.4",            # Security: CVE-2026-59885/59886 quadratic-OID + univ.Real DoS fixes (transitive via rsa/pyasn1-modules; direct pin)
+    "pyasn1>=0.6.5",            # Security: CVE-2026-119194..119197 (fixed in 0.6.5); earlier CVE-2026-59885/59886 quadratic-OID + univ.Real DoS (transitive via rsa/pyasn1-modules; direct pin)
     "aiohttp>=3.14.3",          # Security: CVE-2026-59881 + CVE-2026-69243 (fix 3.14.2) and
                                 # CVE-2026-69244 (fix 3.14.3). Transitive via anthropic,
                                 # google-auth and google-api-core — as an EXTRAS-conditional

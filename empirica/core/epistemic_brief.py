@@ -253,7 +253,10 @@ def _build_active_work(project_id: str, db_path: str | None = None) -> dict:
         open_goals = 0
         stale_goals = 0
         try:
-            cursor.execute("SELECT COUNT(*) FROM goals WHERE project_id = ? AND is_completed = 0", (project_id,))
+            cursor.execute(
+                "SELECT COUNT(*) FROM goals WHERE project_id = ? AND is_completed = 0 AND COALESCE(status, '') != 'abandoned'",
+                (project_id,),
+            )
             open_goals = cursor.fetchone()[0]
             cursor.execute("SELECT COUNT(*) FROM goals WHERE project_id = ? AND status = 'stale'", (project_id,))
             stale_goals = cursor.fetchone()[0]

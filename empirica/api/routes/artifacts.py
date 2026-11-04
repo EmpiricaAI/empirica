@@ -631,7 +631,7 @@ def _list_goals(db, project_id: str, status: str, limit: int, artifact_id: str |
     where = "project_id = ?"
     params: list[Any] = [project_id]
     if status == "active":
-        where += " AND is_completed = 0"
+        where += " AND is_completed = 0 AND COALESCE(status, '') != 'abandoned'"
     elif status == "completed":
         where += " AND is_completed = 1"
     elif status == "planned":

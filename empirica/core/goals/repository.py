@@ -412,7 +412,7 @@ class GoalRepository:
                 SELECT goal_data FROM goals
                 WHERE session_id = ?
                   AND is_completed = 0
-                  AND COALESCE(status, 'in_progress') != 'planned'
+                  AND COALESCE(status, 'in_progress') NOT IN ('planned', 'abandoned')
                 ORDER BY created_timestamp
             """,
                 (session_id,),
@@ -647,7 +647,7 @@ class GoalRepository:
             cursor = self.db.conn.execute(
                 """
                 SELECT id, goal_data FROM goals
-                WHERE session_id = ? AND is_completed = 0
+                WHERE session_id = ? AND is_completed = 0 AND COALESCE(status, '') != 'abandoned'
             """,
                 (session_id,),
             )
@@ -707,7 +707,7 @@ class GoalRepository:
                     """
                     SELECT id, objective, scope, goal_data, created_timestamp
                     FROM goals
-                    WHERE session_id = ? AND is_completed = 0
+                    WHERE session_id = ? AND is_completed = 0 AND COALESCE(status, '') != 'abandoned'
                     ORDER BY created_timestamp DESC
                 """,
                     (session_id,),
@@ -718,7 +718,7 @@ class GoalRepository:
                     SELECT g.id, g.objective, g.scope, g.goal_data, g.created_timestamp
                     FROM goals g
                     JOIN sessions s ON g.session_id = s.session_id
-                    WHERE s.project_id = ? AND g.is_completed = 0
+                    WHERE s.project_id = ? AND g.is_completed = 0 AND COALESCE(g.status, '') != 'abandoned'
                     ORDER BY g.created_timestamp DESC
                 """,
                     (project_id,),
@@ -762,6 +762,7 @@ class GoalRepository:
         import time
 
         try:
+            # open-goal-ok: addresses one goal by id, not a listing of open work
             cursor = self.db.conn.execute(
                 """
                 SELECT goal_data FROM goals WHERE id = ? AND is_completed = 0

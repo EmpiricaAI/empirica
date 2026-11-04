@@ -8,14 +8,32 @@ nothing the listener does, and a failure to read or write is swallowed.
 
 from __future__ import annotations
 
+import math
 import os
 import threading
 import time
 from collections.abc import Callable
 from typing import TextIO
 
-_DEFAULT_INTERVAL_SEC = float(os.environ.get("EMPIRICA_LISTENER_STATS_INTERVAL_SEC", "600"))
+DEFAULT_INTERVAL_SEC = 600.0
+_MIN_INTERVAL_SEC = 1.0
 _COUNTERS = ("connects", "events", "catchups", "catchup_failures")
+
+
+def _usable_interval(value: float) -> bool:
+    """A finite interval of at least a second. 0, a negative number or NaN made the logger a busy loop, and inf killed its thread."""
+    return math.isfinite(value) and value >= _MIN_INTERVAL_SEC
+
+
+def stats_interval_from_env() -> float:
+    """The stats interval from EMPIRICA_LISTENER_STATS_INTERVAL_SEC, or the default when it is unset, not a number, or not usable.
+
+    Read when a logger is built, not at import: the package imports the listener eagerly, so a bad value raised at import time failed every command."""
+    try:
+        value = float(os.environ.get("EMPIRICA_LISTENER_STATS_INTERVAL_SEC", DEFAULT_INTERVAL_SEC))
+    except ValueError:
+        return DEFAULT_INTERVAL_SEC
+    return value if _usable_interval(value) else DEFAULT_INTERVAL_SEC
 
 
 def parse_statm_rss_mb(text: str | None, page_size: int) -> float | None:
@@ -61,10 +79,16 @@ class ListenerStats:
 class StatsLogger:
     """Writes the stats line to `stream` every `interval_sec` on a daemon thread. Never raises into the listener."""
 
-    def __init__(self, stats: ListenerStats, stream: TextIO, interval_sec: float = _DEFAULT_INTERVAL_SEC):
+    def __init__(self, stats: ListenerStats, stream: TextIO, interval_sec: float | None = None):
         self._stats = stats
         self._stream = stream
-        self._interval = interval_sec
+        self._interval = (
+            stats_interval_from_env()
+            if interval_sec is None
+            else interval_sec
+            if _usable_interval(interval_sec)
+            else DEFAULT_INTERVAL_SEC
+        )
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 

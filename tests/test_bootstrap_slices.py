@@ -232,3 +232,35 @@ def test_full_depth_lifts_the_caps_and_the_default_does_not(world, no_project_ro
     full = world.db.bootstrap_project_breadcrumbs(world.pid, project_root=None, depth="full")
     assert len(full["findings"]) == 13 and len(full["decisions"]) == 13
     assert full["coverage"]["findings"]["truncated"] is False and full["coverage"]["decisions"]["truncated"] is False
+
+
+def test_full_depth_includes_findings_the_default_relevance_filter_drops(world, no_project_root):
+    """Sweep B1: depth full kept the default relevance filter (threshold 0.60), so on a practice with 3,255 findings it returned 231 and
+    coverage said total 231, truncated false: the certificate the change set out to make true was false."""
+    for i in range(13):
+        world.db.log_finding(world.pid, world.sid, f"recent {i}", impact=0.9)
+    old = world.db.log_finding(world.pid, world.sid, "ancient and low impact", impact=0.05)
+    world.db.conn.execute("UPDATE project_findings SET created_timestamp = ? WHERE id = ?", (1_000_000.0, old))
+    world.db.conn.commit()
+    # positive control: the default read really does drop it
+    assert len(world.db.breadcrumbs.get_project_findings(world.pid)) == 13
+    full = world.db.bootstrap_project_breadcrumbs(world.pid, project_root=None, depth="full")
+    assert len(full["findings"]) == 14
+    assert full["coverage"]["findings"] == {"shown": 14, "total": 14, "truncated": False, "source": "sqlite"}
+
+
+def test_full_depth_lists_open_unknowns_like_the_default_does(world, no_project_root):
+    """Sweep B2: session_start read only unresolved unknowns, live/full read every one, so the same key meant two populations."""
+    ids = [world.db.log_unknown(world.pid, world.sid, f"unknown {i}") for i in range(3)]
+    world.db.conn.execute("UPDATE project_unknowns SET is_resolved = 1 WHERE id = ?", (ids[0],))
+    world.db.conn.commit()
+    default = world.db.bootstrap_project_breadcrumbs(world.pid, project_root=None)
+    full = world.db.bootstrap_project_breadcrumbs(world.pid, project_root=None, depth="full")
+    assert len(default["unknowns"]) == len(full["unknowns"]) == 2
+    assert full["coverage"]["unknowns"] == {"shown": 2, "total": 2, "truncated": False, "source": "sqlite"}
+
+
+def test_a_bootstrap_without_a_project_root_says_why_its_situation_is_empty(world, no_project_root):
+    """Sweep B5: an empty situation read the same as 'nothing to report'."""
+    out = world.db.bootstrap_project_breadcrumbs(world.pid, project_root=None)
+    assert out["situation"].get("unavailable")

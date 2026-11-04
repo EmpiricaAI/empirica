@@ -1243,7 +1243,7 @@ def _maybe_add_deferred_proposals_note(cursor, session_id: str, retro: dict) -> 
     transaction that fired it (planning goals from weeks prior). Tightened
     to convention-prefix only 2026-05-17.
 
-    **`is_completed = 0` was an inversion, corrected 2026-08-07.** The ack a
+    **Reading only open goals was an inversion, corrected 2026-08-07.** The ack a
     peer is waiting for becomes due precisely WHEN the work finishes, so a
     reminder that only fires while the goal is open goes silent at the exact
     moment it is needed. Measured: autonomy's Claude-5 trim directive shipped
@@ -1267,6 +1267,7 @@ def _maybe_add_deferred_proposals_note(cursor, session_id: str, retro: dict) -> 
     — it is a prompt, not an accusation.
     """
     try:
+        # open-goal-ok: an abandoned proposal goal still owes the peer a reply (wont_fix), so this reader keeps it
         cursor.execute(
             """
             SELECT g.id, g.objective, g.is_completed FROM goals g

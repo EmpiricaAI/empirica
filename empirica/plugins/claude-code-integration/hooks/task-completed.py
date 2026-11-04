@@ -127,6 +127,7 @@ def _find_matching_goal(db_path: Path, task_subject: str, task_description: str)
         cursor = conn.cursor()
 
         # Get all active (non-completed) goals
+        # open-goal-ok: status literal, only in_progress goals are read
         cursor.execute("""
             SELECT id, objective, goal_data, status
             FROM goals

@@ -1876,9 +1876,15 @@ class SessionDatabase:
                     f"assumptions: showing {ASSUMPTIONS_LIMIT} of {len(all_assumptions)} unverified (use 'empirica project-search --type assumptions')"
                 )
         else:  # mode == "live"
-            # COMPLETE: All items (no limits)
-            findings = _read_all(self.breadcrumbs.get_project_findings(project_id, subject=subject), "findings")
-            unknowns = _read_all(self.breadcrumbs.get_project_unknowns(project_id, subject=subject), "unknowns")
+            # COMPLETE: All items (no limits). Findings skip the relevance filter (depth "complete": the default "moderate" drops the low-scoring
+            # ones, so a "full" load returned a fraction and said it was whole), and unknowns are the OPEN ones, as at session_start: the same key
+            # must not mean two populations.
+            findings = _read_all(
+                self.breadcrumbs.get_project_findings(project_id, subject=subject, depth="complete"), "findings"
+            )
+            unknowns = _read_all(
+                self.breadcrumbs.get_project_unknowns(project_id, resolved=False, subject=subject), "unknowns"
+            )
             dead_ends = _read_all(self.breadcrumbs.get_project_dead_ends(project_id, subject=subject), "dead_ends")
             recent_mistakes = _read_all(self.breadcrumbs.get_project_mistakes(project_id), "mistakes_to_avoid")
             assumptions = _read_all(self.breadcrumbs.get_project_assumptions(project_id), "assumptions")
@@ -2050,7 +2056,7 @@ class SessionDatabase:
         if not project_root:
             # No root resolved (a checkout without one, a call from outside the project): there is no path to read a git or database situation
             # from. Every situation key is optional, and the rest of the bootstrap ships; passing None crashed the whole call.
-            return {}
+            return {"unavailable": "no project root resolved"}
         return build_situation(project_root, project_id)
 
     def _count_project_artifacts(self, project_id: str) -> dict:

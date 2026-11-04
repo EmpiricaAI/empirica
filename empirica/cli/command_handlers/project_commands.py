@@ -949,7 +949,8 @@ def _query_live_counts(project_path, project_id):
                 pass
             try:
                 goals = c.execute(
-                    "SELECT COUNT(*) FROM goals WHERE project_id = ? AND is_completed = 0", (project_id,)
+                    "SELECT COUNT(*) FROM goals WHERE project_id = ? AND is_completed = 0 AND COALESCE(status, '') != 'abandoned'",
+                    (project_id,),
                 ).fetchone()[0]
             except Exception:
                 pass
