@@ -51,7 +51,9 @@ items:
     falsifier: A bootstrap run on a graph larger than its caps that omits open assumptions or caps findings without saying so.
     horizon: "1.14.20"
     steered: true
-    status: predicted
+    status: shipped
+    resolved_in: "1.14.20"
+    reason: Graded at 1.14.20. On this practice's real graph, project-bootstrap lists 10 of 96 open assumptions, says 10 of 771 decisions (newest first, from SQLite), caps findings, dead ends and mistakes with a coverage entry each, and lists the semantic links among the artifacts shown (3 here), with the last blindspot scan status. Mistakes carry no id, so they are not endpoints of a link. Tested, and run once on the real data; the falsifier case (a graph larger than the caps) is this practice.
     revisions:
       - "on": "2026-10-26"
         from: 0.75
@@ -79,11 +81,11 @@ items:
   - id: listener-memory
     title: Listener memory stays flat
     prediction: Within three releases a listener's memory stops growing with uptime, and a dead notification stream is restarted.
-    confidence: 0.55
+    confidence: 0.5
     evidence: reported
-    basis: Operators of long-running listeners report about 30 MB an hour in one case and over 1 GB at 29 hours in another, with a stream process that was not respawned after a drop. We have not yet reproduced it on a fresh unit.
+    basis: Operators of long-running listeners report about 30 MB an hour in one case and over 1 GB at 29 hours in another, with a stream process that was not respawned after a drop. We have not yet reproduced it on a fresh unit. From 1.14.20 the listener logs its memory next to its activity, so the growth can be attributed, and a quiet stream that drops no longer waits five minutes with no stream process.
     falsifier: On a release that claims the fix, a listener's memory grows by more than 50 MB between hour 4 and hour 24 of uptime.
-    horizon: "1.14.20"
+    horizon: "1.14.22"
     steered: true
     status: predicted
     revisions:
@@ -91,15 +93,19 @@ items:
         from: 0.65
         to: 0.55
         reason: Not delivered by its 1.14.17 horizon, because the listener code was not changed in 1.14.18 (the loops only gained terminal-401 handling), so nothing could have moved its memory growth. The horizon moves to 1.14.20 and the confidence drops, because a prediction that misses its horizon was over-confident about when.
+      - "on": "2026-11-04"
+        from: 0.55
+        to: 0.5
+        reason: Not delivered by its 1.14.20 horizon. That release adds the stats line that attributes the growth and removes the five-minute window with no stream process after a quiet drop, but the memory growth itself is neither reproduced nor fixed, so nothing could have stopped it. The horizon moves to 1.14.22 and the confidence drops, because a prediction that misses its horizon was over-confident about when.
 
   - id: cockpit-rejoin
     title: Restarted cockpit panes rejoin the mesh unprompted
     prediction: After a cockpit restart, resumed sessions re-arm their listener and catch up on mail without anyone typing, using the wake and inbox poll added in 1.14.14.
-    confidence: 0.45
+    confidence: 0.4
     evidence: reported
     basis: Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. As of 1.14.19 cockpit refresh wakes each resumed claude pane once it is idle, which gives it the turn that arms the listener; that is tested with fakes and has not been measured on a live cockpit.
     falsifier: After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later.
-    horizon: "1.14.20"
+    horizon: "1.14.21"
     steered: true
     status: predicted
     revisions:
@@ -107,6 +113,10 @@ items:
         from: 0.55
         to: 0.45
         reason: Not delivered by its 1.14.17 horizon, because cockpit refresh still does not call the wake or the inbox poll; this range touched cockpit code only for 401 handling and a cron example. The horizon moves to 1.14.20 and the confidence drops, because a prediction that misses its horizon was over-confident about when.
+      - "on": "2026-11-04"
+        from: 0.45
+        to: 0.4
+        reason: Not delivered by its 1.14.20 horizon, in the sense that nothing was measured on a live restart. The wake exists since 1.14.19 and is tested with fakes; the cockpits were restarted on that release, but the registry then held only the latest arm per session, so the gap could not be read. From 1.14.20 it keeps first and every recent arm time. The horizon moves to 1.14.21 so the next restart is the first measurement, and the confidence drops, because a prediction that misses its horizon was over-confident about when.
 
   - id: wake-default
     title: Wake service on by default
