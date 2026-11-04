@@ -14,9 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The listener logs its memory beside its activity,** and `listener arm` keeps an arm history, so RSS growth and a first-arm-after-resume gap can be read instead of guessed.
 - **Abandoned goals are no longer listed as active.** `goals-list` showed all 19 on one practice (87 against 68), and about a dozen more readers (the bootstrap circle, the artifact attach tiers, the serve route, the cockpit counts) had the same filter; `goals-archive` now clears abandoned goals.
 - **One word for a finished goal, `completed`,** with a migration for six legacy rows; and **`project-create` is removed** in favour of `project-init`, with no deprecation period.
+- **The nightly is part of the release gate.** `release.py --prepare` now runs the Nightly workflow's two jobs (the `integration`-marked tests and the whole suite in a clean environment) on the release commit, always. The nightly had been red every night for eight days while CI was green; two causes fixed.
 - **Security:** the `pyasn1` floor is raised to 0.6.5 for four CVEs fixed there.
 
 ### Fixed
+
+- **The Nightly workflow's two failures.** Its integration job did not install the MCP package that two tests import, so it failed at collection; and `test_factory_returns_systemd_on_linux` patched the package re-export while the scheduler checks the name in its own module, so it passed only where a systemd user manager exists. Both red every night since 2026-10-28.
 
 - **Abandoned goals are no longer open work in the other readers either.** The same `is_completed = 0` filter that `goals-list` had was in about a dozen more: the bootstrap's active circle (a newer abandoned goal took the slot of a live one), the artifact-to-goal attach tiers (a new finding could attach to an abandoned goal), the serve route's `status=active`, the memory and brief sections, the cockpit counts, the POSTFLIGHT success-criteria readers and the session-end hook. A test now fails for any new reader that lists them without a reviewed `open-goal-ok` note.
 - **`--depth full` is now really full.** It kept the findings relevance filter, so on a practice with 3,255 open findings it returned 231 and said `truncated: false`, and it listed resolved unknowns while the default view listed open ones. It now returns every open finding and every open unknown (3,255 and 86 here), and when no project root resolves `situation` says `unavailable`.

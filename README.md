@@ -444,9 +444,10 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 - **The listener logs its memory beside its activity,** and `listener arm` keeps an arm history, so RSS growth and a first-arm-after-resume gap can be read instead of guessed.
 - **Abandoned goals are no longer listed as active.** `goals-list` showed all 19 on one practice (87 against 68), and about a dozen more readers (the bootstrap circle, the artifact attach tiers, the serve route, the cockpit counts) had the same filter; `goals-archive` now clears abandoned goals.
 - **One word for a finished goal, `completed`,** with a migration for six legacy rows; and **`project-create` is removed** in favour of `project-init`, with no deprecation period.
+- **The nightly is part of the release gate.** `release.py --prepare` now runs the Nightly workflow's two jobs (the `integration`-marked tests and the whole suite in a clean environment) on the release commit, always. The nightly had been red every night for eight days while CI was green; two causes fixed.
 - **Security:** the `pyasn1` floor is raised to 0.6.5 for four CVEs fixed there.
 
-All 18 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 19 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 

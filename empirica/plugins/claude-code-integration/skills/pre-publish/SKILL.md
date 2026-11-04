@@ -20,7 +20,9 @@ that, because the defect was an absence.
 2. **Deterministic tier: a tool's job, not yours.** Lint, types, full tests, dependency CVE audit, secret scan, docs drift. Fix
    failures; do not waive them. A CVE with a published fix is a floor bump, not a note. In empirica this is
    `empirica compliance-report --dep-audit --security` plus `release.py --prepare`
-   (`references/empirica-release.md`).
+   (`references/empirica-release.md`). **Tests, CI and the nightly are one gate:** CI green on the exact commit, and the Nightly
+   workflow's two jobs (the `integration`-marked tests and the whole suite in a clean environment), which `--prepare` runs locally
+   and always. Per-push CI excludes both, so a green CI is not a green nightly.
 3. **Independent sweep.** One read-only reviewer per area, in parallel, each with the brief in `references/sweep-brief.md`. They do
    not edit, apply, or run anything that mutates. The pattern table they apply is eat-the-broccoli, Phase 2.
 4. **Trace every finding yourself.** A reviewer's verdict is an uncalibrated self-report. For each finding: open the file:line,
@@ -37,6 +39,9 @@ that, because the defect was an absence.
 
 ## Rules earned, each from an incident
 
+- **A green CI is not a green nightly.** The Nightly workflow was red every night for eight days (a test that needed a real systemd
+  user manager, an install step without the MCP package) while four releases' CI was green, because `--prepare` trusted CI and skipped
+  the suite. The nightly's two jobs now run inside `--prepare`; read the last scheduled run too (`gh run list --workflow nightly.yml`).
 - **A second pass that is not clean means the first was wrong.** After any bulk repair or apply, re-run the plan. 342 of 1,727 items
   still disagreeing exposed a bug in the repair itself; the unit tests had never exercised the condition.
 - **Grep for an existing guard before writing a new one.** The check the sweep wanted already existed one class over, with a comment

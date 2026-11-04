@@ -206,7 +206,9 @@ def render_whats_new(changelog_text: str, version: str, earlier: int = _WHATS_NE
             f"All {len(detail)} entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md)."
         )
     elif highlights:  # nothing but highlights: there is no count of other entries to give
-        lines.append("The full entry, with the measurements behind each highlight, is in the [CHANGELOG](CHANGELOG.md).")
+        lines.append(
+            "The full entry, with the measurements behind each highlight, is in the [CHANGELOG](CHANGELOG.md)."
+        )
     elif len(detail) > len(shown):
         left = len(detail) - len(shown)
         lines.append(f"Plus {left} more {'entry' if left == 1 else 'entries'} in the [CHANGELOG](CHANGELOG.md).")
@@ -307,9 +309,11 @@ def validate_roadmap(data: object) -> dict:
                 )
             )
             if not complete:
-                hint = " (an unquoted `on:` key is the boolean true in YAML 1.1: quote the `on` key)" if any(
-                    isinstance(r, dict) and True in r for r in revisions
-                ) else ""
+                hint = (
+                    " (an unquoted `on:` key is the boolean true in YAML 1.1: quote the `on` key)"
+                    if any(isinstance(r, dict) and True in r for r in revisions)
+                    else ""
+                )
                 raise ValueError(f"roadmap item {n}: revisions need on, from, to and reason in every entry{hint}")
             if revisions[-1]["to"] != conf:
                 raise ValueError(
@@ -424,7 +428,9 @@ def _revision_problems(old: dict, item: dict) -> list[str]:
     if not (isinstance(released, list) and isinstance(now, list)):
         return [f"{old['id']}: revisions must be a list of dated entries"]
     if now[: len(released)] != released:
-        return [f"{old['id']}: a released revision was edited or removed; revisions are history, append a new one instead"]
+        return [
+            f"{old['id']}: a released revision was edited or removed; revisions are history, append a new one instead"
+        ]
     standing = old.get("confidence")
     for r in now[len(released) :]:
         if not isinstance(r, dict):
@@ -554,6 +560,7 @@ class ReleaseManager:
         dry_run: bool = False,
         old_version: str | None = None,
         skip_tests: bool = False,
+        skip_nightly: bool = False,
         commit_bump: bool = False,
         local_artifacts: bool = False,
     ):
@@ -573,6 +580,8 @@ class ReleaseManager:
         # and relies on develop CI's green run for the full suite. The fast
         # gates (import/ruff/pyright/pip-audit) still run.
         self.skip_tests = skip_tests
+        # The nightly's two jobs run in --prepare unless this is set (an escape hatch, named in the output when used).
+        self.skip_nightly = skip_nightly
         # develop HEAD sha captured before the merge→main, so the trust-CI
         # check can match the release commit against develop's CI run.
         self.develop_head: str | None = None
@@ -2172,6 +2181,68 @@ brew install empirica
         success(f"{payload['checked']} files parse on Python {floor}")
         return True
 
+    def run_nightly_checks(self, run=subprocess.run) -> bool:
+        """Run the Nightly workflow's two jobs on this commit: the `integration`-marked tests, and the whole suite in a clean environment.
+
+        Per-push CI excludes both on purpose, and `--prepare` skips the suite when develop CI is green, so a red nightly was invisible to the cut:
+        it failed every night from 2026-10-28 to 2026-11-04 (a test that needed a real systemd user manager, and an install step that lacked the
+        MCP package) while four releases' worth of CI was green. Both jobs always run and are both reported, so one run shows every red thing.
+        The clean job gives the interpreter by absolute path because the toolchain is deliberately not on its PATH.
+        """
+        log("\n" + "=" * 60)
+        log("🌙 Nightly checks (integration-marked tests + clean-environment suite)")
+        log("=" * 60)
+        if self.dry_run:
+            info("Would run: pytest -m integration, then the whole suite with an empty HOME and PATH=/usr/bin:/bin")
+            return True
+        import tempfile
+
+        jobs: list[tuple[str, list[str], dict | None, int]] = [
+            (
+                "integration-marked tests",
+                [sys.executable, "-m", "pytest", "tests/", "-q", "--tb=short", "-m", "integration"],
+                None,
+                900,
+            ),
+        ]
+        clean_home = tempfile.mkdtemp(prefix="empirica-clean-home-")
+        jobs.append(
+            (
+                "clean-environment suite",
+                [
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    "tests/",
+                    "-q",
+                    "--tb=short",
+                    "-m",
+                    "not integration",
+                    "-n",
+                    "auto",
+                    "-p",
+                    "no:randomly",
+                ],
+                {"HOME": clean_home, "PATH": "/usr/bin:/bin"},
+                2400,
+            )
+        )
+        ok = True
+        for name, cmd, env, timeout in jobs:
+            info(f"Running the {name} …")
+            try:
+                result = run(cmd, cwd=str(self.repo_root), timeout=timeout, **({"env": env} if env is not None else {}))
+            except (OSError, subprocess.TimeoutExpired) as e:
+                warning(f"{name}: could not finish ({type(e).__name__}: {e})")
+                ok = False
+                continue
+            if result.returncode != 0:
+                warning(f"{name}: FAILED (exit {result.returncode})")
+                ok = False
+            else:
+                success(f"{name}: passed")
+        return ok
+
     # Governed CVE-waiver list. STRICT by default (any un-waived CVE hard-fails).
     # A waiver here is a documented, reviewed risk-acceptance for a CVE that is
     # (a) assessed non-exploitable in Empirica's usage, AND (b) has no available
@@ -2546,6 +2617,16 @@ brew install empirica
             # Gate: pip-audit (CVE scan) — mirrors CI's pip-audit step.
             if not self.run_pip_audit():
                 warning("CVE scan failed. Fix vulnerabilities before running --publish.")
+                info("\nOnce fixed, run: python scripts/release.py --publish")
+                sys.exit(1)
+
+            # Gate: the nightly's two jobs, always, before the CI-trust skip below. That skip is what hid a nightly that was red for a week.
+            if self.skip_nightly:
+                warning("⏭  Skipping the nightly checks (--skip-nightly): a red nightly will not block this cut.")
+            elif not self.run_nightly_checks():
+                warning(
+                    "The nightly checks failed. Fix them before running --publish (they are what the Nightly workflow runs)."
+                )
                 info("\nOnce fixed, run: python scripts/release.py --publish")
                 sys.exit(1)
 
@@ -3066,6 +3147,14 @@ Legacy (one-shot, less safe):
             "can't be read."
         ),
     )
+    parser.add_argument(
+        "--skip-nightly",
+        action="store_true",
+        help=(
+            "In --prepare, do not run the Nightly workflow's two jobs (the integration-marked tests and the clean-environment suite). "
+            "They run by default, so a red nightly blocks the cut; skipping is named in the output."
+        ),
+    )
     args = parser.parse_args()
 
     if args.prepare and args.publish:
@@ -3079,6 +3168,7 @@ Legacy (one-shot, less safe):
         dry_run=args.dry_run,
         old_version=args.old_version,
         skip_tests=args.skip_tests,
+        skip_nightly=args.skip_nightly,
         commit_bump=args.commit,
     )
     if args.verify:

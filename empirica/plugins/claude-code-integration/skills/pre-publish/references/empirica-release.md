@@ -10,7 +10,9 @@
    `git add -u && git commit`.
 5. Push; wait for CI on THAT commit by its full run id (`gh run list --branch develop`, `gh run view <id>`).
 6. `python scripts/release.py --prepare`: checks docs, merges to local `main`, builds, runs ruff, pyright, pip-audit and the import
-   smoke tests, and skips the full suite when CI is green on the same commit. It does not push or tag.
+   smoke tests, then the Nightly workflow's two jobs locally and always (the `integration`-marked tests, and the whole suite with an
+   empty HOME and a system-only PATH; `--skip-nightly` skips them and says so), and skips only the plain full suite when CI is green on
+   the same commit. It does not push or tag.
 7. `python scripts/release.py --publish`: must run on `main`; tags and pushes. `release.yml` owns every channel from here. Only on
    the owner's explicit go for this release.
 8. Find the release run: `gh run list --workflow release.yml`, wait on its id, list its jobs.
@@ -23,7 +25,9 @@
 Known quirks: the compliance report's `release_chain` check reads FAIL until the version is published; Chocolatey is skipped where
 there is no `choco` CLI; `release.py` returns you to `develop` after publish.
 
-Gates to run before step 6 (the skill's steps 2 to 7): `empirica compliance-report --dep-audit --security`, then the sweep.
+Gates to run before step 6 (the skill's steps 2 to 7): `empirica compliance-report --dep-audit --security`, then the sweep. Read the last
+scheduled nightly (`gh run list --workflow nightly.yml`). The scheduled run uses the DEFAULT branch's copy of the workflow file, so a
+change to it reaches the schedule only once it is on `main`; verify it before then with `gh workflow run nightly.yml --ref develop`.
 
 ## Reading the deterministic tier
 

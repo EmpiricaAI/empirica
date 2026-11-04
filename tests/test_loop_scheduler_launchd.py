@@ -281,9 +281,13 @@ def test_factory_returns_systemd_on_linux(monkeypatch):
     import sys
 
     import empirica.core.loop_scheduler as pkg
+    from empirica.core.loop_scheduler import systemd as systemd_mod
 
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(pkg, "is_systemd_available", lambda: True)
+    # The constructor checks the name in its own module, so patching only the package re-export passed where a systemd user manager exists
+    # and failed on a runner without one (the nightly's clean-environment job, every night since 2026-10-28).
+    monkeypatch.setattr(systemd_mod, "is_systemd_available", lambda: True)
     sched = pkg.get_loop_scheduler("/abs/empirica")
     assert sched.__class__.__name__ == "SystemdLoopScheduler"
 
