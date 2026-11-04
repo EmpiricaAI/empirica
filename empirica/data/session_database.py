@@ -1885,45 +1885,54 @@ class SessionDatabase:
 
         reference_docs = self.breadcrumbs.get_project_reference_docs(project_id)
 
-        # Decisions are permanent audit trail — load from Qdrant (static, no decay)
-        decisions = []
+        # Decisions: SQLite is canonical (newest first, exact total). The vector store holds a derived copy that cannot be rebuilt and returned
+        # an unordered page, so the bootstrap no longer reads it; a failed read says `unavailable` instead of looking like "no decisions".
         DECISIONS_LIMIT = 10
-        decisions_source = "unavailable"  # a read that did not happen is not "no decisions"
-        decisions_cut = False
+        decisions: list[dict] = []
         try:
-            from empirica.core.qdrant.vector_store import (
-                _check_qdrant_available,
-                _decisions_collection,
-                _get_qdrant_client,
+            total_decisions = self.breadcrumbs.count_project_decisions(project_id)
+            rows = self.breadcrumbs.get_project_decisions(
+                project_id, limit=DECISIONS_LIMIT if mode == "session_start" else None
             )
+            decisions = [
+                {
+                    "id": r["id"],
+                    "choice": r["choice"],
+                    "rationale": r["rationale"],
+                    "reversibility": r["reversibility"],
+                    "confidence": r["confidence_at_decision"],
+                    "created_timestamp": r["created_timestamp"],
+                }
+                for r in rows
+            ]
+            coverage["decisions"] = _coverage_entry(
+                len(decisions), total_decisions, total_decisions > len(decisions), "sqlite"
+            )
+        except Exception as e:
+            logger.warning(f"bootstrap: decisions unavailable: {e}")
+            coverage["decisions"] = _coverage_entry(0, None, False, "unavailable")
 
-            if _check_qdrant_available():
-                client = _get_qdrant_client()
-                coll = _decisions_collection(project_id)
-                if client:
-                    decisions_source = "qdrant"
-                    if client.collection_exists(coll):
-                        # one more than the cap says whether the cap hid anything
-                        points = client.scroll(collection_name=coll, limit=DECISIONS_LIMIT + 1, with_payload=True)[0]
-                        decisions_cut = len(points) > DECISIONS_LIMIT
-                        for pt in points[:DECISIONS_LIMIT]:
-                            p = pt.payload or {}
-                            decisions.append(
-                                {
-                                    "choice": p.get("choice", ""),
-                                    "rationale": p.get("rationale", ""),
-                                    "reversibility": p.get("reversibility", "exploratory"),
-                                    "confidence": p.get("confidence_at_decision"),
-                                }
-                            )
-        except Exception:
-            decisions, decisions_source, decisions_cut = [], "unavailable", False  # Qdrant failed: non-fatal, but said
-        coverage["decisions"] = _coverage_entry(
-            len(decisions),
-            None if (decisions_source == "unavailable" or decisions_cut) else len(decisions),
-            decisions_cut,
-            decisions_source,
+        artifact_edges, edges_coverage = self._shown_artifact_edges(
+            {
+                "finding": findings,
+                "unknown": unknowns,
+                "dead_end": dead_ends,
+                "decision": decisions,
+                "assumption": assumptions,
+            },
+            cap=20 if mode == "session_start" else None,
         )
+        coverage["artifact_edges"] = edges_coverage
+
+        try:
+            blindspot_status = {
+                **self.breadcrumbs.get_blindspot_status(project_id),
+                "source": "sqlite",
+                "note": "CHECK-time scan telemetry for this practice, not a fresh scan",
+            }
+        except Exception as e:
+            logger.warning(f"bootstrap: blindspot status unavailable: {e}")
+            blindspot_status = {"total": None, "last_event_at": None, "source": "unavailable"}
 
         result = {
             "findings": findings,
@@ -1933,6 +1942,8 @@ class SessionDatabase:
             "mistakes_to_avoid": recent_mistakes,
             "reference_docs": reference_docs,
             "assumptions": assumptions,
+            "artifact_edges": artifact_edges,
+            "blindspot_status": blindspot_status,
             "coverage": coverage,
         }
 
@@ -1940,6 +1951,34 @@ class SessionDatabase:
             result["truncation_warnings"] = truncation_warnings
 
         return result
+
+    def _shown_artifact_edges(self, lists: dict[str, list[dict]], cap: int | None) -> tuple[list[dict], dict]:
+        """Semantic edges among the artifacts actually in the lists, as {from, to, from_type, to_type, relation}, with a coverage entry.
+
+        Both ends must be shown: an edge to an artifact the cap left out would point at nothing the reader holds. Ids are full-length, since
+        a consumer may join on them."""
+        kind_of: dict[str, str] = {}
+        for kind, rows in lists.items():
+            for row in rows:
+                if row.get("id") is not None:
+                    kind_of[str(row["id"])] = kind
+        try:
+            found = self.breadcrumbs.get_semantic_edges(list(kind_of)) if kind_of else []
+        except Exception as e:
+            logger.warning(f"bootstrap: artifact edges unavailable: {e}")
+            return [], _coverage_entry(0, None, False, "unavailable")
+        edges = [
+            {
+                "from": e["from_id"],
+                "to": e["to_id"],
+                "from_type": kind_of[e["from_id"]],
+                "to_type": kind_of[e["to_id"]],
+                "relation": e["relation"],
+            }
+            for e in found
+        ]
+        shown = edges if cap is None else edges[:cap]
+        return shown, _coverage_entry(len(shown), len(edges), len(shown) < len(edges), "sqlite")
 
     def _load_goals_for_project(self, project_id: str, limit: int = 10) -> dict:
         """Load goals for project with limit to prevent context bloat
@@ -2232,8 +2271,8 @@ class SessionDatabase:
         if ai_id:
             ai_epistemic_handoff = self.get_ai_epistemic_handoff(resolved_id, ai_id)
 
-        # 3. Load all breadcrumbs based on mode
-        breadcrumbs = self._load_breadcrumbs_for_mode(resolved_id, mode, subject)
+        # 3. Load all breadcrumbs based on mode. Full depth is the whole picture: a "full" that kept the caps was the defect.
+        breadcrumbs = self._load_breadcrumbs_for_mode(resolved_id, "live" if depth == "full" else mode, subject)
 
         # 4. Load goals and merge truncation warnings
         goals_data = self._load_goals_for_project(resolved_id)
@@ -2583,6 +2622,8 @@ class SessionDatabase:
                 "incomplete_work",
                 "auto_captured_issues",
                 "truncation_warnings",
+                "artifact_edges",
+                "blindspot_status",
             ]:
                 breadcrumbs.pop(key, None)
 
@@ -2613,6 +2654,7 @@ class SessionDatabase:
                 "active_sessions",
                 "ai_activity",
                 "key_decisions",
+                "artifact_edges",  # the slimmed lists above carry no ids, so an edge would point at nothing the reader holds
             ]:
                 breadcrumbs.pop(key, None)
             # Remove flow_metrics/health_score entirely for moderate (still verbose)

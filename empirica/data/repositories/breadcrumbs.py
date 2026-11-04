@@ -1040,6 +1040,71 @@ class BreadcrumbRepository(BaseRepository):
         cursor = self._execute(query, tuple(params))
         return [dict(row) for row in cursor.fetchall()]
 
+    def get_project_decisions(self, project_id: str, limit: int | None = None) -> list[dict]:
+        """Decisions for a project, newest first. SQLite holds them canonically; the vector store is a derived copy that cannot be rebuilt."""
+        query = (
+            "SELECT id, choice, rationale, reversibility, confidence_at_decision, created_timestamp "
+            "FROM decisions WHERE project_id = ? ORDER BY created_timestamp DESC, rowid DESC"
+        )
+        if limit:
+            query += f" LIMIT {int(limit)}"
+        cursor = self._execute(query, (project_id,))
+        return [dict(row) for row in cursor.fetchall()]
+
+    def count_project_decisions(self, project_id: str) -> int:
+        cursor = self._execute("SELECT COUNT(*) FROM decisions WHERE project_id = ?", (project_id,))
+        return int(cursor.fetchone()[0])
+
+    #: The relations that say something about two artifacts. `attached_to` is structure (an artifact to its goal, 2,328 of 3,731 edges on one
+    #: practice) and `related` says almost nothing, so neither is listed.
+    SEMANTIC_RELATIONS = (
+        "evidence",
+        "grounded_by",
+        "caused_by",
+        "raised_by",
+        "invalidates",
+        "resolves",
+        "sourced_from",
+    )
+
+    def get_semantic_edges(self, ids: list[str]) -> list[dict]:
+        """Semantic edges whose BOTH ends are in `ids`, newest first. Queried in chunks: a full-depth load can name thousands of artifacts."""
+        wanted = set(ids)
+        marks = ",".join("?" * len(self.SEMANTIC_RELATIONS))
+        found: list[dict] = []
+        ordered = list(wanted)
+        for start in range(0, len(ordered), 400):
+            chunk = ordered[start : start + 400]
+            cursor = self._execute(
+                f"SELECT from_id, to_id, relation, created_at FROM artifact_edges "
+                f"WHERE from_id IN ({','.join('?' * len(chunk))}) AND relation IN ({marks})",
+                (*chunk, *self.SEMANTIC_RELATIONS),
+            )
+            found.extend(dict(r) for r in cursor.fetchall() if r["to_id"] in wanted)
+        found.sort(key=lambda e: (str(e["created_at"]), e["from_id"], e["to_id"], e["relation"]), reverse=True)
+        return found
+
+    def get_blindspot_status(self, project_id: str) -> dict:
+        """Outcome counts and the time of the newest blindspot event among this project's sessions. Raises if the table is missing."""
+        cursor = self._execute(
+            "SELECT b.outcome, COUNT(*), MAX(b.created_timestamp) FROM blindspot_events b "
+            "JOIN sessions s ON s.session_id = b.session_id WHERE s.project_id = ? GROUP BY b.outcome",
+            (project_id,),
+        )
+        counts: dict[str, int] = {}
+        last = None
+        for outcome, n, newest in cursor.fetchall():
+            counts[outcome] = n
+            last = newest if last is None or (newest is not None and newest > last) else last
+        return {
+            "total": sum(counts.values()),
+            "surfaced": counts.get("surfaced", 0),
+            "acknowledged": counts.get("acknowledged", 0),
+            "dismissed": counts.get("dismissed", 0),
+            "regretted": counts.get("regretted", 0),
+            "last_event_at": last,
+        }
+
     def get_project_dead_ends(
         self, project_id: str, limit: int | None = None, subject: str | None = None
     ) -> list[dict]:

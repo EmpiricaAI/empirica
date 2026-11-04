@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`project-bootstrap` shows the whole picture.** Decisions are read from SQLite, newest first, with an exact total and `source: "sqlite"`: they came from an unordered vector-store page before, so the ten shown were not the newest and an outage read as "no decisions". New `artifact_edges` lists the semantic edges among the artifacts shown (full-length ids, with types), and `blindspot_status` gives the CHECK-time scan telemetry and when it last ran. `--depth full` now lifts every cap. All additive; the default output grows by about 2 KB and the command runs about 45 ms faster, since it no longer calls the vector store (median of 15 alternating runs against 1.14.19).
 - **`goals-archive` reaches abandoned goals.** The sweep ages a goal from when it ended (completion, or `abandoned_at`, or creation for a row abandoned some other way), and `--goal-id` takes an abandoned goal, so a gardening pass can clear them; the gardening skill now says so.
 
 ### Removed

@@ -110,67 +110,11 @@ def test_live_mode_loads_everything_and_says_complete(world):
 
 def test_every_type_has_a_coverage_entry_even_when_empty(world):
     cov = world.load()["coverage"]
-    assert set(cov) == set(TYPES)
+    assert set(cov) == set(TYPES) | {"artifact_edges"}
     assert cov["findings"] == {"shown": 0, "total": 0, "truncated": False, "source": "sqlite"}
 
 
-# ── decisions: where they came from ─────────────────────────────────────────────────────────────────────────────
-
-
-class _Point:
-    def __init__(self, i):
-        self.payload = {"choice": f"c{i}", "rationale": "r", "reversibility": "exploratory"}
-
-
-class _Client:
-    def __init__(self, n):
-        self.n = n
-
-    def collection_exists(self, _name):
-        return True
-
-    def scroll(self, collection_name, limit, with_payload):
-        return ([_Point(i) for i in range(min(self.n, limit))], None)
-
-
-def _patch_qdrant(monkeypatch, client):
-    from empirica.core.qdrant import vector_store as vs
-
-    monkeypatch.setattr(vs, "_check_qdrant_available", lambda *a, **k: True)
-    monkeypatch.setattr(vs, "_get_qdrant_client", lambda *a, **k: client)
-    monkeypatch.setattr(vs, "_decisions_collection", lambda _pid: "decisions_x")
-
-
-def test_decisions_from_qdrant_are_marked_as_such_and_a_full_page_means_maybe_more(world, monkeypatch):
-    _patch_qdrant(monkeypatch, _Client(40))
-    out = world.load()
-    assert len(out["decisions"]) == 10
-    assert out["coverage"]["decisions"] == {"shown": 10, "total": None, "truncated": True, "source": "qdrant"}
-
-
-def test_a_short_qdrant_page_is_complete(world, monkeypatch):
-    _patch_qdrant(monkeypatch, _Client(3))
-    assert world.load()["coverage"]["decisions"] == {"shown": 3, "total": 3, "truncated": False, "source": "qdrant"}
-
-
-def test_an_unavailable_qdrant_is_not_the_same_as_no_decisions(world, monkeypatch):
-    """The failure was swallowed and the list came back empty: 'no decisions' and 'decisions could not be read' were one answer."""
-    from empirica.core.qdrant import vector_store as vs
-
-    monkeypatch.setattr(vs, "_check_qdrant_available", lambda *a, **k: False)
-    out = world.load()
-    assert out["decisions"] == []
-    assert out["coverage"]["decisions"]["source"] == "unavailable"
-    assert out["coverage"]["decisions"]["total"] is None
-
-
-def test_a_qdrant_that_raises_is_unavailable_too(world, monkeypatch):
-    class Boom:
-        def collection_exists(self, _n):
-            raise RuntimeError("down")
-
-    _patch_qdrant(monkeypatch, Boom())
-    assert world.load()["coverage"]["decisions"]["source"] == "unavailable"
+# Decisions are read from SQLite, newest first, since slice 2: see tests/test_bootstrap_slices.py.
 
 
 # ── the depth filter runs last and cuts again ──────────────────────────────────────────────────────────────────

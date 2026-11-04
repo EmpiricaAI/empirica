@@ -417,7 +417,7 @@ The type sets two defaults, both overridable per transaction: the calibration do
 
 ### What `project-bootstrap` leaves out
 
-`breadcrumbs.coverage` says, per artifact type, what the capped lists hid. The types are `findings`, `unknowns`, `dead_ends`, `mistakes_to_avoid`, `decisions` and `assumptions` (open, unverified ones, newest first).
+`breadcrumbs.coverage` says, per artifact type, what the capped lists hid. The types are `findings`, `unknowns`, `dead_ends`, `mistakes_to_avoid`, `decisions` (newest first, read from SQLite) and `assumptions` (open, unverified ones, newest first), plus `artifact_edges`.
 
 ```json
 "coverage": {"assumptions": {"shown": 10, "total": 94, "truncated": true, "source": "sqlite"},
@@ -427,8 +427,16 @@ The type sets two defaults, both overridable per transaction: the calibration do
 
 - `shown` is the length of the list as returned, after the depth filter: a list the filter cut reports the smaller number, and one it removed reports `0` with `truncated: true`.
 - `total` is the number that exist, or `null` when the cap hid an unknown number. Findings, dead ends and mistakes are read as the cap plus one row, because their getters apply the limit after filtering; a `null` total with `truncated: true` means "at least one more".
-- `source` is where the list was read: `sqlite`, `qdrant` (decisions), or `unavailable` when the read did not happen. An unavailable source is not "none exist".
+- `source` is where the list was read: `sqlite`, or `unavailable` when the read did not happen. An unavailable source is not "none exist". Decisions were read from the vector store before 1.14.20 and reported `qdrant`.
 - `truncation_warnings` keeps its prose for readers of the old shape.
+
+**Decisions** carry `id`, `choice`, `rationale`, `reversibility`, `confidence` and `created_timestamp`, newest first, with an exact `total`.
+
+**`artifact_edges`** lists the semantic edges among the artifacts that are shown (findings, unknowns, dead ends, decisions, assumptions): `{from, to, from_type, to_type, relation}` with full-length ids, where `relation` is one of `evidence`, `grounded_by`, `caused_by`, `raised_by`, `invalidates`, `resolves`, `sourced_from`. `attached_to` (an artifact to its goal) and `related` are not listed, and an edge to an artifact the caps left out is not listed either. Capped at 20 at session start, with the count in `coverage`. The `minimal` and `moderate` depths drop the list, because their slimmed artifacts carry no ids.
+
+**`blindspot_status`** is `{total, surfaced, acknowledged, dismissed, regretted, last_event_at, source, note}`: the CHECK-time scan telemetry for this practice and when the newest event happened. It is not a fresh scan. `source: "unavailable"` with `total: null` means the read failed. The `minimal` depth drops it.
+
+**`--depth full`** lifts every cap: all findings, unknowns, dead ends, mistakes, assumptions, decisions and edges are returned, and `coverage` says `truncated: false`.
 
 ### Handoffs
 ```bash
