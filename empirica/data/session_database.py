@@ -2037,7 +2037,7 @@ class SessionDatabase:
 
         return result
 
-    def _build_situation(self, project_id: str, project_root: str) -> dict:
+    def _build_situation(self, project_id: str, project_root: str | None) -> dict:
         """Compaction-recovery narrative.
 
         Delegates to `empirica.core.bootstrap.situation.build_situation` so
@@ -2047,6 +2047,10 @@ class SessionDatabase:
         """
         from empirica.core.bootstrap.situation import build_situation
 
+        if not project_root:
+            # No root resolved (a checkout without one, a call from outside the project): there is no path to read a git or database situation
+            # from. Every situation key is optional, and the rest of the bootstrap ships; passing None crashed the whole call.
+            return {}
         return build_situation(project_root, project_id)
 
     def _count_project_artifacts(self, project_id: str) -> dict:

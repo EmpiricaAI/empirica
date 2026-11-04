@@ -206,7 +206,24 @@ def test_a_missing_table_is_unavailable_not_zero(world):
 # ── slice 5: --depth full lifts the caps ───────────────────────────────────────────────────────────────────────
 
 
-def test_full_depth_lifts_the_caps_and_the_default_does_not(world):
+@pytest.fixture
+def no_project_root(monkeypatch):
+    """Force the unresolved-root case. Without this the tests below passed or failed with the directory they ran in: a checkout with a
+    resolvable project root hid a crash that CI, which has none, hit."""
+    import empirica.data.session_database as sdb
+
+    monkeypatch.setattr(sdb, "_resolve_canonical_project_root", lambda: None)
+
+
+def test_a_bootstrap_with_no_resolvable_project_root_still_ships_the_core_breadcrumbs(world, no_project_root):
+    """The code says so ("core breadcrumbs still ship") but build_situation(None) raised TypeError, so the whole bootstrap failed."""
+    _decide(world, 2)
+    out = world.db.bootstrap_project_breadcrumbs(world.pid, project_root=None)
+    assert "error" not in out and len(out["decisions"]) == 2
+    assert isinstance(out["situation"], dict)
+
+
+def test_full_depth_lifts_the_caps_and_the_default_does_not(world, no_project_root):
     for i in range(13):
         world.db.log_finding(world.pid, world.sid, f"finding {i}", impact=0.5)
     _decide(world, 13)
