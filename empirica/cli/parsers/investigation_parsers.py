@@ -23,7 +23,7 @@ def add_investigation_parsers(subparsers):
         "--output",
         choices=["human", "json"],
         default="human",
-        help="Output format. empirica-mcp always passes --output json; bare CLI users get human by default.",
+        help="Output format (default: human).",
     )
 
     # ========== Epistemic Branching Commands (CASCADE 2.0) ==========

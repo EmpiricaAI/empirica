@@ -9,7 +9,7 @@ If a class is missing from this index, that's usually a sign it should
 either be properly documented or moved to a less prominent home.
 
 > **Note on `SubTask` vs CLI `task`.** The CLI surface and external API
-> (REST + MCP) use `task` since 1.10.0; internal storage and Python
+> (REST) use `task` since 1.10.0; internal storage and Python
 > classes keep `SubTask` / `subtasks` by deliberate CLI-vs-storage
 > boundary. See [UPGRADE_TO_1.10.md § subtask → task rename](../guides/UPGRADE_TO_1.10.md#breaking-change--subtask--task-rename)
 > for the full mapping.

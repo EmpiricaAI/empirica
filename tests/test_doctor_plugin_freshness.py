@@ -11,7 +11,8 @@ Two gaps met here:
   re-enter), so the one verb a practitioner runs to check install health neither
   healed this nor reported it.
 - **`diagnose` checks the plugin files EXIST** — presence only, so a plugin several
-  minor versions behind passes. The same presence-vs-freshness gap `check_empirica_mcp`
+  minor versions behind passes. The same presence-vs-freshness gap the
+  removed MCP-env check
   had already closed one check earlier in the same file.
 
 And `cli_core` writes a `.plugin_autosync_failed` breadcrumb *specifically* so

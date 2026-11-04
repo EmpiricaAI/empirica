@@ -45,7 +45,7 @@ This document lists all environment variables that control Empirica's behavior.
 |----------|---------|---------|--------|
 | `EMPIRICA_SENTINEL_LOOPING` | Enable investigate loops (env var fallback; ignored whenever `~/.empirica/sentinel_enabled` exists) | `true` | `true`, `false` |
 | `EMPIRICA_SENTINEL_FAIL_CLOSED` | Deny, instead of allow, when the Sentinel itself crashes (not for "no project", which is a stated allow) | unset | `1`, `true`, `yes` |
-| `EMPIRICA_HARNESS` | Which harness hosts the hooks, case-insensitive. Non-`claude-code` values (codex sets `codex`) change the repair hint, the tool-router hints (CLI verbs instead of `mcp__empirica__` tools) and skip the deploy-gap block | `claude-code` | `claude-code`, `codex`, ... |
+| `EMPIRICA_HARNESS` | Which harness hosts the hooks, case-insensitive. Non-`claude-code` values (codex sets `codex`) change the repair hint, the tool-router hints and skip the deploy-gap block | `claude-code` | `claude-code`, `codex`, ... |
 | `EMPIRICA_KNOW_THRESHOLD` | Minimum KNOW confidence | Model-dependent | 0.0-1.0 |
 | `EMPIRICA_UNCERTAINTY_THRESHOLD` | Maximum UNCERTAINTY allowed | Model-dependent | 0.0-1.0 |
 | `EMPIRICA_ENFORCE_CASCADE_PHASES` | Enforce strict phase ordering | `false` | `true`, `false` |

@@ -7,7 +7,7 @@ Core concepts and file taxonomy for multi-instance isolation.
 > **Hooks write. Everything else reads.**
 
 Hooks have full context (`claude_session_id` from stdin + env vars like `TMUX_PANE`, `WINDOWID`).
-CLI commands, Sentinel, statusline, and MCP are **readers** — they resolve project
+CLI commands, Sentinel, and statusline are **readers** — they resolve project
 context from files that hooks wrote.
 
 **Exception:** `project-switch` writes to `instance_projects`, `active_work.json`,
@@ -211,6 +211,6 @@ share the same `WINDOWID`. Use separate windows or tmux for full isolation.
 ## Related Documentation
 
 - [CLAUDE_CODE.md](./CLAUDE_CODE.md) - Claude Code specific patterns
-- [MCP_AND_CLI.md](./MCP_AND_CLI.md) - MCP/CLI integration patterns
+- [CLI_WITHOUT_HOOKS.md](./CLI_WITHOUT_HOOKS.md) - CLI usage without Claude Code hooks
 - [KNOWN_ISSUES.md](./KNOWN_ISSUES.md) - Bug history and debugging
 - [SESSION_RESOLVER_API.md](../../reference/SESSION_RESOLVER_API.md) - Full API reference

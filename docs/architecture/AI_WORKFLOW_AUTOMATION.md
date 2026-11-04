@@ -172,35 +172,7 @@ empirica-auto finding-log --finding "..."  # Auto-uses active session
 
 ---
 
-### 6. MCP Server Auto-Init (Hard - Seamless)
-
-**When AI calls first MCP tool, auto-setup:**
-
-```python
-# empirica-mcp/server.py
-class EmpricaMCPServer:
-    def __init__(self):
-        self.active_session = None
-
-    async def call_tool(self, name, arguments):
-        # First call? Auto-create session
-        if not self.active_session:
-            self.active_session = await self._auto_init_session()
-
-        # Inject session_id into all tool calls
-        if 'session_id' not in arguments:
-            arguments['session_id'] = self.active_session
-
-        # Execute tool
-        return await self._execute_tool(name, arguments)
-```
-
-**Pros:** Completely seamless for AI
-**Cons:** Requires MCP server changes, session persists across projects
-
----
-
-### 7. System Prompt Enhancement (Easy - Documentation)
+### 6. System Prompt Enhancement (Easy - Documentation)
 
 **Update CLAUDE.md to be more explicit:**
 
@@ -239,7 +211,7 @@ empirica postflight-submit config.json
 
 ---
 
-### 8. Pre-Flight Checklist (Medium - Interactive)
+### 7. Pre-Flight Checklist (Medium - Interactive)
 
 **Before allowing work, require checklist:**
 
@@ -268,7 +240,6 @@ def run_preflight_checklist():
 **Triggered by:**
 - First empirica command in a new terminal
 - Claude Code hook on project open
-- MCP server initialization
 
 **Pros:** Ensures compliance, educational
 **Cons:** Adds friction, might be annoying
@@ -290,21 +261,7 @@ def run_preflight_checklist():
 
 **Hook config:** `~/.claude/plugins/local/empirica/hooks/hooks.json`
 
-### ✅ Phase 2: COMPLETE - MCP Epistemic Mode
-
-**Config:** `~/.claude/mcp.json`
-```json
-{
-  "env": {
-    "EMPIRICA_EPISTEMIC_MODE": "true",
-    "EMPIRICA_PERSONALITY": "balanced_architect"
-  }
-}
-```
-
-~~Enables VectorRouter for MCP tools.~~ **Removed in 1.8.14** — Sentinel hooks handle gating.
-
-### ✅ Phase 3: COMPLETE - Statusline Integration
+### ✅ Phase 2: COMPLETE - Statusline Integration
 
 **Config:** `~/.claude/settings.json`
 ```json

@@ -9,10 +9,10 @@ Two independent defects composed into an invisible one:
 2. ``check_mcp_config()`` tested only whether an entry existed BY NAME, never
    whether it could launch.
 
-On the reporting box both files existed with an ``empirica`` entry. The one
+On the reporting box both files existed with the same MCP server entry. The one
 doctor read was clean, so doctor reported PASS, while the one Claude Code
 loaded pinned an ``env.PATH`` that could not resolve the CLI — every
-``mcp__empirica__*`` call had been failing for weeks. Either defect alone is
+server call had been failing for weeks. Either defect alone is
 survivable; together, doctor was structurally incapable of seeing the fault.
 """
 
@@ -53,17 +53,17 @@ def test_legacy_path_is_still_searched():
 
 
 def test_entry_with_unresolvable_pinned_path_is_not_ok(tmp_path):
-    entry = {"command": "empirica-mcp", "env": {"PATH": str(tmp_path)}}
+    entry = {"command": "cortex-mcp-bin", "env": {"PATH": str(tmp_path)}}
     resolves, detail = _mcp_entry_command_resolves(entry)
     assert resolves is False
     assert "env.PATH" in (detail or "")
 
 
 def test_entry_with_resolvable_pinned_path_is_ok(tmp_path):
-    binary = tmp_path / "empirica-mcp"
+    binary = tmp_path / "cortex-mcp-bin"
     binary.write_text("#!/bin/sh\n")
     binary.chmod(0o755)
-    entry = {"command": "empirica-mcp", "env": {"PATH": str(tmp_path)}}
+    entry = {"command": "cortex-mcp-bin", "env": {"PATH": str(tmp_path)}}
     assert _mcp_entry_command_resolves(entry)[0] is True
 
 
@@ -76,19 +76,19 @@ def test_entry_resolution_uses_the_pinned_path_not_ours(tmp_path, monkeypatch):
     """
     ambient = tmp_path / "ambient"
     ambient.mkdir()
-    binary = ambient / "empirica-mcp"
+    binary = ambient / "cortex-mcp-bin"
     binary.write_text("#!/bin/sh\n")
     binary.chmod(0o755)
     monkeypatch.setenv("PATH", str(ambient))
 
     pinned = tmp_path / "pinned"
     pinned.mkdir()
-    entry = {"command": "empirica-mcp", "env": {"PATH": str(pinned)}}
+    entry = {"command": "cortex-mcp-bin", "env": {"PATH": str(pinned)}}
     assert _mcp_entry_command_resolves(entry)[0] is False
 
 
 def test_absolute_command_that_does_not_exist_is_not_ok(tmp_path):
-    entry = {"command": str(tmp_path / "nope" / "empirica-mcp")}
+    entry = {"command": str(tmp_path / "nope" / "cortex-mcp-bin")}
     resolves, detail = _mcp_entry_command_resolves(entry)
     assert resolves is False
     assert "does not exist" in (detail or "")
@@ -96,7 +96,7 @@ def test_absolute_command_that_does_not_exist_is_not_ok(tmp_path):
 
 def test_entry_without_pinned_path_is_not_judged():
     """No env.PATH means the entry inherits the client's — not ours to fail."""
-    assert _mcp_entry_command_resolves({"command": "empirica-mcp"})[0] is True
+    assert _mcp_entry_command_resolves({"command": "cortex-mcp-bin"})[0] is True
 
 
 # ─── End to end through check_mcp_config ───────────────────────────────
@@ -113,11 +113,11 @@ def test_broken_live_entry_warns_even_when_the_other_config_is_clean(tmp_path, m
     legacy = tmp_path / ".claude" / "mcp.json"
     good = tmp_path / "bin"
     good.mkdir()
-    (good / "empirica-mcp").write_text("#!/bin/sh\n")
-    (good / "empirica-mcp").chmod(0o755)
+    (good / "cortex-mcp-bin").write_text("#!/bin/sh\n")
+    (good / "cortex-mcp-bin").chmod(0o755)
 
-    _write(live, {"empirica": {"command": "empirica-mcp", "env": {"PATH": str(tmp_path / "nowhere")}}})
-    _write(legacy, {"empirica": {"command": "empirica-mcp", "env": {"PATH": str(good)}}})
+    _write(live, {"cortex": {"command": "cortex-mcp-bin", "env": {"PATH": str(tmp_path / "nowhere")}}})
+    _write(legacy, {"cortex": {"command": "cortex-mcp-bin", "env": {"PATH": str(good)}}})
 
     monkeypatch.setattr(
         "empirica.cli.command_handlers.doctor._find_mcp_config_paths",
@@ -132,8 +132,8 @@ def test_divergent_definitions_warn(tmp_path, monkeypatch):
     """Same server, two configs, two commands — you cannot tell which one runs."""
     live = tmp_path / ".claude.json"
     legacy = tmp_path / ".claude" / "mcp.json"
-    _write(live, {"empirica": {"command": "/opt/a/empirica-mcp"}})
-    _write(legacy, {"empirica": {"command": "/opt/b/empirica-mcp"}})
+    _write(live, {"cortex": {"command": "/opt/a/cortex-mcp-bin"}})
+    _write(legacy, {"cortex": {"command": "/opt/b/cortex-mcp-bin"}})
 
     monkeypatch.setattr(
         "empirica.cli.command_handlers.doctor._find_mcp_config_paths",
@@ -141,7 +141,7 @@ def test_divergent_definitions_warn(tmp_path, monkeypatch):
     )
     result = check_mcp_config()
     assert result.status == WARN
-    assert "empirica" in result.data["diverged"]
+    assert "cortex" in result.data["diverged"]
 
 
 def test_consistent_working_config_still_passes(tmp_path, monkeypatch):
@@ -149,9 +149,9 @@ def test_consistent_working_config_still_passes(tmp_path, monkeypatch):
     live = tmp_path / ".claude.json"
     good = tmp_path / "bin"
     good.mkdir()
-    (good / "empirica-mcp").write_text("#!/bin/sh\n")
-    (good / "empirica-mcp").chmod(0o755)
-    _write(live, {"empirica": {"command": "empirica-mcp", "env": {"PATH": str(good)}}})
+    (good / "cortex-mcp-bin").write_text("#!/bin/sh\n")
+    (good / "cortex-mcp-bin").chmod(0o755)
+    _write(live, {"cortex": {"command": "cortex-mcp-bin", "env": {"PATH": str(good)}}})
 
     monkeypatch.setattr(
         "empirica.cli.command_handlers.doctor._find_mcp_config_paths",
@@ -163,51 +163,24 @@ def test_consistent_working_config_still_passes(tmp_path, monkeypatch):
     assert result.data["diverged"] == []
 
 
-# ─── GH #404: core/MCP version skew ────────────────────────────────────
+# ─── the removed empirica-mcp server ───────────────────────────────────
 
 
-class TestVersionSkew:
-    """`pipx upgrade empirica` upgrades only the main package; the injected
-    empirica-mcp silently stays behind and doctor passed 0 FAIL. A 1.13.1
-    server behind a 1.13.7 CLI serves six releases of drift invisibly."""
+def test_a_leftover_empirica_mcp_registration_is_reported_with_the_command_that_removes_it(tmp_path, monkeypatch):
+    """empirica-mcp was removed. A box that had it keeps the registration (setup no longer touches it), its tools now fail or are gated as unknown
+    work, and nothing said so: "how would anyone know" is the whole point of this check."""
+    live = tmp_path / ".claude.json"
+    _write(live, {"empirica": {"command": "empirica-mcp"}, "cortex": {"command": "cortex-mcp-bin"}})
+    monkeypatch.setattr("empirica.cli.command_handlers.doctor._find_mcp_config_paths", lambda: [live])
+    result = check_mcp_config()
+    assert result.status == WARN
+    assert result.data["stale_empirica_mcp"] == [f"{live.name}:empirica"]
+    assert "claude mcp remove empirica" in result.hint
 
-    def _check(self, monkeypatch, core, mcp):
-        import importlib.metadata as im
 
-        from empirica.cli.command_handlers.doctor import check_mcp_version_skew
-
-        def _v(name):
-            val = {"empirica": core, "empirica-mcp": mcp}[name]
-            if val is None:
-                raise im.PackageNotFoundError(name)
-            return val
-
-        monkeypatch.setattr(im, "version", _v)
-        # These tests cover the STRING FALLBACK — a released-copy seat with no checkout
-        # to compare against. The check now compares content first, so without this pin
-        # it would consult the real box: on a developer machine whose installed
-        # empirica_mcp matches its checkout, every skew case here reads PASS. A test
-        # that measures the box passes locally for the reason it fails elsewhere.
-        monkeypatch.setattr("empirica.cli.command_handlers.doctor._mcp_content_state", lambda: (None, {}))
-        return check_mcp_version_skew()
-
-    def test_skew_warns_naming_both_versions_and_the_recovery(self, monkeypatch):
-        from empirica.cli.command_handlers.doctor import WARN
-
-        result = self._check(monkeypatch, "1.13.7", "1.13.1")
-        assert result.status == WARN
-        assert "1.13.7" in result.detail and "1.13.1" in result.detail
-        assert "pipx inject" in result.hint, "the hint must carry the recovery — pipx upgrade will not fix it"
-
-    def test_matched_versions_pass(self, monkeypatch):
-        from empirica.cli.command_handlers.doctor import PASS
-
-        result = self._check(monkeypatch, "1.13.7", "1.13.7")
-        assert result.status == PASS
-
-    def test_mcp_absent_is_a_skip_not_a_warn(self, monkeypatch):
-        """MCP is optional; absence is a legitimate state, not skew."""
-        from empirica.cli.command_handlers.doctor import SKIP
-
-        result = self._check(monkeypatch, "1.13.7", None)
-        assert result.status == SKIP
+def test_a_config_without_the_removed_server_has_no_stale_entry(tmp_path, monkeypatch):
+    """Positive control: the new check does not fire on a clean cortex-only config."""
+    live = tmp_path / ".claude.json"
+    _write(live, {"cortex": {"command": "cortex-mcp-bin"}})
+    monkeypatch.setattr("empirica.cli.command_handlers.doctor._find_mcp_config_paths", lambda: [live])
+    assert check_mcp_config().data["stale_empirica_mcp"] == []

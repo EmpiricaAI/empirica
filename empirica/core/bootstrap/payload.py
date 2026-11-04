@@ -3,7 +3,6 @@
 Pure function consumed by:
   - CLI hooks (post-compact.py / session-init.py)
   - Daemon endpoint GET /api/v1/bootstrap
-  - MCP tool mcp__empirica__bootstrap_context
 
 See docs/specs/PROPOSAL_BOOTSTRAP_AGGREGATOR.md for the design rationale.
 """

@@ -119,14 +119,6 @@ vision = [
     "opencv-contrib-python>=4.12.0",  # Security: Uninitialized pointer fix
 ]
 
-# MCP server support
-mcp = [
-    # Spans both SDK majors (see empirica-mcp). Ceiling kept deliberately: the
-    # SAME uncapped range existed in two manifests, and only one is exercised by
-    # CI — so an unbounded range here breaks `pip install empirica[mcp]` silently.
-    "mcp>=1.30.0,<3",  # Security: CVE-2026-52869/-52870 (fix 1.27.2), CVE-2026-59950 (fix 1.28.1), CVE-2026-59951 (stateful HTTP session exhaustion; fix 1.30.0 / 2.2.0)
-]
-
 # Prose evidence grounding (non-code users)
 prose = [
     "pyphen>=0.14",     # syllable backend for the in-house readability module
@@ -136,7 +128,7 @@ prose = [
 
 # All optional features
 all = [
-    "empirica[api,vector,vision,mcp,prose]",
+    "empirica[api,vector,vision,prose]",
 ]
 
 test = [
@@ -183,7 +175,7 @@ empirica = "empirica.utils.pytest_report_plugin"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["empirica"]
-exclude = ["tests*", "_archive*", "_dev*", "empirica-mcp*"]
+exclude = ["tests*", "_archive*", "_dev*"]
 
 [tool.setuptools.package-data]
 empirica = [
@@ -212,7 +204,6 @@ markers = [
     "integration: Integration tests (deselect with '-m \"not integration\"')",
     "integrity: Framework integrity tests (core principle validation)",
     "slow: Slow running tests",
-    "requires_mcp: Tests that require MCP server",
 ]
 
 [tool.coverage.run]
@@ -252,7 +243,6 @@ target-version = "py310"
 force-exclude = true
 include = [
     "empirica/**/*.py",
-    "empirica-mcp/**/*.py",
     "tests/**/*.py",
 ]
 exclude = [
@@ -317,8 +307,6 @@ section-order = ["future", "standard-library", "third-party", "first-party", "lo
 [tool.ruff.lint.per-file-ignores]
 "tests/*.py" = ["S101", "S108", "S110"]  # allow assert, temp paths, try-except-pass in tests
 "tests/**/*.py" = ["S101", "S108", "S110"]  # allow assert, temp paths, try-except-pass in nested tests
-"empirica-mcp/tests/*.py" = ["S101", "S108", "S110"]  # mcp package's own tests
-"empirica-mcp/tests/**/*.py" = ["S101", "S108", "S110"]
 "empirica/core/schemas/*.py" = ["S101"]  # validation asserts in schema converters
 "__init__.py" = ["F401", "E402"]  # allow unused imports and late imports in __init__
 "empirica/cli/cli_core.py" = ["F405", "E402", "S110"]  # star import + conditional imports + graceful startup
@@ -341,13 +329,13 @@ section-order = ["future", "standard-library", "third-party", "first-party", "lo
 
 [tool.pyright]
 # Declared scope == enforced scope, as of goal 481b8a9b: CI and
-# `compliance-report` both run `pyright empirica/ empirica-mcp/ tests/`, matching
+# `compliance-report` both run `pyright empirica/ tests/`, matching
 # this include list, so a bare `pyright` at the repo root and the gates report
 # the same number. (It was not always so — tests/ carried an ungated 89-error
 # backlog for months, during which a regression was indistinguishable from
 # standing noise. If you narrow either side of this agreement, put the warning
 # back.)
-include = ["empirica", "empirica-mcp", "tests"]
+include = ["empirica", "tests"]
 exclude = [
     "_archive",
     "_dev",
@@ -357,7 +345,6 @@ exclude = [
 ]
 extraPaths = [
     "empirica/plugins/claude-code-integration/lib",
-    "empirica-mcp",  # so `from empirica_mcp.server import ...` resolves to the source tree
 ]
 pythonVersion = "3.10"
 
@@ -405,7 +392,6 @@ reportUnusedFunction = false
 extraPaths = [
     ".",  # the PROJECT ROOT itself — an env resolves imports from its own root + extraPaths only, so without this `import empirica` fails
     "empirica/plugins/claude-code-integration/lib",
-    "empirica-mcp",
 ]
 
 

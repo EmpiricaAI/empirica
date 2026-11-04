@@ -2,7 +2,7 @@
 
 `pyproject.toml` is the single source of the version. All commands from the repo root on `develop` unless stated.
 
-1. Set the new version in `pyproject.toml` and `empirica-mcp/pyproject.toml`.
+1. Set the new version in `pyproject.toml`.
 2. `python scripts/release.py --version-only --old-version <old> --commit` sweeps every other version string and commits an
    allowlisted set.
 3. Write a `## [<new>] - <date>` entry at the top of `CHANGELOG.md` (the README's What's New syncs from the top entry).
@@ -16,9 +16,9 @@
 7. `python scripts/release.py --publish`: must run on `main`; tags and pushes. `release.yml` owns every channel from here. Only on
    the owner's explicit go for this release.
 8. Find the release run: `gh run list --workflow release.yml`, wait on its id, list its jobs.
-9. `python scripts/release.py --verify`: checks the artifacts on PyPI (both packages), Docker (both tags), the GitHub release, the
+9. `python scripts/release.py --verify`: checks the artifacts on PyPI, Docker (both tags), the GitHub release, the
    Homebrew tap, and a fresh `pip -U` install. PyPI's simple index can lag the job by minutes.
-10. Refresh this machine: `pip install -e . --no-deps`, `pipx upgrade empirica-mcp --pip-args="--no-cache-dir"`,
+10. Refresh this machine: `pip install -e . --no-deps`,
     `empirica setup-claude-code --force` (deploys the prompt, hooks and skills to `~/.claude`; running sessions keep what they
     loaded). Restart persistent listener units only if listener code changed.
 

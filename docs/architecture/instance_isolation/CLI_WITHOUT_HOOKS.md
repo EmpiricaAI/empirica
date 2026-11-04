@@ -1,11 +1,11 @@
-# Instance Isolation for MCP and CLI Integrations
+# Instance Isolation for the CLI Without Hooks
 
 This doc covers instance isolation when using Empirica WITHOUT Claude Code hooks
-(MCP servers, custom CLI tools, direct terminal usage).
+(custom CLI tools, scripts, direct terminal usage).
 
 ## Key Difference from Claude Code
 
-| Aspect | Claude Code | MCP / CLI |
+| Aspect | Claude Code | CLI without hooks |
 |--------|-------------|-----------|
 | Hooks available | ✅ Yes | ❌ No |
 | `claude_session_id` | ✅ From stdin | ❌ Not available |
@@ -21,8 +21,8 @@ This doc covers instance isolation when using Empirica WITHOUT Claude Code hooks
 ### 1. Create Session
 
 ```bash
-# In your terminal / MCP context
-empirica session-create --ai-id my-mcp-agent --output json
+# In your terminal
+empirica session-create --ai-id my-agent --output json
 ```
 
 This writes `~/.empirica/tty_sessions/pts-N.json` linking your terminal to the session.
@@ -104,18 +104,18 @@ The `TMUX_PANE` environment variable provides additional isolation.
 
 ---
 
-## MCP Server Pattern
+## Scripted Pattern
 
-For MCP servers, the pattern is:
+For a script or custom tool, create the session once and pass `--session-id`
+explicitly:
 
 ```python
-# In your MCP server startup
 import subprocess
 import json
 
 # Create session once at startup
 result = subprocess.run(
-    ["empirica", "session-create", "--ai-id", "my-mcp-server", "--output", "json"],
+    ["empirica", "session-create", "--ai-id", "my-script", "--output", "json"],
     capture_output=True, text=True
 )
 session = json.loads(result.stdout)
@@ -129,8 +129,8 @@ subprocess.run([
 ])
 ```
 
-**Note:** Pass `--session-id` explicitly since MCP doesn't have the automatic
-resolution that Claude Code hooks provide.
+**Note:** Pass `--session-id` explicitly since there is no automatic
+resolution of the kind Claude Code hooks provide.
 
 ---
 

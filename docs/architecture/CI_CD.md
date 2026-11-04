@@ -10,7 +10,7 @@ Patterned on ecodex's two-workflow split, translated to Python.
 | Workflow | Trigger | Purpose |
 |---|---|---|
 | `.github/workflows/ci.yml` | push/PR to `main` + `develop` | Pre-merge gate: lint + types + tests + compliance |
-| `.github/workflows/release.yml` | tag push `v*.*.*` | Publish: PyPI ×2 + Docker ×2 + Homebrew tap + GitHub release |
+| `.github/workflows/release.yml` | tag push `v*.*.*` | Publish: PyPI + Docker ×2 + Homebrew tap + GitHub release |
 | `.github/workflows/dependency-scan.yml` | weekly + on `pyproject.toml` PRs | pip-audit CVE check |
 | `.github/dependabot.yml` | weekly | Auto-PRs for outdated + vulnerable deps |
 
@@ -26,8 +26,8 @@ Three jobs run on every push / PR to `main` or `develop`:
 | `test` | `pytest` on Python **3.11** + **3.13** | Hard fail on any failed test |
 | `compliance` | `empirica compliance-report` + `pip-audit` | Compliance informational; `pip-audit` hard fail on CVE |
 
-**Matrix scope decision.** pyproject claims 3.10–3.13. We test 3.11 (the
-minimum `empirica-mcp` supports) and 3.13 (current) and skip 3.10/3.12, so
+**Matrix scope decision.** pyproject claims 3.10–3.13. We test 3.11 and 3.13
+(current) and skip 3.10/3.12, so
 3.10 is declared but not exercised in CI. If a bug shows up that's specific
 to the skipped versions, add them then. Each matrix cell is ~5min, so 2 cells
 = ~10min wall-clock with parallel runners.
@@ -80,33 +80,30 @@ authoring being done.
 ```
                     ┌─→ pypi-empirica
                     │
-build → artifacts ──┼─→ pypi-empirica-mcp
+build → artifacts ──┼─→ docker (Debian + Alpine)
                     │
-                    ├─→ docker (Debian + Alpine)
-                    │
-                    └─→ github-release ← (gate: both pypi jobs)
+                    └─→ github-release ← (gate: pypi job)
                                      ↓
                               homebrew-tap update
 ```
 
 ### PyPI publishing — OIDC trusted publishers
 
-Both packages use [PyPI trusted publishing](https://docs.pypi.org/trusted-publishers/) via the
+The package uses [PyPI trusted publishing](https://docs.pypi.org/trusted-publishers/) via the
 official `pypa/gh-action-pypi-publish` action. **No `PYPI_API_TOKEN`
 secret needed** once trusted publishers are configured on
 [pypi.org/manage/account/publishing/](https://pypi.org/manage/account/publishing/).
 
-Setup (one-time, per package):
+Setup (one-time):
 1. PyPI → Your projects → empirica → Settings → Publishing
 2. Add trusted publisher:
    - Owner: `Nubaeon`
    - Repository: `empirica`
    - Workflow: `release.yml`
    - Environment: `pypi-empirica`
-3. Same for `empirica-mcp` with environment `pypi-empirica-mcp`
 
-The workflow declares both environments via `environment.name` on the
-corresponding job. The `id-token: write` permission at the top of the
+The workflow declares the environment via `environment.name` on the
+PyPI job. The `id-token: write` permission at the top of the
 workflow allows OIDC token issuance to PyPI.
 
 ### Docker — uses Docker Hub PAT
@@ -190,7 +187,7 @@ pipeline. `release.yml` should match its behavior:
 | README What's New + CLI reference | `--docs` (on develop); `--prepare` only verifies | Not needed (already committed) |
 | Build sdist + wheel | `--prepare` | `build` job |
 | Test gate | `--prepare` runs `pytest` | `ci.yml` already ran on pre-tag commit |
-| Publish PyPI ×2 | CI only (`--local-artifacts` to force local) | `pypi-*` jobs (OIDC) |
+| Publish PyPI | CI only (`--local-artifacts` to force local) | `pypi-*` jobs (OIDC) |
 | Create git tag | `--publish` | Tag is the trigger |
 | Push Docker ×2 | CI only | `docker` job |
 | GitHub release | CI only | `github-release` job |

@@ -1,11 +1,11 @@
-"""setup-claude-code pre-authorizes the mesh MCP servers in settings.json.
+"""setup-claude-code pre-authorizes the cortex MCP server in settings.json.
 
-Without a `permissions.allow` entry for the cortex + empirica MCP servers, a
+Without a `permissions.allow` entry for the cortex MCP server, a
 mesh-active practice hits Claude Code's per-tool "Do you want to proceed?"
-prompt on every cortex_*/empirica_* call — the friction David hit in
+prompt on every cortex_* call — the friction David hit in
 empirica-web where cortex_collab + cortex_propose both prompted. The real
-gates (Sentinel for empirica praxic, cortex ECO for propose) stay intact, so
-the CC prompt is redundant for these two trusted servers.
+gate (cortex ECO for propose) stays intact, so the CC prompt is redundant
+for this trusted server. Cortex is the only server on the list.
 
 These tests assert the allow-list write is present, idempotent, and
 non-destructive to existing user config.
@@ -19,13 +19,12 @@ from empirica.cli.command_handlers.setup_claude_code import (
 )
 
 
-def test_adds_mesh_servers_to_empty_settings():
+def test_adds_cortex_server_to_empty_settings():
     settings: dict = {}
     _configure_permissions(settings, "json")
     allow = settings["permissions"]["allow"]
-    assert "mcp__cortex__*" in allow
-    assert "mcp__empirica__*" in allow
-    assert set(MESH_MCP_ALLOW) <= set(allow)
+    assert allow == ["mcp__cortex__*"]
+    assert set(MESH_MCP_ALLOW) == {"mcp__cortex__*"}
 
 
 def test_idempotent_no_duplicates():
@@ -42,9 +41,11 @@ def test_preserves_existing_allow_entries():
     settings = {"permissions": {"allow": ["Bash(git status:*)", "mcp__cortex__*"]}}
     _configure_permissions(settings, "json")
     allow = settings["permissions"]["allow"]
-    assert "Bash(git status:*)" in allow  # untouched
-    assert allow.count("mcp__cortex__*") == 1  # not re-added
-    assert "mcp__empirica__*" in allow  # the missing one added
+    assert allow == ["Bash(git status:*)", "mcp__cortex__*"]  # untouched, nothing re-added
+    # And when the cortex entry is the missing one, it is appended after the user's entries.
+    settings = {"permissions": {"allow": ["Bash(git status:*)"]}}
+    _configure_permissions(settings, "json")
+    assert settings["permissions"]["allow"] == ["Bash(git status:*)", "mcp__cortex__*"]
 
 
 def test_leaves_deny_and_ask_untouched():

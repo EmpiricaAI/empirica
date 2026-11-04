@@ -22,7 +22,6 @@ This single command installs the complete framework into Claude Code:
 - **Skills** (`/empirica`, `/epistemic-transaction`, `/empirica-framework`) for workflow guidance
 - **System prompt** injected as `@include` in your CLAUDE.md
 - **Statusline** showing real-time epistemic state in your terminal
-- **MCP server** configuration for IDE environments
 
 After setup, measurement starts automatically. You write code and collaborate normally —
 Empirica tracks what the AI knows and learns in the background.

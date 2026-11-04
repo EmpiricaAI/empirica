@@ -4,7 +4,7 @@ See `docs/specs/PROPOSAL_BOOTSTRAP_AGGREGATOR.md` for the design.
 
 The public surface is `build_bootstrap_payload()` — a pure function consumed
 by the CLI hook (post-compact.py / session-init.py), the daemon route
-(GET /api/v1/bootstrap), and the MCP tool (mcp__empirica__bootstrap_context).
+(GET /api/v1/bootstrap).
 
 Three circles, three rules:
 

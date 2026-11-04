@@ -269,7 +269,7 @@ for the protocol.
 
 ## Related Documentation
 
-- [Instance Isolation](../architecture/instance_isolation/README.md) — Architecture entry point (covers ARCHITECTURE, CLAUDE_CODE, MCP_AND_CLI, KNOWN_ISSUES)
+- [Instance Isolation](../architecture/instance_isolation/README.md) — Architecture entry point (covers ARCHITECTURE, CLAUDE_CODE, CLI_WITHOUT_HOOKS, KNOWN_ISSUES)
 - [Cockpit Architecture](../architecture/COCKPIT.md) — Multi-pane orchestrator design
 - [Notify Dispatcher](../architecture/NOTIFY.md) — Event stream + cockpit integration
 - [Project Switching](./PROJECT_SWITCHING_FOR_AIS.md) — Project context management

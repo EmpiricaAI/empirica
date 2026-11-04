@@ -179,7 +179,7 @@ results = search(
 ### Client → Project (via Engagements)
 
 Engagements are canonical in `crm-mcp`, not in a local SQL table. Use
-`empirica-workspace engagement list|show` (or the `mcp__empirica-crm__crm_list_engagements`
+`empirica-workspace engagement list|show` (or the CRM `crm_list_engagements`
 tool) to find the engagements for an organization or contact, and
 `empirica-workspace entity knowledge --entity <id>` for the artifacts bound to one.
 The legacy local `crm.db` query that used to stand here is retired.

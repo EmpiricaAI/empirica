@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "empirica": {
-      "command": "empirica-mcp",
-      "description": "Empirica epistemic self-assessment framework"
-    }
-  }
-}

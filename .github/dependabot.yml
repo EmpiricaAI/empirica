@@ -47,25 +47,6 @@ updates:
       - dependency-name: "ruff"
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
-  # MCP wrapper package
-  - package-ecosystem: pip
-    directory: "/empirica-mcp"
-    target-branch: "develop"
-    schedule:
-      interval: weekly
-      day: monday
-      time: "07:30"
-      timezone: "Etc/UTC"
-    open-pull-requests-limit: 3
-    ignore:
-      # Same rationale as the root block — and this one is not redundant: #387
-      # proposed the identical ceiling widening against empirica-mcp/pyproject.toml
-      # specifically. An ignore on the root package does not cover this directory,
-      # so omitting it here would silence half the noise and leave the other half
-      # arriving every Monday.
-      - dependency-name: "ruff"
-        update-types: ["version-update:semver-minor", "version-update:semver-major"]
-
   # GitHub Actions versions
   - package-ecosystem: github-actions
     directory: "/"

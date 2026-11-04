@@ -75,7 +75,7 @@ def _run_doctor(monkeypatch, capsys, tty: bool):
 
 
 def test_a_pipe_gets_json(monkeypatch, capsys):
-    """The Desktop MCP tool and AI sessions read doctor through a pipe."""
+    """AI sessions read doctor through a pipe."""
     import json
 
     assert json.loads(_run_doctor(monkeypatch, capsys, tty=False))["summary"]["total"] == 1

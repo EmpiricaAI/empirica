@@ -464,7 +464,6 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "integration: Integration tests (deselect with '-m \"not integration\"')")
     config.addinivalue_line("markers", "integrity: Framework integrity tests (core principle validation)")
     config.addinivalue_line("markers", "slow: Slow running tests")
-    config.addinivalue_line("markers", "requires_mcp: Tests that require MCP server running")
 
 
 @pytest.fixture(autouse=True)

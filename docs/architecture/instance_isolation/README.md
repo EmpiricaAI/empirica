@@ -9,7 +9,7 @@ panes. This folder documents how Empirica keeps them isolated.
 |------------|-----------|
 | Understanding the architecture | [ARCHITECTURE.md](./ARCHITECTURE.md) |
 | Using Claude Code (Anthropic's CLI) | [CLAUDE_CODE.md](./CLAUDE_CODE.md) |
-| Building an MCP server or custom CLI | [MCP_AND_CLI.md](./MCP_AND_CLI.md) |
+| Using the CLI directly or building a custom CLI tool, without hooks | [CLI_WITHOUT_HOOKS.md](./CLI_WITHOUT_HOOKS.md) |
 | Asking who the practitioner IS across sessions | [PRACTITIONER_IDENTITY.md](./PRACTITIONER_IDENTITY.md) |
 | Debugging isolation issues | [KNOWN_ISSUES.md](./KNOWN_ISSUES.md) |
 
@@ -48,5 +48,5 @@ R.instance_suffix()   # Sanitized suffix for file naming
 The instance suffix keys per-instance state (`active_work_*.json`,
 `active_transaction*.json`, `hook_counters*.json`, `listener_active_*.json`), and the
 same helper resolves it for hooks and for the CLI — a divergence there splits a
-writer from its reader. `MCP_AND_CLI.md` covers the instance-id override and both
+writer from its reader. `CLI_WITHOUT_HOOKS.md` covers the instance-id override and both
 chains in detail.

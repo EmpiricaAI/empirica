@@ -151,14 +151,6 @@ jobs:
           # ... your CI workflow ...
 ```
 
-### MCP Server (Model Context Protocol)
-
-```bash
-# Run MCP server in Docker
-docker run -p 8080:8080 nubaeon/empirica:1.6.6 \
-  python -m mcp_local.empirica_mcp_server
-```
-
 ### Development Environment
 
 ```bash

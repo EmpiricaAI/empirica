@@ -75,7 +75,7 @@ empirica setup-claude-code  # Optional: wires the plugin into ~/.claude
 Before opening a PR:
 
 ```bash
-ruff check empirica/ empirica-mcp/ tests/   # Lint — must be clean
+ruff check empirica/ tests/   # Lint — must be clean
 pytest tests/ -q                             # Test suite — should be all green
 empirica compliance-report                   # 12-check audit (lint, complexity,
                                              # type_safety, tech_docs, repo_hygiene,
@@ -97,7 +97,7 @@ pytest tests/test_<area>.py -q
 Maintainers only. The `scripts/release.py` flow handles version sweep, build, test, and publish across all channels (PyPI, Docker, GitHub release, Homebrew, Chocolatey).
 
 ```bash
-# 1. Bump version in pyproject.toml + empirica-mcp/pyproject.toml
+# 1. Bump version in pyproject.toml
 # 2. Update CHANGELOG.md (move [Unreleased] → [vX.Y.Z])
 # 3. Update README.md "What's New in vX.Y.Z" section
 # 4. Sweep version strings across the repo

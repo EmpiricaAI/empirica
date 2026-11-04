@@ -5,7 +5,6 @@ Key Features:
 • 97.5% token reduction via checkpoint loading  
 • Multi-AI coordination with epistemic handoffs
 • Git-integrated session management
-• MCP server support for Claude Desktop
 
 Perfect for AI agents that need genuine metacognitive awareness and calibration.
 

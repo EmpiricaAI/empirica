@@ -116,8 +116,6 @@ empirica noetic-batch - << 'EOF'
 EOF
 ```
 
-(MCP: `mcp__empirica__noetic_batch`, same payload.)
-
 ### Log as a graph, and type it by the question it answers
 
 A bug you found in the code is a `finding`; *you* shipping it is a `mistake`.

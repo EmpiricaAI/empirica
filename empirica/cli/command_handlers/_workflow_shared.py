@@ -267,7 +267,6 @@ def _build_noetic_guidance(work_type: str | None) -> dict | None:
     if not work_type or work_type not in _NOETIC_BATCH_WORK_TYPES:
         return None
     return {
-        "tool": "mcp__empirica__noetic_batch",
         "cli": "empirica noetic-batch -",
         "schema": {
             "intent": "<one-line investigation goal>",
@@ -313,7 +312,7 @@ def _build_weave_guidance() -> dict:
     except Exception:
         return {}
     return {
-        "tool": "empirica log-artifacts -   (or mcp__empirica__log_artifacts)",
+        "tool": "empirica log-artifacts -",
         "node_types": sorted(NODE_REQUIRED_FIELDS.keys()),
         "relations": sorted(VALID_RELATIONS),
         "node_required_fields": dict(NODE_REQUIRED_FIELDS),

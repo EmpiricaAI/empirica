@@ -79,10 +79,6 @@ def test_exempt_self_heal_and_control(sg):
     assert _bash(sg, "empirica listener off") is True
 
 
-def test_exempt_empirica_mcp_tool(sg):
-    assert sg._is_recovery_or_measurement_action("mcp__empirica__noetic_batch", {}) is True
-
-
 def test_exempt_goals_tracking(sg):
     # goals-* is MEASUREMENT (recording work + state), same class as *-log —
     # so a practitioner can defer-as-goal even while gated (autonomy-ratified).

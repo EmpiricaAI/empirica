@@ -52,7 +52,7 @@ def _defined_symbols() -> set[str]:
     would be found here if it existed.
     """
     files = subprocess.run(
-        ["bash", "-c", "find empirica empirica-mcp -name '*.py' 2>/dev/null"],
+        ["bash", "-c", "find empirica -name '*.py' 2>/dev/null"],
         capture_output=True,
         text=True,
         cwd=Path(__file__).parent.parent,

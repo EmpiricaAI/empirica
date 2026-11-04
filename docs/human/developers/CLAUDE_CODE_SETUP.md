@@ -7,7 +7,7 @@
 ## TL;DR
 
 ```bash
-pip install empirica empirica-mcp
+pip install empirica
 cd your-project
 empirica project-init
 empirica setup      # the canonical path
@@ -29,7 +29,6 @@ flow can't run.
 | `CLAUDE.md` | System prompt include (`@~/.claude/empirica-system-prompt.md`) | `~/.claude/CLAUDE.md` |
 | Lean system prompt | Canonical prompt rendered with installed version | `~/.claude/empirica-system-prompt.md` |
 | Settings | `statusLine` block + hooks for all events | `~/.claude/settings.json` |
-| MCP config | `empirica-mcp` server registration | `~/.claude.json` (user scope, the file Claude Code loads); `~/.claude/mcp.json` is also written, legacy |
 | Marketplace | Local plugin registry | `~/.claude/plugins/known_marketplaces.json` |
 
 `setup-claude-code` is idempotent — re-running with `--force` updates
@@ -246,17 +245,9 @@ Claude should run the command and surface findings + open goals.
 | Claude unaware of Empirica | CLAUDE.md missing the include | Re-run `setup-claude-code` |
 | Sentinel blocking everything | Transaction not certified | Declare grounded `claims` in PREFLIGHT, or `empirica check-submit -` with `proceed: true` |
 | Plugin hooks not running | Plugin disabled | Check `~/.claude/settings.json` → `enabledPlugins.empirica@local: true` |
-| MCP not connecting | Path absolute vs relative | `which empirica-mcp` then put absolute path in `~/.claude.json` (`mcpServers`) |
 
 The fastest path to a green status: `empirica diagnose` and follow the
 PASS/FAIL hints.
-
-> **Using a different AI harness?** Claude Desktop, Cursor, Gemini CLI,
-> Codex, and other MCP-compatible clients use the same `empirica-mcp`
-> binary but a different config path — see
-> [`MCP_FOR_DESKTOP_HARNESSES.md`](../end-users/MCP_FOR_DESKTOP_HARNESSES.md)
-> for per-harness `mcp.json` examples + the self-enforcement model
-> for the noetic firewall when there are no hooks.
 
 ---
 
@@ -328,19 +319,6 @@ table above shows what each one does — paste the block under
     "type": "command",
     "command": "python3 ~/.claude/plugins/local/empirica/scripts/statusline_empirica.py",
     "refresh_ms": 5000
-  }
-}
-```
-
-### 5. MCP server
-
-```json
-{
-  "mcpServers": {
-    "empirica": {
-      "command": "empirica-mcp",
-      "type": "stdio"
-    }
   }
 }
 ```

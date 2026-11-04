@@ -49,11 +49,7 @@ KNOWN_SIGNATURE_DRIFT: dict[str, set[str]] = {}
 def _real_signatures() -> dict[str, list[list[str]]]:
     """name -> every definition's parameter-name list, across the shipped packages."""
     out: dict[str, list[list[str]]] = defaultdict(list)
-    files = list((ROOT / "empirica").rglob("*.py"))
-    mcp = ROOT / "empirica-mcp"
-    if mcp.exists():
-        files += list(mcp.rglob("*.py"))
-    for py in files:
+    for py in (ROOT / "empirica").rglob("*.py"):
         try:
             tree = ast.parse(py.read_text(encoding="utf-8", errors="ignore"))
         except (SyntaxError, ValueError):

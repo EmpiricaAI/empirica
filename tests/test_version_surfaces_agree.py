@@ -1,6 +1,6 @@
 """Every hand-written version string in this repo must say the same thing.
 
-Measured 2026-09-17 on one box, for the single package `empirica_mcp`:
+Measured 2026-09-17 on one box, for a sibling package since removed:
 
     __version__ in __init__.py   1.8.14    <- wrong in SOURCE and in every install
     dist-info METADATA           1.13.46   <- what `doctor` reads
@@ -46,8 +46,6 @@ CORE = _pyproject_version(_ROOT / "pyproject.toml")
 
 SURFACES = [
     ("core __init__", lambda: _dunder_version(_ROOT / "empirica" / "__init__.py")),
-    ("mcp pyproject", lambda: _pyproject_version(_ROOT / "empirica-mcp" / "pyproject.toml")),
-    ("mcp __init__", lambda: _dunder_version(_ROOT / "empirica-mcp" / "empirica_mcp" / "__init__.py")),
 ]
 
 
@@ -67,5 +65,5 @@ def test_the_release_sweep_covers_every_surface_this_test_reads():
     """
     sweep = (_ROOT / "scripts" / "release.py").read_text(encoding="utf-8")
 
-    for needle in ('"empirica" / "__init__.py"', '"empirica_mcp" / "__init__.py"', '"empirica-mcp" / "pyproject.toml"'):
+    for needle in ('"empirica" / "__init__.py"',):
         assert needle in sweep, f"release.py does not sweep {needle} — it will drift exactly as 1.8.14 did"

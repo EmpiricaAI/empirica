@@ -44,8 +44,6 @@ Empirica writes data in **three places**, each isolated by design:
 
 ```bash
 pip install empirica
-# (optional, for Claude Desktop / Cursor / Windsurf MCP):
-pip install empirica-mcp
 ```
 
 Verify:
@@ -80,8 +78,7 @@ empirica setup
 
 This installs the empirica plugin to `~/.claude/plugins/local/empirica/`,
 writes `~/.claude/CLAUDE.md`, registers PreToolUse / PreCompact /
-SessionStart hooks in `~/.claude/settings.json`, and registers the MCP
-server in `~/.claude/mcp.json`.
+SessionStart hooks in `~/.claude/settings.json`.
 
 It also runs an **interactive credentials wizard** if you don't already
 have `~/.empirica/credentials.yaml`. The wizard prompts for:
@@ -110,7 +107,7 @@ empirica diagnose
 ```
 
 Walks ~10 checks (Python version, CLI on PATH, plugin install,
-statusline, hooks, MCP server, cortex reachability, …) and prints
+statusline, hooks, cortex reachability, …) and prints
 PASS / FAIL / WARN with actionable hints. Run this when something
 isn't working.
 

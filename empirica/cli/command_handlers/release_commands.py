@@ -5,7 +5,7 @@ Epistemic Release Agent - release-ready command
 A thorough pre-release verification that applies epistemic principles:
 1. Version Sync - Ensures versions match across pyproject.toml, __init__.py, CLAUDE.md
 2. Architecture Assessment - Turtle assess on key directories
-3. PyPI Package Check - Verifies empirica and empirica-mcp packages
+3. PyPI Package Check - Verifies the empirica package
 4. Privacy/Security Scan - Checks for sensitive/private/dev content
 5. Documentation Assessment - Verifies docs are current
 
@@ -253,11 +253,11 @@ class EpistemicReleaseAgent:
     # CHECK 3: PyPI Package Check
     # =========================================================================
     def check_pypi_packages(self) -> CheckResult:
-        """Check empirica and empirica-mcp on PyPI."""
+        """Check empirica on PyPI."""
         details = []
         issues = []
 
-        packages = ["empirica", "empirica-mcp"]
+        packages = ["empirica"]
 
         for pkg in packages:
             try:

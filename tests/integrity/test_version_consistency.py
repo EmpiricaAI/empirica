@@ -50,33 +50,6 @@ class TestVersionConsistency:
             f"expected {canonical_version!r} (from pyproject.toml)"
         )
 
-    def test_mcp_pyproject_version_matches(self, canonical_version: str) -> None:
-        """pyproject.toml version matches empirica-mcp/pyproject.toml."""
-        mcp_pyproject = PROJECT_ROOT / "empirica-mcp" / "pyproject.toml"
-        content = mcp_pyproject.read_text()
-        match = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
-        assert match, "Could not find version in empirica-mcp/pyproject.toml"
-        assert match.group(1) == canonical_version, (
-            f"empirica-mcp/pyproject.toml version is {match.group(1)!r}, "
-            f"expected {canonical_version!r} (from pyproject.toml)"
-        )
-
-    def test_mcp_core_dep_floor_tracks_version(self, canonical_version: str) -> None:
-        """empirica-mcp's core dep is a FLOOR at the current version with a <2
-        ceiling. The floor must track the version (a stale floor let `pipx upgrade
-        empirica-mcp` leave core behind); it must not be == (an exact pin rolled
-        core back on `pip install -U empirica`). David's ruling 2026-09-18."""
-        mcp_pyproject = PROJECT_ROOT / "empirica-mcp" / "pyproject.toml"
-        content = mcp_pyproject.read_text()
-        assert re.search(rf'"empirica>={re.escape(canonical_version)},<2"', content), (
-            f"empirica-mcp/pyproject.toml must declare 'empirica>={canonical_version},<2' "
-            "(floor bumped in lockstep by release.py)"
-        )
-        assert not re.search(r'"empirica==', content), (
-            "empirica-mcp/pyproject.toml has an exact 'empirica==' pin — it rolls core "
-            "back under a shared interpreter; use the lockstep floor"
-        )
-
     def test_plugin_json_version_matches(self, canonical_version: str) -> None:
         """pyproject.toml version matches plugin.json version."""
         plugin_json = (

@@ -362,7 +362,7 @@ def test_ci_release_workflow_still_covers_every_channel():
     re-add.
     """
     wf = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text()
-    for job in ("pypi-empirica:", "pypi-empirica-mcp:", "docker:", "github-release:", "homebrew:"):
+    for job in ("pypi-empirica:", "docker:", "github-release:", "homebrew:"):
         assert job in wf, f"release.yml must still define {job} — --publish no longer does it locally"
 
     # A job that cannot authenticate must fail loudly. Skipping still concludes

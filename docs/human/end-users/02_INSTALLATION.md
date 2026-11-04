@@ -83,9 +83,6 @@ pip install empirica
 # Specific version
 pip install empirica==1.14.20
 
-# With MCP server for Claude Desktop/Cursor
-pip install empirica empirica-mcp
-
 # Upgrade to latest
 pip install --upgrade empirica
 ```
@@ -348,14 +345,6 @@ brew install tesseract              # macOS
 
 # Test
 python -m empirica.vision.slide_processor --help
-```
-
-### MCP Server (for Claude Desktop / Cursor / Windsurf)
-```bash
-# Install the standalone MCP server package
-pip install empirica-mcp
-
-# See: MCP_FOR_DESKTOP_HARNESSES.md for client configuration
 ```
 
 ---

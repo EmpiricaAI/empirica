@@ -6,7 +6,7 @@ name: Release
 #   2. Locally: scripts/release.py --publish
 #      → creates tag v*.*.*, pushes main + tags
 #   3. GitHub Actions catches the tag push and:
-#      → publishes empirica + empirica-mcp to PyPI via OIDC trusted publishing
+#      → publishes empirica to PyPI via OIDC trusted publishing
 #        (no PYPI_API_TOKEN secret needed once trusted publisher is configured
 #        at pypi.org/manage/account/publishing/)
 #      → builds + pushes Docker images (nubaeon/empirica:<tag> + :latest + :<tag>-alpine)
@@ -19,7 +19,7 @@ name: Release
 #   HOMEBREW_TAP_TOKEN    — fine-grained PAT scoped to EmpiricaAI/homebrew-tap,
 #                           Contents:write only. NOT a `gh` OAuth token.
 #
-# Optional: configure PyPI trusted publishers for empirica + empirica-mcp.
+# Optional: configure the PyPI trusted publisher for empirica.
 # If trusted publishing isn't set up, the PyPI step will fail — fix by
 # either configuring it (preferred) or adding PYPI_API_TOKEN as a secret
 # and switching the publish step to use it.
@@ -59,21 +59,11 @@ jobs:
       - name: Build empirica
         run: python -m build --wheel --sdist --outdir dist/
 
-      - name: Build empirica-mcp
-        working-directory: empirica-mcp
-        run: python -m build --wheel --sdist --outdir dist/
-
       - name: Upload empirica artifacts
         uses: actions/upload-artifact@v7
         with:
           name: empirica-dist
           path: dist/*
-
-      - name: Upload empirica-mcp artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: empirica-mcp-dist
-          path: empirica-mcp/dist/*
 
   # ── PyPI publish (OIDC) ──────────────────────────────────────────────
   pypi-empirica:
@@ -90,27 +80,6 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: empirica-dist
-          path: dist/
-
-      - name: Publish to PyPI (trusted publisher)
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          skip-existing: true
-
-  pypi-empirica-mcp:
-    name: Publish empirica-mcp → PyPI
-    runs-on: ubuntu-latest
-    needs: build
-    timeout-minutes: 10
-    environment:
-      name: pypi-empirica-mcp
-      url: https://pypi.org/project/empirica-mcp/
-
-    steps:
-      - name: Download empirica-mcp artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: empirica-mcp-dist
           path: dist/
 
       - name: Publish to PyPI (trusted publisher)
@@ -296,7 +265,7 @@ jobs:
   github-release:
     name: GitHub release
     runs-on: ubuntu-latest
-    needs: [build, pypi-empirica, pypi-empirica-mcp]
+    needs: [build, pypi-empirica]
     timeout-minutes: 5
 
     steps:
@@ -338,12 +307,10 @@ jobs:
             echo "Release ${GITHUB_REF_NAME} already exists — uploading artifacts with --clobber"
             gh release upload "${GITHUB_REF_NAME}" \
               artifacts/empirica-dist/* \
-              artifacts/empirica-mcp-dist/* \
               --clobber
           else
             gh release create "${GITHUB_REF_NAME}" \
               artifacts/empirica-dist/* \
-              artifacts/empirica-mcp-dist/* \
               --title "${GITHUB_REF_NAME}" \
               --notes-file release-notes.md
           fi

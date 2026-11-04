@@ -79,7 +79,7 @@ This division means:
 ## Sister tools
 
 - `empirica diagnose` (default) — Claude Code integration
-- `empirica doctor` — desktop / general install health (empirica-mcp,
-  Cortex reachability, sync state)
+- `empirica doctor` — desktop / general install health (Cortex
+  reachability, sync state)
 - `empirica compliance-report` — language-level lint/types/tests against
   your project. Doctor checks integration; compliance-report checks code.

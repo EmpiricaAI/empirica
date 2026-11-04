@@ -10,9 +10,6 @@ RUN apt-get update && apt-get install -y \
 RUN pip install --no-cache-dir empirica && \
     empirica --help
 
-# Test 2: Verify MCP server (should fail - not on PyPI yet)
-RUN pip install --no-cache-dir empirica-mcp || echo "empirica-mcp not on PyPI yet (expected)"
-
 # Test 3: Create test session
 RUN echo '{"ai_id": "docker-test", "session_type": "development"}' | empirica session-create - || echo "Session creation test"
 

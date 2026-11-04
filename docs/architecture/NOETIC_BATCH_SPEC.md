@@ -146,14 +146,6 @@ Flags (from `--help`): `config` (path, or `-` for stdin), `--intent`, `--read`,
 `--investigate` takes only the query. Exit codes: 0 all operations succeeded, 1 the
 batch ran but at least one operation reported an error, 2 invalid input.
 
-## MCP
-
-`noetic_batch` in `empirica-mcp/empirica_mcp/server.py` wraps the same CLI, takes
-the payload as stdin JSON, and lists `intent` as required. It is classified under
-the `noetic` category in `empirica mcp-list-tools`. Its name carries the
-`mcp__empirica__` prefix, which `sentinel-gate.py` treats as epistemic workflow
-and always allows.
-
 ---
 
 ## Sentinel and PREFLIGHT

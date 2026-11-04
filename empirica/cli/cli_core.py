@@ -152,7 +152,6 @@ from .command_handlers.concept_graph_commands import (
 from .command_handlers.docs_commands import handle_docs_assess, handle_docs_explain
 from .command_handlers.docs_link_check_commands import handle_docs_link_check_command
 from .command_handlers.mailbox_commands import handle_mailbox_group_command
-from .command_handlers.mcp_commands import handle_mcp_list_tools_command
 from .command_handlers.memory_commands import (
     handle_memory_prime_command,
     handle_memory_report_command,
@@ -210,7 +209,6 @@ from .parsers import (
     add_issue_capture_parsers,
     add_lesson_parsers,
     add_mailbox_parsers,
-    add_mcp_parsers,
     add_memory_parsers,
     add_mesh_parsers,
     add_message_parsers,
@@ -458,7 +456,6 @@ def create_argument_parser():
     add_module_parsers(subparsers)
     add_trajectory_parsers(subparsers)
     add_concept_graph_parsers(subparsers)
-    add_mcp_parsers(subparsers)
     add_message_parsers(subparsers)
     add_mailbox_parsers(subparsers)
     add_auth_parsers(subparsers)
@@ -649,7 +646,6 @@ _HELP_CATEGORIES = {
         "lesson-recommend",
         "lesson-stats",
     ],
-    "mcp": ["mcp-list-tools"],
     "memory": ["memory-prime", "memory-scope", "memory-value", "pattern-check", "session-rollup", "memory-report"],
     "vision": ["vision"],
     "domains": ["domain-validate"],
@@ -1260,8 +1256,6 @@ def main(args=None):
             "concept-stats": handle_concept_stats,
             "concept-top": handle_concept_top,
             "concept-related": handle_concept_related,
-            # MCP inspection (lifecycle now owned by harness mcp.json configs)
-            "mcp-list-tools": handle_mcp_list_tools_command,
             # Inter-agent messaging commands
             "message-send": handle_message_send_command,
             "message-inbox": handle_message_inbox_command,

@@ -1,8 +1,7 @@
-"""tool-router's hints name what exists in the harness hosting them.
+"""tool-router's hints name Empirica operations by their CLI verbs, in every harness.
 
-ecodex leaves the Empirica MCP server off by default (prop_qr2m4fleanh65cjjj634zqsvom), so a hint saying
-"use `mcp__empirica__investigate`" points at a tool that is not there. Under EMPIRICA_HARNESS=codex
-the hints name the CLI verbs; Claude Code's text is unchanged.
+The Empirica MCP server is gone: every harness that can run a command has the CLI, so a hint names
+`empirica <verb>` and never a tool that may not exist. These pin that, under Claude Code and under codex.
 """
 
 from __future__ import annotations
@@ -47,22 +46,16 @@ def _all_hints(router) -> str:
     return "\n".join(lines)
 
 
-def test_claude_code_hints_are_unchanged(router, monkeypatch):
-    monkeypatch.delenv("EMPIRICA_HARNESS", raising=False)
+@pytest.mark.parametrize("harness", [None, "codex"])
+def test_hints_name_cli_verbs_and_no_mcp_tool(router, monkeypatch, harness):
+    if harness is None:
+        monkeypatch.delenv("EMPIRICA_HARNESS", raising=False)
+    else:
+        monkeypatch.setenv("EMPIRICA_HARNESS", harness)
 
     text = _all_hints(router)
 
-    for tool in ("investigate", "blindspot_scan", "project_bootstrap", "deadend_log"):
-        assert f"`mcp__empirica__{tool}`" in text
-    assert "Empirica MCP tools (preflight/check/postflight)" in text
-
-
-def test_codex_hints_name_cli_verbs_and_no_mcp_tool(router, monkeypatch):
-    monkeypatch.setenv("EMPIRICA_HARNESS", "codex")
-
-    text = _all_hints(router)
-
-    assert "mcp__empirica__" not in text and "Empirica MCP tools" not in text
+    assert "mcp__" not in text and "MCP tools" not in text
     for verb in (
         "empirica investigate",
         "empirica blindspot-scan",

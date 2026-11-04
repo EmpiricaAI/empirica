@@ -149,20 +149,7 @@ Best for terminal workflows, scripts, agents with shell access. **This
 is the canonical path** — every other interface eventually shells out
 to the CLI.
 
-### 2. MCP Server (for GUI clients)
-
-```bash
-pip install empirica-mcp
-```
-
-```json
-{ "mcpServers": { "empirica": { "command": "empirica-mcp" } } }
-```
-
-Best for Claude Desktop, Cursor, Windsurf — IDEs that don't shell out
-directly. See [MCP_FOR_DESKTOP_HARNESSES.md](MCP_FOR_DESKTOP_HARNESSES.md).
-
-### 3. Python API (for embedding)
+### 2. Python API (for embedding)
 
 ```python
 from empirica.cli.command_handlers.workflow_commands import (
@@ -171,24 +158,6 @@ from empirica.cli.command_handlers.workflow_commands import (
 ```
 
 Used internally and by integrations. Most users don't need this layer.
-
----
-
-## Quick Reference: MCP Tool Parameters
-
-When calling Empirica via MCP, parameter names sometimes differ from
-CLI flags. Common gotchas:
-
-| Tool | Correct |
-|---|---|
-| `goals_add_task` | `importance` (not `epistemic_importance`) |
-| `goals_complete_task` | `task_id` (not `task_id`) |
-| Goal scope | `{"breadth": 0.3, "duration": 0.2, "coordination": 0.1}` |
-| Success criteria | array of objects with `description` + `threshold` |
-| Vector JSON | flat at root of `vectors`, no tier sub-objects |
-
-Use the MCP client's autocomplete or `empirica mcp-list-tools` to see
-exact schemas.
 
 ---
 

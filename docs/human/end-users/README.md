@@ -37,7 +37,6 @@
 |------|---------|
 | `SESSION_GOAL_WORKFLOW.md` | Sessions, transactions, goals, tasks |
 | `PROJECT_MANAGEMENT_FOR_USERS.md` | Project model + auto-detection + workspace |
-| `MCP_FOR_DESKTOP_HARNESSES.md` | MCP server setup for GUI clients + non-Claude-Code harnesses |
 
 ### Mesh & Coordination
 | File | Purpose |

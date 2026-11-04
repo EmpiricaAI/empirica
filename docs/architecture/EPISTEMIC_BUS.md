@@ -43,8 +43,8 @@ get_global_bus().subscribe(Watch())
 
 ### Per-process, not per-project
 
-The global bus is a Python module variable. Each CLI invocation, hook and MCP
-server process has its own, empty at start. A PREFLIGHT run by `empirica
+The global bus is a Python module variable. Each CLI invocation and hook
+process has its own, empty at start. A PREFLIGHT run by `empirica
 preflight-submit` publishes to the bus of that short-lived process; an observer
 subscribed in a different process never sees it. What crosses process
 boundaries is the SQLite table below, not the bus.

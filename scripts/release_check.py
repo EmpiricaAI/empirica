@@ -132,11 +132,6 @@ class ReleaseChecker:
         with zipfile.ZipFile(wheel, 'r') as zf:
             names = zf.namelist()
 
-            # Check for empirica-mcp bundled incorrectly
-            mcp_files = [n for n in names if 'empirica-mcp' in n]
-            if mcp_files:
-                problems.append(f"empirica-mcp bundled in main wheel ({len(mcp_files)} files)")
-
             # Check for test files
             test_files = [n for n in names if 'test_' in n.lower() or '_test.py' in n.lower()]
             if test_files:

@@ -48,7 +48,7 @@ def add_onboarding_parsers(subparsers):
     setup_cc_parser = subparsers.add_parser(
         "setup",
         aliases=["setup-claude-code"],
-        help="Configure harness integration (hooks, system prompt, MCP server)",
+        help="Configure harness integration (hooks, system prompt)",
         description="""
 Configure this machine's AI harness to run Empirica.
 
@@ -66,7 +66,6 @@ Supported today: claude-code. For Claude Code, this command:
    - Sentinel gate (blocks praxic tools until CHECK passes)
    - Pre/post compact (epistemic state persistence)
    - Session lifecycle (init, end, subagent tracking)
-4. Configures MCP server in mcp.json (installs empirica-mcp if needed)
 
 Run this after 'brew install empirica' or 'pip install empirica'.
         """,
@@ -89,9 +88,6 @@ Run this after 'brew install empirica' or 'pip install empirica'.
             "is run by an operator, not by a practice, and a guessed name there is "
             "worse than none — the stamp records user@host either way."
         ),
-    )
-    setup_cc_parser.add_argument(
-        "--skip-mcp", action="store_true", help="Skip MCP server installation and configuration"
     )
     setup_cc_parser.add_argument(
         "--skip-credentials",
@@ -235,16 +231,14 @@ Exit codes:
     # Doctor command - Desktop + general install health (sibling of diagnose)
     doctor_parser = subparsers.add_parser(
         "doctor",
-        help="Check Empirica install health (Desktop + general — empirica-mcp, .empirica/, git remote, Cortex reachability)",
+        help="Check Empirica install health (Desktop + general — .empirica/, git remote, Cortex reachability)",
         description="""
 Frontend-agnostic health check for Empirica installs. Sibling of `diagnose`
-(which is Claude Code-centric). Designed to be callable from Claude Desktop
-via the empirica-mcp `doctor` tool.
+(which is Claude Code-centric).
 
 Checks:
   - Python version
   - empirica CLI on PATH
-  - empirica-mcp on PATH (Desktop MCP install)
   - .empirica/ folder presence + structure
   - git repo + remote configured (sync_push prereq)
   - sync state (are epistemic notes replicated to the notes remote)
@@ -261,7 +255,7 @@ Exit codes:
         choices=["human", "json"],
         default=None,
         help=(
-            "Output format. Default: human on a terminal, json when piped (the Desktop MCP tool and AI "
+            "Output format. Default: human on a terminal, json when piped (AI "
             "sessions call it through a pipe, so they keep getting json)."
         ),
     )
@@ -285,7 +279,7 @@ Exit codes:
         action="store_true",
         help=(
             "Only the deploy-gap checks: unreleased commits, CLI-vs-checkout, plugin "
-            "freshness, MCP skew - one readable answer to 'what is committed but not "
+            "freshness - one readable answer to 'what is committed but not "
             "live on this box'"
         ),
     )

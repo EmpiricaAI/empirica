@@ -701,9 +701,6 @@ def _check_channel(channel: str, version: str, project_root: Path) -> str:
         if channel == "pypi":
             return _pypi_channel_status("empirica", version)
 
-        if channel == "pypi_mcp":
-            return _pypi_channel_status("empirica-mcp", version)
-
         if channel == "docker":
             # Check Docker Hub tag existence via API
             result = subprocess.run(
@@ -1335,9 +1332,7 @@ def run_compliance_report(
     # CI's invocation must stay in agreement with pyproject's include list, or
     # a bare `pyright` and the gates report different numbers and nobody can
     # tell a fresh regression from standing noise.
-    pyright_raw = _run_check(
-        "pyright", ["pyright", "empirica/", "empirica-mcp/", "tests/"], cwd=project_root, timeout=180
-    )
+    pyright_raw = _run_check("pyright", ["pyright", "empirica/", "tests/"], cwd=project_root, timeout=180)
     results.append(_parse_pyright_result(pyright_raw))
 
     # Optional checks (slow)

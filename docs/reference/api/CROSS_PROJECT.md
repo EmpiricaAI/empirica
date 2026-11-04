@@ -64,12 +64,6 @@ empirica finding-log --finding "Security note on dep X..." --impact 0.8 \
   --visibility public
 ```
 
-**MCP parity (v1.9.6+):** the `mcp__empirica__finding_log` (and the other 5
-`*_log` MCP tools — `unknown_log`, `deadend_log`, `mistake_log`,
-`assumption_log`, `decision_log`) expose `visibility` and `epistemic_source`
-as enum params. The CLI/MCP surfaces are at parity — discipline is
-enforceable through either interface.
-
 **When to use `shared` vs `local`:**
 
 | Pattern | Default |
@@ -91,7 +85,7 @@ another project, want this to surface in a project-search?"*
 ## Cross-Project Intelligence (history)
 
 The original 1.7.0 cross-project capabilities below predate the visibility
-flag and the v1.9.6 MCP parity work.
+flag.
 
 ## Cross-Project Search
 

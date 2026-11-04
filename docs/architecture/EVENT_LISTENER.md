@@ -493,7 +493,7 @@ empirica setup --force
 ```
 
 This installs the hooks (including `session-monitor-arm.py` which arms
-Monitor on session start) and configures the MCP server bridge.
+Monitor on session start).
 
 **Step 4 — Enable the canonical loop from the cockpit TUI.** From any
 terminal:

@@ -1,8 +1,7 @@
 """Handler for `empirica bootstrap-context` — emits the v2 wire shape.
 
 Thin CLI wrapper over `empirica.core.bootstrap.build_bootstrap_payload`.
-Used by the MCP tool (`mcp__empirica__bootstrap_context`) and available
-directly for users who want to inspect the payload (`empirica
+Available directly for users who want to inspect the payload (`empirica
 bootstrap-context --output json | jq`).
 """
 

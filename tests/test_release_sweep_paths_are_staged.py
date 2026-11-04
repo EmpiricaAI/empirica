@@ -3,7 +3,7 @@
 The sweep list and the commit allowlist are two hand-kept copies of one set.
 By 1.13.48 they had drifted both ways: the sweep named three repo files that
 had been deleted (each a "Not found" warning nobody acted on) and one path on
-the releasing box, and it bumped empirica_mcp/__init__.py without the
+the releasing box, and it bumped a sibling package's __init__.py without the
 allowlist staging it, so the bump was left uncommitted in the tree.
 """
 

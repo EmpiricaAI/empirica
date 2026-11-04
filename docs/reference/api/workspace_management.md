@@ -97,7 +97,7 @@ empirica workspace-list --parent abc123
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   empirica          product     active   ⚡82%  🎯12  📝45
   empirica-crm      product     active   ⚡75%  🎯3   📝12
-  empirica-mcp      feature     active   ⚡90%  🎯1   📝8
+  empirica-web      feature     active   ⚡90%  🎯1   📝8
   research-ml       research    dormant  💫45%  🎯5   📝23
   docs              documentation active ⚡88%  🎯2   📝15
 ```
@@ -199,7 +199,7 @@ empirica workspace-map --output json
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 empirica (core)
-├── empirica-mcp [depends_on]
+├── empirica-web [depends_on]
 ├── empirica-crm [extends]
 └── docs [documents]
 
@@ -220,7 +220,7 @@ research-ml
   ],
   "edges": [
     {
-      "source": "empirica-mcp-id",
+      "source": "empirica-web-id",
       "target": "748a81a2-...",
       "link_type": "depends_on",
       "relevance": 0.9

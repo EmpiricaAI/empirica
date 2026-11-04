@@ -16,8 +16,8 @@ empirica setup --force  # reinstall or update; keeps other plugins' hooks
 
 1. Copies this plugin to `~/.claude/plugins/local/empirica/`.
 2. Writes the lean core prompt to `~/.claude/empirica-system-prompt.md` and adds an `@~/.claude/empirica-system-prompt.md` include to `~/.claude/CLAUDE.md`.
-3. Registers the hooks and the statusline in `~/.claude/settings.json` and pre-authorizes the `mcp__cortex__*` and `mcp__empirica__*` tools.
-4. Configures the Empirica MCP server, offers a credentials wizard, and installs the persistent listener service. `--skip-mcp`, `--skip-credentials` and `--skip-listener-service` skip those; `--uninstall` removes the install.
+3. Registers the hooks and the statusline in `~/.claude/settings.json` and pre-authorizes the `mcp__cortex__*` tools.
+4. Offers a credentials wizard and installs the persistent listener service. `--skip-credentials` and `--skip-listener-service` skip those; `--uninstall` removes the install.
 
 `--force` removes only Empirica's own hook entries and statusline before re-registering, so hooks from Railway, Superpowers and others survive. A plain re-run keeps existing registrations but repoints their interpreter at the one running setup.
 
@@ -32,7 +32,7 @@ empirica setup --force  # reinstall or update; keeps other plugins' hooks
 | Commands | `commands/`: `/empirica`, `/chrome-health` |
 | Agents | `agents/`: `architecture`, `security`, `performance`, `ux` |
 | Statusline | `scripts/statusline_empirica.py` |
-| Shared code | `lib/` (project and instance resolution used by the hooks), `templates/` (the lean prompt, `settings-hooks.json`, `settings-statusline.json`, `mcp.json`) |
+| Shared code | `lib/` (project and instance resolution used by the hooks), `templates/` (the lean prompt, `settings-hooks.json`, `settings-statusline.json`) |
 
 ---
 

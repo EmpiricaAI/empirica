@@ -43,12 +43,9 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install (with dev + optional extras)
-        # empirica-mcp too: tests/test_mcp_surface_parity.py and test_mcp_zero_output.py import it, and without it this job failed at collection
-        # every night from the day it was added.
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,api,tui,vector]"
-          pip install -e "./empirica-mcp[dev]"
 
       - name: Configure git identity
         # The integration tests commit in throwaway repositories.
@@ -82,7 +79,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,api,tui,vector]"
-          pip install -e "./empirica-mcp[dev]"
 
       - name: pytest in a clean environment (no inherited variables, empty HOME, system PATH only)
         # The interpreter is addressed by absolute path because the toolchain directory is deliberately NOT on PATH: a test that

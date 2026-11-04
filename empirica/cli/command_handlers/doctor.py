@@ -3,13 +3,10 @@ Empirica Doctor - install + mesh-participation health check.
 
 Sibling to `diagnose` (which is Claude Code-centric). `doctor` checks the
 state of an Empirica install regardless of frontend — install presence,
-project state, cortex connectivity, ntfy mesh, listener arming, MCP server
+project state, cortex connectivity, ntfy mesh, listener arming, MCP
 config. Designed to be the single command an operator runs on a peer
 machine to audit its install + mesh participation surface (closes
 prop_vnsvs6th6bc5lhprbhylvdxwmi from cortex AI, 2026-05-18).
-
-Designed to be callable from Claude Desktop via the empirica-mcp `doctor`
-tool, returning structured JSON the AI can interpret without shell access.
 
 Output modes:
   --output json     (default) — machine-readable
@@ -304,116 +301,6 @@ def check_empirica_cli() -> Check:
     return Check("empirica CLI on PATH", PASS, f"{path} ({version})", data={"path": path, "version": version})
 
 
-def _empirica_version_on_path() -> str | None:
-    """The version of the `empirica` a user's shell would actually run, or None.
-
-    Parses the number out of `empirica --version`, which also prints the Python
-    line. Deliberately uses the CLI rather than this process's own
-    `empirica.__version__`: `doctor` can be invoked from the MCP env itself, in
-    which case importing locally would compare that env against itself and never
-    report drift.
-    """
-    rc, out, _ = _run(["empirica", "--version"])
-    if rc != 0 or not out:
-        return None
-    for tok in out.split():
-        if tok and tok[0].isdigit():
-            return tok
-    return None
-
-
-def _mcp_bundled_empirica_version(mcp_path: str) -> str | None:
-    """The empirica version INSIDE the empirica-mcp environment, or None.
-
-    `empirica-mcp` is typically its own isolated env (pipx, or a venv), so it
-    bundles its own `empirica` — which can be arbitrarily older than the one on
-    PATH. Reads that env's interpreter rather than the ambient one.
-
-    Asks the interpreter what it IMPORTS, not what was recorded when the package
-    was installed. `importlib.metadata.version()` reads the dist-info stamp, which
-    is written once at install time and does not move when an editable install's
-    source does — so on an editable box this reported drift against a module that
-    was already newer. Reported by empirica-mesh-support
-    (prop_3cybzdvc3jgurejwg2ap2m7twy) from a live symptom on another seat.
-
-    `empirica.__version__` is a literal in ``empirica/__init__.py``, so it is
-    whatever the imported source says right now: it tracks the tree on an editable
-    install and equals the metadata on a copy install, which makes it strictly the
-    better instrument for "what would actually run". Metadata remains the
-    fallback for the case where import fails but the distribution is registered.
-
-    Best-effort by design: an env whose interpreter cannot be located or queried
-    returns None, and the caller degrades to the presence-only verdict rather than
-    failing a health check over introspection trouble.
-    """
-    interp = Path(mcp_path).resolve().parent / "python"
-    if not interp.is_file():
-        return None
-    # cwd="/" so the probe cannot pick a checkout off sys.path: python puts the
-    # working directory first for `-c`, so running this from a project root
-    # measures the project rather than the environment.
-    rc, out, _ = _run(
-        [
-            str(interp),
-            "-c",
-            "import empirica; print(empirica.__version__)",
-        ],
-        timeout=8.0,
-        cwd="/",
-    )
-    if rc == 0 and out.strip():
-        return out.strip()
-    rc, out, _ = _run(
-        [str(interp), "-c", "import importlib.metadata as m; print(m.version('empirica'))"],
-        timeout=8.0,
-        cwd="/",
-    )
-    return out.strip() if rc == 0 and out.strip() else None
-
-
-def check_empirica_mcp() -> Check:
-    """Present AND not stale.
-
-    Presence alone was the whole check, so an MCP env bundling an ancient empirica
-    reported PASS — and every box in a 2026-07-30 fleet sweep that HAD an
-    empirica-mcp seat had a stale one (1.12.33, 1.12.1, 1.8.12 against a current
-    1.12.38). The Desktop MCP path silently ran months-old code while `doctor` said
-    healthy, because nothing upgrades that env when the main install moves and
-    nothing looked.
-
-    A check that cannot fail on a case reports clean for it forever.
-    """
-    path = _which("empirica-mcp")
-    if not path:
-        return Check(
-            "empirica-mcp on PATH",
-            WARN,
-            "",
-            "pip install --user empirica-mcp  (only needed for Claude Desktop / IDE MCP clients)",
-            data={"path": None},
-        )
-
-    bundled = _mcp_bundled_empirica_version(path)
-    running = _empirica_version_on_path()
-    data = {"path": path, "bundled_empirica": bundled, "running_empirica": running}
-
-    # Unresolvable version on either side degrades to the old presence verdict —
-    # never FAIL a health check because introspection was inconclusive.
-    if not bundled or not running:
-        return Check("empirica-mcp on PATH", PASS, path, data=data)
-
-    if bundled != running:
-        return Check(
-            "empirica-mcp on PATH",
-            WARN,
-            f"{path} — bundles empirica {bundled}, but {running} is on PATH",
-            "pipx upgrade empirica-mcp   (or reinstall it) — the Desktop/IDE MCP path "
-            "runs the BUNDLED version, so it stays on old code until this env is refreshed",
-            data=data,
-        )
-    return Check("empirica-mcp on PATH", PASS, f"{path} (empirica {bundled})", data=data)
-
-
 def _cli_package_dir() -> Path | None:
     """Where the `empirica` on PATH actually loads its package from, or None.
 
@@ -594,7 +481,7 @@ def check_plugin_freshness() -> Check:
     re-enter), which means the one verb a practitioner runs to check install health is
     the one that neither heals this nor, until now, reported it. `diagnose` checks the
     plugin files EXIST — presence only, so a plugin several minor versions behind
-    passes. Same presence-vs-freshness gap `check_empirica_mcp` closed above.
+    passes. Presence is not freshness.
 
     Also surfaces `.plugin_autosync_failed`. `cli_core` writes that breadcrumb
     specifically so *"doctor/diagnose (and a human) surface this"* — and nothing did.
@@ -1525,7 +1412,7 @@ def check_unreleased_commits(cwd: Path | None = None) -> Check:
     consumer-side outcome — and the human relaying "everything works" to a
     client had no surface answering "what exists only on develop?". This check
     is the committed-not-released lane of that answer; the sibling skew checks
-    (CLI-vs-checkout, plugin freshness, MCP skew) cover released-not-running.
+    (CLI-vs-checkout, plugin freshness) cover released-not-running.
 
     PASS with data, never WARN on a non-zero count: unreleased commits on
     develop is the NORMAL state of a working repo, and a check that warns on
@@ -1636,9 +1523,7 @@ def _empirica_processes() -> list[dict[str, Any]]:
         except (psutil.Error, OSError):
             continue
         cmd = " ".join(cmdline)
-        runs_empirica = any(
-            Path(arg).name in ("empirica", "empirica-mcp") or arg in ("empirica.cli", "empirica_mcp") for arg in cmdline
-        )
+        runs_empirica = any(Path(arg).name == "empirica" or arg == "empirica.cli" for arg in cmdline)
         if runs_empirica:
             found.append({"pid": proc.info["pid"], "create_time": proc.info.get("create_time"), "cmd": cmd})
     return found
@@ -1680,7 +1565,7 @@ def check_long_running_processes(pkg_dir: Path | None = None, processes: list[di
     def _short(cmd: str) -> str:
         # From the empirica entry point on: the interpreter path says nothing.
         parts = cmd.split()
-        i = next((k for k, a in enumerate(parts) if Path(a).name in ("empirica", "empirica-mcp")), 0)
+        i = next((k for k, a in enumerate(parts) if Path(a).name == "empirica"), 0)
         return " ".join([Path(parts[i]).name, *parts[i + 1 :]])[:70] if parts else cmd[:70]
 
     rows = [f"pid {p['pid']} up {(now - p['create_time']) / 86400:.1f}d: {_short(p['cmd'])}" for p in stale[:5]]
@@ -1705,7 +1590,6 @@ def deploy_gap_checks(cwd: Path | None = None) -> list[Check]:
         check_plugin_freshness(),  # released, not what the deployed plugin runs
         check_hook_interpreter(),  # the deployed hooks run an interpreter that lacks empirica
         check_long_running_processes(),  # released, not what a long-lived process is running
-        check_mcp_version_skew(),  # released, not what the MCP host serves
     ]
 
 
@@ -2322,7 +2206,7 @@ def check_listener_service(cwd: Path | None = None) -> Check:
 
 
 def _find_mcp_config_paths() -> list[Path]:
-    """Common locations for MCP client config that may register empirica/cortex servers.
+    """Common locations for MCP client config that may register the cortex server.
 
     ``~/.claude.json`` is FIRST and is not optional: it is where Claude Code
     stores user-scope MCP servers (`claude mcp remove ... -s user` reports
@@ -2374,153 +2258,6 @@ def _mcp_entry_command_resolves(entry: dict) -> tuple[bool, str | None]:
     return False, f"`{command}` does not resolve on the entry's own env.PATH"
 
 
-def _version_key(v: str) -> tuple:
-    """Sort key for a dotted version. Non-numeric segments sort as 0 rather
-    than raising — a health check must not crash on an odd version string."""
-    parts = []
-    for seg in str(v).split("."):
-        digits = "".join(c for c in seg if c.isdigit())
-        parts.append(int(digits) if digits else 0)
-    return tuple(parts)
-
-
-# The digest lives in empirica/core/build_facts.py, where the presence record and
-# the heartbeat also read it: two definitions of "what code is this" would drift,
-# and this one is what says a seat is running something other than it claims.
-# Re-exported here because doctor's checks and its tests reach for it by name.
-from empirica.core.build_facts import package_content_digest  # noqa: E402
-
-
-def _mcp_content_state() -> tuple[str | None, dict[str, Any]]:
-    """Compare the INSTALLED empirica_mcp against a checkout's, by content.
-
-    Returns ("identical" | "different" | None, data). None means no comparison was
-    possible — no checkout on this box, or the package is not importable here — and
-    the caller must fall back rather than treat it as agreement.
-    """
-    import importlib.util as _iu
-
-    data: dict[str, Any] = {}
-    try:
-        spec = _iu.find_spec("empirica_mcp")
-    except Exception:
-        spec = None
-    locs = list(getattr(spec, "submodule_search_locations", None) or [])
-    if not locs:
-        return None, data
-    installed = Path(locs[0]).resolve()
-
-    checkout = _find_checkout()
-    source = (checkout / "empirica-mcp" / "empirica_mcp").resolve() if checkout else None
-    if not source or not source.is_dir():
-        return None, data
-
-    data["installed_path"], data["source_path"] = str(installed), str(source)
-    if installed == source:
-        # Editable: the installed package IS the checkout. Nothing can differ.
-        data["editable"] = True
-        return "identical", data
-
-    a, b = package_content_digest(installed), package_content_digest(source)
-    data["installed_digest"], data["source_digest"] = a, b
-    if a is None or b is None:
-        return None, data
-    return ("identical" if a == b else "different"), data
-
-
-def check_mcp_version_skew() -> Check:
-    """Core and empirica-mcp must move together — pipx upgrade splits them.
-
-    `empirica-mcp` is an INJECTED package in the pipx venv, and `pipx upgrade
-    empirica` upgrades only the main package: the injected one silently stays
-    behind, doctor passed 0 FAIL, and the config check only verified a server
-    was *configured*, not that its version matched core (GH #404). A 1.13.1
-    server behind a 1.13.7 CLI serves six releases of drift with nothing
-    anywhere saying so.
-
-    Version comparison is by installed distribution metadata — the same
-    instrument for both packages, not a version string one of them prints.
-
-    Complementary to `check_empirica_mcp`, not a duplicate: that check covers
-    the SEPARATE-ENV topology (a standalone empirica-mcp env bundling its own
-    empirica, compared against the one on PATH). This one covers the INJECTED
-    topology, where both distributions share one venv — there `bundled` always
-    equals `running`, so the existing check passes while the empirica-mcp
-    package itself sits releases behind. Each check SKIPs cleanly on the other's
-    topology (separate env → empirica-mcp not importable here; injected →
-    that check's versions match by construction).
-    """
-    import importlib.metadata as _im
-
-    try:
-        core_v = _im.version("empirica")
-    except Exception:
-        return Check("core/MCP version match", SKIP, "empirica distribution metadata unavailable")
-    try:
-        mcp_v = _im.version("empirica-mcp")
-    except Exception:
-        # Not installed in this environment is a legitimate state (MCP is
-        # optional) — absence is not skew.
-        return Check(
-            "core/MCP version match",
-            SKIP,
-            "empirica-mcp not installed in this environment",
-            data={"core": core_v, "mcp": None},
-        )
-
-    # CONTENT FIRST, where a checkout makes the comparison possible. Deciding on the
-    # strings alone fails in both directions: it WARNs whenever core bumps and the MCP
-    # package does not change — the common case, and the state that told an operator to
-    # force-inject a package already holding the current code — and it would PASS two
-    # matching strings over genuinely different code. This check is about to run on
-    # every seat, and a WARN that fires by construction trains people to skip the block
-    # the real one sits in.
-    state, cdata = _mcp_content_state()
-    base = {"core": core_v, "mcp": mcp_v, **cdata}
-    if state == "identical":
-        note = "" if core_v == mcp_v else f" (metadata says {mcp_v} vs core {core_v} — a label, not a code difference)"
-        return Check(
-            "core/MCP version match",
-            PASS,
-            f"installed empirica_mcp is content-identical to the checkout{note}",
-            data={**base, "compared": "content"},
-        )
-    if state == "different":
-        return Check(
-            "core/MCP version match",
-            WARN,
-            f"installed empirica_mcp DIFFERS in content from the checkout (metadata: mcp {mcp_v}, core {core_v}) "
-            "— the MCP server is serving different code",
-            f"pipx users: `pipx inject empirica empirica-mcp=={max(core_v, mcp_v, key=_version_key)} --force`, "
-            "or inject the checkout editable. PIN the version — unpinned, a stale sibling's dependency pin can "
-            "drag core backwards instead.",
-            data={**base, "compared": "content"},
-        )
-
-    # No checkout to compare against (a released-copy seat). Strings are all there is,
-    # and the verdict says so rather than implying content was examined.
-    if core_v != mcp_v:
-        # The remedy PINS the version it is reaching for. Unpinned, this hint
-        # downgraded a box: `pipx inject empirica empirica-mcp --force` resolved
-        # a stale empirica-mcp whose dependency pin is `empirica==<older>`, so
-        # pip took core DOWN to match, and this check then reported PASS —
-        # "both at <older>". Equality is satisfiable by regressing the good
-        # half, so a remedy that does not name a target can satisfy the check
-        # while making the box worse. Observed 2026-09-11 on the 1.13.45
-        # refresh.
-        target = max(core_v, mcp_v, key=_version_key)
-        return Check(
-            "core/MCP version match",
-            WARN,
-            f"empirica {core_v} but empirica-mcp {mcp_v} — the MCP server is serving a different release",
-            f"pipx users: `pipx inject empirica empirica-mcp=={target} --force` (pipx upgrade does NOT "
-            f"upgrade injected packages; PIN the version — unpinned, a stale sibling's dependency pin "
-            f"can drag core backwards instead). pip users: `pip install -U empirica-mcp=={target}`.",
-            data={"core": core_v, "mcp": mcp_v, "target": target},
-        )
-    return Check("core/MCP version match", PASS, f"both at {core_v}", data={"core": core_v, "mcp": mcp_v})
-
-
 def check_mcp_config() -> Check:
     """Surface MCP config entries and verify they can actually launch.
 
@@ -2533,6 +2270,7 @@ def check_mcp_config() -> Check:
     found_configs = []
     server_names: set[str] = set()
     broken: list[str] = []
+    stale: list[str] = []
     # name -> {command} seen per file, so the SAME server defined differently in
     # two configs is surfaced. That divergence is what let the fault hide: one
     # file was clean, doctor read that one, and the one the client loaded was not.
@@ -2555,7 +2293,11 @@ def check_mcp_config() -> Check:
             if not isinstance(entry, dict):
                 continue
             definitions.setdefault(name, set()).add(str(entry.get("command") or ""))
-            if name not in ("empirica", "cortex"):
+            # The empirica MCP server was removed (the CLI is the one integration surface). A registration left from before keeps launching
+            # a dead server, and setup no longer touches it, so this is the one place that can say so.
+            if name == "empirica" or "empirica-mcp" in str(entry.get("command") or ""):
+                stale.append(f"{path.name}:{name}")
+            if name != "cortex":
                 continue
             resolves, detail = _mcp_entry_command_resolves(entry)
             if not resolves:
@@ -2566,20 +2308,29 @@ def check_mcp_config() -> Check:
             "MCP servers configured",
             WARN,
             "no MCP config found",
-            "Optional — only needed for Claude Desktop / Cursor / Windsurf",
+            "Optional — only needed to register the cortex MCP server",
             data={"configs": []},
         )
 
     diverged = sorted(n for n, cmds in definitions.items() if len(cmds) > 1)
-    has_empirica = "empirica" in server_names
     has_cortex = "cortex" in server_names
     base_data = {
         "configs": found_configs,
-        "has_empirica": has_empirica,
         "has_cortex": has_cortex,
         "broken": broken,
         "diverged": diverged,
+        "stale_empirica_mcp": stale,
     }
+
+    if stale:
+        return Check(
+            "MCP servers configured",
+            WARN,
+            f"registration for the removed empirica MCP server: {', '.join(stale)}",
+            "empirica-mcp was removed; its tools no longer exist and the registration only launches a dead server. "
+            "Remove it: `claude mcp remove empirica` (or delete the `empirica` entry under mcpServers in ~/.claude.json).",
+            data=base_data,
+        )
 
     if broken:
         return Check(
@@ -2601,19 +2352,11 @@ def check_mcp_config() -> Check:
             data=base_data,
         )
 
-    if has_empirica or has_cortex:
-        detail_parts = [f"{c['path']}: {', '.join(c['servers'])}" for c in found_configs]
-        return Check(
-            "MCP servers configured",
-            PASS,
-            " | ".join(detail_parts),
-            data=base_data,
-        )
+    detail_parts = [f"{c['path']}: {', '.join(c['servers'])}" for c in found_configs]
     return Check(
         "MCP servers configured",
-        WARN,
-        "MCP config present but no `empirica` or `cortex` server entry",
-        "Run `empirica setup` to register the empirica MCP server",
+        PASS,
+        " | ".join(detail_parts),
         data=base_data,
     )
 
@@ -3195,7 +2938,6 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_python(),
         check_empirica_cli(),
         check_cli_matches_checkout(cwd),
-        check_empirica_mcp(),
         check_plugin_freshness(),
         check_hook_interpreter(),
         check_plugin_main_thread_agent(),
@@ -3244,7 +2986,6 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_orphaned_presence(),
         check_listener_service(cwd),
         check_mcp_config(),
-        check_mcp_version_skew(),
     ]
 
 
@@ -3401,7 +3142,7 @@ def handle_doctor_command(args: Any) -> int:
     passed = len(checks) - fails - warns - skips
     # Human on a terminal, json through a pipe. It used to be json always, so a
     # person typing `empirica doctor` got a JSON document; every machine caller
-    # (the Desktop MCP tool, AI sessions) reads it through a pipe and is unaffected.
+    # (AI sessions) reads it through a pipe and is unaffected.
     output_format = getattr(args, "output", None) or ("human" if sys.stdout.isatty() else "json")
     if output_format == "human":
         print(_format_human(checks))
@@ -3414,14 +3155,14 @@ def handle_doctor_command(args: Any) -> int:
         # Two changes, neither removing information:
         #
         #   `attention` — the non-passing checks, hoisted. A caller (human, AI, or
-        #   the MCP tool) sees what to act on without scanning. Omitted entirely
+        #   a script) sees what to act on without scanning. Omitted entirely
         #   when everything passes, so its PRESENCE is the signal.
         #
         #   empty `hint` / `data` dropped per check. Emitted on every passing
         #   check, carrying nothing.
         #
-        # `ok`, `summary`, `checks` and `cwd` keep their shape and meaning, so the
-        # MCP doctor tool and any other consumer are unaffected.
+        # `ok`, `summary`, `checks` and `cwd` keep their shape and meaning, so
+        # existing consumers are unaffected.
         def _slim(c: Any, *, full: bool = False) -> dict:
             d = {k: v for k, v in asdict(c).items() if v not in ("", {}, None)}
             # `data` is diagnostic payload — only useful when something is wrong.

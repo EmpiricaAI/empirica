@@ -35,10 +35,6 @@ over the file: `DATABASE_URL` first, then the `EMPIRICA_DB_*` variables,
 then the `config.yaml` block (see the Configuration Architecture page for
 the full order).
 
-### `mcp-config.json.example`
-
-Example MCP client configuration naming the `empirica-mcp` server.
-
 ---
 
 ## Usage Options

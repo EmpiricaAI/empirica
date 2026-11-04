@@ -21,7 +21,7 @@ the foundation layer.**
 
 | Guide | Purpose |
 |---|---|
-| [CLAUDE_CODE_SETUP.md](CLAUDE_CODE_SETUP.md) | Hooks, statusline, MCP server — what `setup-claude-code` does + manual fallback |
+| [CLAUDE_CODE_SETUP.md](CLAUDE_CODE_SETUP.md) | Hooks, statusline — what `setup-claude-code` does + manual fallback |
 | [AI_SELF_MANAGEMENT.md](AI_SELF_MANAGEMENT.md) | Self-serve docs, prompt-improvement protocol, source-of-truth paths |
 | [MULTI_SESSION_LEARNING.md](MULTI_SESSION_LEARNING.md) | How learning compounds across sessions + AIs |
 
@@ -54,7 +54,6 @@ source-of-truth paths.
 | Guide | Purpose |
 |---|---|
 | [CLI_COMMANDS_UNIFIED.md](CLI_COMMANDS_UNIFIED.md) | Full CLI reference (partial currency — see disclaimer) |
-| [MCP_SERVER_REFERENCE.md](MCP_SERVER_REFERENCE.md) | MCP server tool catalog + architecture |
 | [EPISTEMIC_HEALTH_QUICK_REFERENCE.md](EPISTEMIC_HEALTH_QUICK_REFERENCE.md) | Bootstrap reading + work_type routing one-pager |
 
 ---

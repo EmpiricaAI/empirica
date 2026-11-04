@@ -351,7 +351,7 @@ scope, not the lean core.
 ### Batch Noetic Work
 
 When you have **≥3** investigation operations to run together,
-`empirica noetic-batch -` (or `mcp__empirica__noetic_batch`) bundles
+`empirica noetic-batch -` bundles
 reads + greps + globs + investigate queries into one merged
 structured response. Saves round-trips and groups results in one
 message — that's the value.

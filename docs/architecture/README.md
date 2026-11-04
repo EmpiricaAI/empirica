@@ -85,7 +85,7 @@ Read these when you're actually working in the area. Grouped by concern.
 | [`CHAT.md`](CHAT.md) | `empirica chat` surface. |
 | [`NOTIFY.md`](NOTIFY.md) | Notify dispatcher — ntfy / log / stdout backends. |
 | [`HANDOFF_SYSTEM.md`](HANDOFF_SYSTEM.md) | Cross-session handoff via empirica's handoff verbs. |
-| [`AI_WORKFLOW_AUTOMATION.md`](AI_WORKFLOW_AUTOMATION.md) | How empirica wraps an AI loop — hooks, MCP, CLI entry points. |
+| [`AI_WORKFLOW_AUTOMATION.md`](AI_WORKFLOW_AUTOMATION.md) | How empirica wraps an AI loop — hooks, CLI entry points. |
 
 ### Operations & quality
 

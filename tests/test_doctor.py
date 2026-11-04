@@ -383,26 +383,26 @@ def test_check_loops_registered_passes_with_loops():
 # ─── MCP config ────────────────────────────────────────────────────────
 
 
-def test_check_mcp_config_passes_with_empirica_server(tmp_path, monkeypatch):
+def test_check_mcp_config_passes_with_cortex_server(tmp_path, monkeypatch):
     fake_home = tmp_path
     (fake_home / ".claude").mkdir()
-    (fake_home / ".claude" / "mcp.json").write_text(
-        json.dumps({"mcpServers": {"empirica": {"command": "empirica-mcp"}}})
-    )
+    (fake_home / ".claude" / "mcp.json").write_text(json.dumps({"mcpServers": {"cortex": {"url": "https://x"}}}))
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
     result = check_mcp_config()
     assert result.status == PASS
-    assert result.data["has_empirica"] is True
+    assert result.data["has_cortex"] is True
 
 
-def test_check_mcp_config_warns_when_no_empirica_entry(tmp_path, monkeypatch):
+def test_check_mcp_config_passes_without_a_cortex_entry(tmp_path, monkeypatch):
+    """Cortex is optional: another server's config is listed, not warned about."""
     fake_home = tmp_path
     (fake_home / ".claude").mkdir()
     (fake_home / ".claude" / "mcp.json").write_text(json.dumps({"mcpServers": {"other-server": {"command": "other"}}}))
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
     result = check_mcp_config()
-    assert result.status == WARN
-    assert "no `empirica` or `cortex`" in result.detail
+    assert result.status == PASS
+    assert result.data["has_cortex"] is False
+    assert "other-server" in result.detail
 
 
 def test_check_mcp_config_warns_when_no_configs(tmp_path, monkeypatch):
@@ -478,9 +478,8 @@ def test_run_all_checks_returns_complete_list(all_checks):
     assert "Deployed plugin fresh" in names
 
 
-def test_run_all_checks_count_is_47(all_checks):
-    """+1 for check_mcp_version_skew (GH #404, injected-topology skew).
-    +1 for check_engagement_registry_drift (engagement dual-write, 1.13.23).
+def test_run_all_checks_count_is_45(all_checks):
+    """+1 for check_engagement_registry_drift (engagement dual-write, 1.13.23).
     +1 for check_cli_matches_checkout (CLI/checkout skew the version cannot see).
     +1 for check_plugin_freshness (deployed plugin copy vs package version).
     +1 for check_notes_sqlite_divergence (gardening reached sqlite only; notes
@@ -535,7 +534,7 @@ def test_run_all_checks_count_is_47(all_checks):
     thinking about the suite" — when it fires, update it deliberately (and add
     the name assertion below), never by pasting the new number blind."""
     checks = all_checks
-    assert len(checks) == 47
+    assert len(checks) == 45
     # The tripwire earns its keep only if the NEW check is named. A bumped
     # number alone records that something changed, not what.
     assert any(c.name == "notes/sqlite divergence" for c in checks)
@@ -961,86 +960,8 @@ def test_deploy_gap_subset_is_exactly_the_four_lanes():
         "check_unreleased_commits",  # committed, not released
         "check_cli_matches_checkout",  # released, not what this shell runs
         "check_plugin_freshness",  # released, not the deployed plugin
-        "check_mcp_version_skew",  # released, not what the MCP host serves
     ):
         assert lane in src, f"deploy-gap lane missing: {lane}"
 
     handler = inspect.getsource(d.handle_doctor_command)
     assert "deploy_gap_checks(cwd)" in handler, "the flag no longer routes to the subset"
-
-
-# ─── version oracles: what RUNS, not what was recorded ────────────────────
-
-
-class TestVersionOracles:
-    """Two defects in the same family, both found in the wild.
-
-    1. `_mcp_bundled_empirica_version` asked `importlib.metadata`, which is the
-       stamp written at INSTALL time. On an editable install the stamp does not
-       move when the source does, so doctor reported drift against a module that
-       was already newer (mesh-support, prop_3cybzdvc3jgurejwg2ap2m7twy).
-    2. The core/MCP remedy was unpinned, so running it verbatim resolved a stale
-       sibling whose dependency pin dragged core BACKWARDS — and the check then
-       reported PASS, "both at <older>". An equality check is satisfiable by
-       regressing the good half.
-    """
-
-    def test_bundled_version_asks_what_is_imported(self, monkeypatch, tmp_path):
-        from empirica.cli.command_handlers import doctor as d
-
-        # The interpreter must sit BESIDE the empirica-mcp binary — that is how
-        # the function locates the env it is measuring.
-        (tmp_path / "bin").mkdir()
-        (tmp_path / "bin" / "python").write_text("")
-        calls = []
-
-        def fake_run(args, timeout=5.0, cwd=None):
-            calls.append((args, cwd))
-            if "import empirica; print(empirica.__version__)" in args:
-                return 0, "1.13.45", ""
-            return 0, "1.13.40", ""  # the stale metadata stamp
-
-        monkeypatch.setattr(d, "_run", fake_run)
-        got = d._mcp_bundled_empirica_version(str(tmp_path / "bin" / "empirica-mcp"))
-
-        assert got == "1.13.45", "read the install-time stamp instead of the imported module"
-        assert calls and calls[0][1] == "/", "probe ran from the ambient cwd — it can pick a checkout off sys.path"
-
-    def test_falls_back_to_metadata_when_import_fails(self, monkeypatch, tmp_path):
-        """Positive control for the assertion above: the fallback must still
-        work, or 'asks the module' could be satisfied by a probe that never
-        answers at all."""
-        from empirica.cli.command_handlers import doctor as d
-
-        (tmp_path / "bin").mkdir()
-        (tmp_path / "bin" / "python").write_text("")
-
-        def fake_run(args, timeout=5.0, cwd=None):
-            if "import empirica; print(empirica.__version__)" in args:
-                return 1, "", "ImportError"
-            return 0, "1.13.40", ""
-
-        monkeypatch.setattr(d, "_run", fake_run)
-        assert d._mcp_bundled_empirica_version(str(tmp_path / "bin" / "empirica-mcp")) == "1.13.40"
-
-    def test_skew_remedy_pins_the_higher_version(self, monkeypatch):
-        import importlib.metadata as im
-
-        from empirica.cli.command_handlers import doctor as d
-
-        monkeypatch.setattr(im, "version", lambda p: "1.13.45" if p == "empirica" else "1.13.44")
-        # Pin the string-fallback path: content comparison would otherwise read THIS
-        # box's installed package and decide the verdict from it.
-        monkeypatch.setattr(d, "_mcp_content_state", lambda: (None, {}))
-        check = d.check_mcp_version_skew()
-
-        assert check.status == d.WARN
-        assert "empirica-mcp==1.13.45" in check.hint, f"unpinned remedy can drag core backwards: {check.hint}"
-        assert "1.13.44" not in check.hint.split("==")[1][:10], "pinned the STALE side"
-
-    def test_version_key_orders_and_survives_junk(self):
-        from empirica.cli.command_handlers.doctor import _version_key
-
-        assert _version_key("1.13.45") > _version_key("1.13.44")
-        assert _version_key("1.14.0") > _version_key("1.13.99")
-        _version_key("1.13.45rc1")  # must not raise

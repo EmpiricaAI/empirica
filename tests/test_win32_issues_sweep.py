@@ -75,24 +75,6 @@ def test_unknown_resolve_accepts_resolution_as_alias():
         assert ns.resolved_by == "answered", f"{flag} did not land in resolved_by"
 
 
-# ─── MCP timeout on transaction verbs must carry the recovery protocol ─
-
-
-def test_mcp_timeout_hint_names_the_double_open_hazard():
-    """The transaction row commits BEFORE the slow retrieval tail, so an MCP
-    timeout routinely reports failure on work that succeeded — measured on the
-    win32 install: transaction open at age 128s while the tool had already
-    said it failed. The natural retry double-opens. An error that withholds
-    the recovery protocol manufactures the next incident."""
-    import pathlib
-
-    src = (pathlib.Path(__file__).parent.parent / "empirica-mcp" / "empirica_mcp" / "server.py").read_text()
-    assert "resubmitting double-opens" in src, "MCP timeout error lost its recovery hint"
-    assert '"preflight-submit", "check-submit", "postflight-submit"' in src, (
-        "the hint must target the transaction verbs, where the row commits before the tail"
-    )
-
-
 # ─── default embed model must name its exact tag ───────────────────────
 
 

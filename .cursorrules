@@ -188,20 +188,4 @@ empirica goals-progress --goal-id <ID>
 
 ---
 
-## MCP Integration (Claude Desktop)
-
-Add to `claude_desktop_config.json`:
-```json
-{
-  "mcpServers": {
-    "empirica": {
-      "command": "empirica-mcp",
-      "env": { "EMPIRICA_AI_ID": "claude-desktop" }
-    }
-  }
-}
-```
-
----
-
 **Remember:** Empirica observes everything. Just work naturally - log findings, admit uncertainty, learn systematically. 🚀

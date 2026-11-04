@@ -19,7 +19,6 @@ Empirica is an epistemic self-assessment framework for AI agents. It provides:
 - 13-vector epistemic state tracking with Bayesian belief updates
 - Goal orchestration with dependency management
 - Git-based session checkpoints and handoff reports
-- MCP (Model Context Protocol) server integration
 - Qdrant semantic memory (eidetic facts, episodic narratives, pattern retrieval)
 
 Perfect for AI agents that need genuine metacognitive awareness and calibration.
@@ -39,7 +38,6 @@ Release 1.5.0 (Grounded Calibration):
 
 Release 1.0.3 (Patch):
 - MCP moved to optional dependencies
-- Better package separation between empirica and empirica-mcp
 
 Release 1.0.0 (Stable):
 - MCO system with persona support

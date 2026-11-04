@@ -32,7 +32,7 @@ SKIP_DIRS: set[str] = {"__pycache__", "_archive", "_dev"}
 
 # Known optional third-party packages that may not be installed.
 # ModuleNotFoundError for these is expected and not a bug — the corresponding
-# extras (api, vector, vision, mcp, prose) are declared in pyproject.toml.
+# extras (api, vector, vision, prose) are declared in pyproject.toml.
 OPTIONAL_PACKAGES: set[str] = {
     "flask",
     "flask_cors",
@@ -43,7 +43,6 @@ OPTIONAL_PACKAGES: set[str] = {
     "pytesseract",
     "cv2",
     "PIL",
-    "mcp",
     "textstat",
     "proselint",
     "numpy",

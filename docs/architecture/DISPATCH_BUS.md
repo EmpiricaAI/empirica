@@ -125,12 +125,6 @@ for d in bus.poll_inbox():                              # receiver side
     bus.handle_dispatch(d, lambda d: (DispatchStatus.COMPLETED, {"ok": True}, None))
 ```
 
-### MCP (empirica-mcp)
-
-`bus_register`, `bus_dispatch`, `bus_instances`, `bus_status` map one-to-one to
-the CLI verbs. `bus_poll` maps to **`message-inbox`**, not to a bus verb: pass
-`ai_id` and `channel="dispatch"`; it returns raw messages, not parsed dispatches.
-
 ### Cortex-side bus (different system)
 
 Cortex exposes `cortex_bus_register`, `cortex_bus_dispatch`, `cortex_bus_poll`
@@ -169,5 +163,4 @@ transport is whatever protects your git remote.
 | Protocol, registry | `empirica/core/dispatch_bus.py` |
 | Transport | `empirica/core/canonical/empirica_git/message_store.py` |
 | CLI | `empirica/cli/parsers/bus_parsers.py`, `empirica/cli/command_handlers/bus_commands.py` |
-| MCP mapping | `empirica-mcp/empirica_mcp/server.py` (`bus_*` entries) |
 | Tests | `tests/core/test_dispatch_bus.py`, `tests/integration/test_dispatch_bus_e2e.py` |

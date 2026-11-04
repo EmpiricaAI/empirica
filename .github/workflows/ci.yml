@@ -31,25 +31,24 @@ jobs:
 
       - name: Install (with dev + optional extras)
         # Match the test job's install: pyright needs ALL imports resolvable
-        # (flask, fastapi, mcp, textual, qdrant_client) to type-check the
+        # (flask, fastapi, textual, qdrant_client) to type-check the
         # source tree. Without the extras it floods with reportMissingImports
         # for legitimate optional-dep code paths.
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,api,tui,vector]"
-          pip install -e "./empirica-mcp[dev]"
 
       - name: ruff check
-        run: ruff check empirica/ empirica-mcp/ tests/
+        run: ruff check empirica/ tests/
 
       - name: ruff format --check
-        run: ruff format --check empirica/ empirica-mcp/ tests/
+        run: ruff format --check empirica/ tests/
 
       - name: pyright
         # tests/ included since the 89-error backlog was retired (goal 481b8a9b):
         # declared scope (pyproject include list) and enforced scope now agree,
         # so a bare `pyright` locally and this gate report the same number.
-        run: pyright empirica/ empirica-mcp/ tests/
+        run: pyright empirica/ tests/
 
       - name: prompt↔parser drift
         # Fails if a skill / prompt template references `empirica <verb>` for a
@@ -58,11 +57,8 @@ jobs:
         run: python scripts/check_prompt_parser_drift.py
 
   # ── Tests ───────────────────────────────────────────────────────────
-  # Matrix on 3.11 (min for empirica-mcp) + 3.13 (current). empirica
-  # itself still declares 3.10 in classifiers, but empirica-mcp requires
-  # 3.11+ and we install it for the integration tests — so 3.10 doesn't
-  # fit the CI shape. If 3.10 support becomes a hard guarantee, split
-  # into separate jobs.
+  # Matrix on 3.11 + 3.13 (current). empirica declares 3.10 as its floor; the release gate parses the whole tree under it
+  # (release.py python-floor parse). If 3.10 support becomes a hard guarantee, add it to the matrix.
   test:
     name: Tests (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
@@ -98,7 +94,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,api,tui,vector]"
-          pip install -e "./empirica-mcp[dev]"
 
       - name: pytest (empirica — excluding integration)
         # Integration tests need empirica CLI on PATH, git-initialized CWD,
@@ -131,12 +126,6 @@ jobs:
         # would cost grounded calibration and buy nothing.
         run: pytest tests/ -q --tb=short -m "not integration" -n auto
 
-      - name: pytest (empirica-mcp)
-        working-directory: empirica-mcp
-        # No -n here: this suite runs in 2s, so worker startup would cost more
-        # than it saves. Parallelism is for the 10-minute job, not this one.
-        run: pytest tests/ -q --tb=short
-
   # ── Compliance + dep-audit ──────────────────────────────────────────
   # Dogfood empirica's own pipeline. Soft fail on lint/complexity warnings;
   # hard fail on CVEs (pip-audit non-zero).
@@ -166,12 +155,11 @@ jobs:
       - name: Install (with dev + optional extras)
         # Match the lint job — pyright (run by compliance-report's
         # type_safety check) needs all optional-extra imports resolvable
-        # (flask, fastapi, mcp, textual, qdrant_client). With just [dev]
+        # (flask, fastapi, textual, qdrant_client). With just [dev]
         # it flooded with 80+ reportMissingImports.
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,api,tui,vector]"
-          pip install -e "./empirica-mcp[dev]"
           pip install pip-audit
 
       - name: empirica compliance-report

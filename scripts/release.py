@@ -915,8 +915,7 @@ class ReleaseManager:
     def update_version_strings(self):
         """Update version strings in all source files not covered by other methods.
 
-        Covers: __init__.py (both packages), empirica-mcp/pyproject.toml,
-        setup_claude_code.py, install.sh, plugin.json, README and install docs,
+        Covers: __init__.py, setup_claude_code.py, install.sh, plugin.json, README and install docs,
         Dockerfile.alpine. Repo files only: a release
         never writes the box it runs on.
         """
@@ -933,30 +932,6 @@ class ReleaseManager:
                 self.repo_root / "empirica" / "plugins" / "claude-code-integration" / "lib" / "hook_vintage.py",
                 r'^HOOK_VINTAGE\s*=\s*"[^"]+"',
                 f'HOOK_VINTAGE = "{self.version}"',
-            ),
-            # empirica_mcp's own __version__. MISSING from this sweep until 1.13.48:
-            # it sat at "1.8.14" for roughly five minors while pyproject beside it
-            # read the current release — wrong in the repo AND in every install, so
-            # no reinstall could fix it. One package, three version surfaces, all
-            # disagreeing, on the evening a fleet was trying to work out which
-            # code it was running.
-            (
-                self.repo_root / "empirica-mcp" / "empirica_mcp" / "__init__.py",
-                r'__version__\s*=\s*"[^"]+"',
-                f'__version__ = "{self.version}"',
-            ),
-            (
-                self.repo_root / "empirica-mcp" / "pyproject.toml",
-                r'^version\s*=\s*"[^"]+"',
-                f'version = "{self.version}"',
-            ),
-            # empirica-mcp's core dep is a floor at the current version with a
-            # <2 ceiling; bump the floor in lockstep so upgrading the wrapper
-            # still pulls core up to match. (It was ==, which rolled core back.)
-            (
-                self.repo_root / "empirica-mcp" / "pyproject.toml",
-                r'"empirica>=[0-9]+\.[0-9]+\.[0-9]+,<2"',
-                f'"empirica>={self.version},<2"',
             ),
             (
                 self.repo_root / "empirica" / "cli" / "command_handlers" / "setup_claude_code.py",
@@ -1013,13 +988,7 @@ class ReleaseManager:
                 r"nubaeon/empirica:[0-9]+\.[0-9]+\.[0-9]+(-alpine)?",
                 lambda m: f"nubaeon/empirica:{self.version}{m.group(1) or ''}",
             ),
-            # MCP server reference. (The system prompt needs no entry: the lean
-            # template carries {{ empirica_version }} and is rendered at install.)
-            (
-                self.repo_root / "docs" / "human" / "developers" / "MCP_SERVER_REFERENCE.md",
-                r"\*\*Version:\*\*\s+[0-9]+\.[0-9]+\.[0-9]+",
-                f"**Version:** {self.version}",
-            ),
+            # (The system prompt needs no entry: the lean template carries {{ empirica_version }} and is rendered at install.)
             # Chocolatey install script version
             (
                 self.repo_root / "packaging" / "chocolatey" / "tools" / "chocolateyinstall.ps1",
@@ -1302,7 +1271,7 @@ class ReleaseManager:
         # Observed on the 1.13.39 cut: three consecutive verifies disagreed with
         # each other and with a direct curl. Retried, because a transient is the
         # common case and a real absence stays absent.
-        for pkg, fname in (("empirica", f"empirica-{v}"), ("empirica-mcp", f"empirica_mcp-{v}")):
+        for pkg, fname in (("empirica", f"empirica-{v}"),):
             body = None
             for _ in range(3):
                 body = _get(f"https://pypi.org/simple/{pkg}/")
@@ -1354,19 +1323,13 @@ class ReleaseManager:
             tap_detail = f"{self.TAP_FORMULA_RELPATH} carries {v}"
         results.append(("Homebrew tap", tap_ok, tap_detail))
 
-        # Dependency-CLOSURE check: the unit a user installs is `pip install -U
-        # empirica empirica-mcp`, not either package alone. Until 1.13.48
-        # empirica-mcp pinned `empirica==<v>`, so if the sibling lagged on PyPI,
-        # `-U` on a box with both resolves the OLD mcp, whose == pin DOWNGRADES
-        # empirica — a self-reverting release that every per-package check reports
-        # green (mesh report prop_tmmiftrs). Verify what the user RECEIVES, not
-        # what you uploaded. Best-effort: a venv/network failure is a WARN (the
-        # per-channel checks stand); a wrong RESOLVED version is a hard miss.
+        # Install check: verify what a user RECEIVES (`pip install -U empirica` in a clean venv), not what was uploaded. Best-effort: a
+        # venv/network failure is a WARN (the per-channel checks stand); a wrong RESOLVED version is a hard miss.
         closure_ok, closure_detail = self._verify_install_closure(v)
         if closure_ok is None:
             info(f"Install closure: {closure_detail}")
         else:
-            results.append(("Install closure (pip -U both)", closure_ok, closure_detail))
+            results.append(("Install check (pip -U)", closure_ok, closure_detail))
 
         for name, ok, detail in results:
             (success if ok else error_soft)(f"{name}: {detail}")
@@ -1381,15 +1344,8 @@ class ReleaseManager:
         success(f"All {len(results)} channels carry {v}")
 
     def _verify_install_closure(self, v: str):
-        """Resolve `pip install -U empirica empirica-mcp` in a throwaway venv and
-        assert BOTH land on ``v``. Returns (ok, detail); ok is None (skip → WARN)
-        on a venv/pip/network failure so an environment hiccup doesn't fail the
-        release, but a wrong RESOLVED version is a hard (ok=False) miss.
-
-        This is the check that would have caught the self-reverting 1.13.10: with
-        empirica-mcp lagging on PyPI, unpinned `-U` pulls the old mcp whose
-        `empirica==` pin downgrades empirica — invisible to every per-package
-        check (mesh report prop_tmmiftrs).
+        """Resolve `pip install -U empirica` in a throwaway venv and assert it lands on ``v``. Returns (ok, detail); ok is None (skip → WARN)
+        on a venv/pip/network failure so an environment hiccup doesn't fail the release, but a wrong RESOLVED version is a hard (ok=False) miss.
         """
         import tempfile
         import venv as _venv
@@ -1406,7 +1362,7 @@ class ReleaseManager:
                     # exactly when this check runs (diagnosed on 1.13.15; a manual
                     # `pip cache purge` then re-verify went green). Force a fresh
                     # index fetch so the check reads what a first-time user gets.
-                    [str(pip), "install", "--no-cache-dir", "-q", "-U", "empirica", "empirica-mcp"],
+                    [str(pip), "install", "--no-cache-dir", "-q", "-U", "empirica"],
                     capture_output=True,
                     text=True,
                     timeout=300,
@@ -1414,31 +1370,20 @@ class ReleaseManager:
                 if inst.returncode != 0:
                     return None, f"skipped — clean-venv install failed: {inst.stderr.strip()[:120]}"
                 got = {}
-                for pkg in ("empirica", "empirica-mcp"):
+                for pkg in ("empirica",):
                     show = subprocess.run([str(pip), "show", pkg], capture_output=True, text=True, timeout=30)
                     for line in show.stdout.splitlines():
                         if line.startswith("Version:"):
                             got[pkg] = line.split(":", 1)[1].strip()
                             break
-                if got.get("empirica") == v and got.get("empirica-mcp") == v:
-                    return True, f"pip -U resolves empirica {v} + empirica-mcp {v}"
-                # An OLD version here is not yet a verdict. `--no-cache-dir`
-                # defeats the LOCAL pip cache (added after 1.13.15) but not
-                # PyPI's CDN, whose edges propagate independently — measured on
-                # 1.13.39, three consecutive verifies resolved 1.13.38, then
-                # 1.13.39, then 1.13.38 again, while a direct `pip download
-                # --no-cache-dir` fetched the new wheel every time.
-                #
-                # So: say WHICH it is. A stale resolve that persists is a real
-                # self-reverting release; one that flips is propagation. Naming
-                # the flip is the point — two disagreeing answers from the same
-                # check IS the finding, and reporting either one alone is wrong.
+                if got.get("empirica") == v:
+                    return True, f"pip -U resolves empirica {v}"
+                # An OLD version here is not yet a verdict: `--no-cache-dir` defeats the LOCAL pip cache but not PyPI's CDN, whose edges
+                # propagate independently (1.13.39: three verifies resolved the old, new, then old version again). Re-run: if it flips to
+                # the new version it was propagation; if it stays, the release did not land.
                 return False, (
-                    f"pip -U resolves empirica {got.get('empirica', '?')} + "
-                    f"empirica-mcp {got.get('empirica-mcp', '?')} — either a sibling lag/pin "
-                    f"DOWNGRADING the closure, or CDN propagation. Re-run --verify: if it "
-                    f"flips to {v} it was propagation; if it stays, the release is "
-                    f"self-reverting and needs the sibling republished."
+                    f"pip -U resolves empirica {got.get('empirica', '?')}, not {v} — CDN propagation, or the release did not land. "
+                    f"Re-run --verify: if it flips to {v} it was propagation."
                 )
         except Exception as e:
             return None, f"skipped — closure check errored: {str(e)[:120]}"
@@ -1666,32 +1611,6 @@ class ReleaseManager:
         self.run_command(["python3", "-m", "build", "--wheel", "--sdist"], cwd=str(self.repo_root))
         success("Package built successfully")
 
-    def build_mcp_package(self):
-        """Build empirica-mcp package"""
-        log("\n" + "=" * 60)
-        log("📦 Building empirica-mcp package")
-        log("=" * 60)
-
-        mcp_dir = self.repo_root / "empirica-mcp"
-        if not mcp_dir.exists():
-            warning(f"empirica-mcp directory not found: {mcp_dir}")
-            return
-
-        # Clean old builds
-        for path in ["dist", "build", "empirica_mcp.egg-info"]:
-            full_path = mcp_dir / path
-            if full_path.exists():
-                if not self.dry_run:
-                    if full_path.is_dir():
-                        shutil.rmtree(full_path)
-                    else:
-                        full_path.unlink()
-                    info(f"Removed empirica-mcp/{path}")
-
-        # Build
-        self.run_command(["python3", "-m", "build", "--wheel", "--sdist"], cwd=str(mcp_dir))
-        success("empirica-mcp package built successfully")
-
     def publish_to_pypi(self):
         """Publish to PyPI"""
         log("\n" + "=" * 60)
@@ -1704,24 +1623,6 @@ class ReleaseManager:
 
         self.run_command(["python3", "-m", "twine", "upload", f"dist/empirica-{self.version}*"])
         success(f"Published to PyPI: https://pypi.org/project/empirica/{self.version}/")
-
-    def publish_mcp_to_pypi(self):
-        """Publish empirica-mcp to PyPI"""
-        log("\n" + "=" * 60)
-        log("📤 Publishing empirica-mcp to PyPI")
-        log("=" * 60)
-
-        mcp_dir = self.repo_root / "empirica-mcp"
-        if not (mcp_dir / "dist").exists():
-            warning("empirica-mcp dist/ not found, skipping MCP publish")
-            return
-
-        if self.dry_run:
-            info("Would publish empirica-mcp to PyPI using twine")
-            return
-
-        self.run_command(["python3", "-m", "twine", "upload", str(mcp_dir / "dist" / f"empirica_mcp-{self.version}*")])
-        success(f"Published empirica-mcp to PyPI: https://pypi.org/project/empirica-mcp/{self.version}/")
 
     # Explicit allowlist of files a release commit stages. NEVER `git add -A`:
     # the release runs on the SHARED develop working tree, where other AI
@@ -1739,8 +1640,6 @@ class ReleaseManager:
         "README.md",
         "empirica/__init__.py",
         "empirica/plugins/claude-code-integration/lib/hook_vintage.py",
-        "empirica-mcp/pyproject.toml",
-        "empirica-mcp/empirica_mcp/__init__.py",
         "empirica/plugins/claude-code-integration/.claude-plugin/plugin.json",
         "empirica/plugins/claude-code-integration/install.sh",
         "empirica/cli/command_handlers/setup_claude_code.py",
@@ -1748,7 +1647,6 @@ class ReleaseManager:
         # docs/ current-version pointers (regex-bumped by update_version_strings)
         "docs/README.md",
         "docs/human/developers/EXTENDING_EMPIRICA.md",
-        "docs/human/developers/MCP_SERVER_REFERENCE.md",
         "docs/human/end-users/02_INSTALLATION.md",
         # Regenerated by regenerate_cli_docs() during --prepare. Without it here,
         # the committed CLI reference (README links to it) drifts stale every
@@ -1920,16 +1818,7 @@ class ReleaseManager:
         wheel = f"dist/empirica-{self.version}-py3-none-any.whl"
         tarball = f"dist/empirica-{self.version}.tar.gz"
 
-        # Include empirica-mcp assets if built
-        mcp_wheel = f"empirica-mcp/dist/empirica_mcp-{self.version}-py3-none-any.whl"
-        mcp_tarball = f"empirica-mcp/dist/empirica_mcp-{self.version}.tar.gz"
         assets = [wheel, tarball]
-        mcp_wheel_path = self.repo_root / mcp_wheel
-        mcp_tarball_path = self.repo_root / mcp_tarball
-        if mcp_wheel_path.exists():
-            assets.append(mcp_wheel)
-        if mcp_tarball_path.exists():
-            assets.append(mcp_tarball)
 
         notes = f"""## What's in v{self.version}
 
@@ -2082,11 +1971,11 @@ brew install empirica
         log("=" * 60)
 
         if self.dry_run:
-            info("Would run: ruff check empirica/ empirica-mcp/ tests/")
+            info("Would run: ruff check empirica/ tests/")
             return True
 
         result = subprocess.run(
-            ["ruff", "check", "empirica/", "empirica-mcp/", "tests/"],
+            ["ruff", "check", "empirica/", "tests/"],
             capture_output=True,
             text=True,
             timeout=120,
@@ -2107,11 +1996,11 @@ brew install empirica
         log("=" * 60)
 
         if self.dry_run:
-            info("Would run: pyright empirica/ empirica-mcp/")
+            info("Would run: pyright empirica/ tests/")
             return True
 
         result = subprocess.run(
-            ["pyright", "empirica/", "empirica-mcp/"],
+            ["pyright", "empirica/", "tests/"],
             capture_output=True,
             text=True,
             timeout=300,
@@ -2185,8 +2074,8 @@ brew install empirica
         """Run the Nightly workflow's two jobs on this commit: the `integration`-marked tests, and the whole suite in a clean environment.
 
         Per-push CI excludes both on purpose, and `--prepare` skips the suite when develop CI is green, so a red nightly was invisible to the cut:
-        it failed every night from 2026-10-28 to 2026-11-04 (a test that needed a real systemd user manager, and an install step that lacked the
-        MCP package) while four releases' worth of CI was green. Both jobs always run and are both reported, so one run shows every red thing.
+        it failed every night from 2026-10-28 to 2026-11-04 (a test that needed a real systemd user manager, and an install step that lacked a
+        package the tests import) while four releases' worth of CI was green. Both jobs always run and are both reported, so one run shows every red thing.
         The clean job gives the interpreter by absolute path because the toolchain is deliberately not on its PATH.
         """
         log("\n" + "=" * 60)
@@ -2580,7 +2469,6 @@ brew install empirica
 
             # Build packages
             self.build_package()
-            self.build_mcp_package()
 
             # Calculate SHA256 and update packaging
             self.tarball_sha256 = self.calculate_sha256()
@@ -2707,7 +2595,7 @@ brew install empirica
             # Publish to all channels
             # The tag IS the publish. Pushing `v*.*.*` to main triggers
             # release.yml, whose jobs cover every channel: build, pypi-empirica,
-            # pypi-empirica-mcp, docker, homebrew, github-release.
+            # docker, homebrew, github-release.
             #
             # Publishing locally too made this a two-writers-one-artifact race —
             # `a release with the same tag name already exists`, recovered by
@@ -2762,7 +2650,6 @@ brew install empirica
                 warning("--local-artifacts: also publishing PyPI + Docker + GitHub locally — these RACE with CI")
                 self.update_homebrew_tap()
                 self.publish_to_pypi()
-                self.publish_mcp_to_pypi()
                 self.build_and_push_docker()
                 self.create_github_release()
 
@@ -2793,7 +2680,6 @@ brew install empirica
                 f"curl -s https://pypi.org/simple/empirica/ | grep {self.version}"
             )
             info(f"PyPI: https://pypi.org/project/empirica/{self.version}/")
-            info(f"PyPI (MCP): https://pypi.org/project/empirica-mcp/{self.version}/")
             info(f"Docker: docker pull nubaeon/empirica:{self.version}")
             info(f"Docker: docker pull nubaeon/empirica:{self.version}-alpine")
             info(f"GitHub: https://github.com/EmpiricaAI/empirica/releases/tag/v{self.version}")
@@ -2878,7 +2764,7 @@ brew install empirica
         checkout, it reinstalls it editable and measures again through the
         binary's own interpreter (doctor does that; `python -c import` from inside
         the repo finds ./empirica and always reports the working tree). The
-        deployed plugin and the MCP host are not refreshed here — the ecosystem
+        deployed plugin is not refreshed here — the ecosystem
         update owns them on shared boxes — they are reported, with the hint.
 
         A CLI still stale after that FAILS the publish (exit EXIT_BOX_STALE): the
@@ -2917,7 +2803,7 @@ brew install empirica
             )
         if other:
             warning(
-                "Deployed plugin / MCP host lag the release — run your ecosystem update "
+                "Deployed plugin lags the release — run your ecosystem update "
                 "(or `empirica setup-claude-code` on a box you own)."
             )
         if not gaps:
@@ -2953,7 +2839,6 @@ brew install empirica
 
             # Build packages
             self.build_package()
-            self.build_mcp_package()
 
             # Calculate SHA256 and update packaging
             self.tarball_sha256 = self.calculate_sha256()
@@ -2973,7 +2858,7 @@ brew install empirica
             # Publish
             # The tag IS the publish. Pushing `v*.*.*` to main triggers
             # release.yml, whose jobs cover every channel: build, pypi-empirica,
-            # pypi-empirica-mcp, docker, homebrew, github-release.
+            # docker, homebrew, github-release.
             #
             # Publishing locally too made this a two-writers-one-artifact race —
             # `a release with the same tag name already exists`, recovered by
@@ -3028,7 +2913,6 @@ brew install empirica
                 warning("--local-artifacts: also publishing PyPI + Docker + GitHub locally — these RACE with CI")
                 self.update_homebrew_tap()
                 self.publish_to_pypi()
-                self.publish_mcp_to_pypi()
                 self.build_and_push_docker()
                 self.create_github_release()
 
@@ -3059,7 +2943,6 @@ brew install empirica
                 f"curl -s https://pypi.org/simple/empirica/ | grep {self.version}"
             )
             info(f"PyPI: https://pypi.org/project/empirica/{self.version}/")
-            info(f"PyPI (MCP): https://pypi.org/project/empirica-mcp/{self.version}/")
             info(f"Docker: docker pull nubaeon/empirica:{self.version}")
             info(f"Docker: docker pull nubaeon/empirica:{self.version}-alpine")
             info(f"GitHub: https://github.com/EmpiricaAI/empirica/releases/tag/v{self.version}")

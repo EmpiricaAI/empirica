@@ -157,7 +157,6 @@ def test_the_helper_agrees_with_the_firewall_for_the_older_tools(gate):
         "Grep",
         "mcp__cortex__investigate",
         "mcp__cortex__cortex_inbox_poll",
-        "mcp__empirica__investigate",
     ):
         assert gate._is_noetic_tool(tool), tool
     assert not gate._is_noetic_tool("Write") and not gate._is_noetic_tool("Edit")

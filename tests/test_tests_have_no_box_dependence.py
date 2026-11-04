@@ -24,7 +24,7 @@ import pytest
 TESTS_DIR = Path(__file__).resolve().parent
 SPAWNERS = {"run", "check_output", "check_call", "call", "Popen"}
 #: Tools this project installs. Spawned from PATH they test the box, not the tree. (System binaries such as git are deliberately absent.)
-OWN_TOOLS = {"empirica", "empirica-mcp", "python", "python3", "ruff", "pyright", "pytest", "radon", "vulture"}
+OWN_TOOLS = {"empirica", "python", "python3", "ruff", "pyright", "pytest", "radon", "vulture"}
 MIN_HANG_GUARD_SECONDS = 30
 
 

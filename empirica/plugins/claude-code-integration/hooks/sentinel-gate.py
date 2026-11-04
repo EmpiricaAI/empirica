@@ -191,10 +191,6 @@ def _normalize_aggregated_cortex_tool(tool_name: str, tool_input) -> str:
     return tool_name
 
 
-# Empirica MCP tools — ALL are epistemic workflow, always allowed.
-# The empirica-mcp server wraps CLI commands — same trust as Tier 2.
-EMPIRICA_MCP_PREFIX = "mcp__empirica__"
-
 # Safe Bash command prefixes - read-only operations (ACL)
 SAFE_BASH_PREFIXES = (
     # File inspection
@@ -1559,9 +1555,6 @@ def _is_recovery_or_measurement_action(tool_name: str, tool_input: dict | None) 
     and finally require that a recovery/measurement VERB is actually present so
     the universal exemption stays narrow.
     """
-    # Empirica MCP tools are epistemic workflow — always allowed.
-    if tool_name.startswith(EMPIRICA_MCP_PREFIX):
-        return True
     if tool_name != "Bash" or not tool_input:
         return False
     command = tool_input.get("command") or ""
@@ -1747,11 +1740,6 @@ def _locate_transaction_file(
     return _find_transaction_file(Path.home() / ".empirica", suffix, empirica_session_id, claude_session_id)
 
 
-def _is_empirica_mcp_tool(tool_name: str) -> bool:
-    """Check if tool is an empirica MCP tool (always allowed — epistemic workflow)."""
-    return tool_name.startswith(EMPIRICA_MCP_PREFIX)
-
-
 def _is_noetic_tool(tool_name: str) -> bool:
     """Is this tool noetic: it reads or investigates and cannot change state, so it flows in any phase?
 
@@ -1764,7 +1752,6 @@ def _is_noetic_tool(tool_name: str) -> bool:
         or tool_name in NOETIC_MCP_CHROME
         or tool_name in NOETIC_MCP_CORTEX
         or tool_name in NOETIC_MCP_CRM_READS
-        or _is_empirica_mcp_tool(tool_name)
     )
 
 

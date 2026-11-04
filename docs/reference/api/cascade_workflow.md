@@ -481,9 +481,6 @@ empirica unknown-resolve --unknown-id <id> --finding <finding-id>
 repeatable), `--finding` (unknown-resolve). All optional — omitting them still
 works, the provenance link is just absent.
 
-**MCP params:** `source_ids` (array), `evidence_refs` (array),
-`resolution_finding_id` (string).
-
 **Compliance checks:** `recommendation_traceability` (decisions cite evidence),
 `finding_sourced` (findings cite sources), `provenance_depth` (full chain exists).
 

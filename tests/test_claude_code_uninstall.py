@@ -57,7 +57,7 @@ def home(tmp_path):
     (tmp_path / ".claude.json").write_text(
         json.dumps(
             {
-                "mcpServers": {"empirica": {"command": "empirica-mcp"}, "other": {"command": "x"}},
+                "mcpServers": {"empirica": {"command": "a-legacy-registration"}, "other": {"command": "x"}},
                 "projects": {"a": {"history": [1, 2, 3]}},
                 "costs": {"total": 9.5},
             }
@@ -78,6 +78,9 @@ def test_plan_separates_ours_from_theirs_from_the_users_own(home):
     assert "enabledPlugins.empirica@local" in settings
     assert "statusLine" in settings
     assert "hooks.UserPromptSubmit" in settings
+    # A registration a user already has is still cleaned up.
+    live_keys = next(v for k, v in edited.items() if k.endswith(".claude.json"))
+    assert "mcpServers.empirica" in live_keys
 
     assert p["report_only"], "the user's CLAUDE.md must be reported"
     assert p["report_only"][0]["lines"] == [4]

@@ -418,9 +418,7 @@ def _get_qdrant_client(
         pass  # Server not available
 
     # No Qdrant server available — skip gracefully
-    logger.debug(
-        "Qdrant server not available. Start with: qdrant (the qdrant server is unrelated to the empirica MCP server)"
-    )
+    logger.debug("Qdrant server not available. Start with: qdrant")
     return None
 
 

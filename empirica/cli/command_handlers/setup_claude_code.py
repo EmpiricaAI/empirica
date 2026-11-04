@@ -6,7 +6,6 @@ This command configures:
 - Plugin files in ~/.claude/plugins/local/empirica/
 - CLAUDE.md system prompt in ~/.claude/CLAUDE.md
 - Hooks in ~/.claude/settings.json (sentinel, compact, session lifecycle)
-- MCP server in ~/.claude/mcp.json
 - Marketplace registration
 
 Replaces the bash install.sh for Homebrew users who already have empirica installed.
@@ -489,24 +488,23 @@ def _force_clean_hooks(settings, output_format):
 
 # MCP servers whose tools are pre-authorized in the Claude Code permissions
 # allow-list, so a mesh-active practice doesn't hit a per-tool "Do you want to
-# proceed?" prompt on every cortex_*/empirica_* MCP call. The real gates stay
-# intact — the Sentinel gates empirica praxic, cortex ECO gates propose — so
-# the CC prompt is pure redundant friction for these two trusted servers.
+# proceed?" prompt on every cortex_* MCP call. The real gate stays intact —
+# cortex ECO gates propose — so the CC prompt is pure redundant friction for
+# this trusted server.
 # Wildcard form (`mcp__cortex__*`) allows every tool from the server; it's
 # equivalent to the bare `mcp__cortex` prefix per Claude Code's permission
 # matcher.
-MESH_MCP_ALLOW = ("mcp__cortex__*", "mcp__empirica__*")
+MESH_MCP_ALLOW = ("mcp__cortex__*",)
 
 
 def _configure_permissions(settings, output_format):
-    """Pre-authorize the mesh MCP servers (cortex, empirica) in settings.json.
+    """Pre-authorize the cortex MCP server in settings.json.
 
-    Without this, every cortex_*/empirica_* MCP call in a mesh-active practice
+    Without this, every cortex_* MCP call in a mesh-active practice
     triggers Claude Code's per-tool permission prompt (the friction David hit
     in empirica-web where cortex_collab + cortex_propose both prompted). The
-    real authorization gates are elsewhere — the Sentinel gates empirica praxic
-    tools, cortex ECO gates propose — so the CC prompt is redundant for these
-    two servers.
+    real authorization gate is elsewhere — cortex ECO gates propose — so the
+    CC prompt is redundant for this server.
 
     Idempotent, and preserves any allow entries the user accumulated via
     'Yes and don't ask again'. Leaves deny/ask untouched.
@@ -521,9 +519,9 @@ def _configure_permissions(settings, output_format):
     allow.extend(added)
     if output_format != "json":
         if added:
-            print(f"   ✓ Mesh MCP servers pre-authorized: {', '.join(added)}")
+            print(f"   ✓ Mesh MCP server pre-authorized: {', '.join(added)}")
         else:
-            print("   Mesh MCP servers already pre-authorized")
+            print("   Mesh MCP server already pre-authorized")
 
 
 def _configure_statusline(settings, plugin_dir, python_cmd, output_format):
@@ -1634,167 +1632,6 @@ def _register_marketplace(marketplace_dir, plugins_dir, claude_dir, plugin_dir, 
             print("   ✓ Local marketplace registered")
 
 
-def _merge_mcp_entry_into(
-    path: Path, label: str, entry: dict, force: bool, output_format: str
-) -> tuple[bool, str | None]:
-    """Merge our MCP entry into one config file. Returns (wrote, previous_command).
-
-    Extracted so `_configure_mcp_server` stays readable — but the reason this is
-    its own function is the concurrency handling below, which is the whole point
-    of the change and does not belong inlined in a loop.
-    """
-    # Stamped read: `~/.claude.json` is Claude Code's LIVE store (project
-    # history, costs, session state) and it writes there continuously. A
-    # read-modify-write with an atomic rename replaces the WHOLE file, so
-    # anything written in between is gone — and running setup from inside a
-    # Claude Code session is precisely that window.
-    try:
-        config, stamp = _read_json_with_stamp(path, {"mcpServers": {}})
-    except (OSError, json.JSONDecodeError) as e:
-        # Existing-but-unparseable. This used to fall back to an empty default
-        # and the write replaced the entire file with just our entry. Refuse: a
-        # partial read is not an empty file.
-        print(
-            f"   ⚠ SKIPPED {label} config ({path}): could not be read ({type(e).__name__}). "
-            "Not overwriting a file whose contents are unknown — if Claude Code was "
-            "mid-write, re-run; if it is genuinely corrupt, repair or move it first.",
-            file=sys.stderr,
-        )
-        return False, None
-
-    existing = config.get("mcpServers", {}).get("empirica") or {}
-    previous_cmd = existing.get("command") if existing.get("command") != entry.get("command") else None
-
-    merged = {**existing, **entry}
-    if merged == existing and not force:
-        return False, previous_cmd
-
-    config.setdefault("mcpServers", {})["empirica"] = merged
-    try:
-        _write_json_file(path, config, expect_stamp=stamp)
-    except ConcurrentlyModified as e:
-        # One retry: re-read, re-merge, write again. A single racing write is the
-        # common case and re-merging is correct. A second conflict means the file
-        # is being written continuously and there is no safe moment — say so
-        # rather than spinning.
-        try:
-            config, stamp = _read_json_with_stamp(path, {"mcpServers": {}})
-            config.setdefault("mcpServers", {})["empirica"] = {
-                **(config.get("mcpServers", {}).get("empirica") or {}),
-                **entry,
-            }
-            _write_json_file(path, config, expect_stamp=stamp)
-        except (ConcurrentlyModified, OSError, json.JSONDecodeError):
-            print(f"   ⚠ SKIPPED {label} config: {e}", file=sys.stderr)
-            return False, previous_cmd
-
-    if output_format != "json":
-        print(f"   ✓ MCP server written to {label} config: {path}")
-    return True, previous_cmd
-
-
-def _configure_mcp_server(claude_dir, home, force, output_format):
-    """Find and configure the empirica-mcp MCP server. Returns (mcp_installed, mcp_cmd)."""
-    if output_format != "json":
-        print("\n🔌 Configuring MCP server...")
-
-    # Find empirica-mcp — prefer the binary matching the current Python environment
-    # This prevents stale pipx binaries from shadowing dev installs
-    mcp_cmd = None
-    # Priority 1: Same virtualenv as the running empirica CLI
-    venv_prefix = Path(sys.executable).parent
-    venv_mcp = venv_prefix / "empirica-mcp"
-    if venv_mcp.exists():
-        mcp_cmd = str(venv_mcp)
-    # Priority 2: shutil.which (whatever's first in PATH)
-    if not mcp_cmd:
-        mcp_cmd = shutil.which("empirica-mcp")
-    # Priority 3: pipx default location
-    if not mcp_cmd:
-        local_bin = home / ".local" / "bin" / "empirica-mcp"
-        if local_bin.exists():
-            mcp_cmd = str(local_bin)
-
-    if not mcp_cmd:
-        mcp_cmd = _try_install_mcp_via_pipx(home, output_format)
-
-    if not mcp_cmd:
-        return False, None
-
-    entry = {
-        "command": mcp_cmd,
-        "args": [],
-        "type": "stdio",
-        "tools": ["*"],
-        "description": "Empirica epistemic framework - CASCADE workflow, goals, findings",
-    }
-
-    # Two files, and only one of them is loaded by Claude Code.
-    #
-    # `~/.claude.json` is where Claude Code keeps user-scope MCP servers. Proved
-    # 2026-08-07 rather than inferred: a probe server written ONLY to
-    # `~/.claude/mcp.json` did not appear in `claude mcp list`, and both servers
-    # that differed between the files resolved to their `~/.claude.json` values
-    # (`claude mcp get empirica` reports "Scope: User config" with that command
-    # and env). Until now setup wrote ONLY the legacy file, so the registration
-    # it reported as configured had no effect on this harness at all — a fault
-    # doctor could not see either, because it inspected the same wrong file.
-    #
-    # The legacy file keeps being written, with an IDENTICAL entry. Dropping it
-    # would silently unregister the server for any client that does read it
-    # (unmeasured), and writing a DIFFERENT value there is what produced the
-    # divergence doctor now warns about. Same value in both is the only option
-    # that neither breaks a reader nor manufactures a warning.
-    targets = [
-        (home / ".claude.json", "live"),  # Claude Code, user scope
-        (claude_dir / "mcp.json", "legacy"),
-    ]
-
-    wrote_any = False
-    previous_cmd = None
-    wrote_any = False
-    previous_cmd = None
-    for path, label in targets:
-        wrote, prev = _merge_mcp_entry_into(path, label, entry, force, output_format)
-        wrote_any = wrote_any or wrote
-        previous_cmd = previous_cmd or prev
-
-    if output_format != "json":
-        if not wrote_any:
-            print(f"   MCP server already configured: {mcp_cmd}")
-        elif previous_cmd:
-            print(f"   ✓ MCP server updated: {mcp_cmd}\n     (was: {previous_cmd})")
-
-    return True, mcp_cmd
-
-
-def _try_install_mcp_via_pipx(home, output_format):
-    """Attempt to install empirica-mcp via pipx. Returns mcp_cmd or None."""
-    if shutil.which("pipx"):
-        if output_format != "json":
-            print("   Installing empirica-mcp via pipx...")
-        try:
-            result = subprocess.run(["pipx", "install", "empirica-mcp"], capture_output=True, text=True, timeout=120)
-            if result.returncode == 0:
-                mcp_cmd = shutil.which("empirica-mcp")
-                if not mcp_cmd:
-                    mcp_cmd = str(home / ".local" / "bin" / "empirica-mcp")
-                if output_format != "json":
-                    print("   ✓ empirica-mcp installed via pipx")
-                return mcp_cmd
-            else:
-                if output_format != "json":
-                    print(f"   ⚠️  pipx install failed: {result.stderr[:100]}")
-        except Exception as e:
-            if output_format != "json":
-                print(f"   ⚠️  pipx install failed: {e}")
-    else:
-        if output_format != "json":
-            print("   ⚠️  pipx not available - install empirica-mcp manually:")
-            print("      pipx install empirica-mcp")
-    return None
-
-
 def _check_semantic_layer():
     """Check Ollama and Qdrant status. Returns (ollama_ok, embedding_ok, qdrant_ok)."""
     ollama_ok = False
@@ -1853,7 +1690,7 @@ def _check_semantic_layer():
     return ollama_ok, embedding_ok, qdrant_ok
 
 
-def _print_human_summary(plugin_dir, settings_file, mcp_installed, skip_claude_md, claude_dir):
+def _print_human_summary(plugin_dir, settings_file, skip_claude_md, claude_dir):
     """Print the human-readable setup summary including semantic layer check."""
     print("\n" + "━" * 60)
     print(f"✅ {PLUGIN_NAME} v{PLUGIN_VERSION} configured successfully!")
@@ -1879,10 +1716,6 @@ def _print_human_summary(plugin_dir, settings_file, mcp_installed, skip_claude_m
     print("📊 StatusLine")
     print("    - Shows session ID, phase, know/uncertainty vectors")
     print()
-    if mcp_installed:
-        print("🔌 MCP Server")
-        print("    - Full Empirica API available to Claude")
-        print()
     print("🎯 Skills")
     print("    - /empirica - Full command reference")
     print()
@@ -1915,12 +1748,9 @@ def _print_human_summary(plugin_dir, settings_file, mcp_installed, skip_claude_m
     print()
     print("2. Verify with: /plugin")
     print(f"   Should show: {PLUGIN_NAME}@local")
-    print()
-    print("3. Connect MCP server: /mcp")
-    print("   Should show: empirica connected")
     if not (ollama_ok and embedding_ok and qdrant_ok):
         print()
-        print("4. Set up semantic layer (recommended):")
+        print("3. Set up semantic layer (recommended):")
         if not ollama_ok:
             print("   curl -fsSL https://ollama.com/install.sh | sh")
         if ollama_ok and not embedding_ok:
@@ -2451,7 +2281,7 @@ def _migrate_legacy_project_identity(force, output_format):
 # no writer is refused by name rather than quietly handed Claude Code's files.
 # Adding codex means adding a writer here, not editing a conditional.
 SUPPORTED_HARNESSES: dict[str, str] = {
-    "claude-code": "Claude Code — plugin, CLAUDE.md, settings.json hooks, MCP server",
+    "claude-code": "Claude Code — plugin, CLAUDE.md, settings.json hooks",
 }
 
 # Harnesses we know exist and deliberately do not configure. Named separately so
@@ -2601,7 +2431,6 @@ def handle_setup_claude_code_command(args):
         if harness not in SUPPORTED_HARNESSES:
             return _refuse_unsupported_harness(harness, output_format)
         force = getattr(args, "force", False)
-        skip_mcp = getattr(args, "skip_mcp", False)
         skip_claude_md = getattr(args, "skip_claude_md", False)
         skip_credentials = getattr(args, "skip_credentials", False)
 
@@ -2633,7 +2462,7 @@ def handle_setup_claude_code_command(args):
             print(f"   Using Python: {python_cmd}")
 
         # Stage 1: Create directories
-        home, claude_dir, plugins_dir, plugin_dir, marketplace_dir, _empirica_dir = _setup_directories(output_format)
+        _home, claude_dir, plugins_dir, plugin_dir, marketplace_dir, _empirica_dir = _setup_directories(output_format)
 
         # Stage 2: Install plugin files
         install_report = _install_plugin_files(source_dir, plugin_dir, output_format)
@@ -2652,12 +2481,6 @@ def handle_setup_claude_code_command(args):
 
         # Stage 5: Marketplace registration
         _register_marketplace(marketplace_dir, plugins_dir, claude_dir, plugin_dir, plugin_key, output_format)
-
-        # Stage 6: MCP server
-        mcp_installed = False
-        mcp_cmd = None
-        if not skip_mcp:
-            mcp_installed, mcp_cmd = _configure_mcp_server(claude_dir, home, force, output_format)
 
         # Stage 6.5: Credentials check + wizard. Fresh installs hit listener-
         # exit-code-2 the moment they toggle Events because no ntfy creds were
@@ -2716,8 +2539,6 @@ def handle_setup_claude_code_command(args):
                 "plugin_dir": str(plugin_dir),
                 "claude_md": str(claude_dir / "CLAUDE.md") if not skip_claude_md else None,
                 "settings_file": str(settings_file),
-                "mcp_configured": mcp_installed,
-                "mcp_command": mcp_cmd,
                 "credentials": {
                     "cortex_ok": creds_state["cortex_ok"],
                     "ntfy_ok": creds_state["ntfy_ok"],
@@ -2744,7 +2565,7 @@ def handle_setup_claude_code_command(args):
                 "message": "Claude Code integration configured successfully",
             }
         else:
-            _print_human_summary(plugin_dir, settings_file, mcp_installed, skip_claude_md, claude_dir)
+            _print_human_summary(plugin_dir, settings_file, skip_claude_md, claude_dir)
             _print_credentials_summary(creds_state)
 
         return None

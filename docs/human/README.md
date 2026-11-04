@@ -9,7 +9,7 @@
 | You are | Start here | What you'll learn |
 |---|---|---|
 | **New to Empirica** | [end-users/01_START_HERE.md](end-users/01_START_HERE.md) | Install + first transaction in 5 minutes, plus a plain-English overview of what Empirica measures and why |
-| **Developer integrating AI** | [developers/CLAUDE_CODE_SETUP.md](developers/CLAUDE_CODE_SETUP.md) | Hooks, system prompts, MCP server |
+| **Developer integrating AI** | [developers/CLAUDE_CODE_SETUP.md](developers/CLAUDE_CODE_SETUP.md) | Hooks, system prompts |
 | **Building on Empirica** | [developers/EXTENDING_EMPIRICA.md](developers/EXTENDING_EMPIRICA.md) | Foundation layer + extension patterns |
 
 ---
@@ -23,14 +23,14 @@ Getting-started guides and conceptual explanations.
 - **Setup & install** — project-init, setup-claude-code, troubleshooting
 - **Concepts** — the 13 vectors, sessions vs transactions, the measurement model
 - **Workflows** — CLI patterns, goal lifecycle, project management
-- **Integrations** — BEADS, MCP
+- **Integrations** — BEADS
 
 ### [developers/](developers/)
 
 Technical guides for AI integration + building on Empirica.
 
 - **AI integration** — Claude Code hooks, multi-session learning, self-management
-- **Reference** — CLI catalog, MCP server, epistemic health quick reference
+- **Reference** — CLI catalog, epistemic health quick reference
 - **Building** — foundation layer extensions, skill pipeline, training-export
 - **Integrations** — BEADS architecture + git bridge
 

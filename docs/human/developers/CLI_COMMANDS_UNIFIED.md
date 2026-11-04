@@ -23,8 +23,8 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.20
-**Generated:** 2026-11-04 13:56:30 UTC
-**Total commands:** 240 (across 24 categories)
+**Generated:** 2026-11-04 21:47:14 UTC
+**Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -81,7 +81,6 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [architecture](#architecture) | 3 | `assess-component`, `assess-compare`, `assess-directory` |
 | [sentinel](#sentinel) | 4 | `sentinel-orchestrate`, `sentinel-load-profile`, `sentinel-status`, … |
 | [lessons](#lessons) | 6 | `lesson-create`, `lesson-load`, `lesson-list`, … |
-| [mcp](#mcp) | 1 | `mcp-list-tools` |
 | [memory](#memory) | 6 | `memory-prime`, `memory-scope`, `memory-value`, … |
 | [vision](#vision) | 1 | `vision` |
 | [domains](#domains) | 1 | `domain-validate` |
@@ -2594,7 +2593,7 @@ Retrieve what the practice knows about a topic (alias of project-search --task)
 - `--verbose` — optional · flag
   Show detailed operation info
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-  Output format. empirica-mcp always passes --output json; bare CLI users get human by default.
+  Output format (default: human).
 
 #### `empirica investigate-create-branch`
 
@@ -4280,19 +4279,6 @@ Show lesson storage statistics
 
 ---
 
-## mcp
-
-#### `empirica mcp-list-tools`
-
-List MCP tools registered in the installed empirica-mcp package
-
-**Arguments:**
-
-- `--verbose` / `-v` — optional · flag
-  Show tip for inspecting per-tool param schemas
-
----
-
 ## memory
 
 #### `empirica memory-prime`
@@ -4475,8 +4461,6 @@ Configure harness integration (hooks, system prompt, MCP server)
   Reinstall plugin even if it already exists
 - `--ai-id` — optional
   The practice this deploy is performed FOR, when the caller knows it (a single-practice box, or a script that was told). Recorded in the plugin's writer stamp. Left off on a multi-practice box: a fleet deploy is run by an operator, not by a practice, and a guessed name there is worse than none — the stamp records user@host either way.
-- `--skip-mcp` — optional · flag
-  Skip MCP server installation and configuration
 - `--skip-credentials` — optional · flag
   Skip the credentials validation + wizard (use env vars or pre-populated credentials.yaml)
 - `--skip-listener-service` — optional · flag
@@ -4537,12 +4521,12 @@ Check Empirica + Claude Code integration health (run this when statusline isn't 
 
 #### `empirica doctor`
 
-Check Empirica install health (Desktop + general — empirica-mcp, .empirica/, git remote, Cortex reachability)
+Check Empirica install health (Desktop + general — .empirica/, git remote, Cortex reachability)
 
 **Arguments:**
 
 - `--output` — optional · type=`choice` · choices={human, json}
-  Output format. Default: human on a terminal, json when piped (the Desktop MCP tool and AI sessions call it through a pipe, so they keep getting json).
+  Output format. Default: human on a terminal, json when piped (AI sessions call it through a pipe, so they keep getting json).
 - `--deploy-gaps` — optional · flag
   Only the deploy-gap checks: unreleased commits, CLI-vs-checkout, plugin freshness, MCP skew - one readable answer to 'what is committed but not live on this box'
 - `--strict-warn` — optional · flag

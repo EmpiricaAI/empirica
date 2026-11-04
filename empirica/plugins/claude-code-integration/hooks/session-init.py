@@ -1743,7 +1743,7 @@ def _deploy_gap_block(project_root: Path) -> str:
     clean fresh verdict looks like, so a broken reader must not look clean.
 
     Skipped off Claude Code (``EMPIRICA_HARNESS != 'claude-code'``). The detector
-    compares this box's CLI, deployed Claude Code plugin and MCP wrapper against
+    compares this box's CLI, deployed Claude Code plugin against
     their checkouts, so under another harness it describes a deploy that session
     does not run, and a harness that never vendored the cache module would read
     ``verdict unreadable`` at every start (ecodex, prop_dke2es3rhff4plrgfliiqldf24).

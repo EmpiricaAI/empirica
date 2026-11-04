@@ -22,7 +22,7 @@ The Sentinel Gate is a `PreToolUse` hook. It sorts every tool call it sees into 
 `main()` runs these steps in order; the first that answers wins.
 
 1. **Count and annotate.** Increment the hook counters (parent sessions only), compute the autonomy and goalless nudges, and look up artifacts that mention an `Edit`/`Write` target. None of this decides anything.
-2. **Release-path exemption.** Always allow: any `mcp__empirica__*` tool; the pause/resume toggles; and a Bash call that is fully safe *and* contains a recovery or measurement verb in any pipeline segment (`preflight-submit`, `check-submit`, `postflight-submit`, the `*-log` family, `log-artifacts`, `resolve-artifacts`, `delete-artifacts`, `note`, `source-add`, `unknown-resolve`, `noetic-batch`, goal create/complete/list verbs, `doctor`, `diagnose`, `setup`, `plugin-sync`, `sentinel`, `listener on|off|status|arm`, `loop status|heartbeat|pause|resume|...`). The authoritative list is `_RECOVERY_MEASUREMENT_PREFIXES`. The rule: no gate may block the action that clears it.
+2. **Release-path exemption.** Always allow: the pause/resume toggles; and a Bash call that is fully safe *and* contains a recovery or measurement verb in any pipeline segment (`preflight-submit`, `check-submit`, `postflight-submit`, the `*-log` family, `log-artifacts`, `resolve-artifacts`, `delete-artifacts`, `note`, `source-add`, `unknown-resolve`, `noetic-batch`, goal create/complete/list verbs, `doctor`, `diagnose`, `setup`, `plugin-sync`, `sentinel`, `listener on|off|status|arm`, `loop status|heartbeat|pause|resume|...`). The authoritative list is `_RECOVERY_MEASUREMENT_PREFIXES`. The rule: no gate may block the action that clears it.
 3. **Investigation-proportionality budget.** For `Read`, `Grep` and `Glob` only: once `tool-router.py` has armed a budget on a hypothesis-bearing prompt, deny after the limit (default 5) until the next prompt resets it. Armings older than an hour are dropped. Under the default registration these tools never reach the hook, so this applies only where a harness routes them.
 4. **Noetic firewall.** Allow a noetic tool, a `monitor` call whose whole input is `{"action": "list"}`, a safe Bash command, or a `Write`/`Edit` of a plan file (`/.claude/plans/` in the resolved path). A praxic remote command (`ssh`/`scp`/`rsync` that writes) is allowed here only if the latest PREFLIGHT or CHECK in the session has `uncertainty <= 0.25` (the ConfidenceGate for remote infra; `know` is not evaluated).
 5. **Exemptions.** Allow when the caller is a subagent, when Empirica is paused, or when the Sentinel is disabled.
@@ -64,8 +64,6 @@ PREFLIGHT `claims` are stored in `transaction_claims`. Only `grounding: read`, o
 **CRM MCP (`NOETIC_MCP_CRM_READS`).** `crm_whoami`, `crm_schema`, `crm_get`, `crm_list_*`, `crm_scope_changes`, `crm_consent_state`. Every upsert, delete, link, scope, supersede, transfer and consent-event tool is gated.
 
 **Chrome MCP (`NOETIC_MCP_CHROME`).** Tab listing and creation, `navigate`, `read_page`, `get_page_text`, `find`, console and network reads, `screenshot`, `gif_creator`. `form_input`, `javascript_tool` and `computer` are praxic.
-
-**Empirica MCP.** Every `mcp__empirica__*` tool is treated as epistemic workflow and always allowed.
 
 Every site that asks "is this tool noetic" calls `_is_noetic_tool`, so a tool added to a set is noetic everywhere, including after POSTFLIGHT.
 

@@ -31,18 +31,18 @@ bus = EpistemicBus()
 │                    (pip install your-app)                           │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐            │
-│   │  carapace   │    │ empirica-   │    │ empirica-   │            │
-│   │  (ideas)    │    │  workspace  │    │    mcp      │            │
-│   └──────┬──────┘    └──────┬──────┘    └──────┬──────┘            │
-│          │                  │                  │                    │
-│          ▼                  │                  │                    │
-│   ┌─────────────┐           │                  │                    │
-│   │ docpistemic │           │ (includes CRM,   │                    │
-│   │  (docs)     │           │  dashboard,      │                    │
-│   └──────┬──────┘           │  prediction)     │                    │
-│          │                  │                  │                    │
-│          └──────────────────┼──────────────────┘                    │
+│   ┌─────────────┐    ┌─────────────┐                               │
+│   │  carapace   │    │ empirica-   │                               │
+│   │  (ideas)    │    │  workspace  │                               │
+│   └──────┬──────┘    └──────┬──────┘                               │
+│          │                  │                                       │
+│          ▼                  │                                       │
+│   ┌─────────────┐           │                                       │
+│   │ docpistemic │           │ (includes CRM,                        │
+│   │  (docs)     │           │  dashboard,                           │
+│   └──────┬──────┘           │  prediction)                          │
+│          │                  │                                       │
+│          └──────────────────┤                                       │
 │                             │                                       │
 │                             ▼                                       │
 │              ┌──────────────────────────────┐                       │
@@ -60,7 +60,6 @@ bus = EpistemicBus()
 ```
 
 **Live extensions:**
-- `empirica-mcp` - MCP server for Claude Desktop / IDE integration
 - `empirica-workspace` - Portfolio management, CRM, dashboards (includes former empirica-crm)
 - `docpistemic` - Documentation coverage assessment
 - `carapace` - Codebase navigation and idea generation
@@ -179,7 +178,7 @@ clients = ClientRepository(db.conn)
 ### Pattern 3: Investigation Tools
 
 There is no `empirica.investigation` module and no plugin registry in the codebase. Add
-investigation tools the way the shipped ones are added: as MCP servers or CLI verbs the
+investigation tools the way the shipped ones are added: as CLI verbs the
 practitioner calls during the noetic phase, and log what they return with `finding-log` /
 `log-artifacts` so the vectors move on evidence. See Pattern 5 for CLI extensions.
 
@@ -291,7 +290,7 @@ dependencies = [
 **Problem:** Core defines no `empirica.plugins` entry-point group and no plugin registry
 (`empirica.investigation` does not exist), so there is nothing to auto-discover.
 
-**Current workaround:** Ship your extension as a CLI verb, an MCP server or a Claude Code
+**Current workaround:** Ship your extension as a CLI verb or a Claude Code
 plugin (skills, hooks) and register it in that host, not in empirica.
 
 ### Issue 3: Schema Migrations
@@ -357,7 +356,6 @@ def test_my_extension(db, bus):
 
 | Extension | Depends On | Key Pattern |
 |-----------|------------|-------------|
-| `empirica-mcp` | `empirica>=1.5.0` | Wraps CLI as MCP tools |
 | `empirica-workspace` | `empirica>=1.5.0` | Portfolio + CRM + dashboards |
 | `docpistemic` | `empirica>=1.5.0` | Uses docs-assess agent |
 | `carapace` | `docpistemic` | Builds on another extension |

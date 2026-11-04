@@ -126,9 +126,7 @@ empirica query handoffs --ai-id <ai_id> --since 2026-01-01
 ```
 
 `handoff-query` filters by session or AI only; `query handoffs` also takes
-`--since`, `--scope`, `--limit`. Both go through `HybridHandoffStorage`. The MCP
-tool `handoff_create` maps to `handoff-create`; there is no MCP tool for the
-query side in the tool list.
+`--since`, `--scope`, `--limit`. Both go through `HybridHandoffStorage`.
 
 Human-mode output prints a summary and then the whole report as JSON.
 

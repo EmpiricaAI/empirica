@@ -71,8 +71,6 @@ services:
       # Workspace Configuration (unified path resolution)
       - EMPIRICA_WORKSPACE_ROOT=/workspace
 
-      # MCP Configuration
-      - MCP_SERVER_URL=http://empirica-api:8000
       - EMPIRICA_API_URL=http://empirica-api:8000
       - AI_ID=vibe
 
@@ -126,7 +124,6 @@ services:
       # Workspace Configuration (unified path resolution)
       - EMPIRICA_WORKSPACE_ROOT=/workspace
 
-      - MCP_SERVER_URL=http://empirica-api:8000
       - EMPIRICA_API_URL=http://empirica-api:8000
       - AI_ID=rovodev
       - HOME=/home/rovodev

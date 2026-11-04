@@ -9,7 +9,7 @@
 # What it does:
 #   1. Finds a suitable Python >= 3.10
 #   2. Installs empirica via pip (includes bundled plugin files)
-#   3. Runs `empirica setup-claude-code` (configures hooks, CLAUDE.md, MCP, etc.)
+#   3. Runs `empirica setup-claude-code` (configures hooks, CLAUDE.md, etc.)
 #
 # For updates, just re-run this script or: empirica setup-claude-code --force
 
@@ -122,7 +122,6 @@ echo ""
 # - Plugin files to ~/.claude/plugins/local/empirica/
 # - CLAUDE.md system prompt
 # - Hook configuration (Sentinel, compact, session lifecycle)
-# - MCP server setup
 # - Marketplace registration
 # - Statusline configuration
 empirica setup-claude-code --force
@@ -136,7 +135,6 @@ echo "NEXT STEPS:"
 echo ""
 echo "  1. Restart Claude Code to load the plugin"
 echo "  2. Verify with: /plugin"
-echo "  3. Connect MCP: /mcp"
 echo ""
 echo "TO UPDATE:"
 echo ""

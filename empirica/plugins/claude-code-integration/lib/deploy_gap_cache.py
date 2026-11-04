@@ -1,7 +1,7 @@
 """Cached deploy-gap verdict for SessionStart.
 
 `empirica doctor --deploy-gaps` answers "what is committed but not live on this
-box" — CLI vs checkout, deployed plugin vs package, MCP wrapper vs core,
+box" — CLI vs checkout, deployed plugin vs package,
 unreleased commits. The detector existed for weeks and nothing ran it, which is
 how a whole mesh diagnosed a NULL column for an hour against code that was
 correct in every checkout and executing in none.

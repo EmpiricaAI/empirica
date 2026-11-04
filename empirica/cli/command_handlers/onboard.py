@@ -246,11 +246,7 @@ INTEGRATION OPTIONS
 
 Claude Code (recommended):
    $ empirica setup
-   # Installs plugin, hooks, CLAUDE.md, MCP server
-
-MCP Server (for any AI agent):
-   $ empirica mcp-list-tools  # inspection only
-   # Exposes Empirica as MCP tools
+   # Installs plugin, hooks, CLAUDE.md
 
 Python API:
    from empirica.data.session_database import SessionDatabase
