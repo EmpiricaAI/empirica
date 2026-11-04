@@ -2245,7 +2245,13 @@ def handle_listener_arm_command(args) -> int:
     data["monitor_task_id"] = task_id
     import time as _time
 
-    data["armed_at"] = _time.time()
+    now = _time.time()
+    data["armed_at"] = now
+    # `armed_at` is the LATEST arm. The record also keeps the first, a count and the last twenty, so "how long after a pane resumed did it first arm"
+    # is a query over the file, not a guess from the one value that every re-arm overwrote.
+    data.setdefault("first_armed_at", now)
+    data["arm_count"] = int(data.get("arm_count") or 0) + 1
+    data["arm_history"] = [*(data.get("arm_history") or []), now][-20:]
     active_path.write_text(_json.dumps(data, indent=2), encoding="utf-8")
 
     payload = {

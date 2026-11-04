@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`goals-list` no longer shows abandoned goals as active.** The default view filtered on `is_completed = 0` alone, and an abandoned goal keeps that at 0 on purpose, so all 19 abandoned goals on one practice were listed with the live work (87 shown against 68). `--status abandoned` lists them.
 - **One spelling for a finished goal: `completed`.** Migration 078 rewrites the 6 legacy `complete` goal rows found across 36 practice databases; the readers that tolerated both spellings, the `goals-search --status` choice and the goal docs now name the one. The compliance loop's own result status is a different enumeration and is unchanged.
 
+### Added
+
+- **The listener logs its memory next to its activity.** `empirica loop listen` writes one `listener: stats` line with its RSS, thread count, uptime and cumulative counters (connects, events, catch-ups, failed catch-ups) at start, every ten minutes (`EMPIRICA_LISTENER_STATS_INTERVAL_SEC`) and at shutdown, so growth like mesh-support's 137 to 471 MB reports can be read against the activity before it. Observability only; RSS reads `unknown` off Linux.
+- **`listener arm` keeps an arm history.** The state file now carries `first_armed_at`, `arm_count` and the last twenty arm times beside `armed_at` (still the latest), so "how long after a pane resumed did it first arm" is a query over the file.
+
 ### Changed
 
 - **`project-bootstrap` shows the whole picture.** Decisions are read from SQLite, newest first, with an exact total and `source: "sqlite"`: they came from an unordered vector-store page before, so the ten shown were not the newest and an outage read as "no decisions". New `artifact_edges` lists the semantic edges among the artifacts shown (full-length ids, with types), and `blindspot_status` gives the CHECK-time scan telemetry and when it last ran. `--depth full` now lifts every cap. All additive; the default output grows by about 2 KB and the command runs about 45 ms faster, since it no longer calls the vector store (median of 15 alternating runs against 1.14.19).

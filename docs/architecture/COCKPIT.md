@@ -62,7 +62,7 @@ scanning is one glob.
 | **Listeners (event-driven)** | | |
 | `listeners_{instance_id}.json` | `empirica listener register/record-wake/...` | declarative registry of listeners |
 | `listener_paused_{instance_id}_{name}` | `empirica listener pause` | empty file; existence = listener paused |
-| `listener_active_{instance_id}_{name}.json` | listener body (`inbox-listener` skill) | runtime metadata: `monitor_task_id`, `curl_pid`, `armed_at` |
+| `listener_active_{instance_id}_{name}.json` | listener body (`inbox-listener` skill) | runtime metadata: `monitor_task_id`, `curl_pid`, `armed_at` (the latest arm), `first_armed_at`, `arm_count`, `arm_history` (the last 20 arm times) |
 | `listener_install_pending_{instance_id}_{name}.json` | `empirica listener install-request` | bridge file — `listener-install-pickup.py` hook asks owning Claude to invoke `/inbox-listener` and arm |
 | `listener_uninstall_pending_{instance_id}_{name}.json` | `empirica listener pause` (when active runtime present) | bridge file — `listener-uninstall-pickup.py` hook asks owning Claude to `TaskStop(monitor_task_id)` + drop the held curl |
 | **Instance lifecycle** | | |

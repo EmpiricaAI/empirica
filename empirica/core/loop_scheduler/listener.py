@@ -56,6 +56,8 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
+from empirica.core.loop_scheduler.listener_stats import ListenerStats, StatsLogger
+
 logger = logging.getLogger(__name__)
 
 
@@ -942,6 +944,20 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
 
     backoff = _RECONNECT_BASE_SEC
 
+    # Memory next to activity: one stats line at start, every ten minutes and at shutdown (listener_stats.py). Observability only.
+    stats = ListenerStats()
+    stats_logger = StatsLogger(stats, err_stream)
+    stats_logger.emit("start")
+    stats_logger.start()
+
+    def _catchup() -> int:
+        stats.bump("catchups")
+        try:
+            return _emit_catchup_events(instance_id, loop_name, output_stream)
+        except Exception:
+            stats.bump("catchup_failures")
+            raise
+
     # Start the liveness probe BEFORE initial catch-up so even an
     # initial-catch-up hang triggers a hard exit + supervisor restart.
     # Probe is decoupled from curl + catch-up — it runs its own
@@ -982,7 +998,7 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
         # Catch-up on listener startup. Handles the gap between systemd
         # service start and the first ntfy message.
         try:
-            n = _emit_catchup_events(instance_id, loop_name, output_stream)
+            n = _catchup()
             if n:
                 err_stream.write(f"listener: initial catch-up emitted {n} event(s)\n")
         except Exception as e:
@@ -1026,6 +1042,7 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
     try:
         while True:
             proc = _stream_factory(url, headers)
+            stats.bump("connects")
             if proc.stdout is None:
                 err_stream.write("listener: stream factory returned no stdout — aborting\n")
                 return 1
@@ -1061,7 +1078,7 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
                     elapsed = 0.0
                     while elapsed < _RATE_LIMIT_BACKOFF_SEC:
                         try:
-                            _emit_catchup_events(instance_id, loop_name, output_stream)
+                            _catchup()
                         except Exception as e:
                             err_stream.write(f"listener: rate-limit-window catch-up failed: {e}\n")
                         sleep_for = min(
@@ -1137,6 +1154,7 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
                         continue
                     connected_ok = True
                     backoff = _RECONNECT_BASE_SEC  # reset on successful message
+                    stats.bump("events")
                     err_stream.write(
                         f"listener: ntfy event arrived (id={msg.get('id', '?')[:12]}) → running catch-up\n"
                     )
@@ -1144,7 +1162,7 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
                     # from the push body FIRST — they have no proposal-store row,
                     # so the proposal-only catch-up below can't reconstruct them.
                     _relay_non_proposal_wake(msg, instance_id, loop_name, tag_filter, output_stream, err_stream)
-                    _emit_catchup_events(instance_id, loop_name, output_stream)
+                    _catchup()
                     # Catch-up can take a few seconds; refresh activity stamp
                     # so the watchdog doesn't fire on a slow-but-healthy poll.
                     last_activity_at[0] = time.time()
@@ -1161,7 +1179,7 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
             # reconnect with exponential backoff. Always catch up first.
             err_stream.write(f"listener: stream ended (connected_ok={connected_ok}), reconnecting\n")
             try:
-                _emit_catchup_events(instance_id, loop_name, output_stream)
+                _catchup()
             except Exception as e:
                 err_stream.write(f"listener: post-drop catch-up failed: {e}\n")
 
@@ -1195,6 +1213,8 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
         err_stream.write(f"listener: unexpected exit: {type(e).__name__}: {e}\n")
         return 1
     finally:
+        stats_logger.emit("stop")
+        stats_logger.stop()
         if wake_service is not None:
             _WAKE_SERVICES.pop(instance_id, None)
             try:
