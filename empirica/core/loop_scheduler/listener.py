@@ -1077,7 +1077,11 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
                 backoff = _RECONNECT_BASE_SEC
                 continue
 
-            connected_ok = False
+            # A 2xx response means the connection was established. Only a stream that never produced one (no headers, curl could not connect)
+            # is a failed connect. Setting this only on a `message` event made every quiet-but-healthy drop (keepalives, then the server or a
+            # proxy closes the stream) take the 300 s auth-failure sleep with no curl child, which mesh status paints as "curl subscription
+            # dead" while the parent is fine. 4xx/5xx never reach here: they continue above.
+            connected_ok = http_status is not None and http_status < 300
             # Watchdog state — guards against silent TCP-dead-curl-alive zombies.
             # Shared with the watchdog thread; protected by GIL (single-int
             # writes/reads are atomic in CPython).
