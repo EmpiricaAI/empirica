@@ -26,7 +26,7 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture(scope="class")
-def isolated_env():
+def isolated_env(integration_project):
     """Create an isolated environment for subprocess CLI calls.
 
     Sets EMPIRICA_SESSION_DB to a temp database (priority 0 in path_resolver).
@@ -51,6 +51,8 @@ def isolated_env():
         # CLI must take the checkout it runs in as the project. Before this, the
         # tests resolved the project from the developer's real registry.
         env["EMPIRICA_CWD_RELIABLE"] = "true"
+        # A CI checkout is not a project, so the CLI runs inside the throwaway one (conftest.integration_project).
+        env["EMPIRICA_TEST_PROJECT_DIR"] = str(integration_project)
 
         yield env
 
@@ -66,7 +68,12 @@ class TestAIAgentWorkflow:
 
         try:
             result = subprocess.run(
-                ["empirica"] + args + [config_path], capture_output=True, text=True, check=check, env=env
+                ["empirica"] + args + [config_path],
+                capture_output=True,
+                text=True,
+                check=check,
+                env=env,
+                cwd=env.get("EMPIRICA_TEST_PROJECT_DIR"),
             )
             return result
         finally:

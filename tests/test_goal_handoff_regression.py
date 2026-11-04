@@ -22,16 +22,28 @@ pytestmark = pytest.mark.integration
 class TestGoalHandoffRegression:
     """Regression tests for goal discovery and lineage tracking"""
 
-    def test_discover_goals_returns_results(self):
+    def test_discover_goals_returns_results(self, tmp_path):
         """
         Test that discover_goals() actually finds stored goals
 
-        Regression: Previously returned empty list due to wrong git command
+        Regression: Previously returned empty list due to wrong git command. It used to assert that "4 documentation goals exist" in the
+        checkout's own git notes, which a CI clone does not have; it now stores one in a throwaway repository and finds that.
         """
-        store = GitGoalStore()
+        import subprocess
+
+        for cmd in (
+            ["git", "init", "-q"],
+            ["git", "config", "user.email", "ci@example.invalid"],
+            ["git", "config", "user.name", "CI"],
+        ):
+            subprocess.run(cmd, cwd=tmp_path, check=True)
+        subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "init"], cwd=tmp_path, check=True)
+        store = GitGoalStore(workspace_root=str(tmp_path))
+        assert store.store_goal("goal-xyz", "sess-1", "tester", {"objective": "stored for discovery"}), (
+            "the throwaway store must accept a goal"
+        )
         goals = store.discover_goals()
 
-        # Should find at least some goals (4 documentation goals exist)
         assert len(goals) > 0, "discover_goals() should find stored goals"
 
         # Each goal should have required fields

@@ -690,5 +690,42 @@ def no_real_service_mutations():
     mp.undo()
 
 
+@pytest.fixture(scope="session")
+def integration_project(tmp_path_factory):
+    """A real throwaway project for the integration-marked tests: a git repository with `empirica project-init` run in it.
+
+    Those tests run the CLI against "the project in the working directory". A developer's checkout is one; a CI checkout is not (no `.empirica`
+    store), so seven bootstrap tests, two workflow tests and a goal test failed on the Nightly runner and passed on every developer machine. The tests
+    now work in this instead of in whatever directory they were started from. Built once per session, with its own HOME so nothing leaks.
+    """
+    import os
+    import subprocess
+
+    root = tmp_path_factory.mktemp("integration_project")
+    home = tmp_path_factory.mktemp("integration_home")
+    env = {k: v for k, v in os.environ.items() if k != "EMPIRICA_SESSION_DB"}
+    env.update({"HOME": str(home), "EMPIRICA_CWD_RELIABLE": "true"})
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True, env=env)
+    subprocess.run(["git", "config", "user.email", "ci@example.invalid"], cwd=root, check=True, env=env)
+    subprocess.run(["git", "config", "user.name", "CI"], cwd=root, check=True, env=env)
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "init"], cwd=root, check=True, env=env)
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "empirica.cli",
+            "project-init",
+            "--non-interactive",
+            "--project-name",
+            "integration-fixture",
+        ],
+        cwd=root,
+        check=True,
+        env=env,
+        capture_output=True,
+    )
+    return root
+
+
 # Exclude archived tests from collection
 collect_ignore_glob = ["_archive/**"]

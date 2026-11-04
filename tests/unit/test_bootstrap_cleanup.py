@@ -22,18 +22,15 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture(autouse=True)
-def read_the_checkout_store(monkeypatch):
+def read_the_throwaway_project(monkeypatch, integration_project):
     """These tests bootstrap the project in the working directory, on purpose.
 
-    The suite pins EMPIRICA_SESSION_DB to a throwaway file (conftest), which has
-    no project in it. project-bootstrap only reads, so opting back in to the
-    checkout's own store is safe here, and it is said out loud rather than
-    inherited.
+    The suite pins EMPIRICA_SESSION_DB to a throwaway file (conftest), which has no project in it, and a CI checkout is not a project either, so
+    they run inside the `integration_project` fixture: a throwaway git repository with `project-init` run in it.
     """
     monkeypatch.delenv("EMPIRICA_SESSION_DB", raising=False)
-    # Same for the project: the suite's throwaway HOME has no registry, so the
-    # checkout the tests run in must be taken as the project.
     monkeypatch.setenv("EMPIRICA_CWD_RELIABLE", "true")
+    monkeypatch.chdir(integration_project)
 
 
 class TestBootstrapComponents:
