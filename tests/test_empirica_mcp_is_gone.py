@@ -103,7 +103,13 @@ def test_the_mcp_list_tools_verb_is_gone():
 def test_no_file_outside_history_names_the_removed_package():
     hits = []
     for rel, path in _files():
+        in_release_notes = False
         for lineno, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            if rel == "README.md" and line.startswith("## "):
+                # The generated What's New section is release notes, which is history; every other README section is the product as it is.
+                in_release_notes = line.startswith("## What's New")
+            if in_release_notes:
+                continue
             if PATTERN.search(line):
                 hits.append(f"{rel}:{lineno}: {line.strip()[:110]}")
     assert not hits, "references to the removed empirica-mcp package:\n" + "\n".join(hits[:60])

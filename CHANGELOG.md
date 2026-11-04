@@ -5,11 +5,22 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.14.21] - 2026-11-04
+
+### Highlights
+
+- **`empirica-mcp` is removed, and the CLI is the one integration surface.** All 79 of its tools ran the `empirica` CLI as a subprocess (69 distinct verbs), the epistemic loop needs hooks that exist only in Claude Code, and nothing was reachable only through the MCP. Published versions stay installable; 1.14.20 is the last.
+- **A leftover registration is reported.** `doctor` warns when `~/.claude.json` still registers the removed server and prints the command that removes it (`claude mcp remove empirica`), because setup no longer touches it and nothing else would say so.
+- **One package to release.** The release workflow, CI, the nightly and the dependency scan build, test and publish a single package; the `empirica[mcp]` extra, the `mcp-list-tools` verb and `setup-claude-code --skip-mcp` are gone.
 
 ### Removed
 
 - **`empirica-mcp` is removed, with no deprecation period.** All 79 of its tools ran the `empirica` CLI as a subprocess (69 distinct verbs), the epistemic loop needs hooks that exist only in Claude Code, and nothing was reachable only through the MCP; GUI users use Cortex and every other harness can run a command, so the CLI is the one integration surface. Gone with it: the `empirica-mcp` package and its PyPI, Docker and GitHub release steps, the `empirica[mcp]` extra, the `mcp-list-tools` verb, `setup-claude-code`'s MCP install, `doctor`'s MCP checks, the hook hints and Sentinel handling for `mcp__empirica__*` tools, and the MCP docs. Published `empirica-mcp` versions stay installable; 1.14.20 is the last. A leftover registration in `~/.claude.json` is still removed by `claude-code-uninstall`.
+
+### Known, not changed
+
+- **A box that had the server registered keeps the registration** until its owner removes it; its `mcp__empirica__*` tools no longer exist, and a call to one is gated like any unknown tool. `doctor` says so.
+- **The Cortex and CRM MCP servers are unchanged.**
 
 ## [1.14.20] - 2026-11-04
 

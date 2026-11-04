@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.14.20
-**Generated:** 2026-11-04 21:47:14 UTC
+**Framework version:** 1.14.21
+**Generated:** 2026-11-04 22:10:42 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -4451,7 +4451,7 @@ Interactive introduction to Empirica (recommended for first-time users)
 
 #### `empirica setup`  _(aliases: `setup-claude-code`)_
 
-Configure harness integration (hooks, system prompt, MCP server)
+Configure harness integration (hooks, system prompt)
 
 **Arguments:**
 
@@ -4528,7 +4528,7 @@ Check Empirica install health (Desktop + general — .empirica/, git remote, Cor
 - `--output` — optional · type=`choice` · choices={human, json}
   Output format. Default: human on a terminal, json when piped (AI sessions call it through a pipe, so they keep getting json).
 - `--deploy-gaps` — optional · flag
-  Only the deploy-gap checks: unreleased commits, CLI-vs-checkout, plugin freshness, MCP skew - one readable answer to 'what is committed but not live on this box'
+  Only the deploy-gap checks: unreleased commits, CLI-vs-checkout, plugin freshness - one readable answer to 'what is committed but not live on this box'
 - `--strict-warn` — optional · flag
   Exit code 2 when any WARN check fires (default: only FAIL fires non-zero exit)
 - `--reconcile-notes` — optional · flag
