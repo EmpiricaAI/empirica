@@ -100,12 +100,12 @@ items:
 
   - id: cockpit-rejoin
     title: Restarted cockpit panes rejoin the mesh unprompted
-    prediction: After a cockpit restart, resumed sessions re-arm their listener and catch up on mail without anyone typing, using the wake and inbox poll added in 1.14.14.
+    prediction: After a cockpit restart by launch or by refresh, resumed sessions re-arm their listener and catch up on mail without anyone typing, using the wake and inbox poll added in 1.14.14.
     confidence: 0.4
     evidence: reported
-    basis: Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. As of 1.14.19 cockpit refresh wakes each resumed claude pane once it is idle, which gives it the turn that arms the listener; that is tested with fakes and has not been measured on a live cockpit.
+    basis: Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. As of 1.14.19 cockpit refresh wakes each resumed claude pane once it is idle, which gives it the turn that arms the listener; that is tested with fakes and has not been measured on a live cockpit. The one live restart measured since (0 of 6 resumed panes armed before a human prompt) was a kill-server then launch, so the refresh wake never ran, and the listener wake service was off on every unit, so it grades neither. Launch is being given the same wake as refresh.
     falsifier: After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later.
-    horizon: "1.14.21"
+    horizon: "1.14.23"
     steered: true
     status: predicted
     revisions:
@@ -117,6 +117,10 @@ items:
         from: 0.45
         to: 0.4
         reason: Not delivered by its 1.14.20 horizon, in the sense that nothing was measured on a live restart. The wake exists since 1.14.19 and is tested with fakes; the cockpits were restarted on that release, but the registry then held only the latest arm per session, so the gap could not be read. From 1.14.20 it keeps first and every recent arm time. The horizon moves to 1.14.21 so the next restart is the first measurement, and the confidence drops, because a prediction that misses its horizon was over-confident about when.
+      - "on": "2026-11-05"
+        from: 0.4
+        to: 0.4
+        reason: Past its 1.14.21 horizon but untested rather than wrong. The measured restart did not go through refresh, which is the only path that wakes panes, and a restart by launch is the natural one for a person. The prediction now covers both paths, launch is being changed to wake like refresh, and the horizon moves to 1.14.23 so the next restart is the first real measurement. The confidence stays, because the cause is now known and one fix away, and a missed horizon was already priced in.
 
   - id: wake-default
     title: Wake service on by default
@@ -154,3 +158,25 @@ items:
     status: shipped
     resolved_in: "1.14.19"
     reason: Graded at 1.14.19. A report that carries ignored and filtered_out counts gives the evidence a suite size and POSTFLIGHT's signal reads, for example, 104 of 112, without moving the pass rate. Shown by tests on the collector and the signal; the cargo emitter has not started writing the two counts, so no live report has carried them yet.
+
+  - id: sentinel-discipline-layer
+    title: The Sentinel becomes a discipline layer
+    prediction: By 1.15.0 the Sentinel's default mode lets trivial work run without a loop up to a budget you set, and records it, while plan-shaped work and outward acts always need one.
+    confidence: 0.5
+    evidence: reviewed
+    basis: The design is accepted. A bash allowlist of about 900 entries keeps refusing honest reads, and CHECK confidence predicts later trouble only weakly (AUROC 0.587 over 4,508 CHECKs on 12 practices). Hooks before and after a command already exist, but read tracking was retired in September, so read-before-write is new work, and nothing added to the hot path has been timed yet.
+    falsifier: On the release that claims it, a fresh session's first file edit outside a transaction is refused, or the act budget cannot be set from the config file, an environment variable and a command-line flag.
+    horizon: "1.15.0"
+    steered: true
+    status: predicted
+
+  - id: empirica-local
+    title: A local single-user server
+    prediction: By 1.15.0 a single-user local server answers the Cortex API from your own practice registry, and says plainly that anything crossing a user or organisation boundary is not supported.
+    confidence: 0.4
+    evidence: reported
+    basis: Specified in the Cortex repository, not built. Core's part is one definition of the practice registry (today two code paths define it and the live table carries a legacy default) and a list of every capability that crosses an identity boundary. Neither is done.
+    falsifier: On the release that claims it, a local server is not installable with core alone, or a request that needs a second user or organisation is answered with anything other than a not-supported error.
+    horizon: "1.15.0"
+    steered: true
+    status: predicted
