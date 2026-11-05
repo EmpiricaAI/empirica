@@ -271,10 +271,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Download all artifacts
+      - name: Download the empirica artifacts
+        # By name into an explicit directory. Downloading "all artifacts" lays each one out in its own subdirectory only when there are
+        # several; with one it flattens them into artifacts/, so the artifacts/empirica-dist/* path below matched nothing and this job
+        # failed on 1.14.21, the first release with a single artifact.
         uses: actions/download-artifact@v8
         with:
-          path: artifacts/
+          name: empirica-dist
+          path: artifacts/empirica-dist
 
       - name: Create GitHub release
         env:

@@ -5,6 +5,12 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The release workflow's GitHub release job found no artifacts.** It downloaded "all artifacts" and uploaded from `artifacts/empirica-dist/*`, a layout that exists only while there are several artifacts; with `empirica-mcp` gone there was one, so 1.14.21 published to PyPI, Docker and Homebrew and then failed to create its GitHub release (created by hand from the CI artifacts, whose hash matches PyPI). The job now downloads the artifact by name into the directory it uploads from, and a test pins that.
+
 ## [1.14.21] - 2026-11-04
 
 ### Highlights
