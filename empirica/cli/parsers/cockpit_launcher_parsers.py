@@ -37,11 +37,11 @@ Surfaces (`surface:` in the config, or `launch --surface`)
   alacritty  one new alacritty window on this machine's display.
   ghostty    one new ghostty window on this machine's display.
 
-The bottom bar
-  A cockpit shows a bar at the bottom: your practices, then command chips that
-  turn red when something is broken and orange when something is waiting.
-  Click a chip, or press Ctrl+b, then e, then its letter; `?` opens the help
-  and a short guide. `bar: false` in the config turns it off.
+The bars
+  Your practices are on top, with health on the right. The commands are on the
+  line under each pane, red when something is broken and orange when something
+  is waiting. Click that line for the command menu, or press Ctrl+b, then e,
+  then a letter (Space for the menu, ? for help). `bar: false` turns them off.
 
 Identity and resume
   Each practice pane gets EMPIRICA_INSTANCE_ID: the project's `name:`, or its

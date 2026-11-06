@@ -1,23 +1,26 @@
-"""The cockpit's bottom bar: practice tabs with health, command chips coloured by state, and a help popup.
+"""The cockpit's bars: practices and health on top, command chips under each pane, a menu and a help with a Close button.
 
 Asked for by David through mesh-support (prop_uzewce5tbbew7dlvju2agoiz3i and its amendments, 2026-11-06; reference mock in
-empirica-mesh-support docs/design/cockpit-bar). The aim: nobody leaves the cockpit for routine actions, and a new person can learn
-Empirica from inside it.
+empirica-mesh-support docs/design/cockpit-bar), then revised by David the same day after the first real launch: practices and
+health belong on top, the cockpit commands and help at the bottom, and every popup needs a way to close it with a mouse.
 
 How it is put together:
 
-* **Layout.** Session options on the cockpit's own tmux session only: the status line at the bottom, two lines, or three when the
-  practice tabs and the health readout do not fit on one. Health is whatever `status-right` already shows, so a machine's existing
-  readout and its click targets carry over unchanged.
-* **Colour.** Red is broken now, orange is waiting, dim is nothing to do. R and A are computed by tmux itself from `pane_dead`, so
-  they are always current. M, I, U, C, S and L read per-window options that a background refresh sets.
-* **No checks on the status tick.** The status line only looks at the age of a stamp file. When the state is older than
-  STATE_MAX_AGE_MINUTES it starts the refresh in the background; the refresh also runs at launch and after every chip action.
-* **Keys and clicks.** `prefix e` enters the `empirica` key table, then the chip's letter (the bare prefix letters are taken by tmux
-  and by plugins). Each chip is also a click range. Key bindings are server-wide in tmux, so the click binding hands anything that is
-  not one of our ranges to whatever was bound before.
-* **State from elsewhere.** U, C, S and L read `~/.empirica/ecosystem-state.json` when a machine has one (mesh-support's
-  ecosystem-update writes it). Without it those chips stay dim and say so when pressed.
+* **Top.** tmux's status line, on the cockpit's own session: practice tabs, and whatever `status-right` already shows (a machine's
+  health readout and its click targets carry over unchanged). Two lines when they do not fit beside each other.
+* **Bottom.** tmux has one status line with one position, so the commands cannot be a second one. They are the line tmux draws under
+  each pane (`pane-border-status bottom`): chips coloured by state, red for broken now, orange for waiting, dim for nothing to do.
+  R and A are tmux formats over `pane_dead`, evaluated per pane, so they are always current and R is about the pane it sits under.
+* **Clicks.** tmux reports which pane's line was clicked, not where on it, so the whole line is one button: it opens a menu of the
+  commands. A menu is clickable and closes on its Close item, on Escape or on a click outside. U, C and S ask first with a menu too.
+* **Keys.** `prefix e` enters the `empirica` key table: the chip's letter, `?` for help, Space for the menu.
+* **No checks on the status tick.** The status line only tests the age of a stamp file. When the state is older than
+  STATE_MAX_AGE_MINUTES it starts the refresh in the background; the refresh also runs at launch and after every command.
+* **Popups.** Help and inbox open in a viewer with Close, up and down buttons (bar_pager.py). Login and the machine commands run in
+  a window of their own, where their output can be read and their tab is the way out.
+* **Machine commands.** U, C and S run what `~/.empirica/ecosystem-state.json` names, else the cockpit config's `bar_commands`,
+  else a built-in: `claude update` for C, and for S a restart of every practice pane with its conversation resumed. U has no
+  built-in, because the right update command depends on how Empirica was installed.
 
 Run as a module by the bindings: ``python -m empirica.core.cockpit.bar chip R --session S --pane %3 --client /dev/pts/1``.
 """
@@ -26,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import shlex
 import shutil
@@ -40,17 +42,19 @@ from empirica.core.cockpit.launcher import state as launcher_state
 from empirica.core.cockpit.launcher.config import LauncherConfig, load_config
 from empirica.core.cockpit.launcher.tmux import _sess_at, _tmux, cockpit_session_exists, exact_session, refresh_cockpit
 
-#: Chip key and its label when nothing is waiting.
+#: Chip key and its label when nothing is waiting: what the line under each pane shows, and what has a key.
 CHIPS: tuple[tuple[str, str], ...] = (
     ("R", "restart"),
     ("A", "refresh"),
     ("M", "listener"),
     ("I", "inbox"),
-    ("U", "update"),
     ("C", "claude"),
     ("S", "sessions"),
     ("L", "login"),
 )
+#: Commands reached only through the menu: no chip and no key, so nobody starts them by accident.
+#: U is here because updating the whole ecosystem from a click is too easy to start and too hard to follow (David, 2026-11-06).
+MENU_ONLY = "U"
 #: Chips whose colour comes from options the background refresh sets. R and A are live tmux formats.
 STATE_CHIPS = "MIUCSL"
 #: Chips that change the machine or end sessions: they ask first.
@@ -60,7 +64,6 @@ CONFIRM: dict[str, str] = {
     "S": "Restart the running sessions onto the new settings? This ends them.",
 }
 KEY_TABLE = "empirica"
-RANGE_PREFIX = "emp_"
 STATE_MAX_AGE_MINUTES = 5
 POPUP_WIDTH = "100"
 INBOX_UNKNOWN = "inbox ?"
@@ -72,6 +75,8 @@ _DIM = "#[bg=colour237 fg=colour244]"
 _DEAD = "#{W:#{P:#{?pane_dead,x,}}}"
 _DEAD_IN_WINDOW = "#{P:#{?pane_dead,x,}}"
 _DEFAULT_STATUS_CLICK = "switch-client -t ="
+_PREV_BORDER_OPTION = "@empirica_prev_border_click"
+BORDER_CLICK = "MouseUp1Border"
 _PREV_CLICK_OPTION = "@empirica_prev_status_click"
 
 
@@ -84,7 +89,7 @@ def _style(state: str) -> str:
 
 
 def chip_format(key: str, label: str) -> str:
-    """One chip: a click range, a style from its state, the letter and a label."""
+    """One chip: a style from its state, the letter and a label. Evaluated per pane, so R is about the pane it sits under."""
     if key == "R":
         state, text = "#{?pane_dead,red,}", label
     elif key == "A":
@@ -92,7 +97,7 @@ def chip_format(key: str, label: str) -> str:
     else:
         state = f"#{{@empirica_chip_{key}}}"
         text = f"#{{?#{{@empirica_label_{key}}},#{{@empirica_label_{key}}},{label}}}"
-    return f"#[range=user|{RANGE_PREFIX}{key}]{_style(state)} {key} {text} #[default]#[norange] "
+    return f"{_style(state)} {key} {text} #[default] "
 
 
 def tabs_format() -> str:
@@ -137,10 +142,20 @@ def tick_format(session_name: str) -> str:
     )
 
 
-def commands_format(session_name: str) -> str:
+def top_lines(session_name: str, one_line: bool) -> list[str]:
+    """The status lines at the top: practices and health, on one line when they fit beside each other."""
+    tabs = tabs_format() + tick_format(session_name)
+    return [tabs + health_format()] if one_line else [tabs, health_format()]
+
+
+def commands_format() -> str:
+    """The line under each pane: the command chips, coloured by state. The whole line is one button that opens the menu.
+
+    tmux reports which pane's line was clicked but not where on it, so the chips here show state and the menu takes the click.
+    """
+    button = "#[bg=colour25 fg=colour231 bold] ☰ commands #[default] "
     chips = "".join(chip_format(key, label) for key, label in CHIPS)
-    help_chip = f"#[range=user|{RANGE_PREFIX}help bg=colour25 fg=colour231 bold] ? help #[norange default]"
-    return f"#[align=left]{chips}{help_chip}{tick_format(session_name)}"
+    return f" {button}{chips}#[bg=colour25 fg=colour231 bold] ? help #[default] "
 
 
 # ── layout ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -176,18 +191,18 @@ def _fits_on_one_line(session_name: str) -> bool:
 
 
 def layout(session_name: str) -> int:
-    """Set the status lines for the current width: 2 when tabs and health share a line, else 3. Returns the count."""
+    """Set the top status lines for the current width and the command line under every pane. Returns the top line count."""
     target = _sess_at(session_name)
-    one_line = _fits_on_one_line(session_name)
-    if one_line:
-        lines = [tabs_format() + health_format(), commands_format(session_name)]
-    else:
-        lines = [tabs_format(), health_format(), commands_format(session_name)]
-    _tmux("set-option", "-t", target, "status", str(len(lines)))
+    lines = top_lines(session_name, _fits_on_one_line(session_name))
+    _tmux("set-option", "-t", target, "status", "on" if len(lines) == 1 else str(len(lines)))
     for i, text in enumerate(lines):
         _tmux("set-option", "-t", target, f"status-format[{i}]", text)
-    if one_line:
-        _tmux("set-option", "-u", "-t", target, "status-format[2]")
+    for i in range(len(lines), 3):
+        _tmux("set-option", "-u", "-t", target, f"status-format[{i}]")
+    commands = commands_format()
+    for window_id in _tmux("list-windows", "-t", target, "-F", "#{window_id}").stdout.split():
+        _tmux("set-option", "-w", "-t", window_id, "pane-border-status", "bottom")
+        _tmux("set-option", "-w", "-t", window_id, "pane-border-format", commands)
     return len(lines)
 
 
@@ -208,15 +223,64 @@ def _dq(text: str) -> str:
 
 
 def _action_command(verb: str, what: str) -> str:
-    """The tmux command a key or a click runs. tmux fills in the session, pane and client before the shell sees it."""
+    """The tmux command a key or a menu item runs. tmux fills in the session, pane and client before the shell sees it."""
     shell = f"{_self_command()} {verb} {what} --session '#{{session_name}}' --pane '#{{pane_id}}' --client '#{{client_name}}'"
     return f"run-shell -b {_dq(shell)}"
 
 
-def install_bindings(mouse: bool = True) -> dict[str, Any]:
-    """Bind the key table and the chip clicks. Returns ``{keys, clicks, detail}``; never replaces a key someone else uses.
+def menu_args(position: str) -> list[str]:
+    """`display-menu` arguments for the command menu. ``position`` is ``M`` at the mouse or ``P`` at the pane.
 
-    Key bindings are server-wide: pressed in a session that is not a cockpit, a chip says so and does nothing.
+    A tmux menu is clickable and closes when its last item, Escape or anything outside it is clicked, so every command here works
+    with a mouse alone. The item names are formats: they show what the chips show (a stopped pane, waiting mail).
+    """
+    wait = "#{?#{@empirica_label_%s}, · #{@empirica_label_%s},}"
+    items = [
+        ("R  restart this pane#{?pane_dead, · it has stopped,}", "r", "R"),
+        (f"A  restart every stopped pane#{{?{_DEAD}, · #{{n:{_DEAD}}} stopped,}}", "a", "A"),
+        ("M  wake it: read mail, re-arm the listener" + wait % ("M", "M"), "m", "M"),
+        ("I  inbox" + wait % ("I", "I"), "i", "I"),
+        None,
+        ("C  update the AI client" + wait % ("C", "C"), "c", "C"),
+        ("S  restart the running sessions" + wait % ("S", "S"), "s", "S"),
+        ("L  log in to Cortex" + wait % ("L", "L"), "l", "L"),
+        None,
+        ("?  help and guide", "?", "help"),
+        None,
+        # Menu only, with no shortcut key: it updates the whole ecosystem and asks first.
+        ("   update Empirica on this machine…" + wait % ("U", "U"), "", "U"),
+    ]
+    # -M: handle the mouse even when a key opened the menu (a menu not opened by a mouse binding ignores it otherwise).
+    # Not -O: with it a click on an item did not choose it (observed on tmux 3.6).
+    args = [
+        "display-menu",
+        "-M",
+        "-T",
+        "#[align=centre] cockpit · #{window_name} ",
+        "-x",
+        position,
+        "-y",
+        position,
+    ]
+    for item in items:
+        if item is None:
+            args.append("")
+        else:
+            name, key, chip = item
+            args += [name, key, _action_command("chip", chip)]
+    return [*args, "", "✕  Close", "q", ""]
+
+
+def _command_string(args: list[str]) -> str:
+    """A tmux argument list as one command string, for a binding that takes its command as text."""
+    return " ".join(_dq(a) for a in args)
+
+
+def install_bindings(mouse: bool = True) -> dict[str, Any]:
+    """Bind the key table and the click on the command line. Returns ``{keys, clicks, detail}``; never takes a key in use.
+
+    Key bindings are server-wide: pressed in a session that is not a cockpit, a command says so and does nothing, and a click on a
+    pane border there goes to whatever was bound before.
     """
     out: dict[str, Any] = {"keys": False, "clicks": False, "detail": ""}
     enter = f"switch-client -T {KEY_TABLE}"
@@ -226,32 +290,33 @@ def install_bindings(mouse: bool = True) -> dict[str, Any]:
         out["keys"] = True
     else:
         out["detail"] = (
-            f"prefix e is already bound ({bound}), so the chips have no keys here; they still answer a click"
+            f"prefix e is already bound ({bound}), so the commands have no keys here; the menu still opens on a click"
         )
     for key, _label in CHIPS:
         _tmux("bind-key", "-T", KEY_TABLE, key, *shlex.split(_action_command("chip", key)))
+    for key in MENU_ONLY:
+        _tmux("unbind-key", "-q", "-T", KEY_TABLE, key)  # an earlier version bound it
     _tmux("bind-key", "-T", KEY_TABLE, "?", *shlex.split(_action_command("chip", "help")))
+    _tmux("bind-key", "-T", KEY_TABLE, "Space", *menu_args("P"))
+
+    # An earlier version put the chips in the status line and took the status click. Give that back.
+    status_click = _binding("root", "MouseDown1Status")
+    if status_click and "empirica.core.cockpit.bar" in status_click:
+        previous = _option(["-s"], _PREV_CLICK_OPTION) or _DEFAULT_STATUS_CLICK
+        _tmux("bind-key", "-T", "root", "MouseDown1Status", *shlex.split(previous))
 
     if mouse:
-        previous = _binding("root", "MouseDown1Status")
-        if previous and RANGE_PREFIX in previous:
-            previous = (
-                _option(["-s"], _PREV_CLICK_OPTION) or _DEFAULT_STATUS_CLICK
-            )  # ours already: keep what was there before us
+        # MouseUp, not MouseDown: a drag on a border resizes panes and must not open the menu.
+        previous = _binding("root", BORDER_CLICK)
+        if previous and "@empirica_bar" in previous:
+            previous = _option(["-s"], _PREV_BORDER_OPTION)
         else:
-            previous = previous or _DEFAULT_STATUS_CLICK
-            _tmux("set-option", "-s", _PREV_CLICK_OPTION, previous)
-        _tmux(
-            "bind-key",
-            "-T",
-            "root",
-            "MouseDown1Status",
-            "if-shell",
-            "-F",
-            f"#{{m:{RANGE_PREFIX}*,#{{mouse_status_range}}}}",
-            _action_command("click", "'#{mouse_status_range}'"),
-            previous,
-        )
+            _tmux("set-option", "-s", _PREV_BORDER_OPTION, previous or "")
+        args = ["bind-key", "-T", "root", BORDER_CLICK, "if-shell", "-F", "#{@empirica_bar}"]
+        args.append(_command_string([*menu_args("M")[:1], "-t", "=", *menu_args("M")[1:]]))
+        if previous:
+            args.append(previous)
+        _tmux(*args)
         out["clicks"] = True
     return out
 
@@ -262,7 +327,7 @@ def install_bindings(mouse: bool = True) -> dict[str, Any]:
 def install(
     config: LauncherConfig, session_name: str, *, config_path: Path | None, profile: str | None
 ) -> dict[str, Any]:
-    """Put the bar on a cockpit session. Safe to repeat. Returns ``{installed, lines, keys, clicks, detail}``."""
+    """Put the bars on a cockpit session. Safe to repeat. Returns ``{installed, lines, keys, clicks, detail}``."""
     if not getattr(config, "bar", True):
         return {"installed": False, "detail": "bar: false in the cockpit config"}
     if not cockpit_session_exists(session_name):
@@ -272,9 +337,8 @@ def install(
         }
     target = _sess_at(session_name)
     for name, value in (
-        ("status-position", "bottom"),
+        ("status-position", "top"),
         ("status-interval", "15"),
-        ("status-style", "bg=colour235,fg=colour250"),
         ("@empirica_bar", "1"),
         ("@empirica_profile", profile or ""),
         ("@empirica_config", str(config_path) if config_path else ""),
@@ -498,15 +562,15 @@ def _config_of(session_name: str) -> LauncherConfig | None:
     return load_config(path=Path(path) if path else None)
 
 
-def _restart(session: str, pane: str | None, client: str | None) -> None:
-    """R (one pane) and A (every dead pane): restart, then give each restarted claude its wake turn."""
+def _restart(session: str, pane: str | None, client: str | None, running_too: bool = False) -> None:
+    """R (one pane), A (every stopped pane) and S (every practice pane, running ones too): restart, then wake each claude."""
     from empirica.core.cockpit.wake_after_resume import wake_resumed
 
     config = _config_of(session)
     if config is None:
         _say(client, "This tmux session is not an Empirica cockpit, so there is nothing to restart.")
         return
-    result = refresh_cockpit(config, only_pane=pane)
+    result = refresh_cockpit(config, only_pane=pane, restart_running=running_too)
     if result.error:
         _say(client, f"restart: {result.error}")
         return
@@ -540,8 +604,9 @@ def _wake(pane: str | None, client: str | None) -> None:
 
 
 def _popup(
-    client: str | None, command: str, *, directory: str | None = None, width: str = "80%", height: str = "80%"
+    client: str | None, command: str, *, directory: str | None = None, width: str = POPUP_WIDTH, height: str = "80%"
 ) -> None:
+    """A popup running the viewer, which draws its own Close button. Nothing else is shown in a popup."""
     args = ["display-popup", "-w", width, "-h", height, "-E"]
     if client:
         args += ["-c", client]
@@ -550,88 +615,109 @@ def _popup(
     _tmux(*args, command)
 
 
-def _inbox(session: str, pane: str | None, client: str | None) -> None:
-    """I: this practice's unanswered mail in a scrollable popup."""
+def _window(session: str, name: str, command: str) -> None:
+    """Run something that prints or asks questions in a window of its own: its tab is the way out, and it closes when done."""
+    shown = f"{command}; echo; printf 'finished - this window closes in 10 seconds '; sleep 10"
+    _tmux("new-window", "-t", _sess_at(session), "-n", name, shown)
+
+
+def _inbox(pane: str | None, client: str | None) -> None:
+    """I: this practice's unanswered mail in the viewer."""
     directory = _show(pane, "#{pane_current_path}") if pane else ""
     ai_id = _practice_of(directory) if directory else None
     if not ai_id:
         _say(client, "inbox: this pane is not in a practice directory")
         return
-    poll = " ".join(
-        shlex.quote(a) for a in [*_empirica_argv(), "mailbox", "poll", "--ai-id", ai_id, "--status", "accepted"]
-    )
-    prompt = shlex.quote(f" Inbox of {ai_id}  ·  arrows / PgUp PgDn scroll  ·  q closes ")
-    _popup(client, f"{poll} 2>&1 | less -R -P {prompt}", directory=directory)
+    _popup(client, f"{_self_command()} inbox-view --ai-id {shlex.quote(ai_id)}", directory=directory)
 
 
-def _login(client: str | None) -> None:
-    """L: renew the Cortex login in a popup, where its prompts can be answered."""
-    login = " ".join(shlex.quote(a) for a in [*_empirica_argv(), "auth", "login"])
-    _popup(client, f"{login}; printf '\\npress Enter to close '; read _", width="90", height="24")
+def _login(session: str) -> None:
+    """L: renew the Cortex login in a window, where its questions can be answered and its tab is the way out."""
+    _window(session, "login", " ".join(shlex.quote(a) for a in [*_empirica_argv(), "auth", "login"]))
 
 
-def _machine_action(key: str, session: str, client: str | None, confirmed: bool) -> None:
-    """U, C and S: run the fix the machine's state file names for this chip, after asking."""
-    entry = read_ecosystem_state().get(key, {})
-    fix = entry.get("fix") or ("claude update" if key == "C" else "")
-    if not fix:
+#: What a chip runs when the machine's state file and the cockpit config name nothing. S has a built-in action instead.
+_BUILT_IN_COMMANDS = {"C": "claude update"}
+
+
+def machine_command(key: str, config: LauncherConfig | None) -> str:
+    """The command U, C or S runs here: the state file's fix, then the cockpit config's `bar_commands`, then the built-in."""
+    fix = read_ecosystem_state().get(key, {}).get("fix", "")
+    if not fix and config is not None:
+        fix = getattr(config, "bar_commands", {}).get(key, "")
+    return fix or _BUILT_IN_COMMANDS.get(key, "")
+
+
+def _confirm(client: str | None, key: str, session: str, pane: str | None, what: str) -> None:
+    """Ask before U, C or S acts, with a menu: Yes and Cancel are both clickable, and Escape or a click outside cancels."""
+    again = f"{_self_command()} chip {key} --yes --session {shlex.quote(session)}"
+    if pane:
+        again += f" --pane {shlex.quote(pane)}"
+    if client:
+        again += f" --client {shlex.quote(client)}"
+    # -M matters here: this menu is opened by a process, not by a mouse binding, and would otherwise ignore clicks. Not -O.
+    args = ["display-menu", "-M", "-T", f"#[align=centre] {CONFIRM[key]} ", "-x", "C", "-y", "C"]
+    if client:
+        args += ["-c", client]
+    _tmux(*args, f"Yes: {what}".replace("#", "##"), "y", f"run-shell -b {_dq(again)}", "", "✕  Cancel", "n", "")
+
+
+def _machine_action(key: str, session: str, pane: str | None, client: str | None, confirmed: bool) -> None:
+    """U, C and S: ask first, then run this machine's command in a window of its own. S restarts the panes itself by default."""
+    config = _config_of(session)
+    command = machine_command(key, config)
+    if not command and key != "S":
         _say(
             client,
-            f"{key}: nothing is set up for this on this machine ({ecosystem_state_path()} names no command for it).",
-            ms=8000,
+            f"{key}: no command is set for this on this machine. Add it to the cockpit config: bar_commands: {{{key}: '...'}}",
+            ms=9000,
         )
         return
     if not confirmed:
-        again = f"{_self_command()} chip {key} --yes --session {shlex.quote(session)}"
-        if client:
-            again += f" --client {shlex.quote(client)}"
-        args = ["confirm-before", "-p", f"{CONFIRM[key]} Runs: {fix}  (y/n)"]
-        if client:
-            args += ["-c", client]
-        _tmux(*args, f"run-shell -b {_dq(again)}")
+        _confirm(client, key, session, pane, command or "restart every practice pane with its conversation resumed")
         return
-    shown = f"{fix}; echo; printf 'done - press Enter to close '; read _"
-    _tmux("new-window", "-t", _sess_at(session), "-n", {"U": "update", "C": "client", "S": "sessions"}[key], shown)
-
-
-def less_command(path: Path, run=subprocess.run) -> list[str]:
-    """`less` on the help text: mouse wheel when the installed less has it (551 or newer), keys otherwise."""
-    prompt = " Help  %lt-%lb of %L  ·  wheel / arrows / PgUp PgDn scroll  ·  /§N jumps to topic N  ·  q closes "
-    args = ["less", "-R"]
-    try:
-        first = run(["less", "--version"], capture_output=True, text=True, timeout=5, check=False).stdout.splitlines()[
-            0
-        ]
-        version = int(re.search(r"(\d+)", first).group(1))  # type: ignore[union-attr]
-    except Exception:
-        version = 0
-    if version >= 551:
-        args += ["--mouse", "--wheel-lines=3"]
+    if command:
+        _window(session, {"U": "update", "C": "client", "S": "sessions"}[key], command)
     else:
-        prompt = prompt.replace("wheel / ", "")
-    return [*args, "-P", prompt, str(path)]
+        _restart(session, None, client, running_too=True)
 
 
 def help_view() -> int:
-    """What the help popup runs: write the text where less can read it, then become less."""
+    """What the help popup runs: the help text in the viewer, with its Close button."""
+    from empirica.core.cockpit import bar_pager
     from empirica.core.cockpit.bar_help import HELP_TEXT
 
     path = launcher_state.COCKPIT_DIR / "bar_help.txt"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(HELP_TEXT)
-    if shutil.which("less") is None:
-        print(HELP_TEXT)
-        input("press Enter to close ")
-        return 0
-    os.execvp("less", less_command(path))  # noqa: S606 — less is the OS pager; its arguments are built here
-    return 1
+    return bar_pager.run(path, "Empirica cockpit help")
+
+
+def inbox_view(ai_id: str, run=subprocess.run) -> int:
+    """What the inbox popup runs: poll this practice's accepted mail, then show it in the viewer."""
+    from empirica.core.cockpit import bar_pager
+
+    try:
+        result = run(
+            [*_empirica_argv(), "mailbox", "poll", "--ai-id", ai_id, "--status", "accepted"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        text = (result.stdout or "") + (result.stderr or "")
+    except Exception as e:
+        text = f"The inbox could not be read: {type(e).__name__}: {e}"
+    path = launcher_state.COCKPIT_DIR / "bar_inbox.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text.strip() + "\n" if text.strip() else "No unanswered mail.\n")
+    return bar_pager.run(path, f"Inbox of {ai_id}")
 
 
 def run_chip(key: str, session: str, pane: str | None, client: str | None, confirmed: bool = False) -> None:
-    """One chip's action. Says what happened in the client's message line; never prints."""
-    key = key.removeprefix(RANGE_PREFIX)
+    """One command's action. Says what happened in the client's message line; never prints."""
     if key in ("help", "?"):
-        _popup(client, f"{_self_command()} help-view", width=POPUP_WIDTH, height="24")
+        _popup(client, f"{_self_command()} help-view")
         return
     key = key.upper()
     if key == "R":
@@ -641,11 +727,11 @@ def run_chip(key: str, session: str, pane: str | None, client: str | None, confi
     elif key == "M":
         _wake(pane, client)
     elif key == "I":
-        _inbox(session, pane, client)
+        _inbox(pane, client)
     elif key == "L":
-        _login(client)
+        _login(session)
     elif key in CONFIRM:
-        _machine_action(key, session, client, confirmed)
+        _machine_action(key, session, pane, client, confirmed)
     else:
         _say(client, f"unknown cockpit command {key!r}")
         return
@@ -654,28 +740,32 @@ def run_chip(key: str, session: str, pane: str | None, client: str | None, confi
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m empirica.core.cockpit.bar", description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(
+        prog="python -m empirica.core.cockpit.bar", description=(__doc__ or "").splitlines()[0]
+    )
     sub = parser.add_subparsers(dest="verb", required=True)
-    for verb in ("chip", "click"):
-        p = sub.add_parser(verb)
-        p.add_argument("key")
-        p.add_argument("--session", default="")
-        p.add_argument("--pane")
-        p.add_argument("--client")
-        p.add_argument("--yes", action="store_true")
+    chip = sub.add_parser("chip")
+    chip.add_argument("key")
+    chip.add_argument("--session", default="")
+    chip.add_argument("--pane")
+    chip.add_argument("--client")
+    chip.add_argument("--yes", action="store_true")
     tick = sub.add_parser("tick")
     tick.add_argument("session")
     tick.add_argument("--state-dir")
     sub.add_parser("help-view")
+    sub.add_parser("inbox-view").add_argument("--ai-id", required=True)
     args = parser.parse_args(argv)
     if args.verb == "tick":
         refresh_state(args.session, state_dir=Path(args.state_dir) if args.state_dir else None)
         return 0
     if args.verb == "help-view":
         return help_view()
+    if args.verb == "inbox-view":
+        return inbox_view(args.ai_id)
     try:
         run_chip(args.key, args.session, args.pane or None, args.client or None, confirmed=args.yes)
-    except Exception as e:  # a chip must answer in the message line, not with a traceback nobody sees
+    except Exception as e:  # a command must answer in the message line, not with a traceback nobody sees
         _say(args.client or None, f"cockpit {args.key}: {type(e).__name__}: {e}", ms=9000)
         return 1
     return 0

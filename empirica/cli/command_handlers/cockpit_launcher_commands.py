@@ -86,7 +86,7 @@ def _profile_error(args, error: str) -> int:
 
 
 def _install_bar(config, session_name: str, args, *, human: bool) -> dict:
-    """Put the bottom bar on the session and start its first state refresh. Never raises: the layout is up either way."""
+    """Put the cockpit bars on the session and start their first state refresh. Never raises: the layout is up either way."""
     try:
         from empirica.core.cockpit import bar
         from empirica.core.cockpit.launcher.config import DEFAULT_CONFIG_PATH

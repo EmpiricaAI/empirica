@@ -993,8 +993,14 @@ def _only_pane_error(
     return None
 
 
-def refresh_cockpit(config: LauncherConfig, only_pane: str | None = None) -> RefreshResult:
+def refresh_cockpit(
+    config: LauncherConfig, only_pane: str | None = None, restart_running: bool = False
+) -> RefreshResult:
     """Respawn, in place, every claude, codex or ecodex pane whose program has exited.
+
+    With ``restart_running`` the practice panes that are still running are restarted too, each with its
+    identity and its resume command. That ends their sessions, so only the cockpit bar's S command
+    asks for it, after a confirmation: it is how running sessions pick up new hooks and settings.
 
     With ``only_pane`` (a tmux pane id, ``%7`` or ``7``) only that pane is restarted: other dead panes
     are listed in ``left_dead`` and not touched, and naming a pane that is not one of this cockpit's
@@ -1053,7 +1059,7 @@ def refresh_cockpit(config: LauncherConfig, only_pane: str | None = None) -> Ref
         pane = specs.get(key)
         if pane is None or not _runs_resumable(pane, config):
             continue
-        if row["dead"] != "1" and row["current"] not in _SHELLS:
+        if row["dead"] != "1" and row["current"] not in _SHELLS and not restart_running:
             out.alive.append(key)
             continue
         if only_pane is not None and row["pane_id"] != only_pane:

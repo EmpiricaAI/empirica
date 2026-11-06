@@ -126,33 +126,63 @@ surviving session in a new window and your running practices are untouched.
 
 ---
 
-## The bottom bar
+## The bars: practices on top, commands under each pane
 
-A cockpit has a bar at the bottom, so routine actions do not need a command line.
+A cockpit shows your practices at the top and its commands on the line under each pane, so
+routine actions do not need a command line.
 
 ```
  1 core   2 > cortex   3 ✗ outreach                         serve ● cortex ● load 2.1  14:02
- R restart  A refresh 1  M listener  I inbox 2  U update  C claude  S sessions  L login  ? help
+ ...
+── ☰ commands  R restart  A refresh 1  M listener  I inbox 2  C claude  S sessions  L login  ? help ──
 ```
 
-The first line is your practices, with whatever your tmux `status-right` already shows on the
+The top line is your practices, with whatever your tmux `status-right` already shows on the
 right. A red ✗ on a practice means a pane in it has stopped. When the practices do not fit, the
-right-hand readout moves to a line of its own. The last line is the commands:
+right-hand readout moves to a second line at the top.
 
-| Chip | What it does | Red when | Orange when |
+The line under each pane shows the commands, coloured by state: red is broken now, orange is
+waiting, dim is nothing to do. `R` is about the pane it sits under.
+
+**Click anywhere on that line** to open the command menu. Every item is clickable, and the menu
+closes on its Close item, on Escape, or on a click outside it. From a keyboard: `Ctrl+b`, `e`,
+then the letter, or `Ctrl+b`, `e`, `Space` for the menu.
+
+| Command | What it does | Red when | Orange when |
 |---|---|---|---|
 | `R` | Restart this pane: same practice, same identity, conversation resumed, then woken | this pane has stopped | |
 | `A` | Restart every pane that has stopped | any pane has stopped | |
 | `M` | Wake this practice so it reads its mail and re-arms its listener | its listener service is down | |
 | `I` | Show this practice's unanswered mail | | mail is waiting |
-| `U` | Update Empirica and its plugins on this machine (asks first) | set by the machine's state file | set by the machine's state file |
 | `C` | Update the AI client (asks first) | | a newer release exists |
-| `S` | Restart running panes onto new settings (asks first; it ends them) | | settings changed since they started |
-| `L` | Renew the Cortex login | the login has expired | it expires soon |
+| `S` | Restart every practice pane onto new settings (asks first; it ends them) | | settings changed since they started |
+| `L` | Renew the Cortex login, in a window of its own | the login has expired | it expires soon |
 | `?` | Help: the legend, the commands and a short guide to working with practices | | |
 
-Dim means nothing to do. **Click a chip**, or from a keyboard press `Ctrl+b`, then `e`, then
-the letter. `R`, `A` and `M` never touch a pane that is running.
+The menu also has **update Empirica on this machine**, near its end. It has no chip and no key,
+so nobody starts an update of the whole machine by accident, and it asks first like `C` and `S`.
+In what follows it is called `U`.
+
+`U`, `C` and `S` ask first with a menu: Yes and Cancel are both clickable. The help and the inbox
+open in a viewer with a Close button and scroll buttons at the top; the wheel, the arrow keys and
+`q` work too. Login and the machine commands run in a window of their own, so you can read what
+they print; the window closes ten seconds after the command finishes.
+
+What `U`, `C` and `S` run, in order of precedence:
+
+1. the `fix` command for that component in `~/.empirica/ecosystem-state.json`, when the machine
+   has one (written by whatever keeps the machine up to date);
+2. `bar_commands` in the cockpit config:
+
+   ```yaml
+   bar_commands:
+     U: pipx upgrade empirica && empirica setup-claude-code --force
+     C: claude update
+   ```
+
+3. a built-in: `claude update` for `C`, and for `S` a restart of every practice pane with its
+   conversation resumed. `U` has no built-in, because the right update command depends on how
+   Empirica was installed; pressing it says which key to set.
 
 Where the colours come from:
 
@@ -161,14 +191,13 @@ Where the colours come from:
   five minutes. The status line itself never runs a check.
 - `U`, `C`, `S` and `L` read `~/.empirica/ecosystem-state.json` when the machine has one. The
   file names, per component, a verdict (`needed`, `recommended` or `ok`), a short label and the
-  command that fixes it. Without the file these chips stay dim and say so when pressed (`C`
-  falls back to `claude update`).
+  command that fixes it. Without the file these stay dim.
 
-`bar: false` in a cockpit config turns the bar off for that cockpit. The bar is set on the
+`bar: false` in a cockpit config turns the bars off for that cockpit. They are set on the
 cockpit's own tmux session, so your other tmux sessions look as they did. Key bindings are shared
-by a whole tmux server, so two things are handled with care: a `Ctrl+b e` you already use is not
-taken (the chips then answer clicks only, and `launch` says so), and a click on the status line
-that is not one of the chips goes to whatever handled it before.
+by a whole tmux server, so a `Ctrl+b e` you already use is not taken (the commands then open from
+a click only, and `launch` says so), and a click on a pane border outside a cockpit goes to
+whatever handled it before.
 
 `empirica cockpit refresh --pane ID` is what `R` runs: it restarts that one pane if it has
 stopped and leaves every other pane alone.
@@ -243,7 +272,8 @@ session_name: cockpit          # tmux session name; unique per profile
 attach_on_launch: true         # tmux surface: attach after building
 surface: ghostty               # tmux | alacritty | ghostty
 mouse: true                    # clickable tabs and panes
-bar: true                      # the bottom bar (see above); false turns it off
+bar: true                      # the bars (see above); false turns them off
+bar_commands: {U: '...'}       # optional: what U, C and S run on this machine
 
 projects:                      # everything a pane may reference
   - name: empirica             # also the default identity (see below)

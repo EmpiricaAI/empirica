@@ -6,34 +6,39 @@ topic 11 is to be replaced by the pages mesh-support drafts from the provisionin
 """
 
 HELP_TEXT = """\
-  EMPIRICA COCKPIT  ·  wheel, arrows or PgUp/PgDn scroll  ·  g goes to the top  ·  q closes
+  EMPIRICA COCKPIT  ·  wheel, arrows or PgUp/PgDn scroll  ·  click a topic number to jump to it
   ────────────────────────────────────────────────────────────────────────────────────
 
-  THE BOTTOM BAR
-    First line   your practices (click one, or Ctrl+b then its number), health on the right.
+  THE BARS
+    Top          your practices (click one, or Ctrl+b then its number), health on the right.
                  A red ✗ on a practice means a pane in it has stopped.
-    Last line    commands. The colour says whether you need to act:
+    Under each   the commands, coloured by state. Click anywhere on that line to open
+    pane         the command menu. The colour says whether you need to act:
 
       dim      nothing to do
       orange   recommended: something is waiting (mail, an update, a login about to expire)
       red      needed now: something is broken (a stopped pane, a listener that is down)
 
-    When there are too many practices to fit, health moves to a line of its own.
+    When there are too many practices to fit, health moves to a second line at the top.
 
-  COMMANDS   click a chip. From a keyboard: Ctrl+b, then e, then the letter
+  COMMANDS   click the line under a pane and choose. From a keyboard: Ctrl+b, then e,
+             then the letter, or Ctrl+b, e, Space for the menu
     R  restart this pane    same practice, same identity, conversation resumed, then woken
     A  refresh all          restart every pane whose program stopped; running ones are left alone
     M  listener             wake this practice so it reads its mail and re-arms its listener
     I  inbox                show this practice's unanswered mail
-    U  update               update Empirica and its plugins on this machine (asks first)
     C  claude               update the AI client (asks first)
-    S  sessions             restart running panes onto new settings (asks first, it ends them)
-    L  login                renew the Cortex login
+    S  sessions             restart every practice pane onto new settings (asks first)
+    L  login                renew the Cortex login, in a window of its own
     ?  this help
 
-    R, A and M never touch a pane that is running. U, C and S always ask before they act.
+    The menu also has "update Empirica on this machine", near its end. It has no chip and no
+    key, so it is not started by accident; it asks before it does anything.
 
-  THE GUIDE   to jump to a topic type  /§3  and Enter (any number 1 to 11); g returns here
+    R, A and M never touch a pane that is running. Update, C and S always ask first, with Yes and
+    Cancel you can click. Every menu has a Close item; this help has a Close button at the top.
+
+  THE GUIDE   click a topic to jump to it; g or Home returns here
 
      1  What a practice is, and how the cockpit holds them
      2  Talking with a practitioner
@@ -134,7 +139,7 @@ HELP_TEXT = """\
     (investigating or acting), and how much of the context is used. Context filling up is
     normal: what was learned is saved as it goes.
 
-    The bar at the bottom of the cockpit is about the machine and the practices as a whole.
+    The bars of the cockpit are about the machine and the practices as a whole.
     Dim means leave it alone. Orange means look when you have a moment. Red means act.
 
   §11  ONBOARDING A PERSON, SETTING UP A COCKPIT, ADDING A PRACTICE

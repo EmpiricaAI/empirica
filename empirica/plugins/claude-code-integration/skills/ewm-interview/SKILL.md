@@ -168,8 +168,11 @@ empirica cockpit launch --profile <name>
 
 Say what it does in one line (one window per practice, each starting `claude` in its
 own directory with a stable identity, plus a TUI window) and point at
-`docs/guides/COCKPIT.md` for changing it. `empirica cockpit refresh` restarts a
-practice whose Claude exited. Do not launch it for them: it opens their terminal.
+`docs/guides/COCKPIT.md` for changing it. Tell them the two things they need on day one:
+their practices are the tabs at the top, and clicking the line under any pane opens the
+cockpit's commands, with `?` for a short guide to working with practices. A practice whose
+Claude exited is restarted from that menu (or `empirica cockpit refresh`). Do not launch it
+for them: it opens their terminal.
 If no practice was provisioned, or a `cockpit-profile` step failed, say that instead
 and do not print a launch command for a profile that was not written.
 

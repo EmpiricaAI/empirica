@@ -106,7 +106,8 @@ class LauncherConfig:
     auto_prune_dead: bool = False
     notify_on_abnormal_exit: bool = True
     mouse: bool = True  # click a window name to switch, click a pane to focus
-    bar: bool = True  # the bottom bar: practice tabs, health, command chips, help (core/cockpit/bar.py)
+    bar: bool = True  # the cockpit bars: practices and health on top, commands under each pane (core/cockpit/bar.py)
+    bar_commands: dict[str, str] = field(default_factory=dict)  # what U, C and S run on this machine, by chip letter
 
     def project_names(self) -> list[str]:
         return [p.name for p in self.projects]
@@ -318,6 +319,13 @@ def load_config(path: Path | None = None) -> LauncherConfig:
         notify_on_abnormal_exit=bool(abnormal.get("notify", True)),
         mouse=bool(raw.get("mouse", True)),
         bar=bool(raw.get("bar", True)),
+        bar_commands={
+            str(k).upper(): str(v)
+            for k, v in (raw.get("bar_commands") or {}).items()
+            if isinstance(v, str) and v.strip()
+        }
+        if isinstance(raw.get("bar_commands"), dict)
+        else {},
     )
 
 
@@ -328,6 +336,7 @@ def _serialize(config: LauncherConfig) -> dict[str, Any]:
         "surface": config.surface,
         "mouse": config.mouse,
         "bar": config.bar,
+        **({"bar_commands": config.bar_commands} if config.bar_commands else {}),
         "projects": [_serialize_project(p) for p in config.projects],
         "status_windows": [{"name": w.name, "command": w.command} for w in config.status_windows],
         "on_abnormal_exit": {

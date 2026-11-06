@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.21
-**Generated:** 2026-11-04 22:10:42 UTC
+**Generated:** 2026-11-06 18:30:18 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1377,10 +1377,10 @@ Initialize Empirica in a new git repository (creates config files)
   Enable BEADS by default
 - `--create-semantic-index` — optional · flag
   Create SEMANTIC_INDEX.yaml template
-- `--type` — optional · type=`choice` · choices={web-app, service, cli, library, desktop-app, mobile-app, browser-extension, infrastructure, content, research, data, design, operations, strategic, engagement, legal}
-  Project type: what the project is. Left unset the project is stored as unclassified (set it later with project-update --type)
+- `--type` — optional · type=`_project_type_arg`
+  What the project is: one of the types listed below. Left unset, the project is stored as unclassified (set it later with project-update --type)
 - `--domain` — optional
-  Domain taxonomy (e.g., ai/measurement)
+  The project's domain: the name of a domain file (default, research, operations, consulting, marketing, docs, cybersec, remote-ops, or one of your own). A transaction that declares no domain starts from it. Text that describes the project goes in a tag
 - `--classification` — optional · type=`choice` · choices={open, internal, restricted} · default=`internal`
   Access classification
 - `--evidence-profile` — optional · type=`choice` · choices={code, prose, web, hybrid, auto} · default=`auto`
@@ -1404,10 +1404,10 @@ Update project.yaml fields (type, domain, contacts, edges, etc.)
 
 **Arguments:**
 
-- `--type` — optional · type=`choice` · choices={web-app, service, cli, library, desktop-app, mobile-app, browser-extension, infrastructure, content, research, data, design, operations, strategic, engagement, legal}
-  Project type
+- `--type` — optional · type=`_project_type_arg`
+  What the project is: one of the types listed below. A second shape goes in a tag (--add-tag)
 - `--domain` — optional
-  Domain taxonomy (e.g., ai/measurement)
+  The project's domain: the name of a domain file (default, research, operations, consulting, marketing, docs, cybersec, remote-ops, or one of your own). A transaction that declares no domain starts from it. Text that describes the project goes in a tag
 - `--classification` — optional · type=`choice` · choices={open, internal, restricted}
   Access classification
 - `--status` — optional · type=`choice` · choices={active, dormant, archived}
@@ -1419,9 +1419,9 @@ Update project.yaml fields (type, domain, contacts, edges, etc.)
 - `--tags` — optional · type=`list`
   Set project tags (replaces all)
 - `--add-tag` — optional
-  Add a single tag
+  Add a tag (repeat the flag for several)
 - `--remove-tag` — optional
-  Remove a single tag
+  Remove a tag (repeat the flag for several)
 - `--add-contact` — optional
   Add contact by ID
 - `--roles` — optional · type=`list`
@@ -1731,6 +1731,10 @@ Create + register a new local practice/practitioner in one command
   ai_id / directory name for the new practice
 - `--base-path` — optional · default=`~/empirica`
   Parent directory the new practice is created under (default: ~/empirica)
+- `--type` — optional · type=`_project_type_arg`
+  What the new practice is: a project type (`empirica project-init --help` lists them with their meanings). Applied when the practice is created; left unset it is stored as unclassified
+- `--description` — optional
+  One sentence on what the practice is for. Applied when the practice is created; without it the description is '<name> project'
 - `--tenant` — optional
   Tenant slug (default: inferred from cwd's project.yaml)
 - `--org` — optional
@@ -3813,55 +3817,57 @@ Bring up all your practices in one tmux layout and keep it alive
 
 ##### `empirica cockpit launch`
 
-Bring up the cockpit (idempotent — attaches if already running)
+Bring up the cockpit (attaches if it is already running)
 
 **Arguments:**
 
 - `--config` — optional
-  Override the default config path (~/.empirica/cockpit/config.yaml)
+  Use this config file instead of the default or a profile
 - `--profile` — optional
-  Use ~/.empirica/cockpit/config-NAME.yaml (e.g. monitor-a, monitor-b, ecodex) instead of the default config
+  Use the profile NAME: the file ~/.empirica/cockpit/config-NAME.yaml. Without it the default ~/.empirica/cockpit/config.yaml is used. An unknown name is refused and the error lists the profiles that exist
 - `--no-attach` — optional · flag
-  Don't attach after creating the layout — useful for headless / scripted bring-up
+  Build the layout and do not attach: for scripted bring-up
 - `--quiet-warnings` — optional · flag
-  Suppress the abnormal-exit warning even when the previous session ended uncleanly
+  Do not print the warning that the previous cockpit ended without `kill` or `detach`
 - `--surface` — optional · type=`choice` · choices={tmux, alacritty, ghostty}
-  Override the surface from config. tmux = legacy single-attach. alacritty/ghostty = one window per group with WM_CLASS/app-id for KDE Meta+1..N switching (requires "groups:" in config). ghostty additionally supports native drag-and-drop file paste.
+  Override `surface:` from the config for this launch. tmux: the layout opens in this terminal (works over SSH, needs no display). alacritty, ghostty: one new window on this machine's display, with a window class per session so a taskbar slot can be pinned to it; ghostty also takes drag-and-drop file paste
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 
 
 ##### `empirica cockpit refresh`
 
-Relaunch, in place, every claude, codex or ecodex pane that exited — same identity, conversation resumed — then wake each resumed claude once it is idle
+Bring back, in place, every practice pane whose claude, codex or ecodex exited
 
 **Arguments:**
 
 - `--config` — optional
-  Override the default config path
+  Use this config file instead of the default or a profile
 - `--profile` — optional
-  Use ~/.empirica/cockpit/config-NAME.yaml
+  Use the profile NAME: the file ~/.empirica/cockpit/config-NAME.yaml. Without it the default ~/.empirica/cockpit/config.yaml is used. An unknown name is refused and the error lists the profiles that exist
+- `--pane` — optional
+  Restart only this pane (a tmux pane id such as %7), if its program exited. Other dead panes are left as they are and listed. The cockpit bar's R chip runs this for the pane you are in
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 
 
 ##### `empirica cockpit status`
 
-Show current cockpit state without attaching (read-only)
+Show the cockpit's state and check its config; changes nothing
 
 **Arguments:**
 
 - `--config` — optional
-  Override the default config path
+  Use this config file instead of the default or a profile
 - `--profile` — optional
-  Use ~/.empirica/cockpit/config-NAME.yaml (e.g. monitor-a, monitor-b, ecodex) instead of the default config
+  Use the profile NAME: the file ~/.empirica/cockpit/config-NAME.yaml. Without it the default ~/.empirica/cockpit/config.yaml is used. An unknown name is refused and the error lists the profiles that exist
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 
 
 ##### `empirica cockpit detach`
 
-Clean detach: write the clean-shutdown marker + tmux detach-client
+Detach from the cockpit and record a clean shutdown; practices keep running
 
 **Arguments:**
 
@@ -3871,16 +3877,16 @@ Clean detach: write the clean-shutdown marker + tmux detach-client
 
 ##### `empirica cockpit kill`
 
-Destroy the cockpit session and write clean-shutdown marker
+End the cockpit session and record a clean shutdown
 
 **Arguments:**
 
 - `--config` — optional
-  Override the default config path
+  Use this config file instead of the default or a profile
 - `--profile` — optional
-  Use ~/.empirica/cockpit/config-NAME.yaml (e.g. monitor-a, monitor-b, ecodex) instead of the default config
+  Use the profile NAME: the file ~/.empirica/cockpit/config-NAME.yaml. Without it the default ~/.empirica/cockpit/config.yaml is used. An unknown name is refused and the error lists the profiles that exist
 - `--prune` — optional · flag
-  Also prune dead per-instance state files (equivalent to `empirica instance prune`)
+  Also remove the state files of instances that are gone (the same as `empirica instance prune`)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 
