@@ -128,3 +128,104 @@ def append(record: dict, path: Path, *, max_bytes: int = MAX_BYTES) -> bool:
         return True
     except OSError:
         return False
+
+
+# ── the outcome half: one "post" line per call, paired with its decision on tool_use_id ─────────────────────────────────
+
+# The hooks that write it, each carrying the same loader (tests/test_decision_record.py keeps the copies identical).
+OUTCOME_HOOKS = ("entity-extractor.py", "truncation-legibility.py", "tool-failure.py")
+
+# What a call changed. Draft, checked by ecodex (prop_2zqpvjdjwfbghgbi6f2rjtghgm). Only the four path classes are produced so
+# far, for Edit and Write; a shell call is recorded with no class and observed false until the before-and-after comparison exists.
+EFFECT_CLASSES = (
+    "none",
+    "project_write",
+    "outside_write",
+    "config_write",
+    "empirica_state",
+    "vcs_local",
+    "vcs_remote",
+    "network_send",
+    "install",
+    "process",
+    "delete_recursive",
+    "credential_write",
+    "remote_exec",
+    "external_tool",
+    "unknown",
+)
+
+_CONFIG_DIRS = (".claude", ".codex", ".config")
+
+
+def _inside(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def path_effect(file_path: str, project_path: str | None) -> str:
+    """The effect class of writing ``file_path``: the practice's own state and the seat's are ``empirica_state``, harness and
+    shell configuration is ``config_write``, anything else in the practice is ``project_write``, the rest ``outside_write``."""
+    path = Path(os.path.abspath(os.path.expanduser(file_path)))
+    home = Path(os.path.abspath(os.path.expanduser("~")))
+    project = Path(os.path.abspath(project_path)) if project_path else None
+    if _inside(path, home / ".empirica") or (project is not None and _inside(path, project / ".empirica")):
+        return "empirica_state"
+    if any(_inside(path, home / d) for d in _CONFIG_DIRS) or (path.parent == home and path.name.startswith(".")):
+        return "config_write"
+    if project is not None and _inside(path, project):
+        return "project_write"
+    return "outside_write"
+
+
+def project_path_for(claude_session_id: str | None, cwd: str | None) -> str | None:
+    """The practice a call belongs to: the session's active work, else the working directory when it is a practice root."""
+    if claude_session_id:
+        try:
+            data = json.loads((Path.home() / ".empirica" / f"active_work_{claude_session_id}.json").read_text())
+            if data.get("project_path"):
+                return str(data["project_path"])
+        except (OSError, ValueError, AttributeError):
+            pass
+    if cwd and (Path(cwd) / ".empirica" / "project.yaml").is_file():
+        return str(cwd)
+    return None
+
+
+def build_outcome(hook_input: dict, outcome: str, project_path: str | None) -> dict:
+    tool_name = str(hook_input.get("tool_name") or "unknown")
+    tool_input = hook_input.get("tool_input") or {}
+    effect = None
+    if (
+        outcome == "success"
+        and tool_name in ("Edit", "Write")
+        and isinstance(tool_input, dict)
+        and tool_input.get("file_path")
+    ):
+        effect = path_effect(str(tool_input["file_path"]), project_path)
+    return {
+        "ts": round(time.time(), 3),
+        "vocabulary": VOCABULARY_VERSION,
+        "event": "post",
+        "harness": (os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip().lower() or "claude-code",
+        "claude_session_id": hook_input.get("session_id"),
+        "tool_use_id": hook_input.get("tool_use_id"),
+        "tool": tool_name,
+        "outcome": outcome,
+        "effect_class": effect,
+        "observed": effect is not None,
+    }
+
+
+def record_outcome(hook_input: dict, outcome: str) -> bool:
+    """Append the post line for this call. ``outcome`` is success, failure or interrupted. Never raises."""
+    try:
+        if not enabled() or not isinstance(hook_input, dict):
+            return False
+        project = project_path_for(hook_input.get("session_id"), hook_input.get("cwd"))
+        return append(build_outcome(hook_input, outcome, project), record_path(project))
+    except Exception:
+        return False

@@ -137,11 +137,39 @@ def notices(command: str, stdout: str) -> list[str]:
     return out
 
 
+def _decision_record():
+    """empirica/core/decision_record.py, loaded from its file. Importing it through the package runs empirica/core's own
+    imports (about 22 ms measured), and this runs after every call. None when empirica is not installed. The same function is
+    copied into each hook that records an outcome; tests/test_decision_record.py keeps the copies identical."""
+    try:
+        import importlib.util
+
+        spec = importlib.util.find_spec("empirica")
+        if spec is None or not spec.submodule_search_locations:
+            return None
+        path = Path(next(iter(spec.submodule_search_locations))) / "core" / "decision_record.py"
+        module_spec = importlib.util.spec_from_file_location("_empirica_decision_record", path)
+        if module_spec is None or module_spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        return module
+    except Exception:
+        return None
+
+
+def _record_outcome(hook_input, outcome: str) -> None:
+    record = _decision_record()
+    if record is not None:
+        record.record_outcome(hook_input, outcome)
+
+
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
     except Exception:
         return 0
+    _record_outcome(payload, "success")
     if payload.get("tool_name") != "Bash":
         return 0
     command = str((payload.get("tool_input") or {}).get("command") or "")

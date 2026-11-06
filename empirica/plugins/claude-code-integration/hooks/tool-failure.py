@@ -212,6 +212,33 @@ def _scrub_mapping(data, _depth=0):
     return data
 
 
+def _decision_record():
+    """empirica/core/decision_record.py, loaded from its file. Importing it through the package runs empirica/core's own
+    imports (about 22 ms measured), and this runs after every call. None when empirica is not installed. The same function is
+    copied into each hook that records an outcome; tests/test_decision_record.py keeps the copies identical."""
+    try:
+        import importlib.util
+
+        spec = importlib.util.find_spec("empirica")
+        if spec is None or not spec.submodule_search_locations:
+            return None
+        path = Path(next(iter(spec.submodule_search_locations))) / "core" / "decision_record.py"
+        module_spec = importlib.util.spec_from_file_location("_empirica_decision_record", path)
+        if module_spec is None or module_spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        return module
+    except Exception:
+        return None
+
+
+def _record_outcome(hook_input, outcome: str) -> None:
+    record = _decision_record()
+    if record is not None:
+        record.record_outcome(hook_input, outcome)
+
+
 def main():
     try:
         hook_input = json.loads(sys.stdin.read())
@@ -222,6 +249,7 @@ def main():
     tool_input = hook_input.get("tool_input", {})
     error = hook_input.get("error", "")
     is_interrupt = hook_input.get("is_interrupt", False)
+    _record_outcome(hook_input, "interrupted" if is_interrupt else "failure")
 
     logger.info(f"ToolFailure: {tool_name} | interrupt={is_interrupt} | {_truncate(error, 100)}")
 

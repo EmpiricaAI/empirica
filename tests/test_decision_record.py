@@ -159,3 +159,126 @@ def test_the_gate_records_nothing_when_turned_off(tmp_path):
     _, path = _run_gate(tmp_path, {"command": "git status"}, EMPIRICA_DECISION_RECORD="0")
 
     assert not path.exists()
+
+
+# ── the outcome half ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+HOOKS = GATE.parent
+
+
+@pytest.fixture
+def home(tmp_path, monkeypatch):
+    h = tmp_path / "home"
+    (h / ".empirica").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(h))
+    return h
+
+
+@pytest.mark.parametrize(
+    "relative, expected",
+    [
+        ("proj/src/app.py", "project_write"),
+        ("proj/.empirica/project.yaml", "empirica_state"),
+        ("home/.empirica/cockpit/config.yaml", "empirica_state"),
+        ("home/.claude/settings.json", "config_write"),
+        ("home/.codex/config.toml", "config_write"),
+        ("home/.config/tmux/tmux.conf", "config_write"),
+        ("home/.bashrc", "config_write"),
+        ("elsewhere/notes.txt", "outside_write"),
+    ],
+)
+def test_a_file_write_is_classed_by_where_it_lands(tmp_path, home, relative, expected):
+    assert dr.path_effect(str(tmp_path / relative), str(tmp_path / "proj")) == expected
+
+
+def test_a_file_write_outside_any_practice_is_still_classed(tmp_path, home):
+    assert dr.path_effect(str(tmp_path / "x" / "a.txt"), None) == "outside_write"
+
+
+def test_the_practice_comes_from_the_session_then_the_working_directory(tmp_path, home):
+    proj = tmp_path / "proj"
+    (proj / ".empirica").mkdir(parents=True)
+    (proj / ".empirica" / "project.yaml").write_text("project_id: p\n")
+    (home / ".empirica" / "active_work_s1.json").write_text(json.dumps({"project_path": str(proj)}))
+
+    assert dr.project_path_for("s1", None) == str(proj)
+    assert dr.project_path_for("other", str(proj / "src")) is None  # a subdirectory is not the practice root
+    assert dr.project_path_for("other", str(proj)) == str(proj)
+    assert dr.project_path_for(None, str(tmp_path)) is None
+
+
+def _post(tmp_path, home, hook: str, payload: dict):
+    env = {"HOME": str(home), "PATH": "/usr/bin:/bin", "PYTHONPATH": str(REPO)}
+    work = tmp_path / "work"
+    work.mkdir(exist_ok=True)
+    subprocess.run(
+        [sys.executable, str(HOOKS / hook)],
+        input=json.dumps({"session_id": "s", "tool_use_id": "toolu_9", "cwd": str(work), **payload}),
+        capture_output=True,
+        text=True,
+        cwd=work,
+        env=env,
+        timeout=60,
+    )
+    path = home / ".empirica" / "decisions.jsonl"
+    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+
+def test_a_successful_edit_records_its_outcome_and_effect(tmp_path, home):
+    target = home / ".claude" / "settings.json"
+    lines = _post(
+        tmp_path,
+        home,
+        "entity-extractor.py",
+        {"hook_event_name": "PostToolUse", "tool_name": "Edit", "tool_input": {"file_path": str(target)}},
+    )
+
+    assert len(lines) == 1
+    rec = lines[0]
+    assert rec["event"] == "post" and rec["tool_use_id"] == "toolu_9"
+    assert rec["outcome"] == "success" and rec["effect_class"] == "config_write" and rec["observed"] is True
+
+
+def test_a_successful_shell_call_records_its_outcome_and_says_the_effect_is_not_observed(tmp_path, home):
+    lines = _post(
+        tmp_path,
+        home,
+        "truncation-legibility.py",
+        {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "git push origin develop"},
+            "tool_response": {"stdout": ""},
+        },
+    )
+
+    assert [(r["outcome"], r["effect_class"], r["observed"]) for r in lines] == [("success", None, False)]
+    assert "git push" not in json.dumps(lines)
+
+
+@pytest.mark.parametrize("interrupt, outcome", [(False, "failure"), (True, "interrupted")])
+def test_a_failed_or_interrupted_call_records_that(tmp_path, home, interrupt, outcome):
+    lines = _post(
+        tmp_path,
+        home,
+        "tool-failure.py",
+        {
+            "hook_event_name": "PostToolUseFailure",
+            "tool_name": "Bash",
+            "tool_input": {"command": "true"},
+            "error": "permission denied",
+            "is_interrupt": interrupt,
+        },
+    )
+
+    assert [(r["outcome"], r["effect_class"]) for r in lines] == [(outcome, None)]
+
+
+def test_the_three_hooks_carry_the_same_loader():
+    """The loader is copied into each hook (a new file under hooks/lib does not reach codex seats); copies must not drift."""
+    import re
+
+    pattern = re.compile(r"^def _decision_record\(\):\n(?:(?:    .*|)\n)+", re.M)
+    copies = {name: pattern.search((HOOKS / name).read_text()) for name in dr.OUTCOME_HOOKS}
+    assert all(copies.values()), [n for n, m in copies.items() if not m]
+    assert len({m.group(0) for m in copies.values() if m}) == 1

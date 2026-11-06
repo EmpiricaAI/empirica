@@ -2101,7 +2101,11 @@ def _record_decision(decision: str) -> None:
             harness=(os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip().lower() or "claude-code",
             permission_mode=hook_input.get("permission_mode"),
         )
-        decision_record.append(record, decision_record.record_path(_tx_meta.get("project_path")))
+        # The same practice the post line will find when the transaction file names none, so both halves share one file.
+        project = _tx_meta.get("project_path") or decision_record.project_path_for(
+            hook_input.get("session_id"), hook_input.get("cwd")
+        )
+        decision_record.append(record, decision_record.record_path(project))
     except Exception:
         pass
 
