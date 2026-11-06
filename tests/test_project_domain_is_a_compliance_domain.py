@@ -236,3 +236,46 @@ def test_the_help_names_every_domain_that_ships(verb):
     text = next(a.help for a in sub._actions if "--domain" in a.option_strings)
     for name in SHIPPED:
         assert name in text, name
+
+
+# ── project-update through the real CLI: one document, and a refusal is not exit 0 ──────────────────────────────────────────
+
+
+def _documents(text: str) -> list:
+    decoder, i, docs = json.JSONDecoder(), 0, []
+    while True:
+        while i < len(text) and text[i].isspace():
+            i += 1
+        if i >= len(text):
+            return docs
+        doc, i = decoder.raw_decode(text, i)
+        docs.append(doc)
+
+
+def test_project_update_json_is_one_document_and_exits_zero(cli):
+    assert cli("project-init", "--non-interactive", "--output", "json").returncode == 0
+    r = cli("project-update", "--add-tag", "x", "--output", "json")
+    docs = _documents(r.stdout)
+    assert len(docs) == 1, f"stdout held {len(docs)} JSON documents: {r.stdout[:300]}"
+    assert docs[0]["ok"] is True and r.returncode == 0
+
+
+def test_a_refused_domain_exits_non_zero_with_one_document(cli):
+    assert cli("project-init", "--non-interactive", "--output", "json").returncode == 0
+    r = cli("project-update", "--domain", "ai/measurement", "--output", "json")
+    docs = _documents(r.stdout)
+    assert len(docs) == 1 and docs[0]["ok"] is False
+    assert r.returncode != 0
+
+
+def test_project_update_without_a_project_file_exits_non_zero(cli):
+    r = cli("project-update", "--add-tag", "x", "--output", "json")
+    assert _documents(r.stdout)[0]["ok"] is False
+    assert r.returncode != 0
+
+
+def test_the_human_view_does_not_repeat_itself_as_key_value_lines(cli):
+    assert cli("project-init", "--non-interactive", "--output", "json").returncode == 0
+    r = cli("project-update", "--add-tag", "x")
+    assert "Updated project.yaml" in r.stdout
+    assert "changes: [" not in r.stdout and "synced: {" not in r.stdout

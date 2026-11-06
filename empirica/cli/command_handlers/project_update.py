@@ -188,7 +188,12 @@ def _print_update_result(
 
 
 def handle_project_update_command(args):
-    """Handle project-update command - update project.yaml fields."""
+    """Handle project-update command - update project.yaml fields.
+
+    Returns an exit code, not the result dict. The handler prints its own result; a dict returned here was
+    printed a second time by the dispatcher, so `--output json` emitted two documents, and a refusal that
+    returned None exited 0.
+    """
     try:
         from empirica.config.path_resolver import get_git_root
         from empirica.config.project_config_loader import ProjectConfig
@@ -201,7 +206,7 @@ def handle_project_update_command(args):
                 print(json.dumps({"ok": False, "error": "Not in a git repository"}))
             else:
                 print("❌ Not in a git repository")
-            return None
+            return 1
 
         config_path = git_root / ".empirica" / "project.yaml"
         if not config_path.exists():
@@ -209,7 +214,7 @@ def handle_project_update_command(args):
                 print(json.dumps({"ok": False, "error": "No project.yaml found. Run 'empirica project-init' first."}))
             else:
                 print("❌ No project.yaml found. Run 'empirica project-init' first.")
-            return None
+            return 1
 
         original_text = config_path.read_text()
         raw_config = yaml.safe_load(original_text) or {}
@@ -224,7 +229,7 @@ def handle_project_update_command(args):
 
         domains = DomainRegistry(project_path=git_root).list_domains()
         if _refuse_unknown_domain(getattr(args, "domain", None), domains, output_format):
-            return None
+            return 1
         free_text_domain = _take_free_text_domain(config, domains)
 
         if getattr(args, "migrate", False):
@@ -240,7 +245,7 @@ def handle_project_update_command(args):
                 print(json.dumps({"ok": True, "changes": [], "message": "No changes specified"}))
             else:
                 print("ℹ️  No changes specified. Use --help to see available options.")
-            return None
+            return 0
 
         # to_dict() carries only the keys ProjectConfig models. Writing it alone deleted every other
         # top-level key (ai_id, the mesh seat, publish_channels, cockpit, artifact_graph, ...), so a routine
@@ -256,13 +261,13 @@ def handle_project_update_command(args):
 
         _print_update_result(output_format, changes, updated, synced, comment_lines_dropped)
 
-        return {"ok": _synced_ok(synced), "changes": changes, "synced": synced}
+        return 0 if _synced_ok(synced) else 1
 
     except Exception as e:
         from ..cli_utils import handle_cli_error
 
         handle_cli_error(e, "Project update", getattr(args, "verbose", False))
-        return None
+        return 1
 
 
 def _migrate_v1_to_v2(config: ProjectConfig, git_root: Path) -> list:
