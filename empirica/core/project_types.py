@@ -17,6 +17,9 @@ emptying it is the one-line step that removes the legacy values for good.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 SOFTWARE_TYPES: tuple[str, ...] = (
     "web-app",
     "service",
@@ -137,3 +140,49 @@ def calibration_domain(project_type: str | None) -> str:
 def default_work_frame(project_type: str | None) -> tuple[str, str]:
     """(compliance domain, criticality) a transaction of this project starts from. Unclassified and legacy values use ("default", "medium")."""
     return _DEFAULT_WORK_FRAME.get(project_type or "", ("default", "medium"))
+
+
+_TYPE_LINE = re.compile(r"^type:[ \t]*[\"']?([A-Za-z0-9_-]+)", re.MULTILINE)
+_DOMAIN_LINE = re.compile(r"^domain:[ \t]*[\"']?([^\"'#\n]*)", re.MULTILINE)
+
+
+def project_file_labels(project_path) -> tuple[str | None, str]:
+    """(type, domain text) from the top-level lines of a project's .empirica/project.yaml. (None, "") when unset, absent or unreadable.
+
+    A line match, not a YAML parse: PREFLIGHT reads this on the hot path, and parsing the file (it carries calibration weights) cost
+    about 5 ms against well under 0.1 ms for the match. The domain is returned as written; whether it names a domain file is the
+    caller's question."""
+    try:
+        # errors="replace": a byte that is not valid UTF-8 elsewhere in the file must not cost the labels, and must never fail a caller
+        text = (Path(project_path) / ".empirica" / "project.yaml").read_text(encoding="utf-8", errors="replace")
+    except (OSError, ValueError, TypeError):
+        return None, ""
+    type_match = _TYPE_LINE.search(text)
+    domain_match = _DOMAIN_LINE.search(text)
+    return (type_match.group(1) if type_match else None), (domain_match.group(1).strip() if domain_match else "")
+
+
+def classification_note(project_path) -> str:
+    """One line for a practice whose project file needs a label set, else "". Shown at session start; changes nothing.
+
+    A practice gets its type from the practitioner inhabiting it, not from a central edit (David, 2026-11-06), so the practice has to
+    be told: no type, a legacy type, a type this code does not know, or free text where a domain name belongs."""
+    if not (Path(project_path) / ".empirica" / "project.yaml").is_file():
+        return ""
+    project_type, domain = project_file_labels(project_path)
+    parts = []
+    set_type = "Set it with `empirica project-update --type <type>` (`empirica project-update --help` lists the types)."
+    if project_type is None:
+        parts.append(f"This project has no project type. {set_type}")
+    elif project_type in LEGACY_TYPES:
+        parts.append(f"This project's type `{project_type}` is a legacy value. {set_type}")
+    elif project_type not in PROJECT_TYPES:
+        parts.append(f"This project's type `{project_type}` is not a project type. {set_type}")
+    if domain:
+        from empirica.config.domain_registry import known_domain_names
+
+        if domain not in known_domain_names(project_path):
+            parts.append(
+                f"Its domain `{domain}` is free text, not a domain name: the next `empirica project-update` moves it to the tags."
+            )
+    return " ".join(parts)

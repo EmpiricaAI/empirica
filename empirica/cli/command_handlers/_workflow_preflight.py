@@ -9,7 +9,7 @@ import os
 import time
 from pathlib import Path
 
-from empirica.core.project_types import default_work_frame
+from empirica.core.project_types import default_work_frame, project_file_labels
 from empirica.utils.session_resolver import InstanceResolver as R
 
 from ..cli_utils import handle_cli_error, parse_json_safely
@@ -414,34 +414,16 @@ def _preflight_create_checkpoint(session_id, vectors, reasoning, transaction_id,
 
 
 def _project_type_of(project_path) -> str | None:
-    """The top-level `type:` in the project's .empirica/project.yaml, or None (unclassified, no file, unreadable).
-
-    A line match rather than a YAML parse: PREFLIGHT is on the hot path, and parsing this file (it carries calibration weights) cost about 5 ms
-    against well under 0.1 ms for the match."""
-    import re
-
-    try:
-        # errors="replace": a byte that is not valid UTF-8 elsewhere in the file must not cost the type, and must never fail PREFLIGHT
-        text = (Path(project_path) / ".empirica" / "project.yaml").read_text(encoding="utf-8", errors="replace")
-    except (OSError, ValueError):
-        return None
-    match = re.search(r"^type:[ \t]*[\"']?([A-Za-z0-9_-]+)", text, re.MULTILINE)
-    return match.group(1) if match else None
+    """The top-level `type:` in the project's .empirica/project.yaml, or None (unclassified, no file, unreadable)."""
+    return project_file_labels(project_path)[0]
 
 
 def _project_domain_of(project_path) -> str | None:
     """The top-level `domain:` in the project's .empirica/project.yaml when it names a domain file, else None.
 
     Free text left from before the domain was a list (`ai/measurement`) names no file and is ignored here; `project-update` moves it to
-    the project's tags. A line match and a name scan, for the reason given in `_project_type_of`."""
-    import re
-
-    try:
-        text = (Path(project_path) / ".empirica" / "project.yaml").read_text(encoding="utf-8", errors="replace")
-    except (OSError, ValueError, TypeError):
-        return None
-    match = re.search(r"^domain:[ \t]*[\"']?([^\"'#\n]*)", text, re.MULTILINE)
-    value = match.group(1).strip() if match else ""
+    the project's tags."""
+    value = project_file_labels(project_path)[1]
     if not value:
         return None
     from empirica.config.domain_registry import known_domain_names

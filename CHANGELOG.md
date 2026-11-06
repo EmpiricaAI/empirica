@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A practice is told at session start when its project file needs a label.** One line when `.empirica/project.yaml` holds no project type, a legacy type (`product`, `software`, ...), a type the code does not know, or free text where a domain name belongs, with the command that sets it. Nothing is changed for the practice: it sets its own labels. A labelled project sees nothing. The check is a line match (0.04 ms, or 0.2 ms when a domain is set).
 - **One reference for what a project is and what work is being done.** `docs/reference/TAXONOMY.md` section 4.6 explains project type, project domain, work type, compliance domain and criticality together: where each is set, its values, how long it lives, and how the project type sets a transaction's defaults. It says plainly that "domain" means two things today. A test keeps its tables equal to the code.
 
 ### Fixed

@@ -1730,7 +1730,24 @@ def _core_version_notice() -> str:
 def _startup_notices(project_root: Path) -> str:
     """The notices SessionStart shows after the context: hooks newer than the installed core first (it is the more urgent and one line, so
     it is what the banner's first line shows), then the cached deploy-gap verdict. Empty when there is nothing to say."""
-    return "\n\n".join(part for part in (_core_version_notice(), _deploy_gap_block(project_root)) if part)
+    return "\n\n".join(
+        part
+        for part in (_core_version_notice(), _classification_notice(project_root), _deploy_gap_block(project_root))
+        if part
+    )
+
+
+def _classification_notice(project_root: Path) -> str:
+    """A line when this project's file holds no type, a legacy type or free text for a domain (core/project_types.py), else "".
+
+    A practice sets its own labels; this is how it learns that it should. Never raises: a core older than these hooks has no such
+    function, and that must cost the notice, not SessionStart."""
+    try:
+        from empirica.core import project_types
+
+        return project_types.classification_note(project_root)
+    except Exception:
+        return ""
 
 
 def _deploy_gap_block(project_root: Path) -> str:
