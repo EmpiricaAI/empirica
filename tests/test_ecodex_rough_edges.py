@@ -201,8 +201,12 @@ def test_the_new_reads_do_not_open_a_write_path(gate, command):
 
 
 def test_infra_only_inspection_stays_gated_outside_infra_work(gate):
-    """`ss`, `free` and `uptime` are reads, but they are allowed by work_type on purpose (INFRA_SAFE_PREFIXES), not globally."""
-    for command in ("ss -ltn", "free -m", "uptime"):
+    """`ss` and the streaming tools are allowed by work_type on purpose (INFRA_SAFE_PREFIXES), not globally.
+
+    `free` and `uptime` were in this list until 1.14.22: neither has a write mode, so they are reads in every work type
+    (tests/test_sentinel_hardware_reads_noetic.py). What stays scoped is network inspection and anything that never returns.
+    """
+    for command in ("ss -ltn", "htop", "free -s 1", "vmstat 1"):
         assert not _safe(gate, command), command
 
 

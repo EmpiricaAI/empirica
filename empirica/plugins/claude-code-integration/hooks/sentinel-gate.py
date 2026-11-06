@@ -339,6 +339,18 @@ SAFE_BASH_PREFIXES = (
     "du ",
     "mount",
     "lsblk",
+    # Hardware and system reads (mesh-support, prop_mxrzdihewrghvo64gdbgiaiyki). None has a write mode, so they are
+    # reads in every work_type and inside pipes, chains and substitutions, which INFRA_SAFE_PREFIXES never covered.
+    # vmstat, iostat and free print forever when given an interval without a count: _streams_without_end refuses
+    # those forms here, and they stay allowed under the infra work types.
+    "lsusb",
+    "lspci",
+    "lscpu",
+    "lsmem",
+    "free",
+    "uptime",
+    "vmstat",
+    "iostat",
     # Network inspection (not modification)
     "curl ",
     "wget -O-",
@@ -563,12 +575,9 @@ INFRA_SAFE_PREFIXES = (
     "journalctl --since",
     "journalctl -u",
     "journalctl --no-pager",
+    # lsusb, lspci, lscpu, lsmem and uptime moved to SAFE_BASH_PREFIXES: no write mode, a read in every work_type.
+    # free, vmstat and iostat are there too for the forms that end; they stay here for the forms that stream.
     "free",
-    "uptime",
-    "lscpu",
-    "lsmem",
-    "lsusb",
-    "lspci",
     "htop",
     "vmstat",
     "iostat",
@@ -3069,6 +3078,27 @@ def _env_name_changes_execution(name: str) -> bool:
 _EXACT_SAFE_COMMANDS = frozenset({"claude --version"})
 
 
+def _streams_without_end(cmd: str) -> bool:
+    """True for `vmstat 1`, `iostat -x 2`, `free -s 1`: an interval with no count, which prints until killed.
+
+    These tools change nothing, so this is not a write guard. A stream is kept out of the every-work-type list
+    because it never returns; the infra work types still allow it (INFRA_SAFE_PREFIXES).
+    """
+    words = cmd.split()
+    if not words:
+        return False
+    if words[0] in ("vmstat", "iostat"):
+        # `[interval [count]]`: one bare number is an interval alone.
+        return sum(1 for word in words[1:] if word.isdigit()) == 1
+    if words[0] == "free":
+        interval = any(
+            w == "-s" or w.startswith("--seconds") or (w.startswith("-s") and w[2:].isdigit()) for w in words[1:]
+        )
+        count = any(w == "-c" or w.startswith("--count") or (w.startswith("-c") and w[2:].isdigit()) for w in words[1:])
+        return interval and not count
+    return False
+
+
 def _matches_safe_prefix(cmd: str) -> bool:
     """Check if a command matches any SAFE_BASH_PREFIXES entry.
 
@@ -3078,6 +3108,8 @@ def _matches_safe_prefix(cmd: str) -> bool:
     _has_dangerous_tool_flags — the centralized chokepoint guard.
     """
     if _has_dangerous_tool_flags(cmd):
+        return False
+    if _streams_without_end(cmd):
         return False
     # Strip git's inert global options so `git -C <path> status` reaches the
     # same check as `git status`. The dangerous-flag guard above runs on the
