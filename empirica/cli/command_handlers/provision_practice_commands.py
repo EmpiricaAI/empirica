@@ -238,16 +238,17 @@ def _resolve_substrate(args) -> str:
 
 
 def _init_step(args, proj_dir: Path, project_yaml: Path, dry_run: bool) -> tuple[dict, str | None]:
-    """Run project-init for a new practice, with the type and description when given. Returns (step, error)."""
+    """Run project-init for a new practice, with the type, description and domain when given. Returns (step, error)."""
     project_type = getattr(args, "type", None)
     description = getattr(args, "description", None)
+    domain = getattr(args, "domain", None)
     if project_yaml.exists():
         note = "already initialized"
-        if project_type or description:
+        if project_type or description or domain:
             # Said, not dropped: a value the person passed must not vanish without a word.
             note += (
-                "; --type and --description apply only when the practice is created and were not applied. "
-                "Set the type with `empirica project-update --type` in that directory"
+                "; --type, --description and --domain apply only when the practice is created and were not applied. "
+                "Set them with `empirica project-update --type` or `empirica project-update --domain` in that directory"
             )
         return {"step": "project-init", "changed": False, "note": note}, None
     init_cmd = ["empirica", "project-init", "--output", "json"]
@@ -255,6 +256,8 @@ def _init_step(args, proj_dir: Path, project_yaml: Path, dry_run: bool) -> tuple
         init_cmd += ["--type", project_type]
     if description:
         init_cmd += ["--project-description", description]
+    if domain:
+        init_cmd += ["--domain", domain]
     ok, err = _run(init_cmd, proj_dir, dry_run)
     if not ok:
         return {}, f"project-init failed: {err}"
@@ -312,6 +315,14 @@ def handle_provision_practice_command(args) -> int:
             "this from inside an existing practice to inherit its tenant/org."
         )
         print(json.dumps({"ok": False, "error": msg}) if output == "json" else f"❌ {msg}", file=sys.stderr)
+        return 1
+
+    # project-init refuses an unknown domain too, but only after the directory below exists: refuse it first.
+    from empirica.config.domain_registry import domain_refusal, known_domain_names
+
+    domain_error = domain_refusal(getattr(args, "domain", None), known_domain_names())
+    if domain_error:
+        print(json.dumps({"ok": False, "error": domain_error}) if output == "json" else f"❌ {domain_error}")
         return 1
 
     steps: list[dict] = []

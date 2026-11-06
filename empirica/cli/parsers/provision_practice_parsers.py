@@ -25,8 +25,8 @@ Idempotent single-practice onboarding — the local, no-spec.yaml sibling
 of mesh-support's bulk provision-practices.py tool. Safe to re-run: each
 step no-ops cleanly if already done.
 
-Steps: mkdir <base-path>/<name> -> project-init (with --type and
---description when given) -> patch .empirica/project.yaml
+Steps: mkdir <base-path>/<name> -> project-init (with --type,
+--description and --domain when given) -> patch .empirica/project.yaml
 (ai_id/tenant/org/substrate) -> .gitignore that ignores .empirica except
 project.yaml -> project-register (cortex) -> optional forgejo backup
 remote wiring.
@@ -55,6 +55,12 @@ Falls back to erroring with a clear message if neither is available.
         "--description",
         help="One sentence on what the practice is for. Applied when the practice is created; without it the "
         "description is '<name> project'",
+    )
+    p.add_argument(
+        "--domain",
+        help="The practice's domain: the name of a domain file (default, research, operations, consulting, marketing, "
+        "docs, cybersec, remote-ops, or one of your own). A transaction that declares no domain starts from it. "
+        "Applied when the practice is created; an unknown name is refused before anything is created",
     )
     p.add_argument("--tenant", help="Tenant slug (default: inferred from cwd's project.yaml)")
     p.add_argument("--org", help="Org slug (default: inferred from cwd's project.yaml)")

@@ -155,6 +155,14 @@ Where the flags come from Phase 3:
 | Not on the mesh / standalone | `--no-cortex` |
 | On the mesh | omit `--no-cortex`; `--tenant` / `--org` default from the current directory's project.yaml |
 
+Each practice is also created with what the interview learned about it, so nobody has to fix it by hand afterwards:
+
+| What you learned | Flag |
+|---|---|
+| What kind of practice it is | `--type <type>` (`empirica project-init --help` lists the types and what each means) |
+| What it is for, in one sentence | `--description "<sentence>"` |
+| Its domain (research, operations, consulting, marketing, docs, cybersec, ...) | `--domain <name>`; an unknown name is refused, so leave it out rather than guess |
+
 **Report per practice what actually happened** — provisioned, already existed,
 or failed and why. A rollup "done!" over a partial failure is the shape this
 whole system exists to prevent.
@@ -166,6 +174,8 @@ phase with the command the last call printed, in a block they can copy:
 empirica cockpit launch --profile <name>
 ```
 
+The cockpit is a terminal layout, for people who run Claude Code or ecodex in a
+terminal. If they use Claude only through the desktop or web app, say so and skip it.
 Say what it does in one line (one window per practice, each starting `claude` in its
 own directory with a stable identity, plus a TUI window) and point at
 `docs/guides/COCKPIT.md` for changing it. Tell them the two things they need on day one:

@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.21
-**Generated:** 2026-11-06 18:30:18 UTC
+**Generated:** 2026-11-06 20:25:08 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1735,6 +1735,8 @@ Create + register a new local practice/practitioner in one command
   What the new practice is: a project type (`empirica project-init --help` lists them with their meanings). Applied when the practice is created; left unset it is stored as unclassified
 - `--description` — optional
   One sentence on what the practice is for. Applied when the practice is created; without it the description is '<name> project'
+- `--domain` — optional
+  The practice's domain: the name of a domain file (default, research, operations, consulting, marketing, docs, cybersec, remote-ops, or one of your own). A transaction that declares no domain starts from it. Applied when the practice is created; an unknown name is refused before anything is created
 - `--tenant` — optional
   Tenant slug (default: inferred from cwd's project.yaml)
 - `--org` — optional

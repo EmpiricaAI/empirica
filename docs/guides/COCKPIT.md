@@ -12,7 +12,7 @@ empirica cockpit status                   # what's running, without attaching
 empirica cockpit kill                     # tear it down cleanly
 ```
 
-You need `tmux` 3.0 or newer. For the one-window-per-monitor layouts below you
+The cockpit is for people who run Claude Code or ecodex in a terminal. You need `tmux` 3.0 or newer. For the one-window-per-monitor layouts below you
 also need `alacritty` or `ghostty`.
 
 For how Empirica keeps panes isolated from each other (separate transactions,
