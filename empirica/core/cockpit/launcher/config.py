@@ -522,13 +522,22 @@ def profile_path(profile: str) -> Path:
 
 
 def add_practice_to_profile(
-    profile: str, name: str, path: str, *, launch: str | None = None, resume: str | None = None
+    profile: str,
+    name: str,
+    path: str,
+    *,
+    launch: str | None = None,
+    resume: str | None = None,
+    beside: str | None = None,
 ) -> tuple[Path, bool]:
     """Add one practice to a cockpit profile, creating the profile if it has none.
 
     Returns ``(file, changed)``. Idempotent: a practice already listed changes
     nothing. A new profile gets a ``monitor`` window running the TUI, then one
     window per practice (surface: tmux, so the layout opens where ``launch`` is run).
+
+    ``beside`` names a project already in a window: the new one becomes a second pane of that window instead of a
+    window of its own. That is how a second harness (ecodex beside claude) shares a practice's directory.
 
     An existing file is read strictly. ``load_config`` returns defaults for
     anything unreadable, which is right for launching and wrong here: writing
@@ -576,6 +585,15 @@ def add_practice_to_profile(
                     "edit or remove that entry, nothing was changed"
                 )
         return target, False
+    if beside is not None:
+        window = next((g for g in config.groups if any(p.project_ref == beside for p in g.panes)), None)
+        if window is None:
+            raise ProfileError(
+                f"{beside!r} has no window in {target} to put {name!r} beside; add {beside!r} first, nothing was changed"
+            )
+        config.projects.append(ProjectSpec(name=name, path=str(wanted), launch=launch or "claude", resume=resume))
+        window.panes.append(PaneSpec(project_ref=name))
+        return _write_profile(profile, target, config), True
     group_name = name.replace(".", "-")  # tmux reads '.' in a window target as a pane separator
     if any(g.name == group_name for g in config.groups):
         raise ProfileError(
@@ -587,6 +605,13 @@ def add_practice_to_profile(
         config.groups.append(GroupSpec(name=group_name, panes=[PaneSpec(project_ref=name)]))
     # else: a projects-only profile opens one window per project on its own. Adding a group would
     # flip it to groups mode, where only the groups are windows and the existing projects vanish.
+
+    return _write_profile(profile, target, config), True
+
+
+def _write_profile(profile: str, target: Path, config: LauncherConfig) -> Path:
+    """Write ``config`` to ``target`` atomically, keeping the user's first version as ``.yaml.bak``."""
+    import yaml
 
     header = (
         f"# Cockpit profile '{profile}': written by `empirica provision-practice --cockpit-profile {profile}`.\n"
@@ -604,7 +629,7 @@ def add_practice_to_profile(
         os.replace(tmp, target)
     except OSError as exc:
         raise ProfileError(f"could not write {target} ({exc}); nothing was changed") from exc
-    return target, True
+    return target
 
 
 def write_default_config(

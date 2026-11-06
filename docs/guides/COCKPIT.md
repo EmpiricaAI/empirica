@@ -261,8 +261,10 @@ groups:
 ```
 
 `refresh` brings each back with its own conversation: `claude --continue` for the
-first, `ecodex resume --last` for the second. `provision-practice NAME
---cockpit-profile P --launch ecodex` writes an entry of the second kind for you.
+first, `ecodex resume --last` for the second. `provision-practice research
+--cockpit-profile P --second-pane ecodex` writes both entries and the window for you
+(the second one is named `research-ecodex`). `--launch ecodex` alone makes a practice
+whose only pane runs ecodex.
 Set `instance_id:` on the ecodex project only if you want a fixed, readable id in
 place of the one it generates.
 

@@ -73,12 +73,13 @@ Capture `domains.expert[]`, `domains.learning[]`, `domains.novice[]`.
 | Which of these do you actually use daily? | multi | Detected MCP servers + GitHub / Forgejo · Slack · Google Drive · Linear / Jira · Notion |
 | Where does your code live? | single | GitHub · Forgejo (self-hosted) · GitLab · Local only |
 | Is this practice on the Cortex mesh? | single | Yes — registered · Yes — should be, not yet · No, standalone |
+| Which do you run in a terminal? | single | Claude Code · ecodex · Both · Neither — desktop or web app only |
 
 **Detect before asking.** Read `~/.claude/mcp.json` (or the harness equivalent)
 and offer what is configured rather than a generic menu. Mark detected entries
 so the user is confirming, not recalling.
 
-The last two questions are load-bearing — they feed Phase 6.
+The last three questions are load-bearing — they feed Phase 6.
 
 ## Phase 4 — Work preferences
 
@@ -154,6 +155,10 @@ Where the flags come from Phase 3:
 | Code lives on GitHub / GitLab / local | omit the Forgejo flags |
 | Not on the mesh / standalone | `--no-cortex` |
 | On the mesh | omit `--no-cortex`; `--tenant` / `--org` default from the current directory's project.yaml |
+| Runs Claude Code in a terminal | `--cockpit-profile <name>` (each practice's pane runs `claude`) |
+| Runs ecodex in a terminal | `--cockpit-profile <name> --launch ecodex` |
+| Runs both | `--cockpit-profile <name> --second-pane ecodex`: one window per practice, claude and ecodex side by side in the same directory, each with its own identity |
+| Desktop or web app only | omit `--cockpit-profile`; the cockpit is a terminal layout |
 
 Each practice is also created with what the interview learned about it, so nobody has to fix it by hand afterwards:
 

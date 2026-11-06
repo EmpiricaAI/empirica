@@ -14,6 +14,7 @@ safer than faking that global state.
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -211,6 +212,79 @@ def _add_to_cockpit_profile(
     return {"step": "cockpit-profile", "changed": changed, "note": note, "launch": launch}
 
 
+def _program(command: str | None) -> str:
+    """The program a pane command runs: its first word, without a directory."""
+    try:
+        words = shlex.split(command or "claude")
+    except ValueError:
+        words = (command or "claude").split()
+    return os.path.basename(words[0]) if words else "claude"
+
+
+def _pane_flags_error(
+    profile: str | None, launch: str | None, resume: str | None, second_pane: str | None
+) -> str | None:
+    """Why the pane flags cannot be used as given, or None. They describe cockpit panes, so they need a profile; and the
+    second pane is a second harness, not the first one again."""
+    if (launch is not None or resume is not None or second_pane is not None) and not profile:
+        return (
+            "--launch/--resume/--second-pane say what the cockpit panes run and need --cockpit-profile; "
+            "without it they would be ignored."
+        )
+    if second_pane and _program(second_pane) == _program(launch):
+        return (
+            f"--second-pane {second_pane!r} runs the same program as the practice's own pane ({_program(launch)}); "
+            "a second pane is for a second harness, such as ecodex beside claude"
+        )
+    return None
+
+
+def _add_second_pane(profile: str, name: str, proj_dir: Path, command: str, dry_run: bool, failed: bool) -> dict:
+    """The ``cockpit-second-pane`` step: ``command`` as a second pane of the practice's window, in the same directory, under
+    its own name (``<name>-<program>``) so it keeps its own identity and its own conversation."""
+    from empirica.core.cockpit.launcher.config import ProfileError, add_practice_to_profile
+
+    pane_name = f"{name}-{_program(command)}"
+    step: dict = {"step": "cockpit-second-pane", "pane": pane_name}
+    if failed:
+        return {**step, "changed": False, "note": "skipped: an earlier step failed"}
+    if dry_run:
+        return {**step, "changed": True, "note": f"dry-run, would add {pane_name!r} beside {name!r}"}
+    try:
+        target, changed = add_practice_to_profile(profile, pane_name, str(proj_dir), launch=command, beside=name)
+    except ProfileError as exc:
+        return {**step, "changed": False, "error": str(exc)}
+    return {**step, "changed": changed, "note": str(target) if changed else f"already in {target}"}
+
+
+def _cockpit_steps(
+    profile: str,
+    name: str,
+    proj_dir: Path,
+    dry_run: bool,
+    steps: list[dict],
+    launch: str | None,
+    resume: str | None,
+    second_pane: str | None,
+) -> str | None:
+    """Append the cockpit-profile step, and the second-pane step when asked for, to ``steps``. Returns the launch command."""
+    step = _add_to_cockpit_profile(
+        profile,
+        name,
+        proj_dir,
+        dry_run,
+        failed=any(s.get("error") for s in steps),
+        pane_launch=launch,
+        pane_resume=resume,
+    )
+    steps.append(step)
+    if second_pane:
+        steps.append(
+            _add_second_pane(profile, name, proj_dir, second_pane, dry_run, failed=any(s.get("error") for s in steps))
+        )
+    return step.get("launch")
+
+
 def _print_human(name: str, proj_dir: Path, steps: list[dict], dry_run: bool, launch_command, any_error: bool) -> None:
     verb = "dry-run" if dry_run else "provisioned"
     print(f"{'❌' if any_error else '✅'} {name} {verb} at {proj_dir}")
@@ -302,9 +376,12 @@ def handle_provision_practice_command(args) -> int:
     profile = getattr(args, "cockpit_profile", None)
     launch_flag = getattr(args, "launch", None)
     resume_flag = getattr(args, "resume", None)
-    if (launch_flag is not None or resume_flag is not None) and not profile:
-        msg = "--launch/--resume say what the cockpit pane runs and need --cockpit-profile; without it they would be ignored."
-        print(json.dumps({"ok": False, "error": msg}) if output == "json" else f"❌ {msg}", file=sys.stderr)
+    second_pane = getattr(args, "second_pane", None)
+    pane_error = _pane_flags_error(profile, launch_flag, resume_flag, second_pane)
+    if pane_error:
+        print(
+            json.dumps({"ok": False, "error": pane_error}) if output == "json" else f"❌ {pane_error}", file=sys.stderr
+        )
         return 1
 
     # A local (--no-cortex) practice has no tenant or org to name: a first-time standalone user has neither (David, 2026-10-24).
@@ -376,19 +453,11 @@ def handle_provision_practice_command(args) -> int:
             ok, err = _wire_forgejo(proj_dir, name, forgejo_owner, forgejo_host, dry_run)
             steps.append({"step": "forgejo-backup-wired", "changed": ok, "error": err})
 
-    launch_command = None
-    if profile:
-        step = _add_to_cockpit_profile(
-            profile,
-            name,
-            proj_dir,
-            dry_run,
-            failed=any(s.get("error") for s in steps),
-            pane_launch=launch_flag,
-            pane_resume=resume_flag,
-        )
-        steps.append(step)
-        launch_command = step.get("launch")
+    launch_command = (
+        _cockpit_steps(profile, name, proj_dir, dry_run, steps, launch_flag, resume_flag, second_pane)
+        if profile
+        else None
+    )
 
     any_error = any(s.get("error") for s in steps)
     payload = {
