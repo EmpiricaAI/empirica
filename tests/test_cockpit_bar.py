@@ -615,7 +615,8 @@ def test_update_without_a_command_names_the_config_key_and_with_one_runs_it_in_i
     monkeypatch.setattr(bar, "_tmux", recording)
     bar.run_chip("U", "c4", None, None)
     asked = [c for c in calls if c[0] == "display-menu"]
-    assert len(asked) == 1 and "Yes: sleep 600" in asked[0] and "✕  Cancel" in asked[0] and "-M" in asked[0]
+    assert len(asked) == 1 and "Yes: sleep 600" in asked[0] and "✕  Cancel" in asked[0]
+    assert ("-M" in asked[0]) == bool(bar.menu_mouse_flag()), "the mouse flag only where this tmux takes it"
     assert "update" not in real("list-windows", "-t", "=c4:", "-F", "#{window_name}").stdout.split()
 
     bar.run_chip("U", "c4", None, None, confirmed=True)
