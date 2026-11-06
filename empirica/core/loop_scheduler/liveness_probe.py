@@ -37,7 +37,6 @@ import datetime as _dt
 import json
 import logging
 import os
-import ssl
 import threading
 import time
 import urllib.error
@@ -45,6 +44,8 @@ import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from empirica.core.loop_scheduler.http_shared import open_url
 
 logger = logging.getLogger(__name__)
 
@@ -72,8 +73,8 @@ def _probe_cortex_roster(cortex_url: str, api_key: str) -> int:
             "Authorization": f"Bearer {api_key}",
         },
     )
-    ctx = ssl.create_default_context()
-    with urllib.request.urlopen(req, timeout=_PROBE_HTTP_TIMEOUT_SEC, context=ctx) as resp:
+    # One context and one opener for the process (http_shared): a new pair every tick leaked native memory.
+    with open_url(req, timeout=_PROBE_HTTP_TIMEOUT_SEC) as resp:
         resp.read(64)  # drain a bit to keep the connection clean
         return resp.status
 

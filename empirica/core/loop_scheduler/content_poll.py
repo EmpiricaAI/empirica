@@ -63,6 +63,8 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from empirica.core.loop_scheduler.http_shared import open_url
+
 logger = logging.getLogger(__name__)
 
 
@@ -260,7 +262,7 @@ def _resolve_canonical_ai_id(
             method="GET",
             headers={"Accept": "application/json", "Authorization": f"Bearer {api_key}"},
         )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with open_url(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8")
             body = json.loads(raw) if raw else {}
         self_meta = body.get("self") or {}
@@ -347,7 +349,7 @@ def _fetch_orch(
         method="GET",
         headers={"Authorization": f"Bearer {api_key}"},
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with open_url(req, timeout=timeout) as resp:
         raw = resp.read().decode("utf-8")
         body = json.loads(raw) if raw else {}
     # Cortex reports completeness on the envelope (`matched`, `has_more`) since

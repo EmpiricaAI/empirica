@@ -59,6 +59,8 @@ import time
 import urllib.error
 import urllib.request
 
+from empirica.core.loop_scheduler.http_shared import open_url
+
 logger = logging.getLogger(__name__)
 
 _PATH = "/v1/users/me/notification-channels"
@@ -144,7 +146,7 @@ def _request(url: str, key: str) -> dict | None:
         headers={"Authorization": f"Bearer {key}"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT_SEC) as resp:
+        with open_url(req, timeout=_REQUEST_TIMEOUT_SEC) as resp:
             raw = resp.read().decode("utf-8")
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:

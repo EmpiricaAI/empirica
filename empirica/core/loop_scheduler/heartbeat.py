@@ -36,6 +36,8 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 
+from empirica.core.loop_scheduler.http_shared import open_url
+
 logger = logging.getLogger(__name__)
 
 _HEARTBEAT_ENDPOINT_PATH = "/v1/listeners/heartbeat"
@@ -49,7 +51,7 @@ def _default_post(url: str, body: bytes, headers: dict, timeout: float) -> int:
     """HTTP POST returning status code (or -1 on network error). Defensive — never raises."""
     req = urllib.request.Request(url, data=body, method="POST", headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with open_url(req, timeout=timeout) as resp:
             return resp.status
     except urllib.error.HTTPError as e:
         from empirica.core.auth.credential_health import note_http_error
