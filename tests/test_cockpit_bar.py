@@ -688,3 +688,59 @@ def test_launch_puts_the_bars_on_and_reports_it(tmux_env, capsys):
     assert cmd._handle_groups_in_terminal(cfg, "json", no_attach=True) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["bar"]["installed"] is True and _opt("l1", "status-position") == "top"
+
+
+# ── M: a duplicate listener ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+def _proc(cmdline, kind="loop_listen", pid=1, ppid=2):
+    return {"pid": pid, "ppid": ppid, "kind": kind, "cmdline": cmdline}
+
+
+def test_a_listener_s_wrapper_shell_is_not_counted_as_a_second_listener():
+    """Seen on this machine 2026-11-06: one session-run listener is a bash wrapper and a python worker, both matching."""
+    procs = [
+        _proc("/bin/bash -c source snap.sh && empirica loop listen --instance empirica-nle; echo done"),
+        _proc("/home/u/.venv/bin/python3.14 /home/u/.venv/bin/empirica loop listen --instance empirica-nle"),
+        _proc("/usr/bin/python3 /home/u/.local/bin/empirica loop listen --instance empirica-outreach"),
+        _proc('tail -F /home/u/.empirica/loop_fires.log | grep "instance_id": "empirica-outreach"', kind="log_tail"),
+    ]
+    assert bar.listener_worker_counts(procs) == {"empirica-nle": 1, "empirica-outreach": 1}
+
+
+def test_two_workers_for_one_practice_are_a_duplicate_and_its_neighbour_is_not():
+    procs = [
+        _proc("python /x/empirica loop listen --instance empirica"),
+        _proc("python /y/empirica loop listen --instance empirica", pid=3),
+        _proc("python /x/empirica loop listen --instance empirica-outreach", pid=4),
+    ]
+    assert bar.listener_worker_counts(procs) == {"empirica": 2, "empirica-outreach": 1}
+
+
+@pytest.fixture
+def service(monkeypatch):
+    from empirica.core.loop_scheduler import persistent_listener as pl
+
+    state = {"installed": True, "active": True}
+
+    class Fake:
+        def status(self, ai_id):
+            return pl.ListenerStatus(
+                ai_id=ai_id, backend="systemd", installed=state["installed"], active=state["active"]
+            )
+
+    monkeypatch.setattr(pl, "PersistentListenerService", Fake)
+    return state
+
+
+def test_m_is_orange_with_the_count_for_a_duplicate_and_red_wins_when_the_service_is_down(service):
+    assert bar._listener_chip("empirica", {"empirica": 2}) == ("orange", "listener ×2", True)
+    assert bar._listener_chip("empirica", {"empirica": 1}) == ("", "", True)
+    service["active"] = False
+    assert bar._listener_chip("empirica", {"empirica": 2})[:2] == ("red", "listener down")
+
+
+def test_a_practice_with_only_a_session_listener_counts_as_on_the_mesh(service):
+    service["installed"] = False
+    assert bar._listener_chip("empirica-nle", {"empirica-nle": 1}) == ("", "", True)
+    assert bar._listener_chip("empirica-nle", {}) == ("", "", False)

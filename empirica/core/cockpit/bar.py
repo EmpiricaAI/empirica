@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shlex
 import shutil
@@ -462,11 +463,38 @@ def _empirica_argv() -> list[str]:
     return [exe] if exe else [sys.executable, "-m", "empirica.cli"]
 
 
-def _listener_chip(ai_id: str) -> tuple[str, str, bool]:
-    """(state, label, on the mesh). Red when this practice has a listener service installed and it is not running.
+_SHELLS_THAT_WRAP = ("sh", "bash", "zsh", "dash", "fish")
+
+
+def listener_worker_counts(procs: list[dict] | None = None) -> dict[str, int]:
+    """How many listener workers each practice runs: `empirica loop listen` processes, not the shells that start them.
+
+    A listener a session starts runs as a shell (`bash -c ... empirica loop listen --instance X`) and the worker under it, and
+    both carry the command line, so counting every match reads one listener as two (seen on this box for empirica-nle,
+    2026-11-06). The shell is left out by its program name. ``procs`` is ``walk_listener_processes()``'s output, for tests.
+    """
+    from empirica.core.cockpit.listener_processes import _ai_id_from_listener_cmdline, walk_listener_processes
+
+    counts: dict[str, int] = {}
+    for proc in walk_listener_processes() if procs is None else procs:
+        if proc.get("kind") != "loop_listen":
+            continue
+        program = os.path.basename((proc.get("cmdline") or "").split(" ", 1)[0])
+        if program in _SHELLS_THAT_WRAP:
+            continue
+        ai_id = _ai_id_from_listener_cmdline(proc.get("cmdline") or "")
+        if ai_id:
+            counts[ai_id] = counts.get(ai_id, 0) + 1
+    return counts
+
+
+def _listener_chip(ai_id: str, workers: dict[str, int] | None = None) -> tuple[str, str, bool]:
+    """(state, label, on the mesh). Red when this practice has a listener service installed and it is not running; orange when
+    more than one listener worker runs for it (a duplicate, which delivers every wake twice).
 
     No service installed is not a fault: a practice that was never put on the mesh has no listener to be down. The third value says
-    whether one is installed, which is also what decides if a failed inbox poll is worth showing.
+    whether one is installed, which is also what decides if a failed inbox poll is worth showing. ``workers`` is
+    ``listener_worker_counts()``, taken once per refresh; without it no duplicate is reported.
     """
     try:
         from empirica.core.loop_scheduler.persistent_listener import PersistentListenerService
@@ -476,7 +504,10 @@ def _listener_chip(ai_id: str) -> tuple[str, str, bool]:
         return "", "", False
     if status.installed and not status.active:
         return "red", "listener down", True
-    return "", "", bool(status.installed)
+    running = (workers or {}).get(ai_id, 0)
+    if running > 1:
+        return "orange", f"listener ×{running}", True
+    return "", "", bool(status.installed) or running > 0
 
 
 def _inbox_chip(ai_id: str, path: str, run=subprocess.run) -> tuple[str, str]:
@@ -541,6 +572,13 @@ def refresh_state(
         if i_label == INBOX_UNKNOWN and not on_mesh:
             i_label = ""  # a practice that is not on the mesh has no inbox to fail to read
         return window_id, (m_state, m_label), (i_state, i_label)
+
+    if listener is _listener_chip:
+        # One process walk for the whole refresh, not one per practice.
+        workers = listener_worker_counts()
+
+        def listener(ai_id: str, _workers=workers) -> tuple[str, str, bool]:
+            return _listener_chip(ai_id, _workers)
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         results = list(pool.map(one, practices.items()))
