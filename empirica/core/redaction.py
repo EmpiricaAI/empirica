@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import re
 
+from empirica.core.orchestration.leak_guard import LOOSE as _LOOSE
+
 REDACTED = "<redacted>"
 
 # Key names whose VALUE is a secret regardless of shape. Matched
@@ -60,11 +62,12 @@ SECRET_KEY_NAMES = frozenset(
 # Secret SHAPES. Each pattern keeps its identifying prefix so a reader can still
 # tell WHICH credential was involved — that is diagnostically useful and is not
 # itself sensitive — while the entropy-bearing tail is destroyed.
+# The Cortex key, ntfy token and JWT shapes live in one table shared with the proposal gate; this module uses its loose tier.
 _SHAPE_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
-    (re.compile(r"\bctx_[A-Za-z0-9_\-]{8,}"), f"ctx_{REDACTED}"),
+    (_LOOSE["cortex_api_key"], f"ctx_{REDACTED}"),
     # ntfy access tokens (`tk_` + base32). Found stored raw in a scanner snapshot and on ten listener command lines
     # on 2026-10-15; without this rule only the `Authorization: Bearer tk_...` form was caught, not the bare token.
-    (re.compile(r"\btk_[A-Za-z0-9]{20,}"), f"tk_{REDACTED}"),
+    (_LOOSE["ntfy_token"], f"tk_{REDACTED}"),
     (re.compile(r"\bsk-[A-Za-z0-9_\-]{16,}"), f"sk-{REDACTED}"),
     (re.compile(r"\bghp_[A-Za-z0-9]{16,}"), f"ghp_{REDACTED}"),
     (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"), f"github_pat_{REDACTED}"),
@@ -72,10 +75,7 @@ _SHAPE_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), f"AKIA{REDACTED}"),
     (re.compile(r"\bmst-[A-Za-z0-9]{16,}"), f"mst-{REDACTED}"),
     # JWTs — three base64url segments.
-    (
-        re.compile(r"\beyJ[A-Za-z0-9_\-]{6,}\.[A-Za-z0-9_\-]{6,}\.[A-Za-z0-9_\-]+"),
-        f"{REDACTED}-jwt",
-    ),
+    (_LOOSE["jwt"], f"{REDACTED}-jwt"),
     # HTTP auth headers, generalised over the SCHEME.
     #
     # The first cut matched `bearer` only, which cortex correctly called a scheme
