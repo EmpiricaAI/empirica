@@ -159,14 +159,37 @@ def test_a_machine_command_comes_from_the_state_file_then_the_config_then_the_bu
     )
 
 
-def test_the_help_names_every_chip_and_has_a_section_for_every_guide_topic():
+def test_the_help_names_every_chip_and_has_a_section_and_an_index_link_for_every_guide_page():
     text = bar_help.HELP_TEXT
     for key, _label in bar.CHIPS:
         assert re.search(rf"^\s+{key}  \S", text, flags=re.M), key
-    assert re.findall(r"^\s+(\d+)  \S", text, flags=re.M) == [str(n) for n in range(1, 12)]
-    for n in range(1, 12):
-        assert re.search(rf"^  §{n}  \S", text, flags=re.M), f"topic {n} has no section"
+    pages = sorted(bar_help.GUIDE_DIR.glob("[0-9][0-9]-*.md"))
+    numbers = [str(int(p.name[:2])) for p in pages]
+    assert len(pages) >= 12, "the guide pages ship with the package"
+    assert re.findall(r"^\s+(\d+)  \S", text, flags=re.M) == numbers, "one index line per page, in order"
+    for n in numbers:
+        assert re.search(rf"^  §{n}  \S", text, flags=re.M), f"page {n} has no section"
+        pager = Pager(text.splitlines(), "t", 30, 100)
+        row = next(i for i, line in enumerate(pager.lines) if re.match(rf"^\s+{n}  \S", line))
+        pager.top = 0
+        pager.top = max(0, min(pager.max_top, row))
+        pager.click(10, row - pager.top + 1)
+        assert pager.visible()[0].startswith(f"  §{n}  "), f"the index line for page {n} does not jump to it"
     assert max(len(line) for line in text.splitlines()) <= int(bar.POPUP_WIDTH) - 2, "a line would wrap in the popup"
+
+
+def test_the_rendered_guide_keeps_no_markdown_marks():
+    text = bar_help.HELP_TEXT
+    assert "**" not in text and "](" not in text and "|---" not in text and "`" not in text
+
+
+def test_the_guide_pages_are_packaged():
+    import tomllib
+
+    root = Path(__file__).parent.parent
+    data = tomllib.loads((root / "pyproject.toml").read_text())["tool"]["setuptools"]["package-data"]["empirica"]
+    assert "core/cockpit/guide/*.md" in data
+    assert "recursive-include empirica/core/cockpit/guide *.md" in (root / "MANIFEST.in").read_text()
 
 
 def _pager(n=60, height=12, width=80) -> Pager:

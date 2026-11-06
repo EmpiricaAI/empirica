@@ -1,11 +1,23 @@
-"""The text of the cockpit bar's help popup: the bar's legend, the commands, and a first guide for new users.
+"""The text of the cockpit's help popup: the legend, the commands, then the guide to working with practices.
 
-Kept as a Python constant so it ships with the package whatever the packaging rules say about data files. The guide topics are
-David's list (2026-11-06): what he takes for granted and a new person needs. The topic texts here are a first draft for him to edit;
-topic 11 is to be replaced by the pages mesh-support drafts from the provisioning runbooks.
+The guide is mesh-support's draft for non-developers (empirica-mesh-support docs/guide at 562cedab), corrected by core to the
+cockpit as built, and shipped with the package under core/cockpit/guide/. Its content is owned by core with David (2026-11-06):
+edit the pages there. Markers of the form [check: ...] are facts not yet confirmed; they stay visible until someone settles them.
+
+The pages are markdown and are rendered here to plain text at the popup's width: headings become numbered sections the viewer
+can jump to (a line "  §N  TITLE"), the index lines link to them, tables become one wrapped line per row.
 """
 
-HELP_TEXT = """\
+from __future__ import annotations
+
+import re
+import textwrap
+from pathlib import Path
+
+GUIDE_DIR = Path(__file__).parent / "guide"
+WIDTH = 96
+
+LEGEND = """\
   EMPIRICA COCKPIT  ·  wheel, arrows or PgUp/PgDn scroll  ·  click a topic number to jump to it
   ────────────────────────────────────────────────────────────────────────────────────
 
@@ -38,121 +50,95 @@ HELP_TEXT = """\
     R, A and M never touch a pane that is running. Update, C and S always ask first, with Yes and
     Cancel you can click. Every menu has a Close item; this help has a Close button at the top.
 
-  THE GUIDE   click a topic to jump to it; g or Home returns here
-
-     1  What a practice is, and how the cockpit holds them
-     2  Talking with a practitioner
-     3  Helping it introspect
-     4  Using its predictions
-     5  Plans, goals and tasks
-     6  Skills
-     7  The epistemic loop, and why it pauses to read
-     8  The mesh, and what needs your approval
-     9  Gardening
-    10  Reading the status line and the bar
-    11  Onboarding a person, setting up a cockpit, adding a practice
-
-
-  §1  WHAT A PRACTICE IS, AND HOW THE COCKPIT HOLDS THEM
-  ────────────────────────────────────────────────────────────────────────────────────
-    A practice is one area of work with its own memory: a directory with a .empirica folder,
-    its own goals, findings, decisions and mistakes, and its own skills. A practitioner is
-    the AI working in it (Claude Code, ecodex). The memory belongs to the practice, so a new
-    session, or a different model, picks up where the last one stopped.
-
-    The cockpit is one tmux session with a tab per practice. Each pane starts in its
-    practice's directory with a fixed identity, so a pane that is restarted is the same
-    practitioner, not a stranger. Nothing is lost when you close the terminal: the practices
-    keep running, and `empirica cockpit launch` brings you back.
-
-  §2  TALKING WITH A PRACTITIONER
-  ────────────────────────────────────────────────────────────────────────────────────
-    Work with it the way you would with a capable colleague who has read the whole project.
-    Say what you are trying to achieve and why, not only the next step. Ask what it thinks
-    before you decide. When it disagrees and gives a reason, weigh the reason: it is asked to
-    hold a position that the evidence supports and to change it when you bring evidence.
-
-    Short commands get literal work. Context gets judgment.
-
-  §3  HELPING IT INTROSPECT
-  ────────────────────────────────────────────────────────────────────────────────────
-    You can ask a practitioner about its own state, and the answer is useful:
-
-      What do you know here, and what are you assuming?
-      How sure are you, and what would change your mind?
-      What have you not checked?
-
-    Share your own thinking the same way, including doubts. It records what it learns as
-    findings, what it does not know as unknowns, and what it takes for granted as
-    assumptions, so the next session starts from them.
-
-  §4  USING ITS PREDICTIONS
-  ────────────────────────────────────────────────────────────────────────────────────
-    When something needs your decision, ask for its predicted answer and the one reason
-    behind it. Then confirm with a word or override. This is faster than an open question
-    and it shows you whether it understood the situation: a prediction it cannot make means
-    it has more to read first.
-
-  §5  PLANS, GOALS AND TASKS
-  ────────────────────────────────────────────────────────────────────────────────────
-    Ask for a plan when the work is more than one step. A goal says what is to be achieved
-    and why; tasks are the units of work under it. They are stored in the practice, so you
-    can ask at any time: what is open, what is done, what is waiting on me. A task is closed
-    with evidence (a commit, a test result), which is what keeps "done" honest.
-
-  §6  SKILLS
-  ────────────────────────────────────────────────────────────────────────────────────
-    A skill is a written procedure the practitioner loads when a situation calls for it:
-    preparing a release, planning a larger piece of work, reviewing a document. It loads
-    them on its own when it recognises the moment, and you can ask for one by name with a
-    slash, such as /forecast to see what should come next.
-
-  §7  THE EPISTEMIC LOOP, AND WHY IT PAUSES TO READ
-  ────────────────────────────────────────────────────────────────────────────────────
-    Before it changes anything of substance the practitioner states what it knows and how
-    it knows it (PREFLIGHT, and CHECK after investigating). When the work is done it says
-    what held and what did not (POSTFLIGHT). In between, reading and searching are always
-    free; writing files and running things that change state wait for that statement.
-
-    So when it stops to read before acting, that is the system working. The record lets it,
-    and you, see later where its confidence matched reality and where it did not.
-
-  §8  THE MESH, AND WHAT NEEDS YOUR APPROVAL
-  ────────────────────────────────────────────────────────────────────────────────────
-    Practices can message each other. Questions and information go straight through. A
-    request for another practice to do something is a proposal, and it waits for a person
-    to accept, change or decline it, unless you have turned automatic acceptance on.
-
-    The I chip shows mail a practice has not answered. The M chip wakes a practice whose
-    listener has stopped, so it reads its mail again.
-
-  §9  GARDENING
-  ────────────────────────────────────────────────────────────────────────────────────
-    A practice's memory is only useful if it is current. From time to time, and before a
-    release, ask the practitioner to garden: close goals that are done, resolve questions
-    that were answered, and retract findings that turned out wrong. A good moment is when
-    a new session starts by telling you things that are no longer true.
-
-  §10  READING THE STATUS LINE AND THE BAR
-  ────────────────────────────────────────────────────────────────────────────────────
-    Inside each practice, the line under the prompt shows the open transaction, the phase
-    (investigating or acting), and how much of the context is used. Context filling up is
-    normal: what was learned is saved as it goes.
-
-    The bars of the cockpit are about the machine and the practices as a whole.
-    Dim means leave it alone. Orange means look when you have a moment. Red means act.
-
-  §11  ONBOARDING A PERSON, SETTING UP A COCKPIT, ADDING A PRACTICE
-  ────────────────────────────────────────────────────────────────────────────────────
-    Add a practice and put it in a cockpit:
-
-      empirica provision-practice NAME --type TYPE --description "what it is for" \\
-          --cockpit-profile PROFILE
-
-    Check a cockpit profile, then bring it up:
-
-      empirica cockpit status --profile PROFILE
-      empirica cockpit launch --profile PROFILE
-
-    The full guide is docs/guides/COCKPIT.md. `empirica cockpit --help` is the short form.
 """
+
+
+def _plain(text: str) -> str:
+    """Markdown emphasis, code marks and links reduced to their text."""
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = text.replace("**", "").replace("`", "")
+    return re.sub(r"(?<![\w*])\*([^*\n]+)\*(?![\w*])", r"\1", text)
+
+
+def _wrap(text: str, indent: int, hanging: int | None = None) -> list[str]:
+    first = " " * indent
+    rest = " " * (indent if hanging is None else hanging)
+    return textwrap.wrap(text, width=WIDTH, initial_indent=first, subsequent_indent=rest) or [""]
+
+
+def _render_page(markdown: str) -> list[str]:
+    """One guide page as plain lines no wider than WIDTH."""
+    out: list[str] = []
+    paragraph: list[str] = []
+    in_code = False
+
+    def flush() -> None:
+        if paragraph:
+            out.extend(_wrap(_plain(" ".join(paragraph)), 4))
+            paragraph.clear()
+
+    for raw in markdown.splitlines():
+        line = raw.rstrip()
+        if line.startswith("```"):
+            flush()
+            in_code = not in_code
+            continue
+        if in_code:
+            out.append(("      " + line)[:WIDTH])
+            continue
+        heading = re.match(r"^# (\d+)\. (.+)$", line)
+        if heading:
+            flush()
+            out += ["", "", f"  §{heading.group(1)}  {_plain(heading.group(2)).upper()}", "  " + "─" * (WIDTH - 4)]
+            continue
+        sub = re.match(r"^#{2,} (.+)$", line)
+        if sub:
+            flush()
+            out += ["", f"  {_plain(sub.group(1))}"]
+            continue
+        if line.startswith("|"):
+            flush()
+            cells = [_plain(c.strip()) for c in line.strip("|").split("|")]
+            if all(re.fullmatch(r":?-{3,}:?", c) for c in cells if c):
+                continue
+            out.extend(_wrap(" · ".join(c for c in cells if c), 4, 8))
+            continue
+        item = re.match(r"^(\s*)([-*]|\d+\.) (.+)$", line)
+        if item:
+            flush()
+            marker = "-" if item.group(2) in "-*" else item.group(2)
+            depth = 4 + len(item.group(1))
+            out.extend(_wrap(f"{marker} {_plain(item.group(3))}", depth, depth + len(marker) + 1))
+            continue
+        if not line.strip():
+            flush()
+            if out and out[-1] != "":
+                out.append("")
+            continue
+        paragraph.append(line.strip())
+    flush()
+    return out
+
+
+def _index(readme: str) -> list[str]:
+    """The guide's table of pages as viewer index lines: number, two spaces, title, and when to read it."""
+    rows = re.findall(r"^\| (\d+) \| \[([^\]]+)\]\([^)]+\) \| ([^|]+?) \|$", readme, flags=re.M)
+    lines = ["  THE GUIDE   click a page number to jump to it; g or Home returns here", ""]
+    for number, title, when in rows:
+        lines.extend(_wrap(f"{number:>2}  {_plain(title)}  ·  {_plain(when)}", 4, 10))
+    return lines
+
+
+def help_text(guide_dir: Path = GUIDE_DIR) -> str:
+    """The legend and commands, then the guide's index, its three words and every page."""
+    readme = (guide_dir / "README.md").read_text()
+    words = readme[readme.index("## Three words") :] if "## Three words" in readme else ""
+    lines = LEGEND.rstrip("\n").splitlines() + [""] + _index(readme)
+    if words:
+        lines += _render_page(words)
+    for page in sorted(guide_dir.glob("[0-9][0-9]-*.md")):
+        lines += _render_page(page.read_text())
+    return "\n".join(lines).rstrip() + "\n"
+
+
+HELP_TEXT = help_text()

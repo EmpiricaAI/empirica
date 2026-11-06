@@ -5,6 +5,7 @@ include requirements.txt
 include setup.py
 include pyproject.toml
 recursive-include empirica *.py *.json *.yaml
+recursive-include empirica/core/cockpit/guide *.md
 # Only include essential docs (must explicitly include each file)
 include docs/skills/SKILL.md
 include docs/system-prompts/CANONICAL_SYSTEM_PROMPT.md

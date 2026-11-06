@@ -199,6 +199,9 @@ by a whole tmux server, so a `Ctrl+b e` you already use is not taken (the comman
 a click only, and `launch` says so), and a click on a pane border outside a cockpit goes to
 whatever handled it before.
 
+The guide the help shows is a set of markdown pages in `empirica/core/cockpit/guide/`, one per topic,
+written for people who do not write code. Edit them there.
+
 `empirica cockpit refresh --pane ID` is what `R` runs: it restarts that one pane if it has
 stopped and leaves every other pane alone.
 

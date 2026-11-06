@@ -181,6 +181,7 @@ exclude = ["tests*", "_archive*", "_dev*"]
 empirica = [
     "docs/**/*",
     "config/mco/**/*.yaml",
+    "core/cockpit/guide/*.md",
     "plugins/claude-code-integration/**/*",
 ]
 
