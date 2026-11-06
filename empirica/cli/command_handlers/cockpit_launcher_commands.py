@@ -85,6 +85,25 @@ def _profile_error(args, error: str) -> int:
     return 1
 
 
+def _start_launch_wake(opened: list[dict], session_name: str, *, human: bool) -> dict:
+    """Give the claude panes this launch opened the wake `refresh` gives a respawned pane, from a detached process.
+
+    Launch hands the terminal to tmux, so the wake cannot run here (core/cockpit/launch_wake.py). Never raises: a launch that
+    built its layout has succeeded whatever the wake does, and what happened is in `cockpit status`.
+    """
+    try:
+        from empirica.core.cockpit import launch_wake
+
+        wake = launch_wake.start(opened, session_name)
+    except Exception as e:
+        wake = {"started": False, "panes": 0, "detail": f"the wake could not be started ({type(e).__name__}: {e})"}
+    if human and wake.get("started"):
+        print(f"  ⏰ {wake['detail']}; `empirica cockpit status` shows the result")
+    elif human and wake.get("panes"):
+        print(f"  ⚠ {wake['detail']}")
+    return wake
+
+
 def handle_cockpit_launch_command(args) -> int:
     """``empirica cockpit launch [--config PATH] [--no-attach]``.
 
@@ -164,6 +183,7 @@ def handle_cockpit_launch_command(args) -> int:
         "windows_created": result.windows_created,
         "status_windows_created": result.status_windows_created,
         "abnormal_exit": abnormal_payload,
+        "wake": _start_launch_wake(result.opened, result.session_name, human=output == "human"),
     }
 
     if output == "json":
@@ -234,17 +254,25 @@ def _handle_groups_in_terminal(config, output: str, no_attach: bool) -> int:
     windows = [
         {"name": g.group_name, "created": g.created, "panes": g.panes_created, "error": g.error} for g in result.groups
     ]
-    if output == "json":
-        print(
-            json.dumps(
-                {"ok": result.all_ok(), "surface": "tmux", "session_name": result.session_name, "windows": windows}
-            )
-        )
-    else:
+    if output != "json":
         _print_stripped(result.session_identity_stripped)
         for g in result.groups:
             verb = "created" if g.created else "adopted existing"
             print(f"  · {g.group_name:12s} ({verb}, {g.panes_created} panes){'  ⚠ ' + g.error if g.error else ''}")
+    # Before the attach below: that replaces this process, so this is the last point the wake can be started from.
+    wake = _start_launch_wake(result.opened, result.session_name, human=output != "json")
+    if output == "json":
+        print(
+            json.dumps(
+                {
+                    "ok": result.all_ok(),
+                    "surface": "tmux",
+                    "session_name": result.session_name,
+                    "windows": windows,
+                    "wake": wake,
+                }
+            )
+        )
     if not result.all_ok():
         # Attaching would hand the terminal to tmux and the warnings above would be gone with the
         # scrollback. Stop, say what is missing, and leave the choice to attach with the user.
@@ -313,9 +341,11 @@ def _handle_groups_launch(config, output: str, quiet: bool) -> int:
             }
             for g in result.groups
         ],
+        "wake": None,
     }
 
     if output == "json":
+        payload["wake"] = _start_launch_wake(result.opened, result.session_name, human=False)
         print(json.dumps(payload, indent=2, default=str))
         return 0 if result.all_ok() else 1
 
@@ -335,6 +365,7 @@ def _handle_groups_launch(config, output: str, quiet: bool) -> int:
         if g.error:
             line += f"  ⚠ {g.error}"
         print(line)
+    _start_launch_wake(result.opened, result.session_name, human=True)
     if not quiet:
         print()
         print("  Click a window name in the top status-line to switch between groups.")
@@ -447,6 +478,22 @@ def _status_findings(config_p: Path | None) -> tuple[str, list[str], list[str]]:
     return file_state, errors, warnings
 
 
+def _last_launch_wake(session_name: str) -> dict | None:
+    """What the last `launch` of this session did about waking its panes, or None. A reader that breaks says so."""
+    try:
+        from empirica.core.cockpit import launch_wake
+
+        return launch_wake.read(session_name)
+    except Exception as e:
+        return {"status": "unreadable", "error": f"{type(e).__name__}: {e}", "path": ""}
+
+
+def _launch_wake_lines(record: dict | None) -> list[str]:
+    from empirica.core.cockpit import launch_wake
+
+    return launch_wake.summary_lines(record)
+
+
 def handle_cockpit_status_command(args) -> int:
     """``empirica cockpit status``. Read-only state snapshot — does NOT
     attach. Reports session liveness, last clean shutdown, abnormal-exit
@@ -479,6 +526,7 @@ def handle_cockpit_status_command(args) -> int:
         "abnormal_exit": None,
         "configured_projects": [{"name": p.name, "path": p.path, "launch": p.launch} for p in config.projects],
         "status_windows": [{"name": w.name, "command": w.command} for w in config.status_windows],
+        "launch_wake": _last_launch_wake(config.session_name),
     }
     if isinstance(abnormal, AbnormalExit):
         payload["abnormal_exit"] = {
@@ -512,6 +560,8 @@ def handle_cockpit_status_command(args) -> int:
     )
     if snap.lock_pid is not None:
         print(f"   lock pid:    {snap.lock_pid} ({'alive' if snap.lock_alive else 'dead'})")
+    for line in _launch_wake_lines(payload["launch_wake"]):
+        print(f"   {line}")
     if isinstance(abnormal, AbnormalExit):
         print(f"   ⚠ abnormal exit: started {_format_iso(abnormal.started_at)}, cause={abnormal.likely_cause}")
     elif isinstance(abnormal, SessionAlreadyRunning):

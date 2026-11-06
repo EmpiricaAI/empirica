@@ -97,6 +97,9 @@ def add_cockpit_launcher_parsers(subparsers):
         "Build the layout the config describes and attach to it. Safe to run again: a cockpit that is already\n"
         "running is attached, not rebuilt, and a practice pane that was closed is added back. Conversations are\n"
         "not restored by launch; `refresh` resumes a pane whose program exited.\n\n"
+        "Each claude pane this launch opened gets one wake turn in the background, once it is idle, so it reads its\n"
+        "inbox and arms its listener without anyone typing. A pane that is busy or has a draft is not typed into.\n"
+        "`empirica cockpit status` shows how many were woken.\n\n"
         "With the tmux surface the layout opens in the terminal you run this from, so it works over SSH and on a\n"
         "machine with no display. alacritty and ghostty open a window on this machine's display.",
         "  empirica cockpit launch\n"
@@ -149,7 +152,8 @@ def add_cockpit_launcher_parsers(subparsers):
         "Show what is running and check the config. It touches nothing, so it is also the check for a profile you\n"
         "edited by hand: it exits 1 and names the problem when a pane refers to a project that is not under\n"
         "`projects:`, when a group has no usable pane, when two groups or projects share a name, or when the file\n"
-        "cannot be read. A project directory that does not exist yet is a warning, not an error.",
+        "cannot be read. A project directory that does not exist yet is a warning, not an error. It also shows what\n"
+        "the last launch did about waking the panes it opened: how many, which were not woken and why.",
         "  empirica cockpit status\n"
         "  empirica cockpit status --profile monitor-b\n"
         "  empirica cockpit status --profile monitor-b --output json\n",

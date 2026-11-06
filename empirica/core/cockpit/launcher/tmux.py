@@ -47,6 +47,9 @@ class LaunchResult:
     status_windows_created: list[str]
     error: str | None = None
     session_identity_stripped: str | None = None  # id removed from an existing session's environment
+    opened: list[dict] = field(
+        default_factory=list
+    )  # panes THIS call created: {key, pane_id, instance_id, command, error}
 
 
 def _tmux(*args: str, check: bool = False) -> subprocess.CompletedProcess:
@@ -150,6 +153,7 @@ def launch_cockpit(config: LauncherConfig) -> LaunchResult:
     status_windows_created: list[str] = []
 
     identities = assign_identities(config, config.session_name)
+    opened: list[dict] = []
 
     # Initial window — first project, or first status window if no projects.
     if config.projects:
@@ -160,6 +164,7 @@ def launch_cockpit(config: LauncherConfig) -> LaunchResult:
             f"{first.name}/0",
             config,
             identities,
+            opened,
         )
         if result.returncode != 0:
             return LaunchResult(
@@ -204,6 +209,7 @@ def launch_cockpit(config: LauncherConfig) -> LaunchResult:
             f"{project.name}/0",
             config,
             identities,
+            opened,
         )
         if result.returncode == 0:
             windows_created.append(project.name)
@@ -233,6 +239,7 @@ def launch_cockpit(config: LauncherConfig) -> LaunchResult:
         created=True,
         windows_created=windows_created,
         status_windows_created=status_windows_created,
+        opened=opened,
     )
 
 
@@ -283,6 +290,9 @@ class GroupsLaunchResult:
     terminal_pid: int | None = None  # PID of the ONE spawned terminal, or None if spawn failed/skipped
     terminal_skipped: bool = False  # True when an existing client was found and we skipped spawning a duplicate
     session_identity_stripped: str | None = None  # id removed from an existing session's environment
+    opened: list[dict] = field(
+        default_factory=list
+    )  # panes THIS call created: {key, pane_id, instance_id, command, error}
     error: str | None = (
         None  # top-level error (e.g. tmux missing, terminal spawn failed); per-window errors live on each result
     )
@@ -561,9 +571,19 @@ def _session_of(base: list[str]) -> str | None:
         return None
 
 
-def _open_pane(base: list[str], pane: PaneSpec, key: str, config: LauncherConfig, identities: dict[str, str]):
+def _open_pane(
+    base: list[str],
+    pane: PaneSpec,
+    key: str,
+    config: LauncherConfig,
+    identities: dict[str, str],
+    opened: list[dict] | None = None,
+):
     """Run one pane-creating tmux command (new-session / new-window /
-    split-window) for ``pane``, bound and stamped. Returns the tmux result."""
+    split-window) for ``pane``, bound and stamped. Returns the tmux result.
+
+    A pane that came up is appended to ``opened`` in the shape `refresh` reports a respawn, so launch can
+    give the claude panes it started the same wake (core/cockpit/launch_wake.py)."""
     cwd, cmd = _resolve_pane(pane, config)
     iid = identities.get(key)
     args = [*base, "-P", "-F", "#{pane_id}"]
@@ -576,6 +596,8 @@ def _open_pane(base: list[str], pane: PaneSpec, key: str, config: LauncherConfig
         pane_id = result.stdout.strip()
         _set_pane_title(pane_id, _pane_title(pane))
         _stamp_pane(pane_id, key, iid, remain=_keeps_on_exit(pane, iid, config))
+        if opened is not None:
+            opened.append({"key": key, "pane_id": pane_id, "instance_id": iid, "command": cmd, "error": None})
         if base and base[0] == "new-session" and (session := _session_of(base)):
             strip_session_identity(session)  # -e on new-session is session-wide; the pane keeps its copy
     return result
@@ -603,6 +625,7 @@ def _create_group_window(
     session_name: str,
     is_first_group: bool,
     identities: dict[str, str] | None = None,
+    opened: list[dict] | None = None,
 ) -> tuple[bool, int, str | None]:
     """Create ONE WINDOW (named after the group) inside the shared
     per-monitor session, with all the group's panes split into it.
@@ -638,7 +661,9 @@ def _create_group_window(
             missing = keyed[existing:]  # unstamped window from an older launch
         failures: list[str] = []
         for key, pane in missing:
-            result = _open_pane(["split-window", "-t", window_target, split_flag], pane, key, config, identities)
+            result = _open_pane(
+                ["split-window", "-t", window_target, split_flag], pane, key, config, identities, opened
+            )
             if result.returncode == 0:
                 existing += 1
             else:
@@ -657,7 +682,7 @@ def _create_group_window(
     else:
         base = ["new-window", "-t", _sess_at(session_name), "-n", group.name]
         verb = "new-window"
-    result = _open_pane(base, first, first_key, config, identities)
+    result = _open_pane(base, first, first_key, config, identities, opened)
     if result.returncode != 0:
         return False, 0, f"tmux {verb} failed: {result.stderr.strip() or result.stdout.strip()}"
     if is_first_group:
@@ -666,7 +691,7 @@ def _create_group_window(
     panes_created = 1
     failures = []
     for key, pane in keyed[1:]:
-        result = _open_pane(["split-window", "-t", window_target, split_flag], pane, key, config, identities)
+        result = _open_pane(["split-window", "-t", window_target, split_flag], pane, key, config, identities, opened)
         if result.returncode == 0:
             panes_created += 1
         else:
@@ -791,9 +816,10 @@ def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> Groups
     session_existed_before = cockpit_session_exists(session_name)
     stripped = strip_session_identity(session_name) if session_existed_before else None
     identities = assign_identities(config, session_name)
+    opened: list[dict] = []
     for i, group in enumerate(config.groups):
         is_first_group = not session_existed_before and i == 0
-        created, pane_count, err = _create_group_window(group, config, session_name, is_first_group, identities)
+        created, pane_count, err = _create_group_window(group, config, session_name, is_first_group, identities, opened)
         results.append(
             GroupLaunchResult(
                 group_name=group.name,
@@ -805,12 +831,14 @@ def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> Groups
         )
 
     if any(g.error for g in results):
-        return GroupsLaunchResult(groups=results, session_name=session_name, error=None)
+        return GroupsLaunchResult(groups=results, session_name=session_name, error=None, opened=opened)
 
     if not spawn_terminal:
         # surface: tmux — the caller attaches the terminal it was run from.
         write_lock()
-        return GroupsLaunchResult(groups=results, session_name=session_name, session_identity_stripped=stripped)
+        return GroupsLaunchResult(
+            groups=results, session_name=session_name, session_identity_stripped=stripped, opened=opened
+        )
 
     # Dedup: if the session already has a client attached (= a terminal
     # window from a prior launch is still alive), don't spawn a
@@ -819,7 +847,11 @@ def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> Groups
     if _session_has_attached_client(session_name):
         write_lock()
         return GroupsLaunchResult(
-            groups=results, session_name=session_name, terminal_skipped=True, session_identity_stripped=stripped
+            groups=results,
+            session_name=session_name,
+            terminal_skipped=True,
+            session_identity_stripped=stripped,
+            opened=opened,
         )
 
     spawn_fn = _spawn_ghostty if config.surface == "ghostty" else _spawn_alacritty
@@ -836,6 +868,7 @@ def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> Groups
         terminal_pid=pid,
         error=spawn_err,
         session_identity_stripped=stripped,
+        opened=opened,
     )
 
 

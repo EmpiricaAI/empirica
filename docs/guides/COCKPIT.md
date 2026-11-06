@@ -199,6 +199,26 @@ practice is never touched, so `refresh` is safe to run at any time.
 If a practice pane was closed entirely, `refresh` lists it as missing and
 `empirica cockpit launch` adds back exactly that pane.
 
+### After a restart: `launch` wakes what it opened
+
+A claude that has just started, or resumed with `--continue`, sits at its prompt
+until someone types. Its session-start instructions (arm the mesh listener, read
+the inbox) run on its first turn, so a cockpit brought up after a reboot used to
+be a row of idle practices that looked ready and were not listening.
+
+`launch` now gives each claude pane it opened one wake turn, the same one
+`refresh` gives a pane it restarts. It happens in the background, once the pane
+is idle, so `launch` is as fast as before; a pane that is busy, has a draft in
+its prompt or shows a dialog is never typed into. Practices that were already
+running are not touched.
+
+```bash
+empirica cockpit status        # "launch wake: 6 of 6 claude pane(s) woken at ..."
+```
+
+`status` names any pane that was not woken and why, and says so if the wake
+failed or never finished.
+
 Cockpits started by an older version are picked up on the first `refresh`. A
 pane is matched to its configured practice when its window and directory
 identify exactly one. Anything ambiguous is reported and left alone.
