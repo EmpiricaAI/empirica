@@ -9,7 +9,7 @@ What it does not do:
 
 * It is not tamper-proof. The agent whose calls are recorded can edit or delete the file with its own shell. It is a record for
   measurement, not evidence against the agent.
-* ``effect_class`` (what the call changed) and ``human_override`` (a person approving or denying at the prompt) are null here:
+* ``effect_classes`` (what the call changed) and ``human_override`` (a person approving or denying at the prompt) are null here:
   PreToolUse runs before the call and before any prompt, so neither is visible to it. They belong to the PostToolUse side.
 * ``permission_mode`` is the harness's own, as its hook input carries it (null when it does not): the same call carries a different risk under
   a read-only mode than under one that lets it write.
@@ -98,7 +98,7 @@ def build(
         "input_sha256": input_hash(tool_input),
         "decision": decision,
         "rule": rule,
-        "effect_class": None,
+        "effect_classes": None,
         "human_override": None,
     }
 
@@ -136,7 +136,7 @@ def append(record: dict, path: Path, *, max_bytes: int = MAX_BYTES) -> bool:
 OUTCOME_HOOKS = ("entity-extractor.py", "truncation-legibility.py", "tool-failure.py")
 
 # What a call changed. Draft, checked by ecodex (prop_2zqpvjdjwfbghgbi6f2rjtghgm). Only the four path classes are produced so
-# far, for Edit and Write; a shell call is recorded with no class and observed false until the before-and-after comparison exists.
+# far, for Edit, Write and codex's apply_patch; a shell call is recorded with no class and observed false until the before-and-after comparison exists.
 EFFECT_CLASSES = (
     "none",
     "project_write",
@@ -195,17 +195,55 @@ def project_path_for(claude_session_id: str | None, cwd: str | None) -> str | No
     return None
 
 
+_PATCH_HEADERS = ("*** Add File: ", "*** Delete File: ", "*** Update File: ", "*** Move to: ")
+
+
+def patch_paths(patch: str) -> list[str]:
+    """Every path a codex ``apply_patch`` names, in order: added, deleted, updated, and the destination of a move.
+
+    The grammar is codex's own (codex-rs/apply-patch/src/parser.rs, as ecodex cited it): file headers between
+    ``*** Begin Patch`` and ``*** End Patch``. Text that does not begin a patch names nothing.
+    """
+    lines = (patch or "").splitlines()
+    if not lines or lines[0].strip() != "*** Begin Patch":
+        return []
+    paths: list[str] = []
+    for line in lines[1:]:
+        if line.strip() == "*** End Patch":
+            break
+        for header in _PATCH_HEADERS:
+            if line.startswith(header):
+                path = line[len(header) :].strip()
+                if path:
+                    paths.append(path)
+                break
+    return paths
+
+
+def _written_paths(tool_name: str, tool_input: object, cwd: str | None) -> list[str]:
+    """The files an Edit, Write or apply_patch call wrote to, absolute. A patch's relative paths are read against ``cwd``."""
+    if not isinstance(tool_input, dict):
+        return []
+    if tool_name in ("Edit", "Write"):
+        return [str(tool_input["file_path"])] if tool_input.get("file_path") else []
+    if tool_name == "apply_patch":
+        base = cwd or os.getcwd()
+        return [
+            p if os.path.isabs(p) else os.path.join(base, p) for p in patch_paths(str(tool_input.get("command") or ""))
+        ]
+    return []
+
+
 def build_outcome(hook_input: dict, outcome: str, project_path: str | None) -> dict:
+    """The post line. ``effect_classes`` is the sorted set of classes of the places a successful file edit wrote; null for a
+    shell command (not observed yet), for any other tool, and for a call that did not succeed."""
     tool_name = str(hook_input.get("tool_name") or "unknown")
     tool_input = hook_input.get("tool_input") or {}
-    effect = None
-    if (
-        outcome == "success"
-        and tool_name in ("Edit", "Write")
-        and isinstance(tool_input, dict)
-        and tool_input.get("file_path")
-    ):
-        effect = path_effect(str(tool_input["file_path"]), project_path)
+    effects = None
+    if outcome == "success":
+        paths = _written_paths(tool_name, tool_input, hook_input.get("cwd"))
+        if paths:
+            effects = sorted({path_effect(path, project_path) for path in paths})
     return {
         "ts": round(time.time(), 3),
         "vocabulary": VOCABULARY_VERSION,
@@ -215,8 +253,8 @@ def build_outcome(hook_input: dict, outcome: str, project_path: str | None) -> d
         "tool_use_id": hook_input.get("tool_use_id"),
         "tool": tool_name,
         "outcome": outcome,
-        "effect_class": effect,
-        "observed": effect is not None,
+        "effect_classes": effects,
+        "observed": effects is not None,
     }
 
 

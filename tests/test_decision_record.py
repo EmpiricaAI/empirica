@@ -49,7 +49,7 @@ def test_the_record_names_mode_vocabulary_and_what_it_cannot_see():
 
     assert rec["mode"] == "strict"
     assert rec["vocabulary"] == dr.VOCABULARY_VERSION
-    assert rec["effect_class"] is None and rec["human_override"] is None
+    assert rec["effect_classes"] is None and rec["human_override"] is None
     assert rec["command_class"] == "Edit"
 
 
@@ -236,7 +236,7 @@ def test_a_successful_edit_records_its_outcome_and_effect(tmp_path, home):
     assert len(lines) == 1
     rec = lines[0]
     assert rec["event"] == "post" and rec["tool_use_id"] == "toolu_9"
-    assert rec["outcome"] == "success" and rec["effect_class"] == "config_write" and rec["observed"] is True
+    assert rec["outcome"] == "success" and rec["effect_classes"] == ["config_write"] and rec["observed"] is True
 
 
 def test_a_successful_shell_call_records_its_outcome_and_says_the_effect_is_not_observed(tmp_path, home):
@@ -252,7 +252,7 @@ def test_a_successful_shell_call_records_its_outcome_and_says_the_effect_is_not_
         },
     )
 
-    assert [(r["outcome"], r["effect_class"], r["observed"]) for r in lines] == [("success", None, False)]
+    assert [(r["outcome"], r["effect_classes"], r["observed"]) for r in lines] == [("success", None, False)]
     assert "git push" not in json.dumps(lines)
 
 
@@ -271,7 +271,7 @@ def test_a_failed_or_interrupted_call_records_that(tmp_path, home, interrupt, ou
         },
     )
 
-    assert [(r["outcome"], r["effect_class"]) for r in lines] == [(outcome, None)]
+    assert [(r["outcome"], r["effect_classes"]) for r in lines] == [(outcome, None)]
 
 
 def test_the_three_hooks_carry_the_same_loader():
@@ -282,3 +282,101 @@ def test_the_three_hooks_carry_the_same_loader():
     copies = {name: pattern.search((HOOKS / name).read_text()) for name in dr.OUTCOME_HOOKS}
     assert all(copies.values()), [n for n, m in copies.items() if not m]
     assert len({m.group(0) for m in copies.values() if m}) == 1
+
+
+# ── apply_patch, codex's file-editing tool (ecodex, prop_eggbzwmidzfujlzyn26gm4dg4a) ───────────────────────────────────────
+
+
+def _patch(*body: str) -> str:
+    return "\n".join(["*** Begin Patch", *body, "*** End Patch"]) + "\n"
+
+
+def test_a_patch_names_every_path_it_touches(tmp_path):
+    patch = _patch(
+        "*** Add File: src/new.py",
+        "+print('x')",
+        "*** Update File: src/old.py",
+        "*** Move to: src/renamed.py",
+        "@@",
+        "-a",
+        "+b",
+        "*** Delete File: notes.txt",
+    )
+
+    assert dr.patch_paths(patch) == ["src/new.py", "src/old.py", "src/renamed.py", "notes.txt"]
+
+
+def test_text_that_is_not_a_patch_names_nothing():
+    assert dr.patch_paths("echo '*** Add File: x'") == []
+    assert dr.patch_paths("") == []
+
+
+def test_a_successful_patch_carries_the_class_of_each_place_it_wrote(tmp_path, home):
+    proj = tmp_path / "proj"
+    patch = _patch(
+        "*** Update File: src/app.py",
+        "@@",
+        "-a",
+        "+b",
+        f"*** Add File: {home / '.codex' / 'config.toml'}",
+        "+x = 1",
+    )
+    rec = dr.build_outcome(
+        {"tool_name": "apply_patch", "tool_input": {"command": patch}, "cwd": str(proj)}, "success", str(proj)
+    )
+
+    assert rec["effect_classes"] == ["config_write", "project_write"]
+    assert rec["observed"] is True
+    assert "config.toml" not in json.dumps(rec)  # paths are classed, not written
+
+
+def test_a_relative_patch_path_is_read_against_the_call_s_working_directory(tmp_path, home):
+    proj = tmp_path / "proj"
+    rec = dr.build_outcome(
+        {
+            "tool_name": "apply_patch",
+            "tool_input": {"command": _patch("*** Add File: a.txt", "+x")},
+            "cwd": str(tmp_path),
+        },
+        "success",
+        str(proj),
+    )
+
+    assert rec["effect_classes"] == ["outside_write"]  # tmp_path/a.txt is outside the practice
+
+
+def test_a_failed_patch_carries_no_class():
+    rec = dr.build_outcome(
+        {"tool_name": "apply_patch", "tool_input": {"command": _patch("*** Add File: a.txt", "+x")}}, "failure", None
+    )
+
+    assert rec["effect_classes"] is None and rec["observed"] is False
+
+
+def test_a_shell_call_gets_one_post_line_where_both_post_hooks_run(tmp_path, home):
+    """codex runs entity-extractor after every tool and truncation-legibility after Bash (ecodex's hooks.json)."""
+    payload = {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls"},
+        "tool_response": {"stdout": ""},
+    }
+    _post(tmp_path, home, "entity-extractor.py", payload)
+    lines = _post(tmp_path, home, "truncation-legibility.py", payload)
+
+    assert len(lines) == 1
+
+
+def test_an_apply_patch_reaching_entity_extractor_is_recorded_with_its_classes(tmp_path, home):
+    lines = _post(
+        tmp_path,
+        home,
+        "entity-extractor.py",
+        {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "apply_patch",
+            "tool_input": {"command": _patch(f"*** Add File: {home / '.bashrc'}", "+x")},
+        },
+    )
+
+    assert [(r["tool"], r["effect_classes"]) for r in lines] == [("apply_patch", ["config_write"])]

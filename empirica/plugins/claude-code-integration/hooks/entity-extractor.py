@@ -249,7 +249,9 @@ def main():
     except (json.JSONDecodeError, EOFError):
         hook_input = {}
 
-    _record_outcome(hook_input, "success")
+    # On codex this hook runs after every tool and truncation-legibility after Bash: Bash's post line is that hook's.
+    if hook_input.get("tool_name") != "Bash":
+        _record_outcome(hook_input, "success")
 
     tool_name = hook_input.get("tool_name", "unknown")
     tool_input = hook_input.get("tool_input", {})
