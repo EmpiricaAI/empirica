@@ -75,11 +75,26 @@ def test_r_and_a_are_computed_by_tmux_and_the_others_read_options():
 
 def test_the_menu_has_every_command_handles_the_mouse_and_ends_with_close():
     args = bar.menu_args("P")
-    assert args[0] == "display-menu" and "-M" in args and "-O" not in args
+    assert args[0] == "display-menu" and "-O" not in args
+    assert ("-M" in args) == bool(bar.menu_mouse_flag()), "the mouse flag only where this tmux takes it"
     assert args[args.index("-x") + 1] == "P" and args[args.index("-y") + 1] == "P"
     for key in [k for k, _ in bar.CHIPS] + ["help"]:
         assert any(f" chip {key} " in a for a in args), key
     assert args[-3:] == ["✕  Close", "q", ""]
+
+
+@pytest.mark.parametrize(
+    ("usage", "flag"),
+    [
+        ("display-menu (menu) [-MO] [-b border-lines] [-c target-client] ...", ["-M"]),  # tmux 3.6
+        ("display-menu (menu) [-O] [-b border-lines] [-c target-client] ...", []),  # tmux 3.4
+        ("", []),  # tmux missing or refusing
+    ],
+)
+def test_the_mouse_flag_is_passed_only_to_a_tmux_that_takes_it(monkeypatch, usage, flag):
+    monkeypatch.setattr(bar, "_tmux", lambda *_a, **_k: subprocess.CompletedProcess([], 0, usage, ""))
+    assert bar.menu_mouse_flag() == flag
+    assert ("-M" in bar.menu_args("P")) == bool(flag)
 
 
 def test_update_is_in_the_menu_only_with_no_chip_and_no_shortcut():
@@ -523,14 +538,23 @@ def test_restarting_the_sessions_asks_with_a_menu_and_cancel_and_yes_both_answer
     who = _tmux("list-clients", "-t", "=m2", "-F", "#{client_name}").stdout.split()[0]
     before = _pid(pane)
 
+    # A menu a process opens takes clicks only where tmux has display-menu -M (3.5+); elsewhere it answers its keys.
+    mouse = bool(bar.menu_mouse_flag())
+
+    def choose(label: str, key: str) -> None:
+        if mouse:
+            client.click(60, client.row_of(label))
+        else:
+            _tmux("send-keys", "-t", client.view, key)
+
     bar.run_chip("S", "m2", pane, who)
     assert _wait(lambda: client.shows("✕  Cancel")) and client.shows("Yes: restart every practice pane")
-    client.click(60, client.row_of("✕  Cancel"))
+    choose("✕  Cancel", "n")
     assert _wait(lambda: not client.shows("✕  Cancel")) and _pid(pane) == before, "Cancel must change nothing"
 
     bar.run_chip("S", "m2", pane, who)
     assert _wait(lambda: client.shows("Yes: restart"))
-    client.click(60, client.row_of("Yes: restart"))
+    choose("Yes: restart", "y")
     assert _wait(lambda: _pid(pane) != before, timeout=10), "Yes did not restart the session"
 
 

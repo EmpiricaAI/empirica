@@ -228,6 +228,19 @@ def _action_command(verb: str, what: str) -> str:
     return f"run-shell -b {_dq(shell)}"
 
 
+def menu_mouse_flag() -> list[str]:
+    """``["-M"]`` when this tmux's display-menu takes it (3.5 and later), else nothing.
+
+    Asked of tmux itself, not inferred from a version string. Without the flag a menu still answers its keys, and the menu the
+    line under a pane opens still takes clicks, because a mouse binding opens it; only menus opened by a key or a process
+    (prefix e Space, and the Yes/Cancel confirmation) are keyboard-only on an older tmux. Passing a flag tmux does not know makes
+    it refuse the whole command, which is what CI's tmux 3.4 did.
+    """
+    usage = _tmux("list-commands", "display-menu").stdout
+    match = re.search(r"\[-([A-Za-z]+)\]", usage)
+    return ["-M"] if match and "M" in match.group(1) else []
+
+
 def menu_args(position: str) -> list[str]:
     """`display-menu` arguments for the command menu. ``position`` is ``M`` at the mouse or ``P`` at the pane.
 
@@ -250,11 +263,11 @@ def menu_args(position: str) -> list[str]:
         # Menu only, with no shortcut key: it updates the whole ecosystem and asks first.
         ("   update Empirica on this machine…" + wait % ("U", "U"), "", "U"),
     ]
-    # -M: handle the mouse even when a key opened the menu (a menu not opened by a mouse binding ignores it otherwise).
+    # -M (tmux 3.5+): handle the mouse even when a key opened the menu; a menu not opened by a mouse binding ignores it otherwise.
     # Not -O: with it a click on an item did not choose it (observed on tmux 3.6).
     args = [
         "display-menu",
-        "-M",
+        *menu_mouse_flag(),
         "-T",
         "#[align=centre] cockpit · #{window_name} ",
         "-x",
@@ -656,7 +669,7 @@ def _confirm(client: str | None, key: str, session: str, pane: str | None, what:
     if client:
         again += f" --client {shlex.quote(client)}"
     # -M matters here: this menu is opened by a process, not by a mouse binding, and would otherwise ignore clicks. Not -O.
-    args = ["display-menu", "-M", "-T", f"#[align=centre] {CONFIRM[key]} ", "-x", "C", "-y", "C"]
+    args = ["display-menu", *menu_mouse_flag(), "-T", f"#[align=centre] {CONFIRM[key]} ", "-x", "C", "-y", "C"]
     if client:
         args += ["-c", client]
     _tmux(*args, f"Yes: {what}".replace("#", "##"), "y", f"run-shell -b {_dq(again)}", "", "✕  Cancel", "n", "")
