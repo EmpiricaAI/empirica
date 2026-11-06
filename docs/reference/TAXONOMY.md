@@ -2,8 +2,8 @@
 
 **The canonical reference for all Empirica concepts.**
 
-Version: 1.2.0
-Last updated: 2026-07-02
+Version: 1.3.0
+Last updated: 2026-11-06
 
 This document is the single source of truth for Empirica's concept space. AI agents consume it natively. Human developers use it as a vocabulary reference — the Rosetta Stone section maps every term to familiar equivalents.
 
@@ -280,6 +280,83 @@ Sessions, goals, transactions, and trajectories are orthogonal, not hierarchical
 **Cardinality:** 1 trajectory : 1..N transactions. 1 transaction : 1..N sessions (spans compaction). 1 session : 0..N transactions.
 
 **Triple linkage:** Every artifact carries `session_id` (when), `goal_id` (what), and `transaction_id` (which measurement window). Trajectory is derived, not linked — it emerges from the sequence of transaction deltas.
+
+---
+
+### 4.6 What a Project Is and What Work Is Being Done
+
+Five labels describe a piece of work. Each answers a different question, is set in a different place and lives for a different length of time. They are easy to confuse because two of them are both called "domain".
+
+| Label | Question it answers | Where it is set | Values | Lives for |
+|-------|--------------------|-----------------|--------|-----------|
+| **Project type** | What is this project? | `type:` in `.empirica/project.yaml` (`project-init --type`, `project-update --type`) | 16 values, below | The project |
+| **Project domain** | What field is the project in? | `domain:` in `.empirica/project.yaml` (`--domain`) | Free text, such as `ai/measurement` | The project |
+| **Work type** | What is this transaction doing? | `work_type` at PREFLIGHT | 12 values, below | One transaction |
+| **Compliance domain** | Which checks apply to this transaction? | `domain` at PREFLIGHT | The name of a file in `empirica/config/domains/` | One transaction |
+| **Criticality** | How rigorous must those checks be? | `criticality` at PREFLIGHT | `low`, `medium`, `high`, `critical` | One transaction |
+
+Two smaller labels sit beside them: **work context** at PREFLIGHT (`greenfield`, `iteration`, `investigation`, `refactor`), which adjusts calibration for how mature the code is, and a project's **classification** (`open`, `internal`, `restricted`).
+
+A **practice** is a project that a practitioner inhabits: it has an `ai_id`, its own skills and its own accumulated artifacts. Every practice is a project, so it carries a project type and a project domain.
+
+**Project types.** One value per project; secondary shapes go in `tags`. A project nobody classified is stored as unclassified, not as a default.
+
+| Type | What it is | Calibration domain | Default compliance domain and criticality |
+|------|-----------|--------------------|-------------------------------------------|
+| `web-app` | A site or app in the browser | software | default, medium |
+| `service` | A daemon or HTTP API other things call | software | default, medium |
+| `cli` | A command-line or terminal tool | software | default, medium |
+| `library` | Code other code builds on, including a package | software | default, medium |
+| `desktop-app` | A graphical desktop app | software | default, medium |
+| `mobile-app` | A phone or tablet app | software | default, medium |
+| `browser-extension` | An extension for a browser | software | default, medium |
+| `infrastructure` | Deployment, images and distribution plumbing | operations | default, high |
+| `content` | Writing, media and published material | consulting | marketing, medium |
+| `research` | Investigation that produces knowledge | research | research, medium |
+| `data` | Datasets and their pipelines | research | default, medium |
+| `design` | Visual and product design | consulting | default, medium |
+| `operations` | Running systems, scheduling, support | operations | operations, medium |
+| `strategic` | Direction, planning and business decisions | consulting | consulting, medium |
+| `engagement` | Work delivered for one client | consulting | consulting, medium |
+| `legal` | Contracts, compliance and legal material | operations | default, medium |
+
+The older values `software`, `product`, `application`, `feature` and `documentation` are still readable on existing projects and are no longer accepted as input.
+
+**How the project type is used.** When PREFLIGHT declares no compliance domain or criticality, it starts from the type's default in the last column. The calibration domain is written into the project's `calibration_weights` when `project-init` runs. POSTFLIGHT does not read the project type today.
+
+**Work types.** `work_type` tells the grounded evidence layer which observations are relevant to this transaction.
+
+| Work type | The transaction is |
+|-----------|--------------------|
+| `code` | Writing or changing code. The default: git, tests and code quality all count |
+| `debug` | Finding the cause of a fault. Investigation-heavy |
+| `infra` | Changing infrastructure or deployment |
+| `config` | Changing configuration |
+| `docs` | Writing documentation |
+| `research` | Investigating. Artifacts count for more; git and code quality do not |
+| `data` | Working on data |
+| `design` | Designing, before or without code |
+| `audit` | Reviewing existing work |
+| `comms` | Writing to people or peers |
+| `release` | Running the release pipeline. Evidence is excluded and the self-assessment stands |
+| `remote-ops` | Working on a machine the local sensors cannot observe. The self-assessment stands |
+
+**Compliance domains.** A domain file names the checks that run at POSTFLIGHT and how strict they are at each criticality. Eight ship with Empirica:
+
+| Domain | For |
+|--------|-----|
+| `default` | General-purpose work. Applied when no domain is declared |
+| `cybersec` | Security-sensitive code and configuration |
+| `docs` | READMEs, guides, API docs, changelogs |
+| `research` | Academic, R&D and investigation work |
+| `operations` | Scheduling, dispatching, operational workflows |
+| `consulting` | Client-facing knowledge work: reports, assessments, recommendations |
+| `marketing` | Content, campaigns, outreach |
+| `remote-ops` | Remote work where no local check applies |
+
+**The two domains.** The project domain is free text that describes the project. The compliance domain selects checks for one transaction and comes from PREFLIGHT or, failing that, from the project type's default. It is not taken from the project domain. Whether the two should become one list is an open decision.
+
+**Cockpit profile.** A cockpit profile is a layout file, `~/.empirica/cockpit/config-NAME.yaml`, selected with `--profile NAME`. It lists projects, how each pane is launched and how panes are grouped into windows. It says where practices appear on screen and does not change what they are. See [COCKPIT.md](../guides/COCKPIT.md).
 
 ---
 

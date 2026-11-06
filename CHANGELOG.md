@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **One reference for what a project is and what work is being done.** `docs/reference/TAXONOMY.md` section 4.6 explains project type, project domain, work type, compliance domain and criticality together: where each is set, its values, how long it lives, and how the project type sets a transaction's defaults. It says plainly that "domain" means two things today. A test keeps its tables equal to the code.
+
 ### Fixed
 
 - **The release workflow's GitHub release job found no artifacts.** It downloaded "all artifacts" and uploaded from `artifacts/empirica-dist/*`, a layout that exists only while there are several artifacts; with `empirica-mcp` gone there was one, so 1.14.21 published to PyPI, Docker and Homebrew and then failed to create its GitHub release (created by hand from the CI artifacts, whose hash matches PyPI). The job now downloads the artifact by name into the directory it uploads from, and a test pins that.
