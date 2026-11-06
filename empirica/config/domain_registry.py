@@ -14,6 +14,7 @@ See: .empirica/visions/2026-04-08-sentinel-reframe-api-contract-spec.md
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,43 @@ def _as_tuple(value: Any, field: str = "list field") -> tuple[str, ...]:
         else:
             logger.warning("Dropping %s entry %r: it cannot be a name", field, entry)
     return tuple(kept)
+
+
+_DOMAIN_NAME_LINE = re.compile(r"^domain:[ \t]*[\"']?([A-Za-z0-9_-]+)", re.MULTILINE)
+
+
+def known_domain_names(project_path: Path | str | None = None) -> frozenset[str]:
+    """The names a `domain` may take: the built-in files, the user's, and the project's own.
+
+    A line match on each file's `domain:` key, not a parse. PREFLIGHT asks this on the hot path, where loading the
+    registry (every checklist of every domain) cost about 13 ms. The registry is the authority on what a domain
+    *means*; this only answers whether a name exists. A project that carries its own `.empirica/domains.yaml` is
+    rare and its names sit under a mapping, so that one case loads the registry.
+    """
+    if project_path is not None and (Path(project_path) / ".empirica" / "domains.yaml").exists():
+        return frozenset(DomainRegistry(project_path=Path(project_path)).list_domains())
+    names: set[str] = set()
+    for directory in (Path(__file__).parent / "domains", Path.home() / ".empirica" / "domains"):
+        if not directory.is_dir():
+            continue
+        for path in directory.glob("*.yaml"):
+            try:
+                match = _DOMAIN_NAME_LINE.search(path.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                continue
+            if match:
+                names.add(match.group(1))
+    return frozenset(names)
+
+
+def domain_refusal(value: str | None, domains: list[str] | frozenset[str]) -> str | None:
+    """Why `value` cannot be a project's domain, or None when it can (a listed name, or nothing)."""
+    if not value or value in domains:
+        return None
+    return (
+        f"'{value}' is not a domain. A domain selects the checks a transaction runs; "
+        f"valid names: {', '.join(sorted(domains))}. Text that describes the project goes in a tag."
+    )
 
 
 @dataclass(frozen=True)

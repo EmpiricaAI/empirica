@@ -429,6 +429,34 @@ def _project_type_of(project_path) -> str | None:
     return match.group(1) if match else None
 
 
+def _project_domain_of(project_path) -> str | None:
+    """The top-level `domain:` in the project's .empirica/project.yaml when it names a domain file, else None.
+
+    Free text left from before the domain was a list (`ai/measurement`) names no file and is ignored here; `project-update` moves it to
+    the project's tags. A line match and a name scan, for the reason given in `_project_type_of`."""
+    import re
+
+    try:
+        text = (Path(project_path) / ".empirica" / "project.yaml").read_text(encoding="utf-8", errors="replace")
+    except (OSError, ValueError, TypeError):
+        return None
+    match = re.search(r"^domain:[ \t]*[\"']?([^\"'#\n]*)", text, re.MULTILINE)
+    value = match.group(1).strip() if match else ""
+    if not value:
+        return None
+    from empirica.config.domain_registry import known_domain_names
+
+    return value if value in known_domain_names(project_path) else None
+
+
+def _default_work_frame_of(project_path) -> tuple[str, str]:
+    """(domain, criticality) a transaction of this project starts from when it declares none.
+
+    The domain is the project's own when it has one, else the project type's default. Criticality comes from the type."""
+    type_domain, criticality = default_work_frame(_project_type_of(project_path))
+    return _project_domain_of(project_path) or type_domain, criticality
+
+
 def _preflight_enrich_transaction_file(resolved_project_path, parsed):
     """Inject work parameters and cascade profile into the transaction file. Non-fatal."""
     import json as _json
@@ -440,10 +468,11 @@ def _preflight_enrich_transaction_file(resolved_project_path, parsed):
     predicted_check_outcomes = parsed["predicted_check_outcomes"]
     engagement_id = parsed.get("engagement_id")
 
-    # What the transaction does not declare starts from its project's type (empirica.core.project_types). Only a value that differs from the
-    # baseline is written, so a project whose type implies default/medium behaves exactly as before.
+    # What the transaction does not declare starts from its project: the project's domain, then its type's default
+    # (empirica.core.project_types). Only a value that differs from the baseline is written, so a project whose type implies
+    # default/medium and that names no domain behaves exactly as before.
     try:
-        default_domain, default_criticality = default_work_frame(_project_type_of(resolved_project_path))
+        default_domain, default_criticality = _default_work_frame_of(resolved_project_path)
     except Exception:  # non-fatal by contract: enrichment is never a reason for PREFLIGHT to fail
         default_domain, default_criticality = "default", "medium"
     if not domain and default_domain != "default":

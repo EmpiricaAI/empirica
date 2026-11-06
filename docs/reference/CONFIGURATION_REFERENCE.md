@@ -57,8 +57,8 @@ prints the git root, empirica root, session database, the two override variables
 **File:** `<project>/.empirica/project.yaml`. Created by `empirica project-init`, changed by `empirica project-update`, which merges its changes over the existing file so keys it does not model are kept.
 
 ```bash
-empirica project-init --non-interactive --type research --domain bio/genomics
-empirica project-update --type research --domain bio/genomics
+empirica project-init --non-interactive --type research --domain research
+empirica project-update --type research --domain research --add-tag bio/genomics
 empirica project-update --add-contact alice --roles reviewer evaluator
 empirica project-update --add-edge project/other --relation extends
 empirica project-update --migrate        # upgrade a v1.0 file to v2.0
@@ -73,8 +73,8 @@ empirica project-update --migrate        # upgrade a v1.0 file to v2.0
 | `version` | `'1.0'`, `'2.0'` | `'1.0'` when absent | `project-init` writes `'2.0'` |
 | `name`, `description` | text | `Unknown Project`, empty | |
 | `ai_id` | string | project directory name | The practice's canonical identifier. Sessions, calibration and mesh addressing follow it. Prefix kept: `empirica-cortex` stays `empirica-cortex` |
-| `type` | `software`, `content`, `research`, `data`, `design`, `operations`, `strategic`, `engagement`, `legal` (legacy: `product`, `application`, `feature`, `documentation`, `infrastructure`) | `software` | An unknown value logs a warning and becomes `software` |
-| `domain` | free text, hierarchical (`ai/measurement`) | empty | |
+| `type` | One of the 16 project types listed in [TAXONOMY.md section 4.6](TAXONOMY.md) (`web-app`, `service`, `cli`, `library`, ..., `research`, `operations`, `engagement`) | unclassified | A missing type is unclassified, not a default. A value the code does not recognise is kept as written, with a warning; `project-init` and `project-update` refuse it as input |
+| `domain` | The name of a domain file: `default`, `research`, `operations`, `consulting`, `marketing`, `docs`, `cybersec`, `remote-ops`, or one of your own | empty | A transaction that declares no domain starts from it. Free text is refused; text that describes the project goes in `tags`. An older free-text value is moved to `tags` by the next `project-update` |
 | `classification` | `open`, `internal`, `restricted` | `internal` | Invalid becomes the default |
 | `status` | `active`, `dormant`, `archived` | `active` | |
 | `evidence_profile` | `code`, `prose`, `web`, `hybrid`, `auto` | `auto` | Which evidence collectors grade the transaction. `project-init` and `project-update` restrict the choices; the loader does not |

@@ -5,7 +5,7 @@ Updates static project identity fields and syncs changes to the database.
 Supports adding/removing contacts, engagements, edges, tags, and all v2.0 fields.
 
 Usage:
-    empirica project-update --type research --domain bio/genomics
+    empirica project-update --type research --domain research --add-tag bio/genomics
     empirica project-update --add-contact alice --roles reviewer evaluator
     empirica project-update --add-edge project/empirica-iris --relation extends
     empirica project-update --migrate  # Upgrade v1.0 to v2.0
@@ -54,6 +54,37 @@ def _as_list(value) -> list[str]:
 def _comment_lines(text: str) -> int:
     """Lines that hold only a comment. A rewrite through yaml.dump keeps none of them."""
     return sum(1 for line in text.splitlines() if line.lstrip().startswith("#"))
+
+
+def _refuse_unknown_domain(requested: str | None, domains: list[str], output_format: str) -> bool:
+    """Print the refusal for a `--domain` that names no domain file. True when the command must stop."""
+    from empirica.config.domain_registry import domain_refusal
+
+    error = domain_refusal(requested, domains)
+    if not error:
+        return False
+    if output_format == "json":
+        print(json.dumps({"ok": False, "error": error}))
+    else:
+        print(f"❌ {error}")
+    return True
+
+
+def _take_free_text_domain(config, domains: list[str]) -> str | None:
+    """Clear a stored domain that names no domain file and return it. Text from before the domain was a list."""
+    if not config.domain or config.domain in domains:
+        return None
+    free_text, config.domain = config.domain, ""
+    return free_text
+
+
+def _keep_free_text_domain_as_tag(config, free_text: str | None) -> list[str]:
+    """The old free-text domain is kept, as a tag. Returns the change line."""
+    if not free_text:
+        return []
+    if free_text not in config.tags:
+        config.tags.append(free_text)
+    return [f"domain: '{free_text}' is not a domain name, moved to tags"]
 
 
 def _apply_list_updates(args, config):
@@ -125,6 +156,37 @@ def _apply_list_updates(args, config):
     return changes
 
 
+def _print_update_result(
+    output_format: str, changes: list, updated: dict, synced: dict, comment_lines_dropped: int
+) -> None:
+    """Report a completed update: what changed, what each store did, and the comments the rewrite did not keep."""
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "ok": _synced_ok(synced),
+                    "changes": changes,
+                    "config": updated,
+                    "synced": synced,
+                    "comment_lines_dropped": comment_lines_dropped,
+                },
+                indent=2,
+                default=str,
+            )
+        )
+        return
+    print(f"✅ Updated project.yaml ({len(changes)} changes)")
+    for change in changes:
+        print(f"   • {change}")
+    if comment_lines_dropped:
+        print(
+            f"   ⚠️  {comment_lines_dropped} comment lines in project.yaml were not kept: the file is rewritten from its values"
+        )
+    for store, result in synced.items():
+        if result != "updated" and not (store == "sessions_db" and result == "no database"):
+            print(f"   ⚠️  {store} not updated: {result}")
+
+
 def handle_project_update_command(args):
     """Handle project-update command - update project.yaml fields."""
     try:
@@ -157,11 +219,21 @@ def handle_project_update_command(args):
         config = ProjectConfig(raw_config)
         changes = []
 
+        # A domain is the name of a domain file (docs/reference/TAXONOMY.md 4.6). Free text is refused before anything is written.
+        from empirica.config.domain_registry import DomainRegistry
+
+        domains = DomainRegistry(project_path=git_root).list_domains()
+        if _refuse_unknown_domain(getattr(args, "domain", None), domains, output_format):
+            return None
+        free_text_domain = _take_free_text_domain(config, domains)
+
         if getattr(args, "migrate", False):
             changes.extend(_migrate_v1_to_v2(config, git_root))
 
         changes.extend(_apply_simple_field_updates(args, config))
         changes.extend(_apply_list_updates(args, config))
+        # After the list updates, so `--tags` (replace all) cannot drop it.
+        changes.extend(_keep_free_text_domain_as_tag(config, free_text_domain))
 
         if not changes:
             if output_format == "json":
@@ -175,36 +247,14 @@ def handle_project_update_command(args):
         # `project-update --status archived` removed a practice's identity. Merge instead: modelled keys take
         # their updated value, anything else survives.
         updated = {**raw_config, **config.to_dict()}
+        if not config.domain:
+            updated.pop("domain", None)  # to_dict() omits an empty domain, so the merge would keep the old one
         with open(config_path, "w") as f:
             yaml.dump(updated, f, default_flow_style=False, sort_keys=False)
 
         synced = _sync_to_db(config, git_root)
 
-        if output_format == "json":
-            print(
-                json.dumps(
-                    {
-                        "ok": _synced_ok(synced),
-                        "changes": changes,
-                        "config": updated,
-                        "synced": synced,
-                        "comment_lines_dropped": comment_lines_dropped,
-                    },
-                    indent=2,
-                    default=str,
-                )
-            )
-        else:
-            print(f"✅ Updated project.yaml ({len(changes)} changes)")
-            for change in changes:
-                print(f"   • {change}")
-            if comment_lines_dropped:
-                print(
-                    f"   ⚠️  {comment_lines_dropped} comment lines in project.yaml were not kept: the file is rewritten from its values"
-                )
-            for store, result in synced.items():
-                if result != "updated" and not (store == "sessions_db" and result == "no database"):
-                    print(f"   ⚠️  {store} not updated: {result}")
+        _print_update_result(output_format, changes, updated, synced, comment_lines_dropped)
 
         return {"ok": _synced_ok(synced), "changes": changes, "synced": synced}
 

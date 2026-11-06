@@ -54,13 +54,21 @@ def test_the_legacy_values_named_in_the_doc_are_the_ones_the_code_still_reads():
 def test_the_work_types_are_the_ones_preflight_accepts():
     pattern = next(m.pattern for m in PreflightInput.model_fields["work_type"].metadata if hasattr(m, "pattern"))
     accepted = set(pattern.strip("^$()").split("|"))
-    table = SECTION[SECTION.index("**Work types.**") : SECTION.index("**Compliance domains.**")]
+    table = SECTION[SECTION.index("**Work types.**") : SECTION.index("**Domains.**")]
     listed = set(re.findall(r"^\| `([a-z-]+)` \|", table, flags=re.M))
     assert listed == accepted
 
 
-def test_the_compliance_domains_are_the_files_that_ship():
+def test_the_domains_are_the_files_that_ship():
     shipped = {p.stem for p in (ROOT / "empirica" / "config" / "domains").glob("*.yaml")}
-    table = SECTION[SECTION.index("**Compliance domains.**") : SECTION.index("**The two domains.**")]
+    table = SECTION[SECTION.index("**Domains.**") : SECTION.index("**One domain, set in two places.**")]
     listed = set(re.findall(r"^\| `([a-z-]+)` \|", table, flags=re.M))
     assert listed == shipped
+
+
+def test_the_section_no_longer_describes_a_free_text_project_domain_as_current():
+    """One meaning for "domain" (David, 2026-11-06). The label table holds one domain row, and it points at the list."""
+    table = SECTION[: SECTION.index("**Project types.**")]
+    rows = re.findall(r"^\| \*\*([^*]+)\*\* \|", table, flags=re.M)
+    assert rows == ["Project type", "Work type", "Domain", "Criticality"]
+    assert "Free text" not in table

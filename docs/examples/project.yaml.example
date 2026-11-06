@@ -9,8 +9,8 @@ version: '2.0'
 name: My Project
 description: Optional project description
 project_id: uuid-generated-automatically
-type: software          # software|content|research|data|design|operations|strategic|engagement|legal
-domain: ai/measurement  # hierarchical, user-defined (e.g., bio/genomics, fintech/payments)
+type: cli               # one of the 16 project types: docs/reference/TAXONOMY.md section 4.6
+domain: default         # the name of a domain file (default|research|operations|consulting|marketing|docs|cybersec|remote-ops, or your own)
 classification: internal  # open|internal|restricted
 status: active          # active|dormant|archived
 

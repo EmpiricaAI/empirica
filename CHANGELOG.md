@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **"Domain" has one meaning.** A project's `domain:` is now the name of a domain file (`default`, `research`, `operations`, `consulting`, `marketing`, `docs`, `cybersec`, `remote-ops`, or one of your own), the same list a transaction's `domain` takes at PREFLIGHT. It used to be free text that described the project (`ai/measurement`), which nothing read. A transaction that declares no domain now starts from its project's domain, then from the project type's default. `project-init --domain` and `project-update --domain` refuse a value that is not a domain name and print the list. **If your project holds free text there:** nothing breaks, PREFLIGHT ignores it, and the next `project-update` you run in that project moves the text to `tags` and reports the move. `docs/reference/TAXONOMY.md` section 4.6 describes the four labels.
+
 ### Added
 
 - **One reference for what a project is and what work is being done.** `docs/reference/TAXONOMY.md` section 4.6 explains project type, project domain, work type, compliance domain and criticality together: where each is set, its values, how long it lives, and how the project type sets a transaction's defaults. It says plainly that "domain" means two things today. A test keeps its tables equal to the code.

@@ -318,7 +318,12 @@ def add_checkpoint_parsers(subparsers):
         choices=list(PROJECT_TYPES),
         help="Project type: what the project is. Left unset the project is stored as unclassified (set it later with project-update --type)",
     )
-    project_init_parser.add_argument("--domain", help="Domain taxonomy (e.g., ai/measurement)")
+    project_init_parser.add_argument(
+        "--domain",
+        help="The project's domain: the name of a domain file (default, research, operations, consulting, marketing, "
+        "docs, cybersec, remote-ops, or one of your own). A transaction that declares no domain starts from it. "
+        "Text that describes the project goes in a tag",
+    )
     project_init_parser.add_argument(
         "--classification", choices=["open", "internal", "restricted"], default="internal", help="Access classification"
     )
@@ -344,7 +349,12 @@ def add_checkpoint_parsers(subparsers):
         choices=list(PROJECT_TYPES),
         help="Project type",
     )
-    project_update_parser.add_argument("--domain", help="Domain taxonomy (e.g., ai/measurement)")
+    project_update_parser.add_argument(
+        "--domain",
+        help="The project's domain: the name of a domain file (default, research, operations, consulting, marketing, "
+        "docs, cybersec, remote-ops, or one of your own). A transaction that declares no domain starts from it. "
+        "Text that describes the project goes in a tag",
+    )
     project_update_parser.add_argument(
         "--classification", choices=["open", "internal", "restricted"], help="Access classification"
     )

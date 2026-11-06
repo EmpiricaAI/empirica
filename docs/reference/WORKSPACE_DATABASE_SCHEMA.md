@@ -51,7 +51,7 @@ The `metadata` column stores v2.0 project.yaml enrichment fields as JSON, synced
 
 ```json
 {
-  "domain": "ai/measurement",
+  "domain": "research",
   "classification": "open",
   "evidence_profile": "code",
   "languages": ["python"],

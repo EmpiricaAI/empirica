@@ -2,7 +2,7 @@
 
 **The canonical reference for all Empirica concepts.**
 
-Version: 1.3.0
+Version: 1.4.0
 Last updated: 2026-11-06
 
 This document is the single source of truth for Empirica's concept space. AI agents consume it natively. Human developers use it as a vocabulary reference — the Rosetta Stone section maps every term to familiar equivalents.
@@ -285,23 +285,22 @@ Sessions, goals, transactions, and trajectories are orthogonal, not hierarchical
 
 ### 4.6 What a Project Is and What Work Is Being Done
 
-Five labels describe a piece of work. Each answers a different question, is set in a different place and lives for a different length of time. They are easy to confuse because two of them are both called "domain".
+Four labels describe a piece of work. Each answers a different question and lives for a different length of time. The domain is one list that is set in two places: on the project, as its usual domain, and at PREFLIGHT, for one transaction.
 
 | Label | Question it answers | Where it is set | Values | Lives for |
 |-------|--------------------|-----------------|--------|-----------|
 | **Project type** | What is this project? | `type:` in `.empirica/project.yaml` (`project-init --type`, `project-update --type`) | 16 values, below | The project |
-| **Project domain** | What field is the project in? | `domain:` in `.empirica/project.yaml` (`--domain`) | Free text, such as `ai/measurement` | The project |
 | **Work type** | What is this transaction doing? | `work_type` at PREFLIGHT | 12 values, below | One transaction |
-| **Compliance domain** | Which checks apply to this transaction? | `domain` at PREFLIGHT | The name of a file in `empirica/config/domains/` | One transaction |
+| **Domain** | Which checks apply? | `domain:` in `.empirica/project.yaml` (`project-init --domain`, `project-update --domain`) for the project's usual domain; `domain` at PREFLIGHT for one transaction | The name of a domain file, below | The project, or one transaction |
 | **Criticality** | How rigorous must those checks be? | `criticality` at PREFLIGHT | `low`, `medium`, `high`, `critical` | One transaction |
 
 Two smaller labels sit beside them: **work context** at PREFLIGHT (`greenfield`, `iteration`, `investigation`, `refactor`), which adjusts calibration for how mature the code is, and a project's **classification** (`open`, `internal`, `restricted`).
 
-A **practice** is a project that a practitioner inhabits: it has an `ai_id`, its own skills and its own accumulated artifacts. Every practice is a project, so it carries a project type and a project domain.
+A **practice** is a project that a practitioner inhabits: it has an `ai_id`, its own skills and its own accumulated artifacts. Every practice is a project, so it carries a project type and may name a domain.
 
 **Project types.** One value per project; secondary shapes go in `tags`. A project nobody classified is stored as unclassified, not as a default.
 
-| Type | What it is | Calibration domain | Default compliance domain and criticality |
+| Type | What it is | Calibration domain | Default domain and criticality |
 |------|-----------|--------------------|-------------------------------------------|
 | `web-app` | A site or app in the browser | software | default, medium |
 | `service` | A daemon or HTTP API other things call | software | default, medium |
@@ -322,7 +321,7 @@ A **practice** is a project that a practitioner inhabits: it has an `ai_id`, its
 
 The older values `software`, `product`, `application`, `feature` and `documentation` are still readable on existing projects and are no longer accepted as input.
 
-**How the project type is used.** When PREFLIGHT declares no compliance domain or criticality, it starts from the type's default in the last column. The calibration domain is written into the project's `calibration_weights` when `project-init` runs. POSTFLIGHT does not read the project type today.
+**How the project type is used.** When PREFLIGHT declares no domain or criticality, the criticality starts from the type's default in the last column, and so does the domain unless the project names one. The calibration domain is not a label anyone sets: it follows from the type, selects the category weights used in calibration scoring, and is written into the project's `calibration_weights` when `project-init` runs. POSTFLIGHT does not read the project type today.
 
 **Work types.** `work_type` tells the grounded evidence layer which observations are relevant to this transaction.
 
@@ -341,7 +340,7 @@ The older values `software`, `product`, `application`, `feature` and `documentat
 | `release` | Running the release pipeline. Evidence is excluded and the self-assessment stands |
 | `remote-ops` | Working on a machine the local sensors cannot observe. The self-assessment stands |
 
-**Compliance domains.** A domain file names the checks that run at POSTFLIGHT and how strict they are at each criticality. Eight ship with Empirica:
+**Domains.** A domain file names the checks that run at POSTFLIGHT and how strict they are at each criticality. Eight ship with Empirica:
 
 | Domain | For |
 |--------|-----|
@@ -354,7 +353,9 @@ The older values `software`, `product`, `application`, `feature` and `documentat
 | `marketing` | Content, campaigns, outreach |
 | `remote-ops` | Remote work where no local check applies |
 
-**The two domains.** The project domain is free text that describes the project. The compliance domain selects checks for one transaction and comes from PREFLIGHT or, failing that, from the project type's default. It is not taken from the project domain. Whether the two should become one list is an open decision.
+**One domain, set in two places.** A transaction's domain is the one PREFLIGHT declares; failing that, the project's `domain:`; failing that, the project type's default. `project-init --domain` and `project-update --domain` accept only a domain name and print the list otherwise. Your own domain files (`~/.empirica/domains/*.yaml`, or a project's `.empirica/domains.yaml`) add names to the list.
+
+Until 1.14.22 a project's `domain:` was free text that described the project, such as `ai/measurement`, and nothing read it. Text of that kind belongs in `tags`. A project that still holds it is not broken: PREFLIGHT ignores a value that names no domain file, and the next `project-update` run in that project moves the text to its tags and reports the move.
 
 **Cockpit profile.** A cockpit profile is a layout file, `~/.empirica/cockpit/config-NAME.yaml`, selected with `--profile NAME`. It lists projects, how each pane is launched and how panes are grouped into windows. It says where practices appear on screen and does not change what they are. See [COCKPIT.md](../guides/COCKPIT.md).
 

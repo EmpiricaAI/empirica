@@ -146,6 +146,29 @@ def _register_project_in_workspace(
         logger.warning(f"Failed to register in workspace.db: {e}")
 
 
+def _domain_from_prompt(answer: str, domains: list[str]) -> str:
+    """A typed domain when it is a listed name, else "" with a line saying it was left unset."""
+    answer = answer.strip().lower()
+    if not answer or answer in domains:
+        return answer
+    print(f"   '{answer}' is not a domain; left unset (text that describes the project goes in a tag).")
+    return ""
+
+
+def _refuse_unknown_domain_flag(args, git_root, output_format) -> bool:
+    """`--domain` must name a domain file. Checked before anything is created. True when init must stop."""
+    from empirica.config.domain_registry import DomainRegistry, domain_refusal
+
+    error = domain_refusal(getattr(args, "domain", None), DomainRegistry(project_path=git_root).list_domains())
+    if not error:
+        return False
+    if output_format == "json":
+        print(json.dumps({"ok": False, "error": error}))
+    else:
+        print(f"❌ {error}")
+    return True
+
+
 def _collect_project_config_interactive(git_root) -> dict:
     """Collect project configuration via interactive prompts."""
     print("📋 Project Configuration\n")
@@ -159,7 +182,12 @@ def _collect_project_config_interactive(git_root) -> dict:
     if type_input and project_type is None:
         print(f"   '{type_input}' is not a project type; left unclassified (set it with project-update --type).")
 
-    project_domain = input("Domain (e.g., ai/measurement, bio/genomics): ").strip()
+    from empirica.config.domain_registry import DomainRegistry
+
+    domains = DomainRegistry(project_path=git_root).list_domains()
+    project_domain = _domain_from_prompt(
+        input(f"Domain [{'|'.join(domains)}] (blank = the project type's default): "), domains
+    )
     ep_input = input("Evidence profile [code/prose/hybrid/auto] (auto): ").strip().lower()
     evidence_profile = ep_input if ep_input in ("code", "prose", "hybrid", "auto") else "auto"
 
@@ -617,6 +645,8 @@ def run_project_init(args, emit_result=True):
             if repaired is not None:
                 return repaired if repaired["ok"] else None
         if _check_already_initialized(config_path, args, output_format):
+            return None
+        if _refuse_unknown_domain_flag(args, git_root, output_format):
             return None
 
         if output_format != "json":
