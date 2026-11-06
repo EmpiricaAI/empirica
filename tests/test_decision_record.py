@@ -123,6 +123,7 @@ def _run_gate(tmp_path: Path, tool_input: dict, tool_name: str = "Bash", **env_o
         "hook_event_name": "PreToolUse",
         "session_id": "00000000-0000-0000-0000-00000000abcd",
         "tool_use_id": "toolu_probe",
+        "permission_mode": "acceptEdits",
         "tool_name": tool_name,
         "tool_input": tool_input,
         "cwd": str(work),
@@ -149,6 +150,7 @@ def test_the_gate_records_its_decision(tmp_path):
     assert rec["decision"] == decision
     assert rec["tool"] == "Bash" and rec["command_class"] == "git"
     assert rec["tool_use_id"] == "toolu_probe"
+    assert rec["permission_mode"] == "acceptEdits"  # the harness's mode, as it sent it
     assert rec["rule"]
     assert "status --short" not in lines[0]
 

@@ -2099,6 +2099,7 @@ def _record_decision(decision: str) -> None:
             transaction_id=_tx_meta.get("transaction_id"),
             tx_status=_tx_meta.get("tx_status"),
             harness=(os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip().lower() or "claude-code",
+            permission_mode=hook_input.get("permission_mode"),
         )
         decision_record.append(record, decision_record.record_path(_tx_meta.get("project_path")))
     except Exception:

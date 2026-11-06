@@ -11,6 +11,8 @@ What it does not do:
   measurement, not evidence against the agent.
 * ``effect_class`` (what the call changed) and ``human_override`` (a person approving or denying at the prompt) are null here:
   PreToolUse runs before the call and before any prompt, so neither is visible to it. They belong to the PostToolUse side.
+* ``permission_mode`` is the harness's own, as its hook input carries it (null when it does not): the same call carries a different risk under
+  a read-only mode than under one that lets it write.
 * ``rule`` names the stage of the gate that decided (``noetic-firewall``, ``pipeline``, ...), not the individual check inside it.
 
 Cost: one ``open(..., "a")`` and one write per call, no database, no network. ``EMPIRICA_DECISION_RECORD=0`` turns it off.
@@ -79,12 +81,14 @@ def build(
     transaction_id: str | None = None,
     tx_status: str | None = None,
     harness: str | None = None,
+    permission_mode: str | None = None,
 ) -> dict:
     return {
         "ts": round(time.time(), 3),
         "vocabulary": VOCABULARY_VERSION,
         "mode": MODE,
         "harness": harness,
+        "permission_mode": permission_mode,
         "claude_session_id": claude_session_id,
         "transaction_id": transaction_id,
         "tx_status": tx_status,
