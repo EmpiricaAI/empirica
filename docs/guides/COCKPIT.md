@@ -126,6 +126,67 @@ surviving session in a new window and your running practices are untouched.
 
 ---
 
+## A cockpit on another machine, over SSH
+
+A cockpit is a tmux session, so it runs wherever tmux does and survives your
+connection. On the remote machine, use the `tmux` surface (the others open a
+window on that machine's display, which an SSH session does not have):
+
+```yaml
+# ~/.empirica/cockpit/config-server.yaml on the remote machine
+session_name: cockpit-server
+surface: tmux
+attach_on_launch: true
+```
+
+```bash
+ssh server
+empirica cockpit status --profile server    # checks the profile, changes nothing
+empirica cockpit launch --profile server    # the layout opens in your SSH terminal
+```
+
+Closing the terminal or losing the connection detaches you; the practices keep
+running. `ssh server` and `empirica cockpit launch --profile server` attach again.
+`empirica cockpit detach` does the same on purpose and records a clean shutdown.
+
+If you run a command without a login shell (`ssh server 'empirica cockpit status'`),
+`empirica`, `claude` and `tmux` must be on the PATH that kind of session sees,
+which is often shorter than your interactive one.
+
+---
+
+## Two harnesses in one practice
+
+A practice is a directory. Two practitioners can work in it side by side, for
+example Claude Code and ecodex: they share the practice's knowledge, goals and
+project file, and each has its own instance id, so their transactions do not mix.
+The Claude Code pane takes the project `name` as its id; ecodex generates its own.
+
+```yaml
+projects:
+  - name: research
+    path: ~/code/research
+    launch: claude
+  - name: research-ecodex
+    path: ~/code/research            # the same directory
+    launch: ecodex
+
+groups:
+  - name: research
+    split: horizontal
+    panes:
+      - {project: research}
+      - {project: research-ecodex}
+```
+
+`refresh` brings each back with its own conversation: `claude --continue` for the
+first, `ecodex resume --last` for the second. `provision-practice NAME
+--cockpit-profile P --launch ecodex` writes an entry of the second kind for you.
+Set `instance_id:` on the ecodex project only if you want a fixed, readable id in
+place of the one it generates.
+
+---
+
 ## The config, key by key
 
 ```yaml
@@ -152,6 +213,9 @@ groups:                        # one tmux window per group
 on_abnormal_exit:
   warn: true                   # say so when the last cockpit ended without `kill`/`detach`
 ```
+
+A cockpit profile says where practices appear. What a practice *is* (its project type and domain) is set in the
+practice's own `.empirica/project.yaml`: see [What a project is and what work is being done](../reference/TAXONOMY.md#46-what-a-project-is-and-what-work-is-being-done).
 
 Without `groups:`, each project becomes its own window in one session and
 `status_windows:` (`{name, command}` entries) add windows such as a monitor.
