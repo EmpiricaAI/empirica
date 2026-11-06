@@ -105,7 +105,12 @@ def _write_active_transaction_for_new_conversation(
         # transaction even though the ephemeral instance suffix / empirica
         # session_id may have rotated across the compaction boundary. Prefer the
         # caller's value; fall back to whatever the snapshot captured.
+        #
+        # Start from everything the snapshot holds. Writing a fixed set of keys dropped what PREFLIGHT declared
+        # (work_type, work_context, domain, criticality) and the counters, so after a compaction the Sentinel
+        # reported "No work_type set" on every gated call and lost the work-type expansion of the read list.
         tx_data = {
+            **active_transaction,
             "transaction_id": active_transaction.get("transaction_id"),
             "session_id": active_transaction.get("session_id"),
             "claude_session_id": claude_session_id or active_transaction.get("claude_session_id"),
