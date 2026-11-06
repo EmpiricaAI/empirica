@@ -637,6 +637,12 @@ MAX_CHECK_AGE_MINUTES = 30
 # id through every gate that asks for thresholds.
 _hook_claude_session_id: str | None = None
 
+# The per-call decision record (empirica/core/decision_record.py). main() names the stage before each respond();
+# respond() writes the line. _tx_meta is filled by _peek_work_type from the transaction file it already reads.
+_decision_rule: str = "pipeline"
+_record_input: dict | None = None
+_tx_meta: dict = {}
+
 
 def _get_dynamic_thresholds(db) -> tuple:
     """Read Brier-based dynamic thresholds. Returns (know_threshold, unc_threshold).
@@ -2070,6 +2076,33 @@ def respond(decision: str, reason: str = "") -> None:
     if decision == "allow" and not show_nudge:
         output["suppressOutput"] = True
     print(json.dumps(output))
+    _record_decision(decision)
+
+
+def _record_decision(decision: str) -> None:
+    """One line in the practice's decisions.jsonl for this decision. Never raises: the record must not change the decision."""
+    if _record_input is None:
+        return
+    try:
+        from empirica.core import decision_record
+
+        if not decision_record.enabled():
+            return
+        hook_input = _record_input
+        record = decision_record.build(
+            tool_name=str(hook_input.get("tool_name") or "unknown"),
+            tool_input=hook_input.get("tool_input") or {},
+            decision=decision,
+            rule=_decision_rule,
+            tool_use_id=hook_input.get("tool_use_id"),
+            claude_session_id=hook_input.get("session_id"),
+            transaction_id=_tx_meta.get("transaction_id"),
+            tx_status=_tx_meta.get("tx_status"),
+            harness=(os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip().lower() or "claude-code",
+        )
+        decision_record.append(record, decision_record.record_path(_tx_meta.get("project_path")))
+    except Exception:
+        pass
 
 
 _UNAVAILABLE_MARKER = Path.home() / ".empirica" / "sentinel_unavailable.json"
@@ -6050,6 +6083,11 @@ def _peek_work_type(claude_session_id: str | None) -> None:
                 data = json.load(f)
             if data.get("status") == "open":
                 _current_work_type = data.get("work_type") or None
+            _tx_meta.update(
+                transaction_id=data.get("transaction_id"),
+                tx_status=data.get("status"),
+                project_path=data.get("project_path") or str(Path(tx).parent.parent),
+            )
     except Exception:
         pass
 
@@ -6538,6 +6576,8 @@ def main():
 
     tool_name = hook_input.get("tool_name", "unknown")
     tool_input = hook_input.get("tool_input", {})
+    global _record_input, _decision_rule
+    _record_input = hook_input
 
     # Option 2 — namespace-aggregation defense (codex/ecodex): normalize a bare
     # `mcp__cortex` namespace (op carried in tool_input) to the full
@@ -6563,6 +6603,7 @@ def main():
     # doctor/setup-claude-code to self-heal a stale box, sentinel pause/resume to
     # override). One chokepoint → parity-by-construction, not per-gate discipline.
     if _is_recovery_or_measurement_action(tool_name, tool_input):
+        _decision_rule = "release-path"
         respond("allow", "Release-path exemption: recovery/measurement action (always-open)")
         sys.exit(0)
 
@@ -6573,22 +6614,26 @@ def main():
     # runtime constraint that makes the discipline real.
     proportionality_deny = _check_proportionality_budget(hook_input, tool_name)
     if proportionality_deny:
+        _decision_rule = "proportionality"
         respond("deny", proportionality_deny)
         sys.exit(0)
 
     # Noetic firewall: whitelist-based access control
     noetic_result = _noetic_firewall_check(tool_name, tool_input, hook_input)
     if noetic_result:
+        _decision_rule = "noetic-firewall"
         respond("allow", noetic_result[1])
         sys.exit(0)
 
     # Exemptions: subagent, paused, sentinel disabled
     exemption = _check_exemptions(hook_input, tool_name)
     if exemption:
+        _decision_rule = "exemption"
         respond(exemption[0], exemption[1])
         sys.exit(0)
 
     # Everything else requires CHECK authorization via the pipeline
+    _decision_rule = "pipeline"
     decision, message = _run_authorization_pipeline(hook_input, tool_name, tool_input)
     respond(decision, message)
     sys.exit(0)
@@ -6614,6 +6659,7 @@ if __name__ == "__main__":
         import sys as _sys
 
         _sys.stderr.write(f"SENTINEL_CRASH: {type(e).__name__}: {e}\n")
+        _decision_rule = "crash"
         fail_closed = _os.environ.get("EMPIRICA_SENTINEL_FAIL_CLOSED", "").strip().lower() in {"1", "true", "yes"}
         if fail_closed:
             respond(
