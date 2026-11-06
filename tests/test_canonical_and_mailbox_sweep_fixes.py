@@ -296,7 +296,7 @@ def _poll(monkeypatch, roster_down: bool, roster=None):
 
     seen = []
 
-    def fake_urlopen(req, timeout=None):
+    def fake_urlopen(req, timeout=None, context=None):  # the real urlopen takes a context; the listener passes one
         url = req.full_url
         seen.append(url)
         if "roster" in url:
