@@ -731,7 +731,7 @@ collect_ignore_glob = ["_archive/**"]
 
 
 @pytest.fixture(autouse=True)
-def _cockpit_state_stays_out_of_the_real_home(monkeypatch, tmp_path_factory):
+def _cockpit_state_stays_out_of_the_real_home(tmp_path_factory):
     """No test writes cockpit state under the real ~/.empirica/cockpit, and none starts a detached cockpit process.
 
     The launcher's state paths are module constants taken from the home directory at import. A test that launched a cockpit without
@@ -746,11 +746,19 @@ def _cockpit_state_stays_out_of_the_real_home(monkeypatch, tmp_path_factory):
         from empirica.core.cockpit import bar, launch_wake
         from empirica.core.cockpit.launcher import state
     except Exception:
+        yield
         return
+    # Its OWN MonkeyPatch, not the fixture: see no_real_service_mutations for why depending on `monkeypatch` reorders teardown
+    # and breaks test_version_drift_editable's cache_clear. (It did: the first version of this fixture took `monkeypatch`.)
+    mp = MonkeyPatch()
     d = tmp_path_factory.mktemp("cockpit-state")
-    monkeypatch.setattr(state, "COCKPIT_DIR", d)
-    monkeypatch.setattr(state, "LAST_SESSION_START_PATH", d / "last_session_start")
-    monkeypatch.setattr(state, "LAST_CLEAN_SHUTDOWN_PATH", d / "last_clean_shutdown")
-    monkeypatch.setattr(state, "LOCK_PATH", d / "active.lock")
-    monkeypatch.setattr(bar, "_spawn_detached", lambda _argv: None)
-    monkeypatch.setattr(launch_wake, "_spawn_detached", lambda _argv, **_kw: None)
+    mp.setattr(state, "COCKPIT_DIR", d)
+    mp.setattr(state, "LAST_SESSION_START_PATH", d / "last_session_start")
+    mp.setattr(state, "LAST_CLEAN_SHUTDOWN_PATH", d / "last_clean_shutdown")
+    mp.setattr(state, "LOCK_PATH", d / "active.lock")
+    mp.setattr(bar, "_spawn_detached", lambda _argv: None)
+    mp.setattr(launch_wake, "_spawn_detached", lambda _argv, **_kw: None)
+    try:
+        yield
+    finally:
+        mp.undo()

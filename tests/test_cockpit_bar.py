@@ -163,18 +163,21 @@ def tmux_env(tmp_path, monkeypatch, cockpit_dir):
     fake = bin_dir / "claude"
     fake.write_text(FAKE_CLAUDE)
     fake.chmod(0o755)
-    sock_dir = Path(tempfile.mkdtemp(prefix="eb.", dir="/tmp"))
-    monkeypatch.setenv("TMUX_TMPDIR", str(sock_dir))
-    monkeypatch.delenv("TMUX", raising=False)
-    monkeypatch.delenv("TMUX_PANE", raising=False)
-    monkeypatch.delenv("EMPIRICA_INSTANCE_ID", raising=False)
-    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))  # no ~/.tmux.conf: the server starts with tmux's own bindings
-    (tmp_path / "home").mkdir()
-    yield tmp_path
-    private = sock_dir / f"tmux-{os.getuid()}" / "default"
-    subprocess.run(["tmux", "-S", str(private), "kill-server"], capture_output=True)
-    shutil.rmtree(sock_dir, ignore_errors=True)
+    # A unix socket path must be short, so the socket directory cannot live under tmp_path. The context manager removes it.
+    with tempfile.TemporaryDirectory(prefix="eb.", dir="/tmp") as sock:
+        sock_dir = Path(sock)
+        monkeypatch.setenv("TMUX_TMPDIR", str(sock_dir))
+        monkeypatch.delenv("TMUX", raising=False)
+        monkeypatch.delenv("TMUX_PANE", raising=False)
+        monkeypatch.delenv("EMPIRICA_INSTANCE_ID", raising=False)
+        monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+        monkeypatch.setenv(
+            "HOME", str(tmp_path / "home")
+        )  # no ~/.tmux.conf: the server starts with tmux's own bindings
+        (tmp_path / "home").mkdir()
+        yield tmp_path
+        private = sock_dir / f"tmux-{os.getuid()}" / "default"
+        subprocess.run(["tmux", "-S", str(private), "kill-server"], capture_output=True)
 
 
 def _practice(root: Path, name: str) -> Path:
