@@ -886,6 +886,7 @@ class RefreshResult:
     unkeyed: int = 0  # untracked panes that might be a configured claude pane (blocks `missing`)
     session_identity_stripped: str | None = None  # id removed from the session's environment
     adopted: list[str] = field(default_factory=list)  # older panes matched and stamped this run
+    left_dead: list[str] = field(default_factory=list)  # dead panes not restarted because --pane named another one
     error: str | None = None
 
 
@@ -979,8 +980,25 @@ def _adopt(
     return adopted
 
 
-def refresh_cockpit(config: LauncherConfig) -> RefreshResult:
+def _only_pane_error(
+    rows: list[dict], specs: dict, config: LauncherConfig, pane_id: str, session_name: str
+) -> str | None:
+    """Why ``pane_id`` cannot be restarted on its own, or None when it is one of this cockpit's practice panes."""
+    target = next((r for r in rows if r["pane_id"] == pane_id), None)
+    if target is None:
+        return f"pane {pane_id} is not in cockpit session {session_name!r}"
+    spec = specs.get(target["key"]) if target["key"] else None
+    if spec is None or not _runs_resumable(spec, config):
+        return f"pane {pane_id} is not a practice pane of this cockpit, so there is nothing to resume in it"
+    return None
+
+
+def refresh_cockpit(config: LauncherConfig, only_pane: str | None = None) -> RefreshResult:
     """Respawn, in place, every claude, codex or ecodex pane whose program has exited.
+
+    With ``only_pane`` (a tmux pane id, ``%7`` or ``7``) only that pane is restarted: other dead panes
+    are listed in ``left_dead`` and not touched, and naming a pane that is not one of this cockpit's
+    practice panes is an error. A pane that is running is never restarted, named or not.
 
     A pane counts as dead when tmux reports it dead (remain-on-exit keeps it
     in the layout) or when a shell is in its foreground where claude should
@@ -1016,6 +1034,11 @@ def refresh_cockpit(config: LauncherConfig) -> RefreshResult:
     specs = dict(_pane_keys(config))
     out.adopted = _adopt(rows, specs, config, assign_identities(config, session_name))
     seen = {r["key"] for r in rows if r["key"]}
+    if only_pane is not None:
+        only_pane = "%" + only_pane.lstrip("%")
+        out.error = _only_pane_error(rows, specs, config, only_pane, session_name)
+        if out.error:
+            return out
     for row in rows:
         key = row["key"]
         if not key:
@@ -1032,6 +1055,9 @@ def refresh_cockpit(config: LauncherConfig) -> RefreshResult:
             continue
         if row["dead"] != "1" and row["current"] not in _SHELLS:
             out.alive.append(key)
+            continue
+        if only_pane is not None and row["pane_id"] != only_pane:
+            out.left_dead.append(key)
             continue
         proj = config.project_by_name(pane.project_ref or "")
         if proj is None:

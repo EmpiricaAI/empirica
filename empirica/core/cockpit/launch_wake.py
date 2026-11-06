@@ -67,11 +67,16 @@ def _is_claude_pane(entry: dict[str, Any]) -> bool:
     )
 
 
+def _spawn_detached(argv: list[str], **kwargs: Any) -> None:
+    """Start the wake process. The one place this module starts anything in the background."""
+    subprocess.Popen(argv, **kwargs)
+
+
 def start(
     opened: list[dict[str, Any]],
     session_name: str,
     *,
-    popen: Callable[..., Any] = subprocess.Popen,
+    popen: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     """Start the detached wake for the claude panes among ``opened``. Returns ``{started, panes, detail}`` and never raises.
 
@@ -84,7 +89,7 @@ def start(
     record = {"session_name": session_name, "status": "running", "started_at": time.time(), "entries": entries}
     try:
         _write(path, record)
-        popen(
+        (popen or _spawn_detached)(
             [sys.executable, "-c", _CHILD, str(path)],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,

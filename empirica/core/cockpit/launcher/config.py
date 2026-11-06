@@ -106,6 +106,7 @@ class LauncherConfig:
     auto_prune_dead: bool = False
     notify_on_abnormal_exit: bool = True
     mouse: bool = True  # click a window name to switch, click a pane to focus
+    bar: bool = True  # the bottom bar: practice tabs, health, command chips, help (core/cockpit/bar.py)
 
     def project_names(self) -> list[str]:
         return [p.name for p in self.projects]
@@ -316,6 +317,7 @@ def load_config(path: Path | None = None) -> LauncherConfig:
         auto_prune_dead=bool(abnormal.get("auto_prune_dead", False)),
         notify_on_abnormal_exit=bool(abnormal.get("notify", True)),
         mouse=bool(raw.get("mouse", True)),
+        bar=bool(raw.get("bar", True)),
     )
 
 
@@ -325,6 +327,7 @@ def _serialize(config: LauncherConfig) -> dict[str, Any]:
         "attach_on_launch": config.attach_on_launch,
         "surface": config.surface,
         "mouse": config.mouse,
+        "bar": config.bar,
         "projects": [_serialize_project(p) for p in config.projects],
         "status_windows": [{"name": w.name, "command": w.command} for w in config.status_windows],
         "on_abnormal_exit": {

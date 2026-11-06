@@ -37,6 +37,12 @@ Surfaces (`surface:` in the config, or `launch --surface`)
   alacritty  one new alacritty window on this machine's display.
   ghostty    one new ghostty window on this machine's display.
 
+The bottom bar
+  A cockpit shows a bar at the bottom: your practices, then command chips that
+  turn red when something is broken and orange when something is waiting.
+  Click a chip, or press Ctrl+b, then e, then its letter; `?` opens the help
+  and a short guide. `bar: false` in the config turns it off.
+
 Identity and resume
   Each practice pane gets EMPIRICA_INSTANCE_ID: the project's `name:`, or its
   `instance_id:` if set. Transactions, goals and calibration follow that id, so
@@ -138,10 +144,18 @@ def add_cockpit_launcher_parsers(subparsers):
         "conversation resumed (`claude --continue`, or the project's `resume:` command), then wake each resumed\n"
         "claude once it is idle. A running practice is never touched, so this is safe to run at any time. A pane\n"
         "that was closed entirely is listed as missing; `empirica cockpit launch` adds it back.",
-        "  empirica cockpit refresh\n  empirica cockpit refresh --profile monitor-b\n",
+        "  empirica cockpit refresh\n"
+        "  empirica cockpit refresh --profile monitor-b\n"
+        "  empirica cockpit refresh --pane %7                only that pane\n",
     )
     refresh.add_argument("--config", metavar="PATH", help=_CONFIG_HELP)
     refresh.add_argument("--profile", metavar="NAME", help=_PROFILE_HELP)
+    refresh.add_argument(
+        "--pane",
+        metavar="ID",
+        help="Restart only this pane (a tmux pane id such as %%7), if its program exited. Other dead panes are left "
+        "as they are and listed. The cockpit bar's R chip runs this for the pane you are in",
+    )
     refresh.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
     # status

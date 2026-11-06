@@ -728,3 +728,29 @@ def integration_project(tmp_path_factory):
 
 # Exclude archived tests from collection
 collect_ignore_glob = ["_archive/**"]
+
+
+@pytest.fixture(autouse=True)
+def _cockpit_state_stays_out_of_the_real_home(monkeypatch, tmp_path_factory):
+    """No test writes cockpit state under the real ~/.empirica/cockpit, and none starts a detached cockpit process.
+
+    The launcher's state paths are module constants taken from the home directory at import. A test that launched a cockpit without
+    redirecting them wrote `last_session_start` into the real directory, which is what the next real launch reads to decide whether
+    the last cockpit ended cleanly (seen 2026-11-06, with `bar_state_atest.stamp` beside it). They are redirected here for every
+    test; a test that sets its own directory still wins.
+
+    `cockpit launch` also starts two background processes (the launch wake and the bar's state refresh). Each outlives the test. A
+    test that is about the starting passes its own `spawn` or `popen`.
+    """
+    try:
+        from empirica.core.cockpit import bar, launch_wake
+        from empirica.core.cockpit.launcher import state
+    except Exception:
+        return
+    d = tmp_path_factory.mktemp("cockpit-state")
+    monkeypatch.setattr(state, "COCKPIT_DIR", d)
+    monkeypatch.setattr(state, "LAST_SESSION_START_PATH", d / "last_session_start")
+    monkeypatch.setattr(state, "LAST_CLEAN_SHUTDOWN_PATH", d / "last_clean_shutdown")
+    monkeypatch.setattr(state, "LOCK_PATH", d / "active.lock")
+    monkeypatch.setattr(bar, "_spawn_detached", lambda _argv: None)
+    monkeypatch.setattr(launch_wake, "_spawn_detached", lambda _argv, **_kw: None)

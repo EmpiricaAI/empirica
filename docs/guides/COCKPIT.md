@@ -126,6 +126,55 @@ surviving session in a new window and your running practices are untouched.
 
 ---
 
+## The bottom bar
+
+A cockpit has a bar at the bottom, so routine actions do not need a command line.
+
+```
+ 1 core   2 > cortex   3 ✗ outreach                         serve ● cortex ● load 2.1  14:02
+ R restart  A refresh 1  M listener  I inbox 2  U update  C claude  S sessions  L login  ? help
+```
+
+The first line is your practices, with whatever your tmux `status-right` already shows on the
+right. A red ✗ on a practice means a pane in it has stopped. When the practices do not fit, the
+right-hand readout moves to a line of its own. The last line is the commands:
+
+| Chip | What it does | Red when | Orange when |
+|---|---|---|---|
+| `R` | Restart this pane: same practice, same identity, conversation resumed, then woken | this pane has stopped | |
+| `A` | Restart every pane that has stopped | any pane has stopped | |
+| `M` | Wake this practice so it reads its mail and re-arms its listener | its listener service is down | |
+| `I` | Show this practice's unanswered mail | | mail is waiting |
+| `U` | Update Empirica and its plugins on this machine (asks first) | set by the machine's state file | set by the machine's state file |
+| `C` | Update the AI client (asks first) | | a newer release exists |
+| `S` | Restart running panes onto new settings (asks first; it ends them) | | settings changed since they started |
+| `L` | Renew the Cortex login | the login has expired | it expires soon |
+| `?` | Help: the legend, the commands and a short guide to working with practices | | |
+
+Dim means nothing to do. **Click a chip**, or from a keyboard press `Ctrl+b`, then `e`, then
+the letter. `R`, `A` and `M` never touch a pane that is running.
+
+Where the colours come from:
+
+- `R` and `A` are computed by tmux from stopped panes, so they are always current.
+- `M` and `I` are refreshed in the background: at launch, after each command, and at most every
+  five minutes. The status line itself never runs a check.
+- `U`, `C`, `S` and `L` read `~/.empirica/ecosystem-state.json` when the machine has one. The
+  file names, per component, a verdict (`needed`, `recommended` or `ok`), a short label and the
+  command that fixes it. Without the file these chips stay dim and say so when pressed (`C`
+  falls back to `claude update`).
+
+`bar: false` in a cockpit config turns the bar off for that cockpit. The bar is set on the
+cockpit's own tmux session, so your other tmux sessions look as they did. Key bindings are shared
+by a whole tmux server, so two things are handled with care: a `Ctrl+b e` you already use is not
+taken (the chips then answer clicks only, and `launch` says so), and a click on the status line
+that is not one of the chips goes to whatever handled it before.
+
+`empirica cockpit refresh --pane ID` is what `R` runs: it restarts that one pane if it has
+stopped and leaves every other pane alone.
+
+---
+
 ## A cockpit on another machine, over SSH
 
 A cockpit is a tmux session, so it runs wherever tmux does and survives your
@@ -194,6 +243,7 @@ session_name: cockpit          # tmux session name; unique per profile
 attach_on_launch: true         # tmux surface: attach after building
 surface: ghostty               # tmux | alacritty | ghostty
 mouse: true                    # clickable tabs and panes
+bar: true                      # the bottom bar (see above); false turns it off
 
 projects:                      # everything a pane may reference
   - name: empirica             # also the default identity (see below)

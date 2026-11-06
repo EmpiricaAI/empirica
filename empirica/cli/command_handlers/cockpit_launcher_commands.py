@@ -85,6 +85,33 @@ def _profile_error(args, error: str) -> int:
     return 1
 
 
+def _install_bar(config, session_name: str, args, *, human: bool) -> dict:
+    """Put the bottom bar on the session and start its first state refresh. Never raises: the layout is up either way."""
+    try:
+        from empirica.core.cockpit import bar
+        from empirica.core.cockpit.launcher.config import DEFAULT_CONFIG_PATH
+
+        config_path, _error = _config_path_arg(args)
+        result = bar.install(
+            config,
+            session_name,
+            config_path=Path(config_path).expanduser() if config_path else DEFAULT_CONFIG_PATH,
+            profile=getattr(args, "profile", None),
+        )
+        if result.get("installed"):
+            bar.start_refresh(session_name)
+    except Exception as e:
+        result = {"installed": False, "detail": f"the cockpit bar could not be installed ({type(e).__name__}: {e})"}
+    if human and result.get("installed"):
+        keys = "Ctrl+b e then R A M I U C S L, ? for help" if result.get("keys") else "click a chip"
+        print(f"  ▁ cockpit bar on ({result.get('lines')} lines): {keys}")
+        if result.get("detail"):
+            print(f"    {result['detail']}")
+    elif human and result.get("detail") and "bar: false" not in result["detail"]:
+        print(f"  ⚠ {result['detail']}")
+    return result
+
+
 def _start_launch_wake(opened: list[dict], session_name: str, *, human: bool) -> dict:
     """Give the claude panes this launch opened the wake `refresh` gives a respawned pane, from a detached process.
 
@@ -155,13 +182,13 @@ def handle_cockpit_launch_command(args) -> int:
     # terminal window (alacritty or ghostty) per group, each with its own
     # tmux session and panes.
     if config.is_groups_mode() and config.surface in ("alacritty", "ghostty"):
-        return _handle_groups_launch(config, output, quiet)
+        return _handle_groups_launch(config, output, quiet, args)
     if config.is_groups_mode():
         # surface: tmux with groups — same layout, in the terminal launch ran from.
         # This used to fall through to the one-window-per-project path and
         # silently ignore the groups, so panes never appeared side by side
         # unless alacritty or ghostty was installed.
-        return _handle_groups_in_terminal(config, output, no_attach)
+        return _handle_groups_in_terminal(config, output, no_attach, args)
 
     # 2. Abnormal-exit detection
     abnormal_payload = _check_and_print_abnormal(config, quiet, output)
@@ -183,6 +210,7 @@ def handle_cockpit_launch_command(args) -> int:
         "windows_created": result.windows_created,
         "status_windows_created": result.status_windows_created,
         "abnormal_exit": abnormal_payload,
+        "bar": _install_bar(config, result.session_name, args, human=output == "human"),
         "wake": _start_launch_wake(result.opened, result.session_name, human=output == "human"),
     }
 
@@ -242,7 +270,7 @@ def _wm_class_for(surface: str, session_name: str) -> str:
     return f"empirica-{session_name}"
 
 
-def _handle_groups_in_terminal(config, output: str, no_attach: bool) -> int:
+def _handle_groups_in_terminal(config, output: str, no_attach: bool, args=None) -> int:
     """Groups layout with ``surface: tmux``: build it, then attach this terminal."""
     result = launch_groups(config, spawn_terminal=False)
     if result.error:
@@ -259,7 +287,8 @@ def _handle_groups_in_terminal(config, output: str, no_attach: bool) -> int:
         for g in result.groups:
             verb = "created" if g.created else "adopted existing"
             print(f"  · {g.group_name:12s} ({verb}, {g.panes_created} panes){'  ⚠ ' + g.error if g.error else ''}")
-    # Before the attach below: that replaces this process, so this is the last point the wake can be started from.
+    # Before the attach below: that replaces this process, so this is the last point the bar and the wake can be started from.
+    bar = _install_bar(config, result.session_name, args, human=output != "json")
     wake = _start_launch_wake(result.opened, result.session_name, human=output != "json")
     if output == "json":
         print(
@@ -269,6 +298,7 @@ def _handle_groups_in_terminal(config, output: str, no_attach: bool) -> int:
                     "surface": "tmux",
                     "session_name": result.session_name,
                     "windows": windows,
+                    "bar": bar,
                     "wake": wake,
                 }
             )
@@ -292,7 +322,7 @@ def _handle_groups_in_terminal(config, output: str, no_attach: bool) -> int:
     return 1
 
 
-def _handle_groups_launch(config, output: str, quiet: bool) -> int:
+def _handle_groups_launch(config, output: str, quiet: bool, args=None) -> int:
     """Groups mode: ONE terminal window (alacritty or ghostty) per
     config/monitor, hosting every group as a tmux window in a single
     shared session — native status-line click-to-switch between them.
@@ -341,10 +371,12 @@ def _handle_groups_launch(config, output: str, quiet: bool) -> int:
             }
             for g in result.groups
         ],
+        "bar": None,
         "wake": None,
     }
 
     if output == "json":
+        payload["bar"] = _install_bar(config, result.session_name, args, human=False)
         payload["wake"] = _start_launch_wake(result.opened, result.session_name, human=False)
         print(json.dumps(payload, indent=2, default=str))
         return 0 if result.all_ok() else 1
@@ -365,6 +397,7 @@ def _handle_groups_launch(config, output: str, quiet: bool) -> int:
         if g.error:
             line += f"  ⚠ {g.error}"
         print(line)
+    _install_bar(config, result.session_name, args, human=True)
     _start_launch_wake(result.opened, result.session_name, human=True)
     if not quiet:
         print()
@@ -409,7 +442,8 @@ def handle_cockpit_refresh_command(args) -> int:
     output = getattr(args, "output", "human")
     config = load_config(path=Path(config_path).expanduser() if config_path else None)
 
-    result = refresh_cockpit(config)
+    only_pane = getattr(args, "pane", None)
+    result = refresh_cockpit(config, only_pane=only_pane) if only_pane else refresh_cockpit(config)
     failed = [r for r in result.respawned if r["error"]]
     ok = result.error is None and not failed
     # A resumed claude has had its SessionStart and then sits idle; its Monitor is armed by a turn, so give it one (David's ruling (a)).
@@ -426,6 +460,7 @@ def handle_cockpit_refresh_command(args) -> int:
                     "session_identity_stripped": result.session_identity_stripped,
                     "adopted": result.adopted,
                     "unkeyed_panes": result.unkeyed,
+                    "left_dead": result.left_dead,
                     "woken": woken,
                     "error": result.error,
                 },
@@ -451,6 +486,8 @@ def handle_cockpit_refresh_command(args) -> int:
         print(f"  {'⏰' if w['woken'] else '⚠'} {w['key']:24s} {w['detail']}")
     if not result.respawned:
         print(f"  nothing to do: {len(result.alive)} claude pane(s) running")
+    if result.left_dead:
+        print(f"  · left as they are (not the pane named): {', '.join(result.left_dead)}")
     if result.missing:
         print(f"  ⚠ not in the session: {', '.join(result.missing)} — `empirica cockpit launch` adds them back")
     if result.unkeyed:
