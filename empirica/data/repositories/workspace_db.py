@@ -39,33 +39,51 @@ def _get_workspace_db_path() -> Path:
     return Path.home() / ".empirica" / "workspace" / "workspace.db"
 
 
+#: The columns of `global_projects`, in order: (name, type and default, constraint a CREATE can carry).
+#:
+#: The one list both the CREATE and the healing loop below are built from. `CREATE TABLE IF NOT EXISTS`
+#: does nothing to a table that is already there, so a workspace.db made by an older release kept its old
+#: columns and `project-register` failed on `metadata`. A column added here reaches existing tables too.
+#: `ALTER TABLE ADD COLUMN` cannot carry PRIMARY KEY, UNIQUE or a NOT NULL without a default, so an added
+#: column takes the type and default only; the constraint column holds what only a fresh table gets.
+GLOBAL_PROJECTS_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("id", "TEXT", "PRIMARY KEY"),
+    ("name", "TEXT", "NOT NULL"),
+    ("description", "TEXT", ""),
+    ("trajectory_path", "TEXT", "NOT NULL UNIQUE"),
+    ("git_remote_url", "TEXT", ""),
+    ("git_branch", "TEXT DEFAULT 'main'", ""),
+    ("total_transactions", "INTEGER DEFAULT 0", ""),
+    ("total_findings", "INTEGER DEFAULT 0", ""),
+    ("total_unknowns", "INTEGER DEFAULT 0", ""),
+    ("total_dead_ends", "INTEGER DEFAULT 0", ""),
+    ("total_goals", "INTEGER DEFAULT 0", ""),
+    ("last_transaction_id", "TEXT", ""),
+    ("last_transaction_timestamp", "REAL", ""),
+    ("last_sync_timestamp", "REAL", ""),
+    ("status", "TEXT DEFAULT 'active'", ""),
+    ("project_type", "TEXT", ""),
+    ("project_tags", "TEXT", ""),
+    ("created_timestamp", "REAL", "NOT NULL"),
+    ("updated_timestamp", "REAL", "NOT NULL"),
+    ("metadata", "TEXT", ""),
+)
+
+
+def _ensure_global_projects(cursor: sqlite3.Cursor) -> None:
+    """Create `global_projects`, or add the columns an older table lacks. Runs before its indexes."""
+    columns = ",\n            ".join(" ".join(part for part in col if part) for col in GLOBAL_PROJECTS_COLUMNS)
+    cursor.execute(f"CREATE TABLE IF NOT EXISTS global_projects (\n            {columns}\n        )")
+    existing = {row[1] for row in cursor.execute("PRAGMA table_info(global_projects)").fetchall()}
+    for name, type_and_default, _create_only in GLOBAL_PROJECTS_COLUMNS:
+        if name not in existing:
+            cursor.execute(f"ALTER TABLE global_projects ADD COLUMN {name} {type_and_default}")
+
+
 def _ensure_workspace_schema(conn: sqlite3.Connection) -> None:
-    """Create workspace tables if they don't exist."""
+    """Create workspace tables if they don't exist, and add the columns an older `global_projects` lacks."""
     cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS global_projects (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            description TEXT,
-            trajectory_path TEXT NOT NULL UNIQUE,
-            git_remote_url TEXT,
-            git_branch TEXT DEFAULT 'main',
-            total_transactions INTEGER DEFAULT 0,
-            total_findings INTEGER DEFAULT 0,
-            total_unknowns INTEGER DEFAULT 0,
-            total_dead_ends INTEGER DEFAULT 0,
-            total_goals INTEGER DEFAULT 0,
-            last_transaction_id TEXT,
-            last_transaction_timestamp REAL,
-            last_sync_timestamp REAL,
-            status TEXT DEFAULT 'active',
-            project_type TEXT,
-            project_tags TEXT,
-            created_timestamp REAL NOT NULL,
-            updated_timestamp REAL NOT NULL,
-            metadata TEXT
-        )
-    """)
+    _ensure_global_projects(cursor)
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_global_projects_status
         ON global_projects(status)

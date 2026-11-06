@@ -30,156 +30,17 @@ def get_workspace_db_path() -> Path:
 
 
 def ensure_workspace_schema(conn) -> None:
-    """Create workspace tables if they don't exist.
+    """Create workspace tables if they don't exist, and add the columns an older table lacks.
 
     Called before any workspace.db operations to ensure the schema is present.
     This makes workspace-init and project-list work on fresh installs without
     requiring a separate schema migration step.
+
+    The schema has one definition, in the repository. This name stays for its callers.
     """
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS global_projects (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            description TEXT,
-            trajectory_path TEXT NOT NULL UNIQUE,
-            git_remote_url TEXT,
-            git_branch TEXT DEFAULT 'main',
-            total_transactions INTEGER DEFAULT 0,
-            total_findings INTEGER DEFAULT 0,
-            total_unknowns INTEGER DEFAULT 0,
-            total_dead_ends INTEGER DEFAULT 0,
-            total_goals INTEGER DEFAULT 0,
-            last_transaction_id TEXT,
-            last_transaction_timestamp REAL,
-            last_sync_timestamp REAL,
-            status TEXT DEFAULT 'active',
-            project_type TEXT,
-            project_tags TEXT,
-            created_timestamp REAL NOT NULL,
-            updated_timestamp REAL NOT NULL,
-            metadata TEXT
-        )
-    """)
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_global_projects_status
-        ON global_projects(status)
-    """)
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_global_projects_type
-        ON global_projects(project_type)
-    """)
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_global_projects_last_tx
-        ON global_projects(last_transaction_timestamp)
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS instance_bindings (
-            instance_id TEXT PRIMARY KEY,
-            project_id TEXT NOT NULL,
-            project_path TEXT,
-            bound_timestamp REAL NOT NULL,
-            FOREIGN KEY (project_id) REFERENCES global_projects(id)
-        )
-    """)
-    # Global session registry — enables cross-project session tracking
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS global_sessions (
-            session_id TEXT PRIMARY KEY,
-            ai_id TEXT,
-            origin_project_id TEXT,
-            current_project_id TEXT,
-            instance_id TEXT,
-            status TEXT DEFAULT 'active',
-            parent_session_id TEXT,
-            created_at REAL,
-            last_activity REAL,
-            FOREIGN KEY (origin_project_id) REFERENCES global_projects(id),
-            FOREIGN KEY (current_project_id) REFERENCES global_projects(id)
-        )
-    """)
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_global_sessions_instance
-        ON global_sessions(instance_id, status)
-    """)
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_global_sessions_project
-        ON global_sessions(current_project_id)
-    """)
-    # Entity-artifact cross-references — links artifacts to CRM entities
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS entity_artifacts (
-            id TEXT PRIMARY KEY,
-            artifact_type TEXT NOT NULL,
-            artifact_id TEXT NOT NULL,
-            artifact_source TEXT,
-            entity_type TEXT NOT NULL,
-            entity_id TEXT NOT NULL,
-            relationship TEXT DEFAULT 'about',
-            relevance REAL DEFAULT 1.0,
-            discovered_via TEXT,
-            engagement_id TEXT,
-            transaction_id TEXT,
-            created_at REAL,
-            created_by_ai TEXT,
-            UNIQUE(artifact_type, artifact_id, entity_type, entity_id)
-        )
-    """)
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_entity_artifacts_entity
-        ON entity_artifacts(entity_type, entity_id)
-    """)
-    # Entity registry — Practice Model surface (project, contact, organization,
-    # engagement, user, …). Backs entity-list/-show/-walk + the extension's
-    # dashboard. Mirrors workspace_db.py:_ensure_workspace_schema exactly so
-    # both schema-bootstrap paths stay in lockstep.
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS entity_registry (
-            entity_type TEXT NOT NULL,
-            entity_id TEXT NOT NULL,
-            display_name TEXT NOT NULL,
-            description TEXT,
-            source_db TEXT NOT NULL,
-            source_table TEXT NOT NULL,
-            emoji_state TEXT,
-            status TEXT DEFAULT 'active',
-            created_at REAL NOT NULL,
-            updated_at REAL,
-            metadata TEXT,
-            PRIMARY KEY (entity_type, entity_id)
-        )
-    """)
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_registry_type ON entity_registry(entity_type)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_registry_status ON entity_registry(status)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_registry_emoji ON entity_registry(emoji_state)")
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS entity_memberships (
-            entity_type TEXT NOT NULL,
-            entity_id TEXT NOT NULL,
-            group_type TEXT NOT NULL,
-            group_id TEXT NOT NULL,
-            role TEXT,
-            joined_at REAL NOT NULL,
-            left_at REAL,
-            created_at REAL NOT NULL,
-            notes TEXT,
-            PRIMARY KEY (entity_type, entity_id, group_type, group_id)
-        )
-    """)
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_entity_memberships_member ON entity_memberships(entity_type, entity_id)"
-    )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_entity_memberships_group ON entity_memberships(group_type, group_id)"
-    )
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_memberships_active ON entity_memberships(left_at)")
+    from empirica.data.repositories.workspace_db import _ensure_workspace_schema
 
-    # Engagement substrate — same vendored helper as WorkspaceDBRepository, so
-    # both ensure paths stand up an identical substrate.
-    from empirica.data.repositories.workspace_db import _apply_engagement_substrate
-
-    _apply_engagement_substrate(cursor)
-    conn.commit()
+    _ensure_workspace_schema(conn)
 
 
 def get_workspace_projects() -> list[dict[str, Any]]:
