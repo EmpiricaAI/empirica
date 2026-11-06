@@ -13,7 +13,8 @@ Four phases:
      (file-backed rows only; lazy half of migration 050). Runs even in
      dry-run: identity columns are additive metadata, not the swap.
   2. **Discovery** — catalogue candidates looked up by content_hash via
-     ``GET /v1/sources/catalogue``. This endpoint is NOT yet part of the
+     ``POST /v1/sources/catalogue`` (a lookup: the hashes go in the body, up
+     to 500 a call). This endpoint is NOT yet part of the
      pinned cross-component contract — discovery degrades gracefully
      (reports rows-ready-for-matching) until the catalogue side deploys.
   3. **Confirm** — proposed {local_uuid, cortex_uuid} pairs POSTed to
