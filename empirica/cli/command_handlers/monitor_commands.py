@@ -1574,7 +1574,7 @@ def handle_calibration_report_command(args):
             rows, cutoff_str = _fetch_trajectory_rows(weeks, include_tests)
         except FileNotFoundError:
             print(json.dumps({"ok": False, "error": "No sessions database found"}, indent=2))
-            return
+            return 1
 
         if not rows:
             result = {

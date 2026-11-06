@@ -22,6 +22,8 @@ import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from ..cli_utils import printed
+
 logger = logging.getLogger(__name__)
 
 
@@ -602,7 +604,7 @@ def handle_workspace_init_command(args):
         if output_format == "json":
             print(json.dumps(result, indent=2))
 
-        return result
+        return printed(result, args)
 
     except Exception as e:
         from ..cli_utils import handle_cli_error

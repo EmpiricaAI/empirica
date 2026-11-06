@@ -18,7 +18,7 @@ import json
 import logging
 import sys
 
-from ..cli_utils import handle_cli_error
+from ..cli_utils import handle_cli_error, printed
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ def handle_checkpoint_sign_command(args):
                 print(f"❌ Failed to sign checkpoint: {result.get('message')}")
                 sys.exit(1)
 
-        return result
+        return printed(result, args)
 
     except Exception as e:
         handle_cli_error(e, "checkpoint signing")
@@ -153,7 +153,7 @@ def handle_checkpoint_verify_command(args):
                     print(f"   Actual SHA: {result.get('checkpoint_sha', '')[:16]}...")
                 sys.exit(1)
 
-        return result
+        return printed(result, args)
 
     except Exception as e:
         handle_cli_error(e, "checkpoint verification")

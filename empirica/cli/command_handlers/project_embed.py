@@ -12,7 +12,7 @@ from pathlib import Path
 from empirica.core.fact_confidence import finding_fact_confidence
 from empirica.core.mistake_text import build_mistake_text
 
-from ..cli_utils import handle_cli_error
+from ..cli_utils import handle_cli_error, printed
 
 logger = logging.getLogger(__name__)
 
@@ -711,7 +711,7 @@ def handle_project_embed_command(args):
                     msg += f" | {verb}: {count}"
             print(msg)
 
-        return result
+        return printed(result, args)
     except Exception as e:
         record_embed_outcome(locals().get("root"), ok=False, error=f"{type(e).__name__}: {e}")
         handle_cli_error(e, "Project embed", getattr(args, "verbose", False))

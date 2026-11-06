@@ -9,7 +9,7 @@ import logging
 import os
 from typing import Any
 
-from ..cli_utils import handle_cli_error
+from ..cli_utils import handle_cli_error, printed
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ def handle_skill_suggest_command(args):
             "suggestions": {"local": local_skills, "available_to_fetch": online_sources},
         }
         print(json.dumps(result, indent=2))
-        return result
+        return printed(result, args)
     except Exception as e:
         handle_cli_error(e, "Skill suggest", getattr(args, "verbose", False))
         return None
@@ -248,7 +248,7 @@ def handle_skill_extract_command(args):
                 domain_name = next(iter(domain_data.keys())) if domain_data else "unknown"
                 print(f"Extracted skill: {domain_name}")
 
-        return result
+        return printed(result, args)
     except Exception as e:
         handle_cli_error(e, "Skill extract", getattr(args, "verbose", False))
         return None

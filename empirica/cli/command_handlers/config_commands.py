@@ -242,7 +242,7 @@ def handle_config_get_command(args):
                 value = value[k]
             else:
                 print(f"❌ Configuration key not found: {key}")
-                return
+                return 1
 
         print(f"✅ {key}: {value}")
 

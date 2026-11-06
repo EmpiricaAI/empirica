@@ -1112,7 +1112,7 @@ def handle_engagement_focus_command(args):
         engagement_id = getattr(args, "engagement_id", None)
         if not engagement_id:
             print(json.dumps({"ok": False, "error": "engagement_id required"}))
-            return
+            return 1
 
         ok = set_active_engagement(engagement_id)
         if ok:
@@ -3996,7 +3996,7 @@ def handle_mistake_log_command(args):
             session_id = R.session_id()
         if not session_id:
             print(json.dumps({"ok": False, "error": "No active transaction and --session-id not provided"}))
-            return
+            return 1
 
         db = SessionDatabase()
         if not project_id and session_id:

@@ -23,7 +23,7 @@ import time
 
 from empirica.utils.session_resolver import InstanceResolver as R
 
-from ..cli_utils import handle_cli_error, parse_json_safely
+from ..cli_utils import handle_cli_error, parse_json_safely, printed
 
 logger = logging.getLogger(__name__)
 
@@ -882,7 +882,7 @@ def handle_goals_add_task_command(args):
                 print(json.dumps(result))
             else:
                 print(f"❌ Goal not found: {goal_id}")
-            return result
+            return printed(result, args)
         resolved_goal_id = goal.id
         goal_repo.close()
 
@@ -3367,7 +3367,7 @@ def handle_goals_discover_command(args):
                 print("💡 To resume a goal, use:")
                 print("   empirica goals-resume <goal-id> --ai-id <your-ai-id>")
 
-        return result
+        return printed(result, args)
 
     except Exception as e:
         handle_cli_error(e, "Goal discovery", getattr(args, "verbose", False))
@@ -3399,7 +3399,7 @@ def handle_goals_resume_command(args):
                 print("   1. empirica goals-discover --from-ai-id <other-ai>")
                 print("   2. git fetch  # Pull latest goals from remote")
 
-            return result
+            return printed(result, args)
 
         # Add lineage entry
         goal_store.add_lineage(goal_id, ai_id, "resumed")
@@ -3437,7 +3437,7 @@ def handle_goals_resume_command(args):
             print(f'   2. Run your own preflight: empirica preflight "<task>" --ai-id {ai_id}')
             print("   3. Compare your vectors with original AI's")
 
-        return result
+        return printed(result, args)
 
     except Exception as e:
         handle_cli_error(e, "Goal resume", getattr(args, "verbose", False))

@@ -112,6 +112,19 @@ def format_uncertainty_output(uncertainty_scores: dict[str, float], verbose: boo
 _ERROR_REPORTED: list[str] = []
 
 
+def printed(result: dict, args=None) -> int:
+    """The exit code for a result the handler has already printed itself.
+
+    The dispatcher prints any dict a handler returns, so a handler that prints its own output and then returns the dict
+    prints it twice. Return this instead: the exit code the dispatcher would have taken from ``ok``, with the partial-page
+    record it would have written.
+    """
+    from empirica.utils import partial_view
+
+    partial_view.record(str(getattr(args, "command", "") or ""), result)
+    return 0 if result.get("ok", True) else 1
+
+
 def errors_reported() -> list[str]:
     """Errors surfaced via `handle_cli_error` so far in this process."""
     return list(_ERROR_REPORTED)

@@ -64,7 +64,7 @@ def handle_note_command(args) -> dict | int | None:
             msg = 'note text required — e.g. empirica note "..." (or --list / --clear)'
             if output_format == "json":
                 print(json.dumps({"ok": False, "error": msg}))
-                return None
+                return 1
             print(f"❌ {msg}")
             return 1
 

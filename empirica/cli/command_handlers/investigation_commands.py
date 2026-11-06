@@ -20,7 +20,7 @@ import logging
 import os
 from typing import Any
 
-from ..cli_utils import handle_cli_error, parse_json_safely
+from ..cli_utils import handle_cli_error, parse_json_safely, printed
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ def handle_investigate_create_branch_command(args):
             if description:
                 print(f"   Description: {description}")
 
-        return result
+        return printed(result, args)
 
     except Exception as e:
         handle_cli_error(e, "Create investigation branch", getattr(args, "verbose", False))
@@ -172,7 +172,7 @@ def handle_investigate_checkpoint_branch_command(args):
             print(f"   Tokens spent: {tokens_spent}")
             print(f"   Time spent: {time_spent} minutes")
 
-        return result
+        return printed(result, args)
 
     except Exception as e:
         handle_cli_error(e, "Checkpoint investigation branch", getattr(args, "verbose", False))
@@ -302,7 +302,7 @@ def handle_investigate_merge_branches_command(args):
             else:
                 print(f"Merge failed: {result.get('error')}")
 
-        return result
+        return printed(result, args)
 
     except Exception as e:
         handle_cli_error(e, "Merge investigation branches", getattr(args, "verbose", False))

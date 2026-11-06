@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import sys
 
-from empirica.cli.cli_utils import handle_cli_error
+from empirica.cli.cli_utils import handle_cli_error, printed
 
 # Tables to search, in priority order
 ARTIFACT_TABLES = [
@@ -112,7 +112,7 @@ def handle_resolve_command(args):
             print(f"  Action: {action}")
 
         db.close()
-        return result
+        return printed(result, args)
 
     except Exception as e:
         handle_cli_error(e, "Resolve", getattr(args, "verbose", False))
