@@ -1,10 +1,78 @@
 """Argparse parser for ``empirica cockpit <action>`` (launcher v1).
 
 Per ``docs/specs/PROPOSAL_COCKPIT_LAUNCHER.md``. Adds a ``cockpit``
-subcommand group with ``launch / status / detach / kill`` actions.
+subcommand group with ``launch / refresh / status / detach / kill`` actions.
+
+The help here is the short form of docs/guides/COCKPIT.md. tests/test_cockpit_and_type_help.py keeps the facts a
+person needs first (profiles, surfaces, the status check, refresh, identity) in it.
 """
 
 from __future__ import annotations
+
+import argparse
+
+_PROFILE_HELP = (
+    "Use the profile NAME: the file ~/.empirica/cockpit/config-NAME.yaml. Without it the default "
+    "~/.empirica/cockpit/config.yaml is used. An unknown name is refused and the error lists the profiles that exist"
+)
+_CONFIG_HELP = "Use this config file instead of the default or a profile"
+
+_ROOT_DESCRIPTION = """\
+A cockpit is one tmux session that holds your practices: one window per group,
+one pane per practice, each started in its own directory with a stable identity.
+A config file describes the layout. Guide: docs/guides/COCKPIT.md
+
+Profiles (--profile NAME)
+  The default layout is ~/.empirica/cockpit/config.yaml. A second layout is a
+  second file beside it, config-NAME.yaml, selected with --profile NAME:
+    ~/.empirica/cockpit/config-NAME.yaml
+  Give each profile its own `session_name:`, since each is its own tmux session.
+  An unknown name is refused with the list of profiles that exist. After editing
+  a profile by hand, run `empirica cockpit status --profile NAME`: it checks the
+  file, changes nothing, and exits 1 with the problem if there is one.
+
+Surfaces (`surface:` in the config, or `launch --surface`)
+  tmux       the layout opens in the terminal you launched from. This is the one
+             that works over SSH and on a machine with no display.
+  alacritty  one new alacritty window on this machine's display.
+  ghostty    one new ghostty window on this machine's display.
+
+Identity and resume
+  Each practice pane gets EMPIRICA_INSTANCE_ID: the project's `name:`, or its
+  `instance_id:` if set. Transactions, goals and calibration follow that id, so
+  a practice that is restarted is the same practice. `refresh` restarts a pane
+  whose claude, codex or ecodex exited, in place, and resumes its conversation
+  (`claude --continue`, or the project's `resume:` command).
+
+State files, under ~/.empirica/cockpit/
+  config.yaml           the default layout; config-NAME.yaml for each profile
+  last_session_start    time of the most recent `cockpit launch`
+  last_clean_shutdown   time of the most recent `kill` or `detach`
+  active.lock           PID of the running cockpit (cleared on a clean exit)
+  When the last cockpit ended without `kill` or `detach` (a reboot, an OOM
+  kill), the next `launch` says so and suggests `empirica instance prune`.
+"""
+
+_ROOT_EPILOG = """\
+examples:
+  empirica cockpit launch                        bring up the default layout and attach
+  empirica cockpit launch --profile monitor-b    bring up ~/.empirica/cockpit/config-monitor-b.yaml
+  empirica cockpit status --profile monitor-b    check that profile; changes nothing
+  empirica cockpit refresh                       bring back every practice pane that exited
+  empirica cockpit detach                        leave it running and record a clean shutdown
+  empirica cockpit kill --prune                  end it and remove state of instances that are gone
+"""
+
+
+def _action(actions, name: str, summary: str, description: str, examples: str) -> argparse.ArgumentParser:
+    """One cockpit action: a one-line summary for the list, a description and examples for its own help."""
+    return actions.add_parser(
+        name,
+        help=summary,
+        description=description,
+        epilog="examples:\n" + examples,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
 
 
 def add_cockpit_launcher_parsers(subparsers):
@@ -12,33 +80,9 @@ def add_cockpit_launcher_parsers(subparsers):
     cockpit_root = subparsers.add_parser(
         "cockpit",
         help="Bring up all your practices in one tmux layout and keep it alive",
-        description="""
-Single-command bring-up of a configured multi-Claude tmux cockpit
-(one window per project, optional status windows for monitoring).
-
-`launch` is layout-only — Claude conversations regenerate on each launch
-(by design; that's `/compact` + Empirica artifacts' job, not the launcher's).
-`refresh` is the exception: it brings back, in place, a claude pane whose
-claude exited, resuming its conversation and keeping its EMPIRICA_INSTANCE_ID.
-
-Each project pane launched as claude or a shell is bound to a stable,
-slot-shaped EMPIRICA_INSTANCE_ID (the project name, or `instance_id:` in
-config), so a relaunched practitioner keeps its identity instead of
-becoming a generic tmux_N.
-
-Guide: docs/guides/COCKPIT.md (config format, profiles, surfaces, refresh).
-
-State files live under ~/.empirica/cockpit/:
-  config.yaml           — your project list + status windows
-  last_session_start    — mtime of most recent `cockpit launch`
-  last_clean_shutdown   — mtime of most recent graceful `kill` / `detach`
-  active.lock           — PID of the running cockpit (cleared on clean exit)
-
-Abnormal-exit detection compares the timestamps + checks the lock PID:
-when the previous session ended without writing a clean-shutdown marker
-(reboot, OOM, forced kill), the next `cockpit launch` warns and suggests
-`empirica instance prune`.
-        """,
+        description=_ROOT_DESCRIPTION,
+        epilog=_ROOT_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     actions = cockpit_root.add_subparsers(
         dest="cockpit_action",
@@ -46,82 +90,99 @@ when the previous session ended without writing a clean-shutdown marker
     )
 
     # launch
-    launch = actions.add_parser(
+    launch = _action(
+        actions,
         "launch",
-        help="Bring up the cockpit (idempotent — attaches if already running)",
+        "Bring up the cockpit (attaches if it is already running)",
+        "Build the layout the config describes and attach to it. Safe to run again: a cockpit that is already\n"
+        "running is attached, not rebuilt, and a practice pane that was closed is added back. Conversations are\n"
+        "not restored by launch; `refresh` resumes a pane whose program exited.\n\n"
+        "With the tmux surface the layout opens in the terminal you run this from, so it works over SSH and on a\n"
+        "machine with no display. alacritty and ghostty open a window on this machine's display.",
+        "  empirica cockpit launch\n"
+        "  empirica cockpit launch --profile monitor-b\n"
+        "  empirica cockpit launch --profile halo --surface tmux     over SSH\n"
+        "  empirica cockpit launch --no-attach                        build it, stay in this shell\n",
     )
-    launch.add_argument(
-        "--config", metavar="PATH", help="Override the default config path (~/.empirica/cockpit/config.yaml)"
-    )
-    launch.add_argument(
-        "--profile",
-        metavar="NAME",
-        help="Use ~/.empirica/cockpit/config-NAME.yaml (e.g. monitor-a, monitor-b, ecodex) instead of the default config",
-    )
+    launch.add_argument("--config", metavar="PATH", help=_CONFIG_HELP)
+    launch.add_argument("--profile", metavar="NAME", help=_PROFILE_HELP)
     launch.add_argument(
         "--no-attach",
         action="store_true",
-        help="Don't attach after creating the layout — useful for headless / scripted bring-up",
+        help="Build the layout and do not attach: for scripted bring-up",
     )
     launch.add_argument(
         "--quiet-warnings",
         action="store_true",
-        help="Suppress the abnormal-exit warning even when the previous session ended uncleanly",
+        help="Do not print the warning that the previous cockpit ended without `kill` or `detach`",
     )
     launch.add_argument(
         "--surface",
         choices=["tmux", "alacritty", "ghostty"],
-        help="Override the surface from config. tmux = legacy "
-        "single-attach. alacritty/ghostty = one window per "
-        "group with WM_CLASS/app-id for KDE Meta+1..N switching "
-        '(requires "groups:" in config). ghostty additionally '
-        "supports native drag-and-drop file paste.",
+        help="Override `surface:` from the config for this launch. tmux: the layout opens in this terminal "
+        "(works over SSH, needs no display). alacritty, ghostty: one new window on this machine's display, with "
+        "a window class per session so a taskbar slot can be pinned to it; ghostty also takes drag-and-drop "
+        "file paste",
     )
     launch.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
     # refresh
-    refresh = actions.add_parser(
+    refresh = _action(
+        actions,
         "refresh",
-        help="Relaunch, in place, every claude, codex or ecodex pane that exited — same identity, conversation resumed — then wake each resumed claude once it is idle",
+        "Bring back, in place, every practice pane whose claude, codex or ecodex exited",
+        "Restart every practice pane whose program exited: same pane, same directory, same EMPIRICA_INSTANCE_ID,\n"
+        "conversation resumed (`claude --continue`, or the project's `resume:` command), then wake each resumed\n"
+        "claude once it is idle. A running practice is never touched, so this is safe to run at any time. A pane\n"
+        "that was closed entirely is listed as missing; `empirica cockpit launch` adds it back.",
+        "  empirica cockpit refresh\n  empirica cockpit refresh --profile monitor-b\n",
     )
-    refresh.add_argument("--config", metavar="PATH", help="Override the default config path")
-    refresh.add_argument("--profile", metavar="NAME", help="Use ~/.empirica/cockpit/config-NAME.yaml")
+    refresh.add_argument("--config", metavar="PATH", help=_CONFIG_HELP)
+    refresh.add_argument("--profile", metavar="NAME", help=_PROFILE_HELP)
     refresh.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
     # status
-    status = actions.add_parser(
+    status = _action(
+        actions,
         "status",
-        help="Show current cockpit state without attaching (read-only)",
+        "Show the cockpit's state and check its config; changes nothing",
+        "Show what is running and check the config. It touches nothing, so it is also the check for a profile you\n"
+        "edited by hand: it exits 1 and names the problem when a pane refers to a project that is not under\n"
+        "`projects:`, when a group has no usable pane, when two groups or projects share a name, or when the file\n"
+        "cannot be read. A project directory that does not exist yet is a warning, not an error.",
+        "  empirica cockpit status\n"
+        "  empirica cockpit status --profile monitor-b\n"
+        "  empirica cockpit status --profile monitor-b --output json\n",
     )
-    status.add_argument("--config", metavar="PATH", help="Override the default config path")
-    status.add_argument(
-        "--profile",
-        metavar="NAME",
-        help="Use ~/.empirica/cockpit/config-NAME.yaml (e.g. monitor-a, monitor-b, ecodex) instead of the default config",
-    )
+    status.add_argument("--config", metavar="PATH", help=_CONFIG_HELP)
+    status.add_argument("--profile", metavar="NAME", help=_PROFILE_HELP)
     status.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
     # detach
-    detach = actions.add_parser(
+    detach = _action(
+        actions,
         "detach",
-        help="Clean detach: write the clean-shutdown marker + tmux detach-client",
+        "Detach from the cockpit and record a clean shutdown; practices keep running",
+        "Detach this terminal from the cockpit and record a clean shutdown. The tmux session and every practice\n"
+        "in it keep running; `empirica cockpit launch` attaches again.",
+        "  empirica cockpit detach\n",
     )
     detach.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
     # kill
-    kill = actions.add_parser(
+    kill = _action(
+        actions,
         "kill",
-        help="Destroy the cockpit session and write clean-shutdown marker",
+        "End the cockpit session and record a clean shutdown",
+        "End the cockpit's tmux session, which stops every practice in it, and record a clean shutdown so the next\n"
+        "launch does not warn. Everything the practices logged is kept.",
+        "  empirica cockpit kill\n  empirica cockpit kill --profile monitor-b\n  empirica cockpit kill --prune\n",
     )
-    kill.add_argument("--config", metavar="PATH", help="Override the default config path")
-    kill.add_argument(
-        "--profile",
-        metavar="NAME",
-        help="Use ~/.empirica/cockpit/config-NAME.yaml (e.g. monitor-a, monitor-b, ecodex) instead of the default config",
-    )
+    kill.add_argument("--config", metavar="PATH", help=_CONFIG_HELP)
+    kill.add_argument("--profile", metavar="NAME", help=_PROFILE_HELP)
     kill.add_argument(
         "--prune",
         action="store_true",
-        help="Also prune dead per-instance state files (equivalent to `empirica instance prune`)",
+        help="Also remove the state files of instances that are gone (the same as `empirica instance prune`)",
     )
     kill.add_argument("--output", choices=["human", "json"], default="human", help="Output format")

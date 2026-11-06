@@ -39,6 +39,34 @@ NON_CODE_TYPES: tuple[str, ...] = (
 )
 PROJECT_TYPES: tuple[str, ...] = SOFTWARE_TYPES + NON_CODE_TYPES
 
+#: What each type is, in one line. The `--type` help, the refusal of an unknown value and the table in
+#: docs/reference/TAXONOMY.md section 4.6 all read this, so the meanings cannot drift apart.
+TYPE_MEANINGS: dict[str, str] = {
+    "web-app": "A site or app in the browser",
+    "service": "A daemon or HTTP API other things call",
+    "cli": "A command-line or terminal tool",
+    "library": "Code other code builds on, including a package",
+    "desktop-app": "A graphical desktop app",
+    "mobile-app": "A phone or tablet app",
+    "browser-extension": "An extension for a browser",
+    "infrastructure": "Deployment, images and distribution plumbing",
+    "content": "Writing, media and published material",
+    "research": "Investigation that produces knowledge",
+    "data": "Datasets and their pipelines",
+    "design": "Visual and product design",
+    "operations": "Running systems, scheduling, support",
+    "strategic": "Direction, planning and business decisions",
+    "engagement": "Work delivered for one client",
+    "legal": "Contracts, compliance and legal material",
+}
+
+
+def type_list_text(indent: str = "  ") -> str:
+    """The types with their meanings, one per line, aligned. For help text and refusals."""
+    width = max(len(name) for name in PROJECT_TYPES)
+    return "\n".join(f"{indent}{name.ljust(width)}  {TYPE_MEANINGS[name]}" for name in PROJECT_TYPES)
+
+
 #: Values rows written before this module may still hold. Readable, never accepted as input. Empty this to remove them.
 LEGACY_TYPES: frozenset[str] = frozenset({"software", "product", "application", "feature", "documentation"})
 
@@ -91,7 +119,7 @@ def validate_input(value: str | None) -> str | None:
     if value in PROJECT_TYPES:
         return value
     hint = " (a legacy value: choose the shape that fits the project)" if value in LEGACY_TYPES else ""
-    raise ValueError(f"Unknown project type {value!r}{hint}. Valid types: {', '.join(PROJECT_TYPES)}")
+    raise ValueError(f"Unknown project type {value!r}{hint}. Valid types:\n{type_list_text()}")
 
 
 def is_readable(value: str | None) -> bool:

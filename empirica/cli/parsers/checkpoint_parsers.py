@@ -2,11 +2,25 @@
 
 import argparse
 
-from empirica.core.project_types import PROJECT_TYPES, accepted_types
+from empirica.core.project_types import accepted_types, type_list_text, validate_input
 from empirica.data.id_guard import is_blank_id
 from empirica.data.resolution_kind import RESOLUTION_KIND_HELP, RESOLUTION_KINDS
 
 from . import format_help_text
+
+_PROJECT_TYPES_EPILOG = (
+    "project types (--type): one per project, what it is\n"
+    + type_list_text()
+    + "\n\nReference: docs/reference/TAXONOMY.md section 4.6 (project type, domain, work type, criticality)."
+)
+
+
+def _project_type_arg(value: str) -> str | None:
+    """`--type`: a listed project type. An unknown or legacy value is refused with the types and their meanings."""
+    try:
+        return validate_input(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
 
 
 def nonblank_id(value: str) -> str:
@@ -302,7 +316,10 @@ def add_checkpoint_parsers(subparsers):
 
     # Project init command (NEW: initialize Empirica in a new repo)
     project_init_parser = subparsers.add_parser(
-        "project-init", help="Initialize Empirica in a new git repository (creates config files)"
+        "project-init",
+        help="Initialize Empirica in a new git repository (creates config files)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_PROJECT_TYPES_EPILOG,
     )
     project_init_parser.add_argument("--project-name", help="Project name (defaults to repo name)")
     project_init_parser.add_argument("--project-description", help="Project description")
@@ -315,8 +332,10 @@ def add_checkpoint_parsers(subparsers):
     )
     project_init_parser.add_argument(
         "--type",
-        choices=list(PROJECT_TYPES),
-        help="Project type: what the project is. Left unset the project is stored as unclassified (set it later with project-update --type)",
+        type=_project_type_arg,
+        metavar="TYPE",
+        help="What the project is: one of the types listed below. Left unset, the project is stored as "
+        "unclassified (set it later with project-update --type)",
     )
     project_init_parser.add_argument(
         "--domain",
@@ -342,12 +361,16 @@ def add_checkpoint_parsers(subparsers):
 
     # Project update command (update project.yaml fields after init)
     project_update_parser = subparsers.add_parser(
-        "project-update", help="Update project.yaml fields (type, domain, contacts, edges, etc.)"
+        "project-update",
+        help="Update project.yaml fields (type, domain, contacts, edges, etc.)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_PROJECT_TYPES_EPILOG,
     )
     project_update_parser.add_argument(
         "--type",
-        choices=list(PROJECT_TYPES),
-        help="Project type",
+        type=_project_type_arg,
+        metavar="TYPE",
+        help="What the project is: one of the types listed below. A second shape goes in a tag (--add-tag)",
     )
     project_update_parser.add_argument(
         "--domain",
