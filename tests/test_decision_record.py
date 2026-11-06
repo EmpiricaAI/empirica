@@ -153,6 +153,7 @@ def test_the_gate_records_its_decision(tmp_path):
     assert rec["permission_mode"] == "acceptEdits"  # the harness's mode, as it sent it
     assert rec["rule"]
     assert "status --short" not in lines[0]
+    assert rec["inferred_effect_classes"] == [] and rec["inferred_reliable"] is True  # git status reads
 
 
 def test_the_gate_records_nothing_when_turned_off(tmp_path):

@@ -2089,9 +2089,23 @@ def _record_decision(decision: str) -> None:
         if not decision_record.enabled():
             return
         hook_input = _record_input
+        tool_name = str(hook_input.get("tool_name") or "unknown")
+        tool_input = hook_input.get("tool_input") or {}
+        # The same practice the post line will find when the transaction file names none, so both halves share one file.
+        project = _tx_meta.get("project_path") or decision_record.project_path_for(
+            hook_input.get("session_id"), hook_input.get("cwd")
+        )
+        inferred = None
+        if tool_name == "Bash" and isinstance(tool_input, dict):
+            inferred = decision_record.infer_shell_effects(
+                str(tool_input.get("command") or ""),
+                cwd=hook_input.get("cwd"),
+                project_path=project,
+                empirica_is_read=is_read_shaped_empirica_verb,
+            )
         record = decision_record.build(
-            tool_name=str(hook_input.get("tool_name") or "unknown"),
-            tool_input=hook_input.get("tool_input") or {},
+            tool_name=tool_name,
+            tool_input=tool_input,
             decision=decision,
             rule=_decision_rule,
             tool_use_id=hook_input.get("tool_use_id"),
@@ -2100,10 +2114,7 @@ def _record_decision(decision: str) -> None:
             tx_status=_tx_meta.get("tx_status"),
             harness=(os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip().lower() or "claude-code",
             permission_mode=hook_input.get("permission_mode"),
-        )
-        # The same practice the post line will find when the transaction file names none, so both halves share one file.
-        project = _tx_meta.get("project_path") or decision_record.project_path_for(
-            hook_input.get("session_id"), hook_input.get("cwd")
+            inferred=inferred,
         )
         decision_record.append(record, decision_record.record_path(project))
     except Exception:

@@ -82,6 +82,7 @@ def build(
     tx_status: str | None = None,
     harness: str | None = None,
     permission_mode: str | None = None,
+    inferred: dict | None = None,
 ) -> dict:
     return {
         "ts": round(time.time(), 3),
@@ -99,6 +100,8 @@ def build(
         "decision": decision,
         "rule": rule,
         "effect_classes": None,
+        "inferred_effect_classes": inferred["classes"] if inferred else None,
+        "inferred_reliable": inferred["reliable"] if inferred else None,
         "human_override": None,
     }
 
@@ -267,3 +270,267 @@ def record_outcome(hook_input: dict, outcome: str) -> bool:
         return append(build_outcome(hook_input, outcome, project), record_path(project))
     except Exception:
         return False
+
+
+# ── what a shell command will change, inferred from its text (ecodex, prop_4avo25wpczfcpmv7ug5fbztztq) ────────────────────
+#
+# A prediction from the text, recorded apart from any observation: features and an audit trail, never a label to train or
+# evaluate a decision model on, because a model trained on it learns this classifier. `reliable` is false where the text cannot
+# settle it (code run by an interpreter, a substitution, a heredoc): those are the calls a sampled before-and-after comparison
+# must measure.
+
+_SEPARATORS = {";", "&&", "||", "|", "&", "|&"}
+_REDIRECTS = {">", ">>", "&>", "&>>", ">|"}
+_INTERPRETERS = {
+    "python",
+    "python3",
+    "node",
+    "deno",
+    "bash",
+    "sh",
+    "zsh",
+    "perl",
+    "ruby",
+    "pytest",
+    "eval",
+    "source",
+    ".",
+}
+_READ_PROGRAMS = {
+    "cat", "bat", "less", "more", "head", "tail", "wc", "ls", "tree", "grep", "rg", "ag", "fd", "jq", "yq", "gron", "awk",
+    "uniq", "cut", "tr", "nl", "column", "comm", "diff", "cmp", "echo", "printf", "pwd", "which", "type", "whoami", "id",
+    "date", "stat", "file", "du", "df", "ps", "free", "uname", "printenv", "true", "false", "sleep", "cd", "test", "[",
+    "xxd", "od", "strings", "basename", "dirname", "realpath", "readlink", "tokei", "scc", "pyright", "mypy", "radon",
+    "vulture", "pip-audit", "jobs", "wait", "export",
+}  # fmt: skip
+_PACKAGE_PROGRAMS = {
+    "pip",
+    "pip3",
+    "pipx",
+    "npm",
+    "pnpm",
+    "yarn",
+    "cargo",
+    "uv",
+    "brew",
+    "apt",
+    "apt-get",
+    "dnf",
+    "gem",
+    "go",
+}
+_PACKAGE_VERBS = {"install", "uninstall", "add", "remove", "upgrade", "sync", "reinstall"}
+_GIT_READS = {
+    "status", "log", "diff", "show", "blame", "grep", "rev-parse", "ls-files", "ls-tree", "for-each-ref", "describe",
+    "shortlog", "cat-file", "fetch", "rev-list", "merge-base", "check-ignore", "reflog", "help", "version",
+}  # fmt: skip
+_GH_READS = {"list", "view", "status", "diff", "checks", "watch", "download"}
+_SYSTEMCTL_READS = {"status", "show", "list-units", "list-unit-files", "list-timers", "is-active", "is-enabled", "cat"}
+_PATH_ARG_PROGRAMS = {"rm", "mv", "touch", "mkdir", "tee", "truncate", "rmdir", "unlink"}
+
+
+def _statements(command: str) -> list[list[str]] | None:
+    """The command's statements as word lists, split on ; && || | &; None when the text does not tokenise."""
+    try:
+        lexer = shlex.shlex(command.replace("\n", " ; "), posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return None
+    out: list[list[str]] = [[]]
+    for token in tokens:
+        if token in _SEPARATORS:
+            out.append([])
+        else:
+            out[-1].append(token)
+    return [s for s in out if s]
+
+
+def _program_and_args(words: list[str]) -> tuple[str, list[str]]:
+    """Skip environment assignments and wrappers (sudo, env, nice, timeout N, ...) to the program that runs."""
+    i = 0
+    while i < len(words):
+        word = words[i]
+        if "=" in word and word.split("=", 1)[0].isidentifier():
+            i += 1
+            continue
+        name = os.path.basename(word)
+        if name in _WRAPPERS:
+            i += 1
+            while i < len(words) and words[i].startswith("-"):
+                i += 1
+            continue
+        if name == "timeout":
+            i += 2  # timeout DURATION
+            continue
+        return name, words[i + 1 :]
+    return "", []
+
+
+def _positional(args: list[str]) -> list[str]:
+    return [a for a in args if not a.startswith("-")]
+
+
+def _git(args: list[str]) -> set[str]:
+    rest = list(args)
+    while rest and rest[0].startswith("-"):
+        flag = rest.pop(0)
+        if flag in ("-C", "-c", "--git-dir", "--work-tree") and rest:
+            rest.pop(0)
+    verb = rest[0] if rest else ""
+    tail = rest[1:]
+    if not verb or verb in _GIT_READS:
+        return set()
+    if verb == "push":
+        return {"vcs_remote"}
+    listing = not _positional(tail) or any(a in ("-l", "--list", "-a", "-r", "-v", "--show-current") for a in tail)
+    if verb in ("branch", "tag", "remote", "stash", "worktree", "notes") and (
+        listing or tail[:1] in (["list"], ["show"])
+    ):
+        return set()
+    if verb == "config" and any(a.startswith("--get") or a == "--list" or a == "-l" for a in tail):
+        return set()
+    return {"vcs_local"}
+
+
+def _gh(args: list[str]) -> set[str]:
+    words = _positional(args)
+    if not words:
+        return set()
+    if words[0] == "api":
+        method = "GET"
+        for flag, value in zip(args, args[1:] + [""]):
+            if flag in ("-X", "--method"):
+                method = value.upper()
+            elif flag in ("-f", "-F", "--field", "--raw-field", "--input") and method == "GET":
+                method = "POST"
+        return set() if method in ("GET", "HEAD") else {"network_send"}
+    if words[0] == "auth" or (len(words) > 1 and words[1] in _GH_READS):
+        return set()
+    return {"vcs_remote"}
+
+
+def _curl(program: str, args: list[str]) -> set[str]:
+    sending = {"-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "-F", "--form", "-T", "--upload-file"}
+    sending |= {"--json", "--post-data", "--post-file"}
+    for flag, value in zip(args, args[1:] + [""]):
+        name = flag.split("=", 1)[0]
+        if name in sending:
+            return {"network_send"}
+        if name in ("-X", "--request", "--method"):
+            method = (flag.split("=", 1)[1] if "=" in flag else value).upper()
+            if method not in ("GET", "HEAD"):
+                return {"network_send"}
+    return set()
+
+
+def _paths_written(program: str, args: list[str], cwd: str | None, project_path: str | None) -> set[str]:
+    targets = _positional(args)
+    if program in ("cp", "ln", "install"):
+        targets = targets[-1:]
+    elif program in ("chmod", "chown"):
+        targets = targets[1:]
+    elif program == "sed":
+        targets = targets[-1:]
+    base = cwd or os.getcwd()
+    return {
+        path_effect(t if os.path.isabs(os.path.expanduser(t)) else os.path.join(base, t), project_path) for t in targets
+    }
+
+
+def _classify_statement(
+    program: str, args: list[str], cwd: str | None, project_path: str | None, empirica_is_read
+) -> tuple[set[str], bool]:
+    """(classes, reliable) for one statement."""
+    if program in _INTERPRETERS:
+        if program.startswith("python") and args[:3] in (["-m", "pip", "install"], ["-m", "pip", "uninstall"]):
+            return {"install"}, True
+        return {"unknown"}, False
+    if program in _READ_PROGRAMS or program in ("sort", "sed", "find", "ruff"):
+        return _read_shaped(program, args, cwd, project_path)
+    if program == "git":
+        return _git(args), True
+    if program == "gh":
+        return _gh(args), True
+    if program in _PACKAGE_PROGRAMS:
+        verbs = set(_positional(args)[:2])
+        return ({"install"} if verbs & _PACKAGE_VERBS else {"unknown"}), True
+    if program in ("curl", "wget"):
+        return _curl(program, args), True
+    return _classify_other(program, args, cwd, project_path, empirica_is_read)
+
+
+def _classify_other(
+    program: str, args: list[str], cwd: str | None, project_path: str | None, empirica_is_read
+) -> tuple[set[str], bool]:
+    """Remote, process, empirica and file-writing programs; anything else is unknown."""
+    if program == "ssh":
+        return {"remote_exec"}, True
+    if program in ("scp", "rsync"):
+        remote = any(":" in a and not a.startswith(("/", ".", "~")) for a in _positional(args))
+        return ({"network_send"} if remote else _paths_written("cp", args, cwd, project_path)), True
+    if program in ("systemctl", "service", "launchctl"):
+        verbs = set(_positional(args))
+        return (set() if verbs & (_SYSTEMCTL_READS | {"list"}) else {"process"}), True
+    if program in ("kill", "pkill", "killall"):
+        return {"process"}, True
+    if program == "empirica":
+        verb = next((a for a in args if not a.startswith("-")), "")
+        if not verb or empirica_is_read(f"empirica {verb}"):
+            return set(), True
+        return {"empirica_state"}, True
+    if program == "rm":
+        recursive = any(
+            a == "--recursive" or (a.startswith("-") and not a.startswith("--") and "r" in a.lower()) for a in args
+        )
+        return _paths_written(program, args, cwd, project_path) | ({"delete_recursive"} if recursive else set()), True
+    if program in _PATH_ARG_PROGRAMS or program in ("cp", "ln", "chmod", "chown", "install"):
+        return _paths_written(program, args, cwd, project_path), True
+    return {"unknown"}, True
+
+
+def _read_shaped(program: str, args: list[str], cwd: str | None, project_path: str | None) -> tuple[set[str], bool]:
+    """The reading programs and the ones that read unless a flag makes them write."""
+    if program == "sed" and any(a == "-i" or a.startswith(("-i", "--in-place")) for a in args):
+        return _paths_written("sed", args, cwd, project_path), True
+    if program == "find":
+        if "-delete" in args:
+            return {"delete_recursive"}, True
+        if any(a in ("-exec", "-execdir", "-ok") for a in args):
+            return {"unknown"}, True
+    if program == "sort" and any(a == "-o" or a.startswith("--output") for a in args):
+        return {"unknown"}, True
+    if program == "ruff":
+        writes = ("format" in args and "--check" not in args) or "--fix" in args
+        return ({"project_write"} if writes else set()), True
+    return set(), True
+
+
+def infer_shell_effects(command: str, *, cwd: str | None, project_path: str | None, empirica_is_read) -> dict:
+    """{"classes": sorted inferred classes, "reliable": whether the text can settle it}. ``empirica_is_read`` answers
+    whether an ``empirica <verb>`` only reads (the gate passes its own is_read_shaped_empirica_verb)."""
+    text = command or ""
+    reliable = not any(marker in text for marker in ("$(", "`", "<<"))
+    statements = _statements(text)
+    if statements is None:
+        return {"classes": ["unknown"], "reliable": False}
+    classes: set[str] = set()
+    for words in statements:
+        kept: list[str] = []
+        i = 0
+        while i < len(words):
+            if words[i] in _REDIRECTS and i + 1 < len(words):
+                target = words[i + 1]
+                if target != "/dev/null" and not target.startswith("&"):
+                    classes |= _paths_written("tee", [target], cwd, project_path)
+                i += 2
+                continue
+            kept.append(words[i])
+            i += 1
+        program, args = _program_and_args(kept)
+        if not program:
+            continue
+        found, ok = _classify_statement(program, args, cwd, project_path, empirica_is_read)
+        classes |= found
+        reliable = reliable and ok
+    return {"classes": sorted(classes), "reliable": reliable}
