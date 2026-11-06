@@ -36,6 +36,7 @@ import shutil
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -575,10 +576,7 @@ def refresh_state(
 
     if listener is _listener_chip:
         # One process walk for the whole refresh, not one per practice.
-        workers = listener_worker_counts()
-
-        def listener(ai_id: str, _workers=workers) -> tuple[str, str, bool]:
-            return _listener_chip(ai_id, _workers)
+        listener = partial(_listener_chip, workers=listener_worker_counts())
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         results = list(pool.map(one, practices.items()))
