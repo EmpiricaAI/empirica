@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import os
 
+from .checkpoint_parsers import _project_type_arg
+
 
 def add_provision_practice_parsers(subparsers):
     """Register the ``provision-practice`` verb on the top-level subparsers."""
@@ -23,9 +25,11 @@ Idempotent single-practice onboarding — the local, no-spec.yaml sibling
 of mesh-support's bulk provision-practices.py tool. Safe to re-run: each
 step no-ops cleanly if already done.
 
-Steps: mkdir <base-path>/<name> -> project-init -> patch
-.empirica/project.yaml (ai_id/tenant/org/substrate) -> project-register
-(cortex) -> optional forgejo backup remote wiring.
+Steps: mkdir <base-path>/<name> -> project-init (with --type and
+--description when given) -> patch .empirica/project.yaml
+(ai_id/tenant/org/substrate) -> .gitignore that ignores .empirica except
+project.yaml -> project-register (cortex) -> optional forgejo backup
+remote wiring.
 
 --tenant/--org default to whatever's already set in the CURRENT
 directory's .empirica/project.yaml (so running this from inside an
@@ -39,6 +43,18 @@ Falls back to erroring with a clear message if neither is available.
         metavar="PATH",
         default="~/empirica",
         help="Parent directory the new practice is created under (default: ~/empirica)",
+    )
+    p.add_argument(
+        "--type",
+        type=_project_type_arg,
+        metavar="TYPE",
+        help="What the new practice is: a project type (`empirica project-init --help` lists them with their meanings). "
+        "Applied when the practice is created; left unset it is stored as unclassified",
+    )
+    p.add_argument(
+        "--description",
+        help="One sentence on what the practice is for. Applied when the practice is created; without it the "
+        "description is '<name> project'",
     )
     p.add_argument("--tenant", help="Tenant slug (default: inferred from cwd's project.yaml)")
     p.add_argument("--org", help="Org slug (default: inferred from cwd's project.yaml)")

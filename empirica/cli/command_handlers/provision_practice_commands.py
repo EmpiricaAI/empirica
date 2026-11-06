@@ -109,6 +109,52 @@ def _patch_project_yaml(
     return True
 
 
+_GITIGNORE_RULES = (".empirica/*", "!.empirica/project.yaml")
+_GITIGNORE_BLOCK = (
+    "# Empirica keeps local state under .empirica/ (sessions database, transaction files).\n"
+    "# Only the practice's identity is tracked, so a clone is the same practice.\n" + "\n".join(_GITIGNORE_RULES) + "\n"
+)
+
+
+def _gitignore_lines(proj_dir: Path) -> list[str]:
+    try:
+        return [line.strip() for line in (proj_dir / ".gitignore").read_text().splitlines()]
+    except OSError:
+        return []
+
+
+def _gitignore_note(proj_dir: Path) -> str | None:
+    """A line for the step when the existing .gitignore hides the whole directory, project.yaml included."""
+    if any(line in (".empirica", ".empirica/", "/.empirica", "/.empirica/") for line in _gitignore_lines(proj_dir)):
+        return (
+            ".gitignore ignores all of .empirica, so project.yaml is not tracked and a clone will not keep this "
+            "practice's identity; left as it is. To track it: replace that line with `.empirica/*` and add "
+            "`!.empirica/project.yaml`"
+        )
+    return None
+
+
+def _ensure_gitignore(proj_dir: Path, dry_run: bool) -> bool:
+    """Ignore .empirica except project.yaml. Returns True when the file was (or, in a dry run, would be) written.
+
+    Without it every file under .empirica shows as untracked, the sessions database included, and the one file a
+    clone needs to stay the same practice is not singled out. An existing .gitignore keeps its lines; one that
+    already ignores the whole directory is the person's choice and is not rewritten (`_gitignore_note` says so).
+    """
+    lines = _gitignore_lines(proj_dir)
+    if all(rule in lines for rule in _GITIGNORE_RULES) or _gitignore_note(proj_dir):
+        return False
+    path = proj_dir / ".gitignore"
+    if dry_run:
+        _narrate(f"  [dry-run] would write {path}: {', '.join(_GITIGNORE_RULES)}")
+        return True
+    existing = path.read_text() if path.exists() else ""
+    if existing and not existing.endswith("\n"):
+        existing += "\n"
+    path.write_text(existing + ("\n" if existing else "") + _GITIGNORE_BLOCK)
+    return True
+
+
 def _wire_forgejo(proj_dir: Path, name: str, owner: str, host: str, dry_run: bool) -> tuple[bool, str | None]:
     """Add a forgejo backup remote + wire empirica sync to it. Idempotent:
     skips ``remote add`` if the remote already exists. Mirrors
@@ -191,6 +237,38 @@ def _resolve_substrate(args) -> str:
     return "local" if getattr(args, "no_cortex", False) else "cortex"
 
 
+def _init_step(args, proj_dir: Path, project_yaml: Path, dry_run: bool) -> tuple[dict, str | None]:
+    """Run project-init for a new practice, with the type and description when given. Returns (step, error)."""
+    project_type = getattr(args, "type", None)
+    description = getattr(args, "description", None)
+    if project_yaml.exists():
+        note = "already initialized"
+        if project_type or description:
+            # Said, not dropped: a value the person passed must not vanish without a word.
+            note += (
+                "; --type and --description apply only when the practice is created and were not applied. "
+                "Set the type with `empirica project-update --type` in that directory"
+            )
+        return {"step": "project-init", "changed": False, "note": note}, None
+    init_cmd = ["empirica", "project-init", "--output", "json"]
+    if project_type:
+        init_cmd += ["--type", project_type]
+    if description:
+        init_cmd += ["--project-description", description]
+    ok, err = _run(init_cmd, proj_dir, dry_run)
+    if not ok:
+        return {}, f"project-init failed: {err}"
+    return {"step": "project-init", "changed": True}, None
+
+
+def _gitignore_step(proj_dir: Path, dry_run: bool) -> dict:
+    step: dict = {"step": "gitignore", "changed": _ensure_gitignore(proj_dir, dry_run)}
+    note = _gitignore_note(proj_dir)
+    if note:
+        step["note"] = note
+    return step
+
+
 def handle_provision_practice_command(args) -> int:
     """``empirica provision-practice <name> [options]``.
 
@@ -247,15 +325,13 @@ def handle_provision_practice_command(args) -> int:
         steps.append({"step": "mkdir", "changed": False, "note": "already exists"})
 
     project_yaml = proj_dir / ".empirica" / "project.yaml"
-    if not project_yaml.exists():
-        ok, err = _run(["empirica", "project-init", "--output", "json"], proj_dir, dry_run)
-        if not ok:
-            msg = f"project-init failed: {err}"
-            print(json.dumps({"ok": False, "error": msg, "steps": steps}) if output == "json" else f"❌ {msg}")
-            return 1
-        steps.append({"step": "project-init", "changed": True})
-    else:
-        steps.append({"step": "project-init", "changed": False, "note": "already initialized"})
+    init_step, init_error = _init_step(args, proj_dir, project_yaml, dry_run)
+    if init_error:
+        print(
+            json.dumps({"ok": False, "error": init_error, "steps": steps}) if output == "json" else f"❌ {init_error}"
+        )
+        return 1
+    steps.append(init_step)
 
     if dry_run and not project_yaml.exists():
         steps.append({"step": "patch-project-yaml", "changed": True, "note": "dry-run, file not yet created"})
@@ -264,6 +340,8 @@ def handle_provision_practice_command(args) -> int:
             project_yaml, ai_id=name, tenant=tenant, org=org, substrate=substrate, dry_run=dry_run
         )
         steps.append({"step": "patch-project-yaml", "changed": changed})
+
+    steps.append(_gitignore_step(proj_dir, dry_run))
 
     register_cmd = ["empirica", "project-register", ".", "--output", "json"]
     if getattr(args, "no_cortex", False):
