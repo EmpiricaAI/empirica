@@ -44,6 +44,18 @@ def _apply_simple_field_updates(args, config):
     return changes
 
 
+def _as_list(value) -> list[str]:
+    """A repeated flag arrives as a list, a single value as text, an absent one as None."""
+    if not value:
+        return []
+    return [value] if isinstance(value, str) else list(value)
+
+
+def _comment_lines(text: str) -> int:
+    """Lines that hold only a comment. A rewrite through yaml.dump keeps none of them."""
+    return sum(1 for line in text.splitlines() if line.lstrip().startswith("#"))
+
+
 def _apply_list_updates(args, config):
     """Apply languages, tags, contacts, edges updates. Returns list of change descriptions."""
     changes = []
@@ -60,15 +72,16 @@ def _apply_list_updates(args, config):
         config.tags = new_tags
         changes.append(f"tags: {new_tags}")
 
-    add_tag = getattr(args, "add_tag", None)
-    if add_tag and add_tag not in config.tags:
-        config.tags.append(add_tag)
-        changes.append(f"+tag: {add_tag}")
+    # Both flags repeat. A caller that passes one tag as text is still accepted.
+    for add_tag in _as_list(getattr(args, "add_tag", None)):
+        if add_tag not in config.tags:
+            config.tags.append(add_tag)
+            changes.append(f"+tag: {add_tag}")
 
-    remove_tag = getattr(args, "remove_tag", None)
-    if remove_tag and remove_tag in config.tags:
-        config.tags.remove(remove_tag)
-        changes.append(f"-tag: {remove_tag}")
+    for remove_tag in _as_list(getattr(args, "remove_tag", None)):
+        if remove_tag in config.tags:
+            config.tags.remove(remove_tag)
+            changes.append(f"-tag: {remove_tag}")
 
     # Contacts
     add_contact = getattr(args, "add_contact", None)
@@ -136,8 +149,10 @@ def handle_project_update_command(args):
                 print("❌ No project.yaml found. Run 'empirica project-init' first.")
             return None
 
-        with open(config_path) as f:
-            raw_config = yaml.safe_load(f) or {}
+        original_text = config_path.read_text()
+        raw_config = yaml.safe_load(original_text) or {}
+        # The write below goes through yaml.dump, which keeps no comment. Count them so the loss is reported.
+        comment_lines_dropped = _comment_lines(original_text)
 
         config = ProjectConfig(raw_config)
         changes = []
@@ -173,6 +188,7 @@ def handle_project_update_command(args):
                         "changes": changes,
                         "config": updated,
                         "synced": synced,
+                        "comment_lines_dropped": comment_lines_dropped,
                     },
                     indent=2,
                     default=str,
@@ -182,6 +198,10 @@ def handle_project_update_command(args):
             print(f"✅ Updated project.yaml ({len(changes)} changes)")
             for change in changes:
                 print(f"   • {change}")
+            if comment_lines_dropped:
+                print(
+                    f"   ⚠️  {comment_lines_dropped} comment lines in project.yaml were not kept: the file is rewritten from its values"
+                )
             for store, result in synced.items():
                 if result != "updated" and not (store == "sessions_db" and result == "no database"):
                     print(f"   ⚠️  {store} not updated: {result}")

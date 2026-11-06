@@ -356,8 +356,10 @@ def add_checkpoint_parsers(subparsers):
     )
     project_update_parser.add_argument("--languages", nargs="+", help="Set programming languages")
     project_update_parser.add_argument("--tags", nargs="+", help="Set project tags (replaces all)")
-    project_update_parser.add_argument("--add-tag", help="Add a single tag")
-    project_update_parser.add_argument("--remove-tag", help="Remove a single tag")
+    project_update_parser.add_argument("--add-tag", action="append", help="Add a tag (repeat the flag for several)")
+    project_update_parser.add_argument(
+        "--remove-tag", action="append", help="Remove a tag (repeat the flag for several)"
+    )
     project_update_parser.add_argument("--add-contact", help="Add contact by ID")
     project_update_parser.add_argument("--roles", nargs="+", help="Roles for --add-contact (e.g., owner architect)")
     project_update_parser.add_argument("--remove-contact", help="Remove contact by ID")

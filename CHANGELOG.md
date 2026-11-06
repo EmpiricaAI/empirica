@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`project-register` failed on a workspace.db made by an older release.** `CREATE TABLE IF NOT EXISTS` does nothing to a table that already exists, so an older `global_projects` kept its old columns and the insert failed with "table global_projects has no column named metadata". The table's columns now live in one list: the CREATE is built from it and every open adds whatever an existing table lacks, before the indexes that name those columns. Core's second copy of the schema helper (in the CLI's project commands, two indexes and one column behind) now calls the repository's.
+- **`project-update --add-tag a --add-tag b` kept only `b`.** The flag stored one value, so a second one replaced the first with no error. `--add-tag` and `--remove-tag` now repeat. Reported by the web practice.
+- **`project-update` removed the comments in `project.yaml` without saying so.** The file is rewritten from its values, which keeps no comment. The command still rewrites it, and now reports how many comment lines were not kept (`comment_lines_dropped` in JSON, a warning line otherwise). Reported by the NLE practice.
 - **The release workflow's GitHub release job found no artifacts.** It downloaded "all artifacts" and uploaded from `artifacts/empirica-dist/*`, a layout that exists only while there are several artifacts; with `empirica-mcp` gone there was one, so 1.14.21 published to PyPI, Docker and Homebrew and then failed to create its GitHub release (created by hand from the CI artifacts, whose hash matches PyPI). The job now downloads the artifact by name into the directory it uploads from, and a test pins that.
 
 ## [1.14.21] - 2026-11-04
