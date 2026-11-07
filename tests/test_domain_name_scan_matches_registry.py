@@ -34,3 +34,12 @@ def test_the_scan_reads_a_user_domain_name_as_the_registry_does(tmp_path, monkey
     assert (
         known_domain_names() == registry or name in registry
     )  # the registry may refuse a malformed file; the scan must not invent a different name
+
+
+def test_a_hash_without_space_before_it_is_part_of_the_name(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    (home / ".empirica" / "domains").mkdir(parents=True)
+    (home / ".empirica" / "domains" / "c.yaml").write_text(f"domain: c#lang\n{BODY}")
+    monkeypatch.setenv("HOME", str(home))
+
+    assert "c#lang" in known_domain_names()

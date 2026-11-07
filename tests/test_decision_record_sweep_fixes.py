@@ -143,3 +143,22 @@ def test_storing_a_before_snapshot_prunes_old_orphans(tracked_practice):
     dr.store_before("toolu_new", str(tracked_practice), decision="allow", sampled=True)
 
     assert not old.exists() and dr.snapshot_path("toolu_new").exists()
+
+
+# ── second pass (1.14.22 sweep) ─────────────────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("command", ["API-KEY=sk/abcSECRETtail123 git push", "X-TOKEN=Zm9v/YmFyc2VjcmV0 curl x"])
+def test_a_secret_with_a_slash_in_a_non_identifier_assignment_is_not_recorded(command):
+    name = _cls(command)
+    assert name == "unparsed"
+    assert "SECRET" not in name and "YmFy" not in name
+
+
+def test_a_rename_reported_in_the_worktree_column_is_one_entry(tracked_practice):
+    (tracked_practice / "a.txt").rename(tracked_practice / "new.txt")
+    subprocess.run(["git", "add", "-N", "new.txt"], cwd=tracked_practice, check=True, capture_output=True)
+
+    status = dr.snapshot(str(tracked_practice))["status"]
+
+    assert set(status) <= {"new.txt", "a.txt"} and "new.txt" in status

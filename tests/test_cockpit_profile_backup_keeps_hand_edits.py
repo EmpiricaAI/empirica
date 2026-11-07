@@ -48,3 +48,18 @@ def test_a_file_someone_else_created_is_backed_up_before_the_first_rewrite(tmp_p
     add_practice_to_profile("dev", "a", str(tmp_path / "a"))
 
     assert target.with_suffix(".yaml.bak").read_text() == mine
+
+
+def test_upgrading_from_the_backup_once_writer_keeps_the_user_s_backup(tmp_path):
+    """The earlier writer kept the user's first version in .bak and recorded no digest; its own output carries its header."""
+    target = profile_path("dev")
+    target.parent.mkdir(parents=True)
+    users_original = "session_name: mine\n# the user's own\n"
+    target.with_suffix(".yaml.bak").write_text(users_original)
+    target.write_text(
+        "# Cockpit profile 'dev': written by `empirica provision-practice --cockpit-profile dev`.\nsession_name: dev\n"
+    )
+
+    add_practice_to_profile("dev", "a", str(tmp_path / "a"))
+
+    assert target.with_suffix(".yaml.bak").read_text() == users_original

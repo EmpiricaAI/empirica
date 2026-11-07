@@ -334,7 +334,8 @@ def install_bindings(mouse: bool = True) -> dict[str, Any]:
         # MouseUp, not MouseDown: a drag on a border resizes panes and must not open the menu.
         previous = _binding("root", BORDER_CLICK)
         if previous and "@empirica_bar" in previous:
-            previous = _option(["-s"], _PREV_BORDER_OPTION)
+            stored = _option(["-s"], _PREV_BORDER_OPTION)
+            previous = _as_command_string(stored) if stored else stored  # stored before the fix with the printed \\;
         else:
             previous = _as_command_string(previous) if previous else previous
             _tmux("set-option", "-s", _PREV_BORDER_OPTION, previous or "")

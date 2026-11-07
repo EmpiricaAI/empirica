@@ -58,7 +58,9 @@ def _as_tuple(value: Any, field: str = "list field") -> tuple[str, ...]:
 # The whole value of the top-level `domain:` key, as YAML reads it: quoted (anything up to the closing quote) or plain (up to a
 # comment or the line's end). It used to stop at [A-Za-z0-9_-], so `domain: legal.eu` read as `legal` here and as `legal.eu`
 # in the registry.
-_DOMAIN_NAME_LINE = re.compile(r"""^domain:[ \t]*(?:"([^"\n]+)"|'([^'\n]+)'|([^#\n]*?))[ \t]*(?:#.*)?$""", re.MULTILINE)
+_DOMAIN_NAME_LINE = re.compile(
+    r"""^domain:[ \t]*(?:"([^"\n]+)"|'([^'\n]+)'|([^\n]*?))(?:[ \t]+#.*)?[ \t]*$""", re.MULTILINE
+)
 
 
 def known_domain_names(project_path: Path | str | None = None) -> frozenset[str]:

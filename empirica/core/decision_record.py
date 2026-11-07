@@ -395,6 +395,10 @@ def _program_and_args(words: list[str]) -> tuple[str, list[str]]:
         if "=" in word and word.split("=", 1)[0].isidentifier():
             i += 1
             continue
+        if "=" in word:
+            return "unparsed", words[
+                i + 1 :
+            ]  # `API-KEY=sk/...`: not an assignment, and its tail must not be taken for a name
         name = os.path.basename(word)
         if name in _WRAPPERS:
             i += 1
@@ -665,7 +669,7 @@ def snapshot(project_path: str) -> dict:
             continue
         code, path = entry[:2], entry[3:]
         paths = [path]
-        if code[0] in "RC" and i < len(entries):
+        if ("R" in code or "C" in code) and i < len(entries):
             paths.append(entries[i])  # -z puts a rename's or copy's source path in the next field, whole
             i += 1
         for one in paths:

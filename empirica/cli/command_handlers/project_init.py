@@ -453,6 +453,8 @@ def _explicit_init_values(args) -> dict:
         "type": getattr(args, "type", None),
         "domain": getattr(args, "domain", None),
         "description": getattr(args, "project_description", None),
+        "tags": getattr(args, "tags", None),
+        "languages": getattr(args, "languages", None),
     }
     return {key: value for key, value in values.items() if value}
 

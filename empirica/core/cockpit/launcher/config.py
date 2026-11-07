@@ -623,7 +623,8 @@ def add_practice_to_profile(
 
 
 def _write_profile(profile: str, target: Path, config: LauncherConfig) -> Path:
-    """Write ``config`` to ``target`` atomically, keeping the user's first version as ``.yaml.bak``."""
+    """Write ``config`` to ``target`` atomically. The current file goes to ``.yaml.bak`` first when this writer did not
+    produce it (a ``.yaml.written`` digest records what it last wrote), so the backup is the latest version someone else made."""
     import yaml
 
     header = (
@@ -638,17 +639,25 @@ def _write_profile(profile: str, target: Path, config: LauncherConfig) -> Path:
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists():
             current = target.read_bytes()
-            ours = written.read_text().strip() if written.exists() else ""
-            if hashlib.sha256(current).hexdigest() != ours:
+            if written.exists():
+                ours = hashlib.sha256(current).hexdigest() == written.read_text().strip()
+            else:
+                # Written before the digest existed: the earlier writer's own output starts with its header, and the
+                # .bak beside it already holds the user's first version, which must not be replaced by that output.
+                ours = current.startswith(b"# Cockpit profile '")
+            if not ours:
                 # Someone else wrote this version (by hand, or before this writer existed): keep it before rewriting. A
                 # version this writer produced is not backed up, so the backup is always the latest one it did not write.
                 target.with_suffix(".yaml.bak").write_bytes(current)
         tmp = target.with_suffix(".yaml.tmp")
         tmp.write_text(body, encoding="utf-8")
         os.replace(tmp, target)
-        written.write_text(hashlib.sha256(body.encode("utf-8")).hexdigest() + "\n")
     except OSError as exc:
         raise ProfileError(f"could not write {target} ({exc}); nothing was changed") from exc
+    try:
+        written.write_text(hashlib.sha256(body.encode("utf-8")).hexdigest() + "\n")
+    except OSError:
+        pass  # the profile is written; without the digest the next rewrite falls back to recognising the header
     return target
 
 
