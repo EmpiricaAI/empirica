@@ -99,3 +99,36 @@ def test_a_tool_other_than_bash_has_no_inference():
     rec = dr.build(tool_name="Edit", tool_input={"file_path": "/x"}, decision="allow", rule="pipeline")
 
     assert rec["inferred_effect_classes"] is None and rec["inferred_reliable"] is None
+
+
+def _gate():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "empirica/plugins/claude-code-integration/hooks/sentinel-gate.py"
+    spec = importlib.util.spec_from_file_location("sentinel_gate_for_inference", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize(
+    "command, classes",
+    [
+        ("empirica mailbox poll --status accepted --output json", []),
+        ("empirica mailbox show prop_x --output json", []),
+        ("empirica investigate 'how does x work'", []),
+        ("empirica goals-list", []),
+        ("empirica mailbox reply --parent-id p --summary s", ["empirica_state"]),
+        ("empirica project-bootstrap", ["empirica_state"]),  # stamps retrieval telemetry
+        ("empirica finding-log --finding x", ["empirica_state"]),
+    ],
+)
+def test_the_gate_s_read_check_knows_the_reads_whose_names_do_not_say_so(command, classes):
+    """ecodex measured 57 of 310 empirica_state labels on reads (prop_hcvnottd2bgh3i5qupncxgu3wy)."""
+    gate = _gate()
+    got = dr.infer_shell_effects(
+        command, cwd="/w", project_path="/w", empirica_is_read=gate.empirica_command_only_reads
+    )
+    assert got["classes"] == classes

@@ -1289,6 +1289,20 @@ def is_read_shaped_empirica_verb(cmd: str) -> bool:
     return verb.endswith(EMPIRICA_READ_SUFFIXES)
 
 
+# empirica commands that only read although their verb is not read-shaped, for the decision record's inference of what a
+# command changes (not for gating: the firewall lets these through on its own lists). Checked 2026-11-07 against the handlers:
+# investigate is project-search, which stamps nothing; mailbox poll and show fetch and print. project-bootstrap is NOT here:
+# it stamps retrieval telemetry.
+EMPIRICA_READS_BY_NAME = ("empirica investigate", "empirica mailbox poll", "empirica mailbox show")
+
+
+def empirica_command_only_reads(cmd: str) -> bool:
+    """Does this empirica command only read? Its verb's name, or one of the reads whose name does not say so."""
+    return is_read_shaped_empirica_verb(cmd) or any(
+        cmd == prefix or cmd.startswith(prefix + " ") for prefix in EMPIRICA_READS_BY_NAME
+    )
+
+
 def _is_plain_single_command(cmd: str) -> bool:
     """One statement, with nothing riding along: no chain, background, pipe or newline
     outside quotes, no file redirect, and no command substitution anywhere.
@@ -2101,7 +2115,7 @@ def _record_decision(decision: str) -> None:
                 str(tool_input.get("command") or ""),
                 cwd=hook_input.get("cwd"),
                 project_path=project,
-                empirica_is_read=is_read_shaped_empirica_verb,
+                empirica_is_read=empirica_command_only_reads,
             )
         record = decision_record.build(
             tool_name=tool_name,

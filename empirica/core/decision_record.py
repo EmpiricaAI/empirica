@@ -475,8 +475,8 @@ def _classify_other(
     if program in ("kill", "pkill", "killall"):
         return {"process"}, True
     if program == "empirica":
-        verb = next((a for a in args if not a.startswith("-")), "")
-        if not verb or empirica_is_read(f"empirica {verb}"):
+        words = _positional(args)
+        if not words or empirica_is_read("empirica " + " ".join(words[:2])):
             return set(), True
         return {"empirica_state"}, True
     if program == "rm":
