@@ -83,6 +83,7 @@ def build(
     harness: str | None = None,
     permission_mode: str | None = None,
     inferred: dict | None = None,
+    sampled: bool = False,
 ) -> dict:
     return {
         "ts": round(time.time(), 3),
@@ -102,6 +103,7 @@ def build(
         "effect_classes": None,
         "inferred_effect_classes": inferred["classes"] if inferred else None,
         "inferred_reliable": inferred["reliable"] if inferred else None,
+        "sampled": sampled,
         "human_override": None,
     }
 
@@ -243,7 +245,13 @@ def build_outcome(hook_input: dict, outcome: str, project_path: str | None) -> d
     tool_name = str(hook_input.get("tool_name") or "unknown")
     tool_input = hook_input.get("tool_input") or {}
     effects = None
-    if outcome == "success":
+    scope = None
+    sampled_call = False
+    if tool_name == "Bash":
+        after = _take_after(hook_input.get("tool_use_id"))
+        if after is not None:
+            effects, scope, sampled_call = after[0], list(OBSERVATION_SCOPE), True
+    elif outcome == "success":
         paths = _written_paths(tool_name, tool_input, hook_input.get("cwd"))
         if paths:
             effects = sorted({path_effect(path, project_path) for path in paths})
@@ -258,6 +266,8 @@ def build_outcome(hook_input: dict, outcome: str, project_path: str | None) -> d
         "outcome": outcome,
         "effect_classes": effects,
         "observed": effects is not None,
+        "sampled": sampled_call,
+        "observation_scope": scope,
     }
 
 
@@ -534,3 +544,140 @@ def infer_shell_effects(command: str, *, cwd: str | None, project_path: str | No
         classes |= found
         reliable = reliable and ok
     return {"classes": sorted(classes), "reliable": reliable}
+
+
+# ── part A: observe what a sampled shell call changed (ecodex, prop_4avo25wpczfcpmv7ug5fbztztq) ───────────────────────────
+#
+# A snapshot before the call (PreToolUse, in the gate) and after it (PostToolUse or PostToolUseFailure), paired on tool_use_id
+# through a small file. About 15 ms a snapshot on core's repo, so only sampled calls pay it. The view is deliberately narrow and
+# the post line names it: the hooks themselves write to ~/.empirica and ~/.claude on every call, so scanning those would report
+# a change on every call.
+
+OBSERVATION_SCOPE = ("practice_git_status", "practice_git_refs", "config_files")
+SAMPLE_ONE_IN = 10
+_CONFIG_FILES = (
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+    ".claude/CLAUDE.md",
+    ".codex/config.toml",
+    ".bashrc",
+    ".zshrc",
+    ".profile",
+    ".bash_profile",
+    ".gitconfig",
+    ".tmux.conf",
+)
+_SNAPSHOT_MAX_AGE = 24 * 3600
+
+
+def sampled(tool_use_id: str | None, *, reliable: bool | None) -> bool:
+    """Every call whose text cannot settle its effect, and a deterministic 1 in SAMPLE_ONE_IN of the rest by id hash."""
+    if not tool_use_id:
+        return False
+    if reliable is False:
+        return True
+    return int(hashlib.sha256(tool_use_id.encode()).hexdigest()[:8], 16) % SAMPLE_ONE_IN == 0
+
+
+def _stat(path: Path) -> list[int] | None:
+    try:
+        st = path.stat()
+        return [st.st_mtime_ns, st.st_size]
+    except OSError:
+        return None
+
+
+def snapshot(project_path: str) -> dict:
+    """What the practice's git and the config files look like now. Never rewrites the index (GIT_OPTIONAL_LOCKS=0)."""
+    import subprocess
+
+    env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
+    root = Path(project_path)
+
+    def git(*args: str) -> str:
+        try:
+            return subprocess.run(
+                ["git", *args], cwd=root, capture_output=True, text=True, env=env, timeout=5, check=False
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            return ""
+
+    status: dict[str, list] = {}
+    for line in git("status", "--porcelain=v1", "-z").split("\0"):
+        if len(line) > 3:
+            path = line[3:]
+            status[path] = [line[:2], _stat(root / path)]
+    refs = {}
+    for line in git(
+        "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads", "refs/tags", "refs/stash", "refs/remotes"
+    ).splitlines():
+        name, _, sha = line.partition(" ")
+        refs[name] = sha
+    home = Path.home()
+    config = {name: _stat(home / name) for name in _CONFIG_FILES}
+    return {"status": status, "refs": refs, "config": config}
+
+
+def observed_effects(before: dict, after: dict, project_path: str | None) -> list[str]:
+    """The effect classes between two snapshots, within OBSERVATION_SCOPE."""
+    classes: set[str] = set()
+    b_status, a_status = before.get("status", {}), after.get("status", {})
+    for path in set(b_status) | set(a_status):
+        if b_status.get(path) != a_status.get(path):
+            classes.add(path_effect(os.path.join(project_path or "", path), project_path))
+    b_refs, a_refs = before.get("refs", {}), after.get("refs", {})
+    for name in set(b_refs) | set(a_refs):
+        if b_refs.get(name) != a_refs.get(name):
+            classes.add("vcs_remote" if name.startswith("refs/remotes/") else "vcs_local")
+    if before.get("config") != after.get("config"):
+        classes.add("config_write")
+    return sorted(classes)
+
+
+def snapshot_path(tool_use_id: str) -> Path:
+    safe = hashlib.sha256(tool_use_id.encode()).hexdigest()[:32]
+    return Path.home() / ".empirica" / "decision_snapshots" / f"{safe}.json"
+
+
+def store_before(tool_use_id: str | None, project_path: str | None, *, decision: str, sampled: bool) -> bool:
+    """Take and keep the before-snapshot for an allowed, sampled call in a practice. True when stored."""
+    if not (tool_use_id and project_path and sampled and decision == "allow"):
+        return False
+    try:
+        path = snapshot_path(tool_use_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"project_path": project_path, "snapshot": snapshot(project_path)}))
+        return True
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def _take_after(tool_use_id: str | None) -> tuple[list[str], str | None] | None:
+    """(observed classes, practice) for a call whose before-snapshot exists; the file is removed. None when not sampled."""
+    if not tool_use_id:
+        return None
+    path = snapshot_path(tool_use_id)
+    try:
+        stored = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    try:
+        path.unlink()
+    except OSError:
+        pass
+    _prune_snapshots(path.parent)
+    project = stored.get("project_path")
+    if not project:
+        return None
+    return observed_effects(stored.get("snapshot") or {}, snapshot(project), project), project
+
+
+def _prune_snapshots(directory: Path) -> None:
+    """Remove before-snapshots older than a day: a call that never reached its post hook (denied at the prompt, killed)."""
+    cutoff = time.time() - _SNAPSHOT_MAX_AGE
+    try:
+        for entry in os.scandir(directory):
+            if entry.name.endswith(".json") and entry.stat().st_mtime < cutoff:
+                os.unlink(entry.path)
+    except OSError:
+        pass

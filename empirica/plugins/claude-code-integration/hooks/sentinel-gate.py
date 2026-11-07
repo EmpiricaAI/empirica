@@ -2129,7 +2129,17 @@ def _record_decision(decision: str) -> None:
             harness=(os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip().lower() or "claude-code",
             permission_mode=hook_input.get("permission_mode"),
             inferred=inferred,
+            sampled=bool(inferred)
+            and decision_record.sampled(
+                hook_input.get("tool_use_id"), reliable=inferred["reliable"] if inferred else None
+            ),
         )
+        if record["sampled"]:
+            # Part A: the before half of an observed effect. `sampled` on the line means a before-snapshot exists: a denied
+            # call never runs, and a call outside a practice has no git to compare, so neither keeps the flag.
+            record["sampled"] = decision_record.store_before(
+                hook_input.get("tool_use_id"), project, decision=decision, sampled=True
+            )
         decision_record.append(record, decision_record.record_path(project))
     except Exception:
         pass
