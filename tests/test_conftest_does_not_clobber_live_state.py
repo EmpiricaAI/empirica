@@ -118,3 +118,33 @@ def test_the_rule_does_not_depend_on_what_the_file_says(tmp_path, status):
 
     _restore_untouched_transaction_files(backup)
     assert json.loads(f.read_text())["transaction_id"] == "NEW"
+
+
+def test_an_untouched_file_is_not_rewritten(tmp_path):
+    """Writing identical bytes back is not a no-op: it moves the mtime.
+
+    Every suite run used to give every transaction file in the repo and the home the same fresh mtime (all 23 in core's
+    .empirica read 05:32:21 on 2026-11-07, contents months old). Two things read that mtime: the reaper below, which deletes
+    test-* files older than an hour and so never could, and every chooser that ranks transaction files by recency.
+    """
+    f = _write(tmp_path / "active_transaction_tmux_5.json", "OLD", status="closed")
+    old = 1_700_000_000_000_000_000
+    os.utime(f, ns=(old, old))
+    backup = _snapshot(f)
+
+    assert _restore_untouched_transaction_files(backup) == []
+    assert os.stat(f).st_mtime_ns == old
+
+
+def test_a_restored_file_gets_its_own_mtime_back(tmp_path):
+    f = _write(tmp_path / "active_transaction_tmux_6.json", "REAL")
+    old = 1_700_000_000_000_000_000
+    os.utime(f, ns=(old, old))
+    backup = _snapshot(f)
+    _write(f, "ESCAPED")
+    os.utime(f, ns=(old, old))  # an escaped write that left the mtime where it was
+
+    _restore_untouched_transaction_files(backup)
+
+    assert json.loads(f.read_text())["transaction_id"] == "REAL"
+    assert os.stat(f).st_mtime_ns == old

@@ -47,11 +47,18 @@ def _restore_untouched_transaction_files(backup: dict) -> list[str]:
     clobbered = []
     for filepath, (contents, mtime_ns) in backup.items():
         try:
-            if os.stat(filepath).st_mtime_ns != mtime_ns:
+            st = os.stat(filepath)
+            if st.st_mtime_ns != mtime_ns:
                 clobbered.append(filepath)
                 continue
+            with open(filepath) as f:
+                if f.read() == contents:
+                    # Untouched. Writing the same bytes back would still move the mtime, and the reaper below and every
+                    # chooser that ranks transaction files by recency read it (all 23 in core's .empirica once shared one).
+                    continue
             with open(filepath, "w") as f:
                 f.write(contents)
+            os.utime(filepath, ns=(st.st_atime_ns, mtime_ns))
         except FileNotFoundError:
             # Deleted during the run. Recreating it would resurrect state its
             # owner chose to drop — the same clobber in the other direction.
