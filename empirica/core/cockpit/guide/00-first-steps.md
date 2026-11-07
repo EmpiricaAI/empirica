@@ -50,7 +50,7 @@ one option marked **(Recommended)**. Use the **up/down arrow keys** to pick, the
 - **Scroll back** through the conversation: use the mouse wheel. If the box seems stuck
   after scrolling, press **q** to return to the live view.
 - **Copy and paste**: select text with the mouse to copy; paste with right-click or the usual
-  paste shortcut [check: per operating system and terminal app].
+  paste shortcut.
 
 ## Where its work ends up
 

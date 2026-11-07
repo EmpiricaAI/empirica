@@ -19,7 +19,7 @@ person has approved it.
 ## Approving a request
 
 Requests wait for your approval in the Empirica extension, the Empirica panel in your
-web browser [check: how to open it, and the exact button names]. Each one shows who is asking, what they want done, and why. Approve it, decline it,
+web browser. Each one shows who is asking, what they want done, and why. Approve it, decline it,
 or ask for a change. If you decline, say why in a sentence; the practice that asked learns
 from it.
 

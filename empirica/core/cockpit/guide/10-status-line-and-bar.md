@@ -50,7 +50,7 @@ watch it; it is there when you want to know what the practitioner is doing.
 | Part | Tells you |
 |---|---|
 | practice name | which practice it is working in |
-| stage and sureness | which of the three moments it is in (page 7), and how sure it is right now [check: the symbols used] |
+| stage and sureness | which of the three moments it is in (page 7), and how sure it is right now |
 | counts | how many goals are open, questions unanswered, assumptions in use, and findings recorded |
 | learning mark | whether its understanding changed during this piece of work |
 | memory in use | how much of its working memory for this conversation is used |
