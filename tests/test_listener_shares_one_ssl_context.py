@@ -25,6 +25,7 @@ LISTENER_MODULES = [
     "empirica/core/loop_scheduler/practitioner_heartbeat.py",
     "empirica/core/loop_scheduler/content_poll.py",
     "empirica/core/cockpit/notification_channels.py",
+    "empirica/core/auth/cortex_oauth.py",  # token refresh, reached by the listener through cortex_bearer (sweep, 1.14.22)
 ]
 
 

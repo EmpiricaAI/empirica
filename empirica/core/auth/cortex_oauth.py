@@ -68,7 +68,11 @@ def _http_json(
             body = json.dumps(data).encode()
             hdrs.setdefault("Content-Type", "application/json")
     req = urllib.request.Request(url, data=body, headers=hdrs)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    # The listener reaches this on token refresh (cortex_bearer -> custody_refresh): one SSL context per process, as for
+    # every other listener HTTPS call, not a new one per request.
+    from empirica.core.loop_scheduler.http_shared import open_url
+
+    with open_url(req, timeout) as resp:
         return json.loads(resp.read().decode())
 
 
@@ -542,11 +546,12 @@ def _serve_daemon_running() -> bool:
     Best-effort: any failure means 'assume no daemon' → cli-owned, the safe
     default (a lone shell refreshing its own family can't collide)."""
     import os
-    import urllib.request
 
     port = os.getenv("EMPIRICA_SERVE_PORT", "8000")
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/v1/health", timeout=2) as r:
+        from empirica.core.loop_scheduler.http_shared import open_url
+
+        with open_url(f"http://127.0.0.1:{port}/api/v1/health", 2) as r:
             return 200 <= r.status < 300
     except Exception:
         return False
