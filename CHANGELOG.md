@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.22] - 2026-11-07
+
+### Highlights
+
+- **The cockpit has bars.** Practices and their health are on top; under each pane is a line of commands, red when something is broken and orange when something waits. Click it for a menu with a Close item, or press `Ctrl+b e` and a letter; `?` opens a guide to working with practices, shipped in the package.
+- **The Sentinel records its decisions.** Every PreToolUse decision is a line in the practice's `.empirica/decisions.jsonl`, with its outcome after the call, what a shell command's text says it will change, and, on a sample of calls, what it was observed to change. The input is kept only as a hash. Against 1.14.21 a gated call costs 1 to 3 ms more.
+- **A project's domain is a domain name.** `domain:` names a domain file, PREFLIGHT starts from it, and `project-init`, `project-update` and `provision-practice` refuse anything else; project types are one list with a meaning each.
+- **`provision-practice` sets a practice up completely:** `--type`, `--description`, `--domain`, a `.gitignore` that keeps only `project.yaml` under `.empirica`, and `--second-pane` for a second AI app beside the first in the same window.
+- **The listener creates one TLS context per process** instead of one per call, which grew its memory on every tick. The side-by-side measurement of the effect is still running.
+- **Commands print their answer once and refuse with exit 1.** Fourteen printed their JSON twice and several refusals exited 0; a test walks every command handler for both shapes.
+
 ### Changed
 
 - **`empirica cockpit --help` explains profiles, surfaces and identity.** The top-level help was one folded paragraph that never mentioned `--profile`. It now says where a profile lives (`~/.empirica/cockpit/config-NAME.yaml`), that each needs its own `session_name:`, that `cockpit status --profile NAME` is the check for a file you edited by hand (it changes nothing and exits 1 with the problem), which surface works over SSH (tmux) and which need a display (alacritty, ghostty), and how a practice keeps its identity across a restart. Each action (`launch`, `refresh`, `status`, `detach`, `kill`) has a description and examples, and `--profile` reads the same on every action that takes it (all but `detach`).
