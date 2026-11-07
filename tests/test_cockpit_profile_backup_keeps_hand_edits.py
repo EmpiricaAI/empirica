@@ -63,3 +63,29 @@ def test_upgrading_from_the_backup_once_writer_keeps_the_user_s_backup(tmp_path)
     add_practice_to_profile("dev", "a", str(tmp_path / "a"))
 
     assert target.with_suffix(".yaml.bak").read_text() == users_original
+
+
+def test_a_failed_digest_write_does_not_leave_a_stale_digest(tmp_path):
+    """A stale digest would make the next rewrite back up the writer's own output over the user's version."""
+    from pathlib import Path as _Path
+
+    add_practice_to_profile("dev", "a", str(tmp_path / "a"))
+    target = profile_path("dev")
+    hand = target.read_text() + "# hand\n"
+    target.write_text(hand)
+    add_practice_to_profile("dev", "b", str(tmp_path / "b"))  # hand edit backed up, digest D1 written
+    assert target.with_suffix(".yaml.bak").read_text() == hand
+
+    real_write_text = _Path.write_text
+
+    def failing(self, *a, **k):
+        if self.name.endswith(".yaml.written"):
+            raise OSError("disk full")
+        return real_write_text(self, *a, **k)
+
+    with pytest.MonkeyPatch.context() as mp:  # its own patcher: undoing the shared one would also undo the HOME pin
+        mp.setattr(_Path, "write_text", failing)
+        add_practice_to_profile("dev", "c", str(tmp_path / "c"))  # profile replaced, digest write fails
+    add_practice_to_profile("dev", "d", str(tmp_path / "d"))
+
+    assert target.with_suffix(".yaml.bak").read_text() == hand

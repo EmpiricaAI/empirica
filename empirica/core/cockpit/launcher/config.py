@@ -651,6 +651,9 @@ def _write_profile(profile: str, target: Path, config: LauncherConfig) -> Path:
                 target.with_suffix(".yaml.bak").write_bytes(current)
         tmp = target.with_suffix(".yaml.tmp")
         tmp.write_text(body, encoding="utf-8")
+        # The old digest describes the file about to be replaced: drop it first, so a failure from here on cannot leave
+        # a digest that names the wrong version (which would back up this writer's output over the user's).
+        written.unlink(missing_ok=True)
         os.replace(tmp, target)
     except OSError as exc:
         raise ProfileError(f"could not write {target} ({exc}); nothing was changed") from exc

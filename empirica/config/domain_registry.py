@@ -59,7 +59,10 @@ def _as_tuple(value: Any, field: str = "list field") -> tuple[str, ...]:
 # comment or the line's end). It used to stop at [A-Za-z0-9_-], so `domain: legal.eu` read as `legal` here and as `legal.eu`
 # in the registry.
 _DOMAIN_NAME_LINE = re.compile(
-    r"""^domain:[ \t]*(?:"([^"\n]+)"|'([^'\n]+)'|([^\n]*?))(?:[ \t]+#.*)?[ \t]*$""", re.MULTILINE
+    # A plain value cannot start with '#' (that is a comment, so YAML reads no value); after a value, '#' starts a comment
+    # only behind whitespace (`c#lang` is one name).
+    r"""^domain:[ \t]*(?:"([^"\n]+)"|'([^'\n]+)'|([^\s#][^\n]*?))?(?:[ \t]+#.*)?[ \t]*$""",
+    re.MULTILINE,
 )
 
 

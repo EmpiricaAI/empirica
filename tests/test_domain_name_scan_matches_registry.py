@@ -43,3 +43,13 @@ def test_a_hash_without_space_before_it_is_part_of_the_name(tmp_path, monkeypatc
     monkeypatch.setenv("HOME", str(home))
 
     assert "c#lang" in known_domain_names()
+
+
+@pytest.mark.parametrize("line", ["domain: # todo", "domain:   # fill in", "domain:"])
+def test_a_commented_out_or_empty_domain_line_names_nothing(tmp_path, monkeypatch, line):
+    home = tmp_path / "home"
+    (home / ".empirica" / "domains").mkdir(parents=True)
+    (home / ".empirica" / "domains" / "x.yaml").write_text(f"{line}\n{BODY}")
+    monkeypatch.setenv("HOME", str(home))
+
+    assert not any(name.startswith("#") or not name.strip() for name in known_domain_names())
