@@ -78,7 +78,7 @@ def handle_resolve_command(args):
             else:
                 print(f"  {msg}")
             db.close()
-            return {"ok": False, "error": msg}
+            return 1
 
         full_id = found_row.get("id", artifact_id)
 
@@ -116,4 +116,4 @@ def handle_resolve_command(args):
 
     except Exception as e:
         handle_cli_error(e, "Resolve", getattr(args, "verbose", False))
-        return {"ok": False, "error": str(e)}
+        return 1  # handle_cli_error has printed it

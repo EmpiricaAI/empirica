@@ -974,7 +974,7 @@ def handle_project_switch_command(args):
             else:
                 print(f"❌ {error_msg}")
                 print(f"\nTip: {hint}")
-            return None
+            return 1
 
         # 2. Extract project details
         project_id = project.get("id")
@@ -1074,4 +1074,4 @@ def handle_project_switch_command(args):
             print(json.dumps({"ok": False, "error": str(e)}))
         else:
             print(f"❌ Error switching project: {e}")
-        return None
+        return 1

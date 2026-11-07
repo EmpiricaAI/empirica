@@ -55,7 +55,10 @@ def _as_tuple(value: Any, field: str = "list field") -> tuple[str, ...]:
     return tuple(kept)
 
 
-_DOMAIN_NAME_LINE = re.compile(r"^domain:[ \t]*[\"']?([A-Za-z0-9_-]+)", re.MULTILINE)
+# The whole value of the top-level `domain:` key, as YAML reads it: quoted (anything up to the closing quote) or plain (up to a
+# comment or the line's end). It used to stop at [A-Za-z0-9_-], so `domain: legal.eu` read as `legal` here and as `legal.eu`
+# in the registry.
+_DOMAIN_NAME_LINE = re.compile(r"""^domain:[ \t]*(?:"([^"\n]+)"|'([^'\n]+)'|([^#\n]*?))[ \t]*(?:#.*)?$""", re.MULTILINE)
 
 
 def known_domain_names(project_path: Path | str | None = None) -> frozenset[str]:
@@ -78,7 +81,9 @@ def known_domain_names(project_path: Path | str | None = None) -> frozenset[str]
             except OSError:
                 continue
             if match:
-                names.add(match.group(1))
+                name = next((group for group in match.groups() if group), "").strip()
+                if name:
+                    names.add(name)
     return frozenset(names)
 
 

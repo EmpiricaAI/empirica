@@ -1586,7 +1586,7 @@ def handle_calibration_report_command(args):
                 print(json.dumps(result, indent=2))
             else:
                 print(f"❌ No calibration data found in last {weeks} weeks")
-            return
+            return 1
 
         vector_data, weekly_data, valid_trajectories, filtered_trajectories = _collect_vector_data(rows)
 
@@ -1601,7 +1601,7 @@ def handle_calibration_report_command(args):
                 print(json.dumps(result, indent=2))
             else:
                 print(f"❌ No valid calibration data (filtered {filtered_trajectories} placeholder sessions)")
-            return
+            return 1
 
         trajectory = _compute_trajectory_metrics(vector_data, weekly_data, min_samples)
 

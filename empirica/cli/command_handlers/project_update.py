@@ -70,9 +70,15 @@ def _refuse_unknown_domain(requested: str | None, domains: list[str], output_for
     return True
 
 
+def is_old_free_text_domain(value: str) -> bool:
+    """Text from before the domain was a name (`ai/measurement`). An unknown plain name may be a domain file on another
+    machine (user domains live in ~/.empirica/domains, project.yaml is shared), so it is never taken for free text."""
+    return "/" in value
+
+
 def _take_free_text_domain(config, domains: list[str]) -> str | None:
-    """Clear a stored domain that names no domain file and return it. Text from before the domain was a list."""
-    if not config.domain or config.domain in domains:
+    """Clear a stored domain that is old free text and return it. An unknown name is left where it is."""
+    if not config.domain or config.domain in domains or not is_old_free_text_domain(config.domain):
         return None
     free_text, config.domain = config.domain, ""
     return free_text

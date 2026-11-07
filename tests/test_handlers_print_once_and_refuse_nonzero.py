@@ -137,3 +137,86 @@ def test_note_without_text_exits_1(tmp_path):
 
     assert proc.returncode == 1
     assert json.loads(proc.stdout.strip().splitlines()[-1])["ok"] is False
+
+
+# ── the wider shapes (pre-publish sweep for 1.14.22) ───────────────────────────────────────────────────────────────────
+#
+# The walk above matches a refusal print immediately followed by a bare return, and a printed name returned. The sweep found
+# the same defects one step removed: a refusal printed in an if/else and a shared bare return after it, a statement between
+# the print and the return, a dict literal returned after printing. KNOWN_OLDER lists the handlers that had that shape before
+# 1.14.22 (by file and function: line numbers move); a new one fails here, and the list only shrinks.
+
+KNOWN_OLDER = {
+    ("_workflow_preflight.py", "handle_preflight_submit_command"),
+    ("config_commands.py", "handle_config_show_command"),
+    ("domain_commands.py", "handle_domain_validate_command"),
+    ("edit_verification_command.py", "handle_edit_with_confidence_command"),
+    (
+        "goal_commands.py",
+        "handle_goals_complete_task_command",
+    ),  # exits 1 via sys.exit before the return: a false positive
+    ("goal_commands.py", "handle_goals_progress_command"),
+    ("goal_commands.py", "handle_goals_get_tasks_command"),
+    ("identity_commands.py", "handle_identity_create_command"),
+    ("identity_commands.py", "handle_identity_export_command"),
+    ("memory_commands.py", "handle_session_rollup_command"),
+    ("monitor_commands.py", "handle_mco_load_command"),
+    ("monitor_commands.py", "handle_system_status_command"),
+    ("projects_commands.py", "handle_projects_unregister_command"),
+    ("session_commands.py", "handle_sessions_show_command"),
+    ("setup_claude_code.py", "handle_setup_claude_code_command"),
+    ("utility_commands.py", "handle_qdrant_cleanup_command"),
+    ("utility_commands.py", "handle_qdrant_status_command"),
+    ("workspace_commands.py", "handle_workspace_backfill_entities_command"),
+}
+
+
+def _prints_json(node) -> bool:
+    return _json_print_arg(node) is not None
+
+
+def _bare_return(node) -> bool:
+    return isinstance(node, ast.Return) and (
+        node.value is None or (isinstance(node.value, ast.Constant) and node.value.value is None)
+    )
+
+
+def _wide_hits() -> set[tuple[str, str]]:
+    found = set()
+    for name, fn in _handlers():
+        for node in ast.walk(fn):
+            for field in ("body", "orelse", "finalbody"):
+                stmts = getattr(node, field, None)
+                if not isinstance(stmts, list):
+                    continue
+                for i, stmt in enumerate(stmts):
+                    before = stmts[max(0, i - 3) : i]
+                    refused = any(_is_refusal_print(n) for s in before for n in ast.walk(s))
+                    printed = any(_prints_json(n) for s in before for n in ast.walk(s))
+                    if (_bare_return(stmt) and refused) or (
+                        isinstance(stmt, ast.Return) and isinstance(stmt.value, ast.Dict) and printed
+                    ):
+                        found.add((name, fn.name))
+    return found
+
+
+def test_no_new_handler_has_the_wider_shapes():
+    assert _wide_hits() - KNOWN_OLDER == set()
+
+
+def test_the_known_list_only_names_handlers_that_still_have_the_shape():
+    """A fixed handler leaves the list, so the list stays the backlog it claims to be."""
+    assert KNOWN_OLDER - _wide_hits() == set()
+
+
+def test_resolve_of_an_unknown_id_prints_one_document_and_exits_1(tmp_path):
+    proc = _cli(tmp_path, "resolve", "00000000-dead", "--output", "json")
+
+    assert proc.returncode == 1
+    assert len(_documents(proc.stdout)) == 1
+
+
+def test_project_switch_to_an_unknown_project_exits_1(tmp_path):
+    proc = _cli(tmp_path, "project-switch", "no-such-project-xyz", "--output", "json")
+
+    assert proc.returncode == 1

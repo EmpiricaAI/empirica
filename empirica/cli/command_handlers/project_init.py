@@ -447,7 +447,17 @@ def _derive_ai_id(git_root) -> str:
     return InstanceResolver.ai_id(project_path=str(git_root)) or "claude-code"
 
 
-def _merge_preserving_existing(template: dict, existing: dict) -> dict:
+def _explicit_init_values(args) -> dict:
+    """The project.yaml values this run was given on its command line: they win over the file on a --force re-init."""
+    values = {
+        "type": getattr(args, "type", None),
+        "domain": getattr(args, "domain", None),
+        "description": getattr(args, "project_description", None),
+    }
+    return {key: value for key, value in values.items() if value}
+
+
+def _merge_preserving_existing(template: dict, existing: dict, explicit: dict | None = None) -> dict:
     """Merge a freshly-built project.yaml ``template`` with an ``existing`` one so
     hand-set / provisioning-written keys survive a ``--force`` repair re-init.
 
@@ -458,7 +468,8 @@ def _merge_preserving_existing(template: dict, existing: dict) -> dict:
     """
     if not existing:
         return template
-    return {**template, **existing}
+    # A value given on this run's command line is the person's intent now; dropping it while reporting success was the defect.
+    return {**template, **existing, **(explicit or {})}
 
 
 def _build_project_config(config_input, git_root, git_url):
@@ -679,7 +690,9 @@ def run_project_init(args, emit_result=True):
                 existing_config = {}
 
         project_config = _merge_preserving_existing(
-            _build_project_config(config_input, git_root, git_url), existing_config
+            _build_project_config(config_input, git_root, git_url),
+            existing_config,
+            explicit=_explicit_init_values(args),
         )
 
         with open(project_config_path, "w") as f:

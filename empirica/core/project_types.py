@@ -182,7 +182,13 @@ def classification_note(project_path) -> str:
         from empirica.config.domain_registry import known_domain_names
 
         if domain not in known_domain_names(project_path):
-            parts.append(
-                f"Its domain `{domain}` is free text, not a domain name: the next `empirica project-update` moves it to the tags."
-            )
+            if "/" in domain:  # project_update.is_old_free_text_domain: text from before the domain was a name
+                parts.append(
+                    f"Its domain `{domain}` is free text, not a domain name: the next `empirica project-update` moves it to the tags."
+                )
+            else:
+                parts.append(
+                    f"Its domain `{domain}` names no domain file on this machine (it may be one on another). Add the file under"
+                    " ~/.empirica/domains, or set a domain with `empirica project-update --domain NAME`."
+                )
     return " ".join(parts)
