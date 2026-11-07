@@ -115,15 +115,12 @@ def _pipeline_cortex_cache_feedback(session_id, vectors, grounded_verification):
             return
         import urllib.request
 
-        # The Cortex this seat is signed in to, like every other call to it; the env vars still override. No URL, no call:
-        # this used to default to localhost:8420, so a signed-in seat's feedback went nowhere.
-        from .system_event import resolve_cortex_config
-
-        cred_url, cred_bearer = resolve_cortex_config()
-        cortex_url = (os.environ.get("EMPIRICA_CORTEX_URL") or cred_url or "").rstrip("/")
-        if not cortex_url:
-            logger.debug("Cortex cache feedback skipped: no Cortex URL (not signed in, EMPIRICA_CORTEX_URL unset)")
-            return
+        # Opt-in on purpose, not an oversight: do not switch this to the credentials URL. POST /postflight runs Cortex's
+        # prediction engine and stores suggestions for the user; cortex measured (2026-11-07) that nothing consumes them yet,
+        # that the engine reads vectors, not calibration_score, so this filter skews it on the wrong quantity, and that
+        # repeated predictions overwrote dismissed suggestions. Reopen when a consumer surfaces suggestions, and then send
+        # every POSTFLIGHT, not only the poorly calibrated ones.
+        cortex_url = os.environ.get("EMPIRICA_CORTEX_URL", "http://localhost:8420")
         payload = json.dumps(
             {
                 "session_id": session_id,
@@ -136,15 +133,15 @@ def _pipeline_cortex_cache_feedback(session_id, vectors, grounded_verification):
             }
         ).encode("utf-8")
         headers = {"Content-Type": "application/json"}
-        api_key = os.environ.get("CORTEX_API_KEY") or cred_bearer or ""
+        api_key = os.environ.get("CORTEX_API_KEY", "")
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         req = urllib.request.Request(f"{cortex_url}/postflight", data=payload, headers=headers, method="POST")
         urllib.request.urlopen(req, timeout=1.0)
         logger.debug("Wrote verified predictions to Cortex cache")
     except Exception as e:
-        # Best-effort, in the detached storage worker. Debug-level like the sibling stages, so a persistent failure (an
-        # unreachable Cortex, a wrong EMPIRICA_CORTEX_URL) is at least findable with --verbose.
+        # Best-effort: no cortex on localhost is the normal state. Debug-level like the sibling stages, so a persistent failure
+        # (a wrong EMPIRICA_CORTEX_URL) is at least findable with --verbose.
         logger.debug(f"Cortex cache feedback skipped: {e}")
 
 
