@@ -9,8 +9,10 @@ What it does not do:
 
 * It is not tamper-proof. The agent whose calls are recorded can edit or delete the file with its own shell. It is a record for
   measurement, not evidence against the agent.
-* ``effect_classes`` (what the call changed) and ``human_override`` (a person approving or denying at the prompt) are null here:
-  PreToolUse runs before the call and before any prompt, so neither is visible to it. They belong to the PostToolUse side.
+* ``effect_classes`` (what the call changed) is null on the decision line: PreToolUse runs before the call. The post line carries
+  it for file edits and for sampled shell calls; ``inferred_effect_classes`` is a prediction from the text, never an effect.
+* ``human_override`` is null on every line: no hook receives a person's answer at the harness's prompt. A PermissionRequest hook
+  writes a ``permission_request`` line, and ``infer_overrides`` derives the answer from what followed, marked as inferred.
 * ``permission_mode`` is the harness's own, as its hook input carries it (null when it does not): the same call carries a different risk under
   a read-only mode than under one that lets it write.
 * ``rule`` names the stage of the gate that decided (``noetic-firewall``, ``pipeline``, ...), not the individual check inside it.
@@ -84,6 +86,7 @@ def build(
     permission_mode: str | None = None,
     inferred: dict | None = None,
     sampled: bool = False,
+    turn_id: str | None = None,
 ) -> dict:
     return {
         "ts": round(time.time(), 3),
@@ -95,6 +98,7 @@ def build(
         "transaction_id": transaction_id,
         "tx_status": tx_status,
         "tool_use_id": tool_use_id,
+        "turn_id": turn_id,
         "tool": tool_name,
         "command_class": command_class(tool_name, tool_input),
         "input_sha256": input_hash(tool_input),
@@ -262,7 +266,9 @@ def build_outcome(hook_input: dict, outcome: str, project_path: str | None) -> d
         "harness": (os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip().lower() or "claude-code",
         "claude_session_id": hook_input.get("session_id"),
         "tool_use_id": hook_input.get("tool_use_id"),
+        "turn_id": hook_input.get("turn_id"),
         "tool": tool_name,
+        "input_sha256": input_hash(tool_input),
         "outcome": outcome,
         "effect_classes": effects,
         "observed": effects is not None,
@@ -681,3 +687,58 @@ def _prune_snapshots(directory: Path) -> None:
                 os.unlink(entry.path)
     except OSError:
         pass
+
+
+# ── whether a person approved the call: inferred, never observed ───────────────────────────────────────────────────────
+#
+# A harness's PermissionRequest hook fires when it asks a person to approve a call; codex's carries tool_name, tool_input,
+# permission_mode and turn_id, no tool_use_id, and the hook never receives the answer (ecodex, prop_2zqpvjdjwfbghgbi6f2rjtghgm).
+# So the hook writes a permission_request line, and infer_overrides reads the answer from what followed, joined on turn_id and
+# input_sha256. Every hook line keeps human_override null; the inference is an analysis, and it says it is one.
+
+
+def record_permission_request(hook_input: dict) -> bool:
+    """Append a permission_request line for a harness's PermissionRequest hook. Never raises."""
+    try:
+        if not enabled() or not isinstance(hook_input, dict):
+            return False
+        tool_input = hook_input.get("tool_input") or {}
+        record = {
+            "ts": round(time.time(), 3),
+            "vocabulary": VOCABULARY_VERSION,
+            "event": "permission_request",
+            "harness": (os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip().lower() or "claude-code",
+            "claude_session_id": hook_input.get("session_id"),
+            "turn_id": hook_input.get("turn_id"),
+            "tool": str(hook_input.get("tool_name") or "unknown"),
+            "input_sha256": input_hash(tool_input),
+            "permission_mode": hook_input.get("permission_mode"),
+        }
+        project = project_path_for(hook_input.get("session_id"), hook_input.get("cwd"))
+        return append(record, record_path(project))
+    except Exception:
+        return False
+
+
+def infer_overrides(lines: list[dict]) -> list[dict]:
+    """For each permission_request: approved when a successful post line for the same input followed in the same turn, else
+    denied_or_aborted. Every answer carries inferred: true."""
+    ran = {
+        (line.get("turn_id"), line.get("input_sha256"))
+        for line in lines
+        if line.get("event") == "post" and line.get("outcome") == "success"
+    }
+    out = []
+    for line in lines:
+        if line.get("event") != "permission_request":
+            continue
+        key = (line.get("turn_id"), line.get("input_sha256"))
+        out.append(
+            {
+                "turn_id": key[0],
+                "input_sha256": key[1],
+                "override": "approved" if key in ran else "denied_or_aborted",
+                "inferred": True,
+            }
+        )
+    return out

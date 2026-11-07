@@ -2129,6 +2129,7 @@ def _record_decision(decision: str) -> None:
             harness=(os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip().lower() or "claude-code",
             permission_mode=hook_input.get("permission_mode"),
             inferred=inferred,
+            turn_id=hook_input.get("turn_id"),
             sampled=bool(inferred)
             and decision_record.sampled(
                 hook_input.get("tool_use_id"), reliable=inferred["reliable"] if inferred else None
