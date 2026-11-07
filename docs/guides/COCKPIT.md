@@ -152,7 +152,7 @@ then the letter, or `Ctrl+b`, `e`, `Space` for the menu.
 |---|---|---|---|
 | `R` | Restart this pane: same practice, same identity, conversation resumed, then woken | this pane has stopped | |
 | `A` | Restart every pane that has stopped | any pane has stopped | |
-| `M` | Wake this practice so it reads its mail and re-arms its listener | its listener service is down | |
+| `M` | Wake this practice so it reads its mail and re-arms its listener | its listener service is down | more than one listener runs for it (every message arrives twice) |
 | `I` | Show this practice's unanswered mail | | mail is waiting |
 | `C` | Update the AI client (asks first) | | a newer release exists |
 | `S` | Restart every practice pane onto new settings (asks first; it ends them) | | settings changed since they started |

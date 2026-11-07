@@ -28,11 +28,11 @@ keyboard: `Ctrl+b e` then the letter (page 0), or `Ctrl+b e` then Space for the 
 |---|---|---|---|
 | **R** restart | restarts the practitioner in this box if it has stopped | red: it has stopped | no |
 | **A** refresh | restarts every stopped practitioner in the cockpit | red: one or more have stopped | no |
-| **M** listener | reconnects this practice's message delivery | red: messages are not arriving | no |
+| **M** listener | reconnects this practice's message delivery | red: messages are not arriving; orange: more than one listener runs for it, so messages arrive twice | no |
 | **I** inbox | shows messages for this practice that still need an answer | orange: some are waiting | no |
-| **C** claude | updates Claude Code and ecodex | orange: a newer version exists | yes |
+| **C** claude | updates Claude Code (`claude update`), or what this machine's update check names for it | orange: a newer version exists | yes |
 | **S** sessions | restarts the running practitioners so they pick up an update | orange: an update is waiting for them | yes, it interrupts them, so use it at a quiet moment |
-| **L** login | signs this computer in to the Empirica server again, in a window of its own | orange: sign-in expires within a day; red: expired | no |
+| **L** login | signs this computer in to the Empirica server again, in a window of its own | orange or red when this machine's update check says the sign-in needs renewing | no |
 | **?** help | opens this guide | none | no |
 
 **Updating Empirica itself** is in the menu too, near the end: *update Empirica on this machine*.

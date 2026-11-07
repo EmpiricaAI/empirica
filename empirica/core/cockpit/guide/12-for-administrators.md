@@ -23,5 +23,5 @@ A practice is a folder with a `.empirica/` directory whose `project.yaml` carrie
 identity (a project id and an ai_id). Moving a practice to another machine means copying
 or cloning that folder with `project.yaml` intact and registering it there
 (`empirica project-register .`); never create a fresh identity for an existing practice.
-For new client seats, the support practice uses `provision-practices.py` and the
-onboarding runbook (`docs/guides/new-client-onboarding.md`).
+A new practice is created with `empirica provision-practice NAME` (page 11); its `--help`
+lists the options.

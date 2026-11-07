@@ -110,7 +110,7 @@ def add_cockpit_launcher_parsers(subparsers):
         "machine with no display. alacritty and ghostty open a window on this machine's display.",
         "  empirica cockpit launch\n"
         "  empirica cockpit launch --profile monitor-b\n"
-        "  empirica cockpit launch --profile halo --surface tmux     over SSH\n"
+        "  empirica cockpit launch --profile server --surface tmux   over SSH\n"
         "  empirica cockpit launch --no-attach                        build it, stay in this shell\n",
     )
     launch.add_argument("--config", metavar="PATH", help=_CONFIG_HELP)
