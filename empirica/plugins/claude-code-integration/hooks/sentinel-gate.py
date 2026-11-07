@@ -2093,14 +2093,36 @@ def respond(decision: str, reason: str = "") -> None:
     _record_decision(decision)
 
 
+def _decision_record():
+    """empirica/core/decision_record.py, loaded from its file. Importing it through the package runs empirica/core's own
+    imports (about 22 ms measured), and this runs after every call. None when empirica is not installed. The same function is
+    copied into each hook that records an outcome; tests/test_decision_record.py keeps the copies identical."""
+    try:
+        import importlib.util
+
+        spec = importlib.util.find_spec("empirica")
+        if spec is None or not spec.submodule_search_locations:
+            return None
+        path = Path(next(iter(spec.submodule_search_locations))) / "core" / "decision_record.py"
+        module_spec = importlib.util.spec_from_file_location("_empirica_decision_record", path)
+        if module_spec is None or module_spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        return module
+    except Exception:
+        return None
+
+
 def _record_decision(decision: str) -> None:
     """One line in the practice's decisions.jsonl for this decision. Never raises: the record must not change the decision."""
     if _record_input is None:
         return
     try:
-        from empirica.core import decision_record
-
-        if not decision_record.enabled():
+        if (os.environ.get("EMPIRICA_DECISION_RECORD") or "").strip().lower() in ("0", "false", "no", "off"):
+            return
+        decision_record = _decision_record()
+        if decision_record is None or not decision_record.enabled():
             return
         hook_input = _record_input
         tool_name = str(hook_input.get("tool_name") or "unknown")

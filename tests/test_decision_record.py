@@ -280,7 +280,7 @@ def test_the_three_hooks_carry_the_same_loader():
     import re
 
     pattern = re.compile(r"^def _decision_record\(\):\n(?:(?:    .*|)\n)+", re.M)
-    copies = {name: pattern.search((HOOKS / name).read_text()) for name in dr.OUTCOME_HOOKS}
+    copies = {name: pattern.search((HOOKS / name).read_text()) for name in dr.LOADER_HOOKS}
     assert all(copies.values()), [n for n, m in copies.items() if not m]
     assert len({m.group(0) for m in copies.values() if m}) == 1
 
@@ -381,3 +381,42 @@ def test_an_apply_patch_reaching_entity_extractor_is_recorded_with_its_classes(t
     )
 
     assert [(r["tool"], r["effect_classes"]) for r in lines] == [("apply_patch", ["config_write"])]
+
+
+def test_the_gate_s_read_path_does_not_import_empirica_core(tmp_path):
+    """The record must not bring empirica/core's init onto the gate's hot path (sweep, 1.14.22: about 12 ms a call)."""
+    home = tmp_path / "home"
+    (home / ".empirica").mkdir(parents=True)
+    work = tmp_path / "work"
+    work.mkdir()
+    probe = (
+        "import runpy, sys, json, io; sys.stdin = io.StringIO(sys.argv[2]);"
+        " sys.argv = [sys.argv[1]];"
+        " exec(\"try:\\n    runpy.run_path(sys.argv[0], run_name='__main__')\\nexcept SystemExit:\\n    pass\");"
+        " sys.stderr.write('CORE=' + str('empirica.core' in sys.modules))"
+    )
+    payload = json.dumps(
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": "s",
+            "tool_use_id": "t",
+            "tool_name": "Bash",
+            "tool_input": {"command": "git status --short"},
+            "cwd": str(work),
+        }
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", probe, str(GATE), payload],
+        capture_output=True,
+        text=True,
+        cwd=work,
+        timeout=60,
+        env={"HOME": str(home), "PATH": "/usr/bin:/bin", "PYTHONPATH": str(REPO)},
+    )
+    assert "CORE=False" in proc.stderr, proc.stderr[-500:]
+
+
+def test_the_digest_is_sha256_without_importing_hashlib():
+    import hashlib
+
+    assert dr._sha256_hex(b"abc") == hashlib.sha256(b"abc").hexdigest()

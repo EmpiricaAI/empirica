@@ -22,7 +22,6 @@ Cost: one ``open(..., "a")`` and one write per call, no database, no network. ``
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -50,6 +49,19 @@ _WRAPPER_VALUE_FLAGS = {
 }
 
 
+def _sha256_hex(data: bytes) -> str:
+    """SHA-256 hex digest without importing hashlib: its OpenSSL binding costs about 1.8 ms, and this runs on every hooked
+    call. The interpreter's own implementation (``_sha2`` from 3.12, ``_sha256`` before) gives the same digest."""
+    try:
+        from _sha2 import sha256  # type: ignore[import-not-found]
+    except ImportError:
+        try:
+            from _sha256 import sha256  # type: ignore[import-not-found,no-redef]
+        except ImportError:
+            from hashlib import sha256  # type: ignore[no-redef]
+    return sha256(data).hexdigest()
+
+
 def enabled() -> bool:
     return (os.environ.get("EMPIRICA_DECISION_RECORD") or "").strip().lower() not in _OFF
 
@@ -57,7 +69,7 @@ def enabled() -> bool:
 def input_hash(tool_input: object) -> str:
     """SHA-256 of the input as canonical JSON: equal inputs give equal hashes, and the input cannot be read back from it."""
     body = json.dumps(tool_input, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(body.encode("utf-8", "replace")).hexdigest()
+    return _sha256_hex(body.encode("utf-8", "replace"))
 
 
 _PROGRAM_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
@@ -153,6 +165,9 @@ def append(record: dict, path: Path, *, max_bytes: int = MAX_BYTES) -> bool:
 
 # The hooks that write it, each carrying the same loader (tests/test_decision_record.py keeps the copies identical).
 OUTCOME_HOOKS = ("entity-extractor.py", "truncation-legibility.py", "tool-failure.py")
+# Every hook that loads this module by its file (the three above and the gate): importing it through the package runs
+# empirica/core's init, which the gate's read path never needed and which cost it about 12 ms a call.
+LOADER_HOOKS = (*OUTCOME_HOOKS, "sentinel-gate.py")
 
 # What a call changed. Draft, checked by ecodex (prop_2zqpvjdjwfbghgbi6f2rjtghgm). Only the four path classes are produced so
 # far, for Edit, Write and codex's apply_patch; a shell call is recorded with no class and observed false until the before-and-after comparison exists.
@@ -599,7 +614,7 @@ def sampled(tool_use_id: str | None, *, reliable: bool | None) -> bool:
         return False
     if reliable is False:
         return True
-    return int(hashlib.sha256(tool_use_id.encode()).hexdigest()[:8], 16) % SAMPLE_ONE_IN == 0
+    return int(_sha256_hex(tool_use_id.encode())[:8], 16) % SAMPLE_ONE_IN == 0
 
 
 def _stat(path: Path) -> list[int] | None:
@@ -685,7 +700,7 @@ def observed_effects(before: dict, after: dict, project_path: str | None) -> lis
 
 
 def snapshot_path(tool_use_id: str) -> Path:
-    safe = hashlib.sha256(tool_use_id.encode()).hexdigest()[:32]
+    safe = _sha256_hex(tool_use_id.encode())[:32]
     return Path.home() / ".empirica" / "decision_snapshots" / f"{safe}.json"
 
 
