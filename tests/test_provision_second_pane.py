@@ -168,3 +168,23 @@ def test_the_parser_takes_second_pane():
     )
 
     assert ns.second_pane == "ecodex"
+
+
+def test_a_second_pane_in_a_profile_without_windows_is_refused_before_anything_is_written(tmp_path, stub_run, capsys):
+    """A projects-only profile opens one window per project and has no window to put a second pane in. The main entry was
+    written and then the step failed, with advice to add what was already there (pre-publish sweep, 1.14.22)."""
+    target = profile_path("dev")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("session_name: dev\nprojects:\n  - name: other\n    path: /tmp/other\n")
+    before = target.read_text()
+
+    for dry_run in (True, False):
+        rc = pp.handle_provision_practice_command(
+            _args(tmp_path, cockpit_profile="dev", second_pane="ecodex", dry_run=dry_run)
+        )
+        out = json.loads(capsys.readouterr().out)
+        steps = {s["step"]: s for s in out["steps"]}
+        assert rc == 1, dry_run
+        assert "windows" in steps["cockpit-profile"]["error"]
+        assert "cockpit-second-pane" not in steps
+    assert target.read_text() == before

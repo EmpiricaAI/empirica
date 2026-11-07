@@ -521,6 +521,19 @@ def profile_path(profile: str) -> Path:
     return Path.home() / ".empirica" / "cockpit" / f"config-{profile}.yaml"
 
 
+def profile_without_windows(profile: str) -> bool:
+    """Does this profile exist and list projects with no windows (``groups:``)? Such a profile opens one window per project,
+    so it has no window to put a second pane in."""
+    try:
+        target = profile_path(profile)
+    except ProfileError:
+        return False
+    if not target.exists():
+        return False
+    config = load_config(target)
+    return bool(config.projects) and not config.is_groups_mode()
+
+
 def add_practice_to_profile(
     profile: str,
     name: str,
@@ -618,15 +631,22 @@ def _write_profile(profile: str, target: Path, config: LauncherConfig) -> Path:
         f"# Launch: empirica cockpit launch --profile {profile}    Guide: docs/guides/COCKPIT.md\n"
     )
     body = header + yaml.safe_dump(_serialize(config), default_flow_style=False, sort_keys=False)
+    import hashlib
+
+    written = target.with_suffix(".yaml.written")  # sha256 of what this writer last wrote
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        backup = target.with_suffix(".yaml.bak")
-        if target.exists() and not backup.exists():
-            # The FIRST backup is the user's own version; a later run must not overwrite it with ours.
-            backup.write_bytes(target.read_bytes())
+        if target.exists():
+            current = target.read_bytes()
+            ours = written.read_text().strip() if written.exists() else ""
+            if hashlib.sha256(current).hexdigest() != ours:
+                # Someone else wrote this version (by hand, or before this writer existed): keep it before rewriting. A
+                # version this writer produced is not backed up, so the backup is always the latest one it did not write.
+                target.with_suffix(".yaml.bak").write_bytes(current)
         tmp = target.with_suffix(".yaml.tmp")
         tmp.write_text(body, encoding="utf-8")
         os.replace(tmp, target)
+        written.write_text(hashlib.sha256(body.encode("utf-8")).hexdigest() + "\n")
     except OSError as exc:
         raise ProfileError(f"could not write {target} ({exc}); nothing was changed") from exc
     return target

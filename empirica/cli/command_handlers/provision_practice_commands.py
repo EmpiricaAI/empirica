@@ -268,6 +268,19 @@ def _cockpit_steps(
     second_pane: str | None,
 ) -> str | None:
     """Append the cockpit-profile step, and the second-pane step when asked for, to ``steps``. Returns the launch command."""
+    from empirica.core.cockpit.launcher.config import profile_without_windows
+
+    if second_pane and profile_without_windows(profile):
+        # Refused before anything is written: the main entry would be added and then the second pane would fail.
+        steps.append(
+            {
+                "step": "cockpit-profile",
+                "changed": False,
+                "error": f"profile {profile!r} lists projects without windows (no groups:), so --second-pane has no window to "
+                "share; add a groups: section to it, or provision without --second-pane",
+            }
+        )
+        return None
     step = _add_to_cockpit_profile(
         profile,
         name,

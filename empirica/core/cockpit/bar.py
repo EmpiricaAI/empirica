@@ -215,8 +215,18 @@ def _binding(table: str, key: str) -> str | None:
     """The command currently bound to ``key`` in ``table``, as tmux prints it, or None."""
     result = _tmux("list-keys", "-T", table, key)
     line = result.stdout.strip().splitlines()[0] if result.returncode == 0 and result.stdout.strip() else ""
-    match = re.match(r"bind-key\s+(?:-r\s+)?-T\s+\S+\s+\S+\s+(.*)$", line)
+    # Flags may stand before -T: -r, and -N with a note that may be quoted (a binding with a note was not read at all).
+    match = re.match(r"""bind-key(?:\s+-r|\s+-N\s+(?:"(?:[^"\\]|\\.)*"|\S+))*\s+-T\s+\S+\s+\S+\s+(.*)$""", line)
     return match.group(1).strip() if match else None
+
+
+def _as_command_string(printed: str) -> str:
+    """A binding as ``list-keys`` prints it, made into text tmux parses as the same commands.
+
+    list-keys prints the separator between chained commands as ``\\;``; inside a command string that is a literal ``;``
+    handed to the first command as an argument, so replaying the printed form ran nothing.
+    """
+    return re.sub(r"(?<=\s)\\;(?=\s|$)", ";", printed)
 
 
 def _dq(text: str) -> str:
@@ -326,6 +336,7 @@ def install_bindings(mouse: bool = True) -> dict[str, Any]:
         if previous and "@empirica_bar" in previous:
             previous = _option(["-s"], _PREV_BORDER_OPTION)
         else:
+            previous = _as_command_string(previous) if previous else previous
             _tmux("set-option", "-s", _PREV_BORDER_OPTION, previous or "")
         args = ["bind-key", "-T", "root", BORDER_CLICK, "if-shell", "-F", "#{@empirica_bar}"]
         args.append(_command_string([*menu_args("M")[:1], "-t", "=", *menu_args("M")[1:]]))
@@ -697,9 +708,23 @@ def machine_command(key: str, config: LauncherConfig | None) -> str:
     return fix or _BUILT_IN_COMMANDS.get(key, "")
 
 
-def _confirm(client: str | None, key: str, session: str, pane: str | None, what: str) -> None:
-    """Ask before U, C or S acts, with a menu: Yes and Cancel are both clickable, and Escape or a click outside cancels."""
+def _command_digest(command: str) -> str:
+    """A short digest of the command a confirm menu showed, so Yes runs that command and no other."""
+    import hashlib
+
+    return hashlib.sha256(command.encode("utf-8")).hexdigest()[:16]
+
+
+def _confirm(
+    client: str | None, key: str, session: str, pane: str | None, what: str, expect: str | None = None
+) -> None:
+    """Ask before U, C or S acts, with a menu: Yes and Cancel are both clickable, and Escape or a click outside cancels.
+
+    Yes carries ``expect``, the digest of the command shown, so a command that changed before Yes is asked about again.
+    """
     again = f"{_self_command()} chip {key} --yes --session {shlex.quote(session)}"
+    if expect:
+        again += f" --expect {expect}"
     if pane:
         again += f" --pane {shlex.quote(pane)}"
     if client:
@@ -711,7 +736,9 @@ def _confirm(client: str | None, key: str, session: str, pane: str | None, what:
     _tmux(*args, f"Yes: {what}".replace("#", "##"), "y", f"run-shell -b {_dq(again)}", "", "✕  Cancel", "n", "")
 
 
-def _machine_action(key: str, session: str, pane: str | None, client: str | None, confirmed: bool) -> None:
+def _machine_action(
+    key: str, session: str, pane: str | None, client: str | None, confirmed: bool, expect: str | None = None
+) -> None:
     """U, C and S: ask first, then run this machine's command in a window of its own. S restarts the panes itself by default."""
     config = _config_of(session)
     command = machine_command(key, config)
@@ -722,8 +749,10 @@ def _machine_action(key: str, session: str, pane: str | None, client: str | None
             ms=9000,
         )
         return
-    if not confirmed:
-        _confirm(client, key, session, pane, command or "restart every practice pane with its conversation resumed")
+    shown = command or "restart every practice pane with its conversation resumed"
+    if not confirmed or expect != _command_digest(shown):
+        # Not confirmed yet, or confirmed for a different command (the update state changed since the menu opened).
+        _confirm(client, key, session, pane, shown, expect=_command_digest(shown))
         return
     if command:
         _window(session, {"U": "update", "C": "client", "S": "sessions"}[key], command)
@@ -763,7 +792,9 @@ def inbox_view(ai_id: str, run=subprocess.run) -> int:
     return bar_pager.run(path, f"Inbox of {ai_id}")
 
 
-def run_chip(key: str, session: str, pane: str | None, client: str | None, confirmed: bool = False) -> None:
+def run_chip(
+    key: str, session: str, pane: str | None, client: str | None, confirmed: bool = False, expect: str | None = None
+) -> None:
     """One command's action. Says what happened in the client's message line; never prints."""
     if key in ("help", "?"):
         _popup(client, f"{_self_command()} help-view")
@@ -780,7 +811,7 @@ def run_chip(key: str, session: str, pane: str | None, client: str | None, confi
     elif key == "L":
         _login(session)
     elif key in CONFIRM:
-        _machine_action(key, session, pane, client, confirmed)
+        _machine_action(key, session, pane, client, confirmed, expect)
     else:
         _say(client, f"unknown cockpit command {key!r}")
         return
@@ -799,6 +830,7 @@ def main(argv: list[str] | None = None) -> int:
     chip.add_argument("--pane")
     chip.add_argument("--client")
     chip.add_argument("--yes", action="store_true")
+    chip.add_argument("--expect", help="digest of the command the confirm menu showed")
     tick = sub.add_parser("tick")
     tick.add_argument("session")
     tick.add_argument("--state-dir")
@@ -813,7 +845,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.verb == "inbox-view":
         return inbox_view(args.ai_id)
     try:
-        run_chip(args.key, args.session, args.pane or None, args.client or None, confirmed=args.yes)
+        run_chip(args.key, args.session, args.pane or None, args.client or None, confirmed=args.yes, expect=args.expect)
     except Exception as e:  # a command must answer in the message line, not with a traceback nobody sees
         _say(args.client or None, f"cockpit {args.key}: {type(e).__name__}: {e}", ms=9000)
         return 1

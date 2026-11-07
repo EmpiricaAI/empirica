@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -415,6 +416,35 @@ def test_a_border_click_outside_a_cockpit_goes_to_what_was_bound_before_and_a_se
     assert first.count("help and guide") == 1
 
 
+def test_a_chained_border_click_still_runs_every_command_outside_a_cockpit(tmux_env):
+    """tmux prints a chained binding with `\\;`; replayed as text that is one literal argument, so the click did nothing."""
+    cfg, config_path = _cockpit(tmux_env, "b4c")
+    # "\\;" reaches tmux as \; : one binding of two commands (a bare ";" would end bind-key's own command line)
+    _tmux(
+        "bind-key",
+        "-T",
+        "root",
+        bar.BORDER_CLICK,
+        "set-option",
+        "-s",
+        "@x1",
+        "1",
+        "\\;",
+        "set-option",
+        "-s",
+        "@x2",
+        "1",
+    )
+
+    bar.install(cfg, "b4c", config_path=config_path, profile=None)
+    else_branch = shlex.split(bar._binding("root", bar.BORDER_CLICK))[-1]
+    ran = _tmux("if-shell", "-F", "0", "", else_branch)
+
+    assert ran.returncode == 0, ran.stderr
+    assert _tmux("show-options", "-sv", "@x1").stdout.strip() == "1"
+    assert _tmux("show-options", "-sv", "@x2").stdout.strip() == "1"
+
+
 def test_the_status_click_taken_by_the_first_version_is_given_back(tmux_env):
     cfg, config_path = _cockpit(tmux_env, "b5")
     _tmux("set-option", "-s", "@empirica_prev_status_click", "display-message theirs")
@@ -642,7 +672,10 @@ def test_update_without_a_command_names_the_config_key_and_with_one_runs_it_in_i
     assert ("-M" in asked[0]) == bool(bar.menu_mouse_flag()), "the mouse flag only where this tmux takes it"
     assert "update" not in real("list-windows", "-t", "=c4:", "-F", "#{window_name}").stdout.split()
 
-    bar.run_chip("U", "c4", None, None, confirmed=True)
+    yes = next(arg for arg in asked[0] if "--yes" in arg)
+    assert "--expect " in yes, "Yes carries the digest of the command it showed"
+    expect = re.search(r"--expect ([0-9a-f]{16})", yes).group(1)
+    bar.run_chip("U", "c4", None, None, confirmed=True, expect=expect)
     assert "update" in real("list-windows", "-t", "=c4:", "-F", "#{window_name}").stdout.split()
 
 
