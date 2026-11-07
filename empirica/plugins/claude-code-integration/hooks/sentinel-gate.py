@@ -2105,10 +2105,9 @@ def _record_decision(decision: str) -> None:
         hook_input = _record_input
         tool_name = str(hook_input.get("tool_name") or "unknown")
         tool_input = hook_input.get("tool_input") or {}
-        # The same practice the post line will find when the transaction file names none, so both halves share one file.
-        project = _tx_meta.get("project_path") or decision_record.project_path_for(
-            hook_input.get("session_id"), hook_input.get("cwd")
-        )
+        # Exactly the lookup the post hooks make (session's active work, else a practice-root cwd), and nothing else: a call's
+        # two lines must land in one file, and its before- and after-snapshots must be of one tree.
+        project = decision_record.project_path_for(hook_input.get("session_id"), hook_input.get("cwd"))
         inferred = None
         if tool_name == "Bash" and isinstance(tool_input, dict):
             inferred = decision_record.infer_shell_effects(
@@ -6124,11 +6123,7 @@ def _peek_work_type(claude_session_id: str | None) -> None:
                 data = json.load(f)
             if data.get("status") == "open":
                 _current_work_type = data.get("work_type") or None
-            _tx_meta.update(
-                transaction_id=data.get("transaction_id"),
-                tx_status=data.get("status"),
-                project_path=data.get("project_path") or str(Path(tx).parent.parent),
-            )
+            _tx_meta.update(transaction_id=data.get("transaction_id"), tx_status=data.get("status"))
     except Exception:
         pass
 

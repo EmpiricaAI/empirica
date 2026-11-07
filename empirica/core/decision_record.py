@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shlex
 import time
 from pathlib import Path
@@ -41,6 +42,12 @@ FILE_NAME = "decisions.jsonl"
 
 _OFF = {"0", "false", "no", "off"}
 _WRAPPERS = {"sudo", "env", "nice", "nohup", "time", "command", "exec"}
+# Flags of a wrapper that take the next word as their value, so that word is not the program.
+_WRAPPER_VALUE_FLAGS = {
+    "sudo": ("-u", "-g", "-C", "-h", "-p", "-r", "-t", "-U", "-D", "--user", "--group", "--host", "--prompt"),
+    "nice": ("-n", "--adjustment"),
+    "env": ("-u", "-C", "--unset", "--chdir"),
+}
 
 
 def enabled() -> bool:
@@ -53,8 +60,15 @@ def input_hash(tool_input: object) -> str:
     return hashlib.sha256(body.encode("utf-8", "replace")).hexdigest()
 
 
+_PROGRAM_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
+
+
 def command_class(tool_name: str, tool_input: object) -> str:
-    """The program a shell command runs (``git`` for ``FOO=1 /usr/bin/git push``), or the tool's name for any other tool."""
+    """The program a shell command runs (``git`` for ``FOO=1 /usr/bin/git push``), or the tool's name for any other tool.
+
+    A first word that is not a program name (``API-KEY=sk-...``, a quoted substitution) is recorded as ``unparsed``: this
+    field is written in clear, and the input it came from may hold a secret.
+    """
     if tool_name != "Bash" or not isinstance(tool_input, dict):
         return tool_name
     command = str(tool_input.get("command") or "")
@@ -62,14 +76,10 @@ def command_class(tool_name: str, tool_input: object) -> str:
         words = shlex.split(command)
     except ValueError:
         words = command.split()
-    for word in words:
-        if "=" in word and not word.startswith(("/", ".")) and word.split("=", 1)[0].isidentifier():
-            continue  # an environment assignment in front of the program
-        name = os.path.basename(word)
-        if name in _WRAPPERS:
-            continue
-        return name or tool_name
-    return tool_name
+    name, _ = _program_and_args(words)
+    if not name:
+        return tool_name
+    return name if _PROGRAM_NAME.match(name) else "unparsed"
 
 
 def build(
@@ -374,7 +384,8 @@ def _program_and_args(words: list[str]) -> tuple[str, list[str]]:
         if name in _WRAPPERS:
             i += 1
             while i < len(words) and words[i].startswith("-"):
-                i += 1
+                takes_value = words[i] in _WRAPPER_VALUE_FLAGS.get(name, ())
+                i += 2 if takes_value else 1
             continue
         if name == "timeout":
             i += 2  # timeout DURATION
@@ -462,7 +473,7 @@ def _classify_statement(
         if program.startswith("python") and args[:3] in (["-m", "pip", "install"], ["-m", "pip", "uninstall"]):
             return {"install"}, True
         return {"unknown"}, False
-    if program in _READ_PROGRAMS or program in ("sort", "sed", "find", "ruff"):
+    if program in _READ_PROGRAMS or program in ("sort", "sed", "find", "ruff", "yq"):
         return _read_shaped(program, args, cwd, project_path)
     if program == "git":
         return _git(args), True
@@ -516,6 +527,12 @@ def _read_shaped(program: str, args: list[str], cwd: str | None, project_path: s
             return {"unknown"}, True
     if program == "sort" and any(a == "-o" or a.startswith("--output") for a in args):
         return {"unknown"}, True
+    if program == "awk" and any("system(" in a or ">" in a or "|" in a for a in args):
+        return {"unknown"}, False
+    if program == "yq" and any(a == "-i" or a.startswith("--inplace") for a in args):
+        return {"unknown"}, False
+    if program == "fd" and any(a in ("-x", "-X", "--exec", "--exec-batch") for a in args):
+        return {"unknown"}, False
     if program == "ruff":
         writes = ("format" in args and "--check" not in args) or "--fix" in args
         return ({"project_write"} if writes else set()), True
@@ -548,7 +565,7 @@ def infer_shell_effects(command: str, *, cwd: str | None, project_path: str | No
             continue
         found, ok = _classify_statement(program, args, cwd, project_path, empirica_is_read)
         classes |= found
-        reliable = reliable and ok
+        reliable = reliable and ok and "unknown" not in found
     return {"classes": sorted(classes), "reliable": reliable}
 
 
@@ -593,8 +610,20 @@ def _stat(path: Path) -> list[int] | None:
         return None
 
 
+class SnapshotFailed(Exception):
+    """git could not be read. A snapshot that failed is not stored or compared: an empty one would read as a change."""
+
+
+_GIT_TIMEOUT = 2  # seconds per git call; the gate hook's own harness timeout is 10
+
+
 def snapshot(project_path: str) -> dict:
-    """What the practice's git and the config files look like now. Never rewrites the index (GIT_OPTIONAL_LOCKS=0)."""
+    """What the practice's git and the config files look like now. Never rewrites the index (GIT_OPTIONAL_LOCKS=0).
+
+    Paths under ``.empirica/`` are left out: the hooks themselves write there on every call (this record, the transaction
+    file, hook counters), so in a practice that tracks the directory they would show as a change on every sampled call.
+    Raises SnapshotFailed when git cannot be read.
+    """
     import subprocess
 
     env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
@@ -602,17 +631,32 @@ def snapshot(project_path: str) -> dict:
 
     def git(*args: str) -> str:
         try:
-            return subprocess.run(
-                ["git", *args], cwd=root, capture_output=True, text=True, env=env, timeout=5, check=False
-            ).stdout
-        except (OSError, subprocess.SubprocessError):
-            return ""
+            done = subprocess.run(
+                ["git", *args], cwd=root, capture_output=True, text=True, env=env, timeout=_GIT_TIMEOUT, check=False
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise SnapshotFailed(str(exc)) from exc
+        if done.returncode != 0:
+            raise SnapshotFailed(done.stderr.strip()[:200])
+        return done.stdout
 
     status: dict[str, list] = {}
-    for line in git("status", "--porcelain=v1", "-z").split("\0"):
-        if len(line) > 3:
-            path = line[3:]
-            status[path] = [line[:2], _stat(root / path)]
+    entries = git("status", "--porcelain=v1", "-z").split("\0")
+    i = 0
+    while i < len(entries):
+        entry = entries[i]
+        i += 1
+        if len(entry) <= 3:
+            continue
+        code, path = entry[:2], entry[3:]
+        paths = [path]
+        if code[0] in "RC" and i < len(entries):
+            paths.append(entries[i])  # -z puts a rename's or copy's source path in the next field, whole
+            i += 1
+        for one in paths:
+            if one == ".empirica" or one.startswith(".empirica/"):
+                continue
+            status[one] = [code, _stat(root / one)]
     refs = {}
     for line in git(
         "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads", "refs/tags", "refs/stash", "refs/remotes"
@@ -652,9 +696,10 @@ def store_before(tool_use_id: str | None, project_path: str | None, *, decision:
     try:
         path = snapshot_path(tool_use_id)
         path.parent.mkdir(parents=True, exist_ok=True)
+        _prune_snapshots(path.parent)
         path.write_text(json.dumps({"project_path": project_path, "snapshot": snapshot(project_path)}))
         return True
-    except (OSError, TypeError, ValueError):
+    except (OSError, TypeError, ValueError, SnapshotFailed):
         return False
 
 
@@ -675,7 +720,11 @@ def _take_after(tool_use_id: str | None) -> tuple[list[str], str | None] | None:
     project = stored.get("project_path")
     if not project:
         return None
-    return observed_effects(stored.get("snapshot") or {}, snapshot(project), project), project
+    try:
+        after = snapshot(project)
+    except SnapshotFailed:
+        return None
+    return observed_effects(stored.get("snapshot") or {}, after, project), project
 
 
 def _prune_snapshots(directory: Path) -> None:
