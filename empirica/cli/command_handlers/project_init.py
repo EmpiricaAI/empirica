@@ -729,6 +729,9 @@ def run_project_init(args, emit_result=True):
         with open(project_config_path, "w") as f:
             yaml.dump(project_config, f, default_flow_style=False, sort_keys=False)
         db.close()
+        from .project_update import _write_practice_facts
+
+        _write_practice_facts(git_root)
 
         _register_project_in_workspace(
             project_id, project_name, project_description, git_root, git_url, project_config, output_format

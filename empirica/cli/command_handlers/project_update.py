@@ -193,6 +193,16 @@ def _print_update_result(
             print(f"   ⚠️  {store} not updated: {result}")
 
 
+def _write_practice_facts(git_root) -> None:
+    """Refresh .empirica/practice-facts.md, the generated part of the practice's instructions. Never fails the update."""
+    try:
+        from empirica.core.practice_facts import write
+
+        write(git_root)
+    except Exception as exc:  # the facts are derived; a failure here must not undo the update
+        logger.warning("practice-facts not refreshed: %s", exc)
+
+
 def handle_project_update_command(args):
     """Handle project-update command - update project.yaml fields.
 
@@ -262,6 +272,7 @@ def handle_project_update_command(args):
             updated.pop("domain", None)  # to_dict() omits an empty domain, so the merge would keep the old one
         with open(config_path, "w") as f:
             yaml.dump(updated, f, default_flow_style=False, sort_keys=False)
+        _write_practice_facts(git_root)
 
         synced = _sync_to_db(config, git_root)
 
