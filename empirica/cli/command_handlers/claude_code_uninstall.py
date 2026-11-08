@@ -55,7 +55,7 @@ def _claude_paths(home: Path) -> dict[str, Path]:
     }
 
 
-def _json_keys_we_own(path: Path) -> list[str] | None:
+def _json_keys_we_own(path: Path, marker: str = PLUGIN_NAME) -> list[str] | None:
     """Which of OUR keys are in a shared JSON file, or None if it cannot be read.
 
     None is not an empty list. Returning `[]` for an unparseable file would
@@ -80,12 +80,12 @@ def _json_keys_we_own(path: Path) -> list[str] | None:
         # Measured on a real home: `empirica@local` AND the legacy
         # `empirica-integration@local`.
         found += [f"plugins.{k}" for k in data["plugins"] if PLUGIN_NAME in k]
-    if isinstance(data.get("statusLine"), dict) and PLUGIN_NAME in json.dumps(data["statusLine"]):
+    if isinstance(data.get("statusLine"), dict) and marker in json.dumps(data["statusLine"]):
         found.append("statusLine")
     hooks = data.get("hooks")
     if isinstance(hooks, dict):
         for event, entries in hooks.items():
-            if isinstance(entries, list) and any(PLUGIN_NAME in json.dumps(e) for e in entries):
+            if isinstance(entries, list) and any(marker in json.dumps(e) for e in entries):
                 found.append(f"hooks.{event}")
     for k in list(data.keys()):
         if PLUGIN_NAME in k.lower() and k not in ("mcpServers", "enabledPlugins", "plugins", "hooks"):
@@ -216,7 +216,7 @@ def plan_uninstall(home: Path | None = None) -> dict:
     return out
 
 
-def _strip_keys(data: dict, keys: list[str]) -> dict:
+def _strip_keys(data: dict, keys: list[str], marker: str = PLUGIN_NAME) -> dict:
     """Remove exactly what is ours. Nothing else, at any depth.
 
     `hooks.<Event>` is the case that needs care and did not get it first time.
@@ -236,7 +236,7 @@ def _strip_keys(data: dict, keys: list[str]) -> dict:
             hooks = data.get("hooks")
             if not isinstance(hooks, dict) or not isinstance(hooks.get(event), list):
                 continue
-            kept = [e for e in hooks[event] if PLUGIN_NAME not in json.dumps(e)]
+            kept = [e for e in hooks[event] if marker not in json.dumps(e)]
             if kept:
                 hooks[event] = kept
             else:
@@ -253,6 +253,46 @@ def _strip_keys(data: dict, keys: list[str]) -> dict:
         else:
             data.pop(key, None)
     return data
+
+
+def plan_project_uninstall(repo_root: Path | str, marker: str) -> dict:
+    """What `--uninstall --scope project` WOULD do in this repository. Pure read, same shape as plan_uninstall.
+
+    ``marker`` is the installed package's plugin directory: every hook and the statusline that `--scope project` wrote run from
+    there, so matching on it removes exactly ours. The broad plugin-name match the user scope uses would also catch a project's
+    own hooks under any path containing "empirica". The repo's CLAUDE.md is the person's file and is reported, not edited.
+    """
+    repo_root = Path(repo_root)
+    out: dict = {
+        "remove_ours": [],
+        "edit_shared": [],
+        "report_only": [],
+        "absent": [],
+        "unreadable": [],
+        "services": [],
+    }
+    prompt = repo_root / ".empirica" / "empirica-system-prompt.md"
+    (out["remove_ours"] if prompt.exists() else out["absent"]).append(str(prompt))
+    settings = repo_root / ".claude" / "settings.local.json"
+    if settings.exists():
+        keys = _json_keys_we_own(settings, marker)
+        if keys is None:
+            out["unreadable"].append(str(settings))
+        elif keys:
+            out["edit_shared"].append({"path": str(settings), "remove_keys": keys, "marker": marker})
+        else:
+            out["absent"].append(f"{settings} (no empirica keys)")
+    else:
+        out["absent"].append(str(settings))
+    claude_md = repo_root / "CLAUDE.md"
+    if claude_md.exists() and "@.empirica/empirica-system-prompt.md" in claude_md.read_text(errors="replace"):
+        out["report_only"].append(
+            {
+                "path": str(claude_md),
+                "why": "your file: remove the line `@.empirica/empirica-system-prompt.md` yourself if you no longer want it",
+            }
+        )
+    return out
 
 
 def apply_uninstall(home: Path | None = None, the_plan: dict | None = None) -> dict:
@@ -292,7 +332,7 @@ def apply_uninstall(home: Path | None = None, the_plan: dict | None = None) -> d
             # whose contents we never read, while deleting.
             receipt["refused"].append(f"{entry['path']}: unreadable ({type(e).__name__}) — NOT modified")
             continue
-        _strip_keys(data, entry["remove_keys"])
+        _strip_keys(data, entry["remove_keys"], entry.get("marker", PLUGIN_NAME))
         try:
             _write_json_file(path, data, expect_stamp=stamp)
             receipt["edited"].append({"path": entry["path"], "removed_keys": entry["remove_keys"]})

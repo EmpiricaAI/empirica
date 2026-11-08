@@ -101,3 +101,63 @@ def test_the_local_files_are_ignored_by_git(repo):
     assert ignored(".claude/settings.local.json")
     assert ignored(".empirica/empirica-system-prompt.md")
     assert not ignored("CLAUDE.md")
+
+
+# ── --uninstall --scope project ────────────────────────────────────────────────────────────────────────────────────────
+
+
+def _seed_other_hook(repo):
+    """A hook of the project's own, under a path that happens to contain 'empirica'."""
+    settings_file = repo / ".claude" / "settings.local.json"
+    settings = json.loads(settings_file.read_text())
+    settings["hooks"].setdefault("PostToolUse", []).append(
+        {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash /srv/empirica-tools/lint.sh"}]}
+    )
+    settings_file.write_text(json.dumps(settings))
+
+
+def test_the_project_uninstall_plan_names_exactly_what_setup_wrote(repo):
+    from empirica.cli.command_handlers.claude_code_uninstall import plan_project_uninstall
+
+    scc.setup_project_scope(_args(), repo)
+    plan = plan_project_uninstall(repo, str(scc._get_plugin_source_dir()))
+
+    assert str(repo / ".empirica" / "empirica-system-prompt.md") in plan["remove_ours"]
+    edits = {e["path"]: e for e in plan["edit_shared"]}
+    assert str(repo / ".claude" / "settings.local.json") in edits
+    assert any(
+        "CLAUDE.md" in str(r.get("path", r)) for r in plan["report_only"]
+    )  # the user's file: reported, not edited
+
+
+def test_applying_it_removes_ours_and_keeps_the_project_s_own_hooks(repo):
+    from empirica.cli.command_handlers.claude_code_uninstall import apply_uninstall, plan_project_uninstall
+
+    scc.setup_project_scope(_args(), repo)
+    _seed_other_hook(repo)
+    source = str(scc._get_plugin_source_dir())
+
+    apply_uninstall(the_plan=plan_project_uninstall(repo, source))
+
+    settings = json.loads((repo / ".claude" / "settings.local.json").read_text())
+    commands = [h["command"] for entries in settings.get("hooks", {}).values() for e in entries for h in e["hooks"]]
+    assert commands == ["bash /srv/empirica-tools/lint.sh"]
+    assert "statusLine" not in settings
+    assert not (repo / ".empirica" / "empirica-system-prompt.md").exists()
+    assert "@.empirica/empirica-system-prompt.md" in (repo / "CLAUDE.md").read_text()  # left for the person
+
+
+def test_uninstall_with_scope_project_is_a_plan_unless_applied(repo, capsys):
+    scc.setup_project_scope(_args(), repo)
+    before = (repo / ".claude" / "settings.local.json").read_text()
+    capsys.readouterr()
+
+    rc = scc.handle_setup_claude_code_command(
+        create_argument_parser().parse_args(
+            ["setup-claude-code", "--scope", "project", "--uninstall", "--output", "json"]
+        )
+    )
+
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out)["dry_run"] is True
+    assert (repo / ".claude" / "settings.local.json").read_text() == before

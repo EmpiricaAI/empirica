@@ -2447,6 +2447,39 @@ def _refuse_unsupported_harness(harness: str, output_format: str):
     return 1
 
 
+def _handle_project_scope(args) -> int:
+    """`--scope project`: install into this repository, or with --uninstall plan (and --apply) removing that install."""
+    from empirica.config.path_resolver import get_git_root
+
+    if getattr(args, "uninstall", False):
+        return _handle_project_uninstall(get_git_root(), bool(getattr(args, "apply", False)))
+    return setup_project_scope(args, get_git_root())
+
+
+def _handle_project_uninstall(repo_root, apply_it: bool) -> int:
+    """`--uninstall --scope project`: the same plan-first contract as the user scope, for one repository."""
+    from empirica.cli.command_handlers.claude_code_uninstall import apply_uninstall, plan_project_uninstall
+
+    source = _get_plugin_source_dir()
+    if repo_root is None or source is None:
+        print(
+            json.dumps(
+                {"ok": False, "error": "--scope project uninstalls from a git repository with empirica installed"}
+            )
+        )
+        return 1
+    the_plan = plan_project_uninstall(repo_root, str(source))
+    if not apply_it:
+        the_plan["dry_run"] = True
+        the_plan["next"] = "empirica setup-claude-code --scope project --uninstall --apply"
+        print(json.dumps(the_plan, indent=2, default=str))
+        return 0
+    receipt = apply_uninstall(the_plan=the_plan)
+    receipt["dry_run"] = False
+    print(json.dumps(receipt, indent=2, default=str))
+    return 2 if receipt["refused"] else 0
+
+
 def _handle_uninstall(apply_it: bool) -> int:
     """`setup --uninstall` — plan by default, remove with --apply.
 
@@ -2498,9 +2531,7 @@ def _refuse_apply_without_uninstall(args, output_format: str) -> int | None:
 def handle_setup_claude_code_command(args):
     """Handle the setup command (harness integration)."""
     if getattr(args, "scope", "user") == "project":
-        from empirica.config.path_resolver import get_git_root
-
-        return setup_project_scope(args, get_git_root())
+        return _handle_project_scope(args)
     try:
         output_format = getattr(args, "output", "human")
         refused = _refuse_apply_without_uninstall(args, output_format)
