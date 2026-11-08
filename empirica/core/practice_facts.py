@@ -109,3 +109,72 @@ def write(project_path: Path | str) -> bool:
     except OSError:
         return False
     return True
+
+
+# ── the CLAUDE.md seed: the authored part, started for a practice that has none ─────────────────────────────────────────
+#
+# A practice's CLAUDE.md is its own instructions, written with the person and committed. A new practice gets a short seed
+# shaped by its kind; it imports the generated facts above and grows by lines the practitioner proposes and the person
+# approves. Nothing personal is copied in (the workflow protocol is per person and loads at session start; this file is
+# committed). An existing CLAUDE.md, in either place Claude Code reads one, is never touched.
+
+_NOT_WRITTEN = "Not written yet: ask the person, then propose the text."
+
+_SECTIONS = {
+    "software": ("How it is built and tested", "What must not break", "How changes are reviewed and released"),
+    "content": ("Voice and audience", "Where it is published, and who approves", "Sources and claims"),
+    "research": ("Questions it answers", "Sources and how claims are cited", "What counts as done"),
+    "operations": (
+        "Machines and services it touches",
+        "What needs a person before it changes",
+        "How a change is undone",
+    ),
+    "general": ("What good work looks like here", "What needs a person's approval", "Where its work goes"),
+}
+
+
+def _family(project_type: str) -> str:
+    from empirica.core.project_types import SOFTWARE_TYPES
+
+    if project_type in SOFTWARE_TYPES:
+        return "software"
+    if project_type in ("content", "research", "operations"):
+        return project_type
+    return "general"
+
+
+def seed_claude_md(project_path: Path | str) -> Path | None:
+    """Write a CLAUDE.md seed for a practice that has none. Returns its path, or None when one exists or nothing was written."""
+    project_path = Path(project_path)
+    if (project_path / "CLAUDE.md").exists() or (project_path / ".claude" / "CLAUDE.md").exists():
+        return None
+    data = _project(project_path)
+    if data is None:
+        return None
+    name = str(data.get("name") or project_path.name)
+    description = str(data.get("description") or "").strip()
+    lines = [
+        f"# {name}",
+        "",
+        "@.empirica/practice-facts.md",
+    ]
+    if (project_path / "AGENTS.md").exists():
+        lines.append("@AGENTS.md")
+    lines += [
+        "",
+        "<!-- This practice's own instructions. Each section starts unwritten; when you learn something durable about how",
+        "this practice works, propose the line as a diff and write it only once the person approves. Rules, not history:",
+        "say what holds now, not how it came to be. The facts imported above are generated; do not copy them here. -->",
+        "",
+        "## What this practice is for",
+        "",
+        description if description and not description.endswith(" project") else _NOT_WRITTEN,
+    ]
+    for title in _SECTIONS[_family(str(data.get("type") or ""))]:
+        lines += ["", f"## {title}", "", _NOT_WRITTEN]
+    target = project_path / "CLAUDE.md"
+    try:
+        target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except OSError:
+        return None
+    return target

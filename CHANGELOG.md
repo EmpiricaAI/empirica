@@ -5,6 +5,12 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Every practice has instructions of its own from its first session.** `project-init` and `project-update` write `.empirica/practice-facts.md`: the practice's ai_id and mesh seat, what it is for, its kind and what that means, and how work is judged in its domain (the domain's advice and the checks each criticality runs). It is generated from `project.yaml` and the domain file and rewritten only when its text changes, so it stays byte-identical across sessions and can sit in the cached front of the context. A practice with no `CLAUDE.md` gets a short one that imports it (and `AGENTS.md`, when the repo has one) and has a few sections for its kind, each left for the practitioner to propose and the person to approve; an existing `CLAUDE.md` is never touched. The `default`, `remote-ops` and `docs` domains gained the advice the other five already had.
+
 ## [1.14.22] - 2026-11-07
 
 ### Highlights

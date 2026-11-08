@@ -447,6 +447,16 @@ def _derive_ai_id(git_root) -> str:
     return InstanceResolver.ai_id(project_path=str(git_root)) or "claude-code"
 
 
+def _seed_claude_md(git_root):
+    """A CLAUDE.md seed for a practice that has none; an existing one is never touched. Never fails the init."""
+    try:
+        from empirica.core.practice_facts import seed_claude_md
+
+        return seed_claude_md(git_root)
+    except Exception:
+        return None
+
+
 def _explicit_init_values(args) -> dict:
     """The project.yaml values this run was given on its command line: they win over the file on a --force re-init."""
     values = {
@@ -555,6 +565,7 @@ def _format_init_output(
     enable_beads,
     create_semantic_index,
     reused_existing,
+    claude_md=None,
 ):
     """Format and print the project-init output."""
     if output_format == "json":
@@ -568,6 +579,7 @@ def _format_init_output(
                 "config": str(config_path),
                 "project_config": str(project_config_path),
                 "semantic_index": str(semantic_index_path) if semantic_index_path else None,
+                "claude_md": str(claude_md) if claude_md else None,
             },
             "beads_enabled": enable_beads,
             "message": "Empirica initialized successfully" + (" (reused existing project)" if reused_existing else ""),
@@ -580,6 +592,10 @@ def _format_init_output(
         print(f"   • {project_config_path.relative_to(git_root)}")
         if semantic_index_path:
             print(f"   • {semantic_index_path.relative_to(git_root)}")
+        if claude_md:
+            print(
+                f"   • {claude_md.relative_to(git_root)}  (this practice's own instructions: fill each section with your AI)"
+            )
 
         print(f"\n🆔 Project ID: {project_id}")
         print(f"📦 Project Name: {project_name}")
@@ -732,6 +748,7 @@ def run_project_init(args, emit_result=True):
         from .project_update import _write_practice_facts
 
         _write_practice_facts(git_root)
+        claude_md = _seed_claude_md(git_root)
 
         _register_project_in_workspace(
             project_id, project_name, project_description, git_root, git_url, project_config, output_format
@@ -753,6 +770,7 @@ def run_project_init(args, emit_result=True):
                 config_input["enable_beads"],
                 config_input["create_semantic_index"],
                 reused_existing,
+                claude_md=claude_md,
             )
 
         return {

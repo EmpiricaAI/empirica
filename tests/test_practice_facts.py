@@ -103,3 +103,70 @@ def test_project_update_writes_the_facts(tmp_path, monkeypatch, capsys):
 
     facts = (root / ".empirica" / "practice-facts.md").read_text()
     assert "# This practice: co" in facts and "`cli`" in facts
+
+
+# ── the CLAUDE.md seed ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "project_type, expect",
+    [
+        ("cli", "How it is built and tested"),
+        ("content", "Voice and audience"),
+        ("research", "Sources and how claims are cited"),
+        ("operations", "Machines and services it touches"),
+        ("legal", "What good work looks like here"),
+        ("", "What good work looks like here"),
+    ],
+)
+def test_a_new_practice_gets_a_seed_shaped_by_its_kind(tmp_path, project_type, expect):
+    proj = _practice(tmp_path, f"name: p\nai_id: p\ndescription: Does p things\ntype: {project_type}\n")
+
+    written = pf.seed_claude_md(proj)
+
+    text = (proj / "CLAUDE.md").read_text()
+    assert written == proj / "CLAUDE.md"
+    assert "@.empirica/practice-facts.md" in text
+    assert expect in text and "Does p things" in text
+    assert "propose" in text and "approves" in text  # how it grows: by diffs the person approves
+
+
+def test_an_existing_claude_md_is_never_touched(tmp_path):
+    proj = _practice(tmp_path, "name: p\nai_id: p\ntype: cli\n")
+    (proj / "CLAUDE.md").write_text("# mine\n")
+    (proj / ".claude").mkdir()
+
+    assert pf.seed_claude_md(proj) is None
+    assert (proj / "CLAUDE.md").read_text() == "# mine\n"
+
+
+def test_a_claude_md_under_dot_claude_counts_as_existing(tmp_path):
+    proj = _practice(tmp_path, "name: p\nai_id: p\ntype: cli\n")
+    (proj / ".claude").mkdir()
+    (proj / ".claude" / "CLAUDE.md").write_text("# mine\n")
+
+    assert pf.seed_claude_md(proj) is None
+    assert not (proj / "CLAUDE.md").exists()
+
+
+def test_a_repo_with_agents_md_keeps_it_loaded(tmp_path):
+    proj = _practice(tmp_path, "name: p\nai_id: p\ntype: cli\n")
+    (proj / "AGENTS.md").write_text("# agents\n")
+
+    pf.seed_claude_md(proj)
+
+    assert "@AGENTS.md" in (proj / "CLAUDE.md").read_text()
+
+
+def test_the_seed_holds_no_personal_protocol_data(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    (home / ".empirica").mkdir(parents=True)
+    (home / ".empirica" / "workflow-protocol.yaml").write_text(
+        "work_preferences:\n  someone:\n    ai_autonomy_level: full\n"
+    )
+    monkeypatch.setenv("HOME", str(home))
+    proj = _practice(tmp_path, "name: p\nai_id: p\ntype: cli\n")
+
+    pf.seed_claude_md(proj)
+
+    assert "someone" not in (proj / "CLAUDE.md").read_text()
