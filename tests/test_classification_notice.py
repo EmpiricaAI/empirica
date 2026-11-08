@@ -116,6 +116,7 @@ def session_init(monkeypatch):
     # The two other notices read the installed core and a deploy cache; neither is under test.
     monkeypatch.setattr(mod, "_core_version_notice", lambda: "")
     monkeypatch.setattr(mod, "_deploy_gap_block", lambda _root: "")
+    monkeypatch.setattr(mod, "_practice_facts_notice", lambda _root: "")  # its own tests: tests/test_practice_facts.py
     return mod
 
 

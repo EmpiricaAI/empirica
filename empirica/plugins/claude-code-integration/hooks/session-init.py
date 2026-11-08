@@ -1732,7 +1732,12 @@ def _startup_notices(project_root: Path) -> str:
     it is what the banner's first line shows), then the cached deploy-gap verdict. Empty when there is nothing to say."""
     return "\n\n".join(
         part
-        for part in (_core_version_notice(), _classification_notice(project_root), _deploy_gap_block(project_root))
+        for part in (
+            _core_version_notice(),
+            _classification_notice(project_root),
+            _deploy_gap_block(project_root),
+            _practice_facts_notice(project_root),  # last: the banner shows only the first line of these notices
+        )
         if part
     )
 
@@ -1746,6 +1751,18 @@ def _classification_notice(project_root: Path) -> str:
         from empirica.core import project_types
 
         return project_types.classification_note(project_root)
+    except Exception:
+        return ""
+
+
+def _practice_facts_notice(project_root: Path) -> str:
+    """The practice's generated facts when its CLAUDE.md does not import them yet (core/practice_facts.py), else "".
+
+    Never raises: a core older than these hooks has no such module, and that must cost the notice, not SessionStart."""
+    try:
+        from empirica.core import practice_facts
+
+        return practice_facts.session_block(project_root)
     except Exception:
         return ""
 

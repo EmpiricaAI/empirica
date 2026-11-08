@@ -115,6 +115,8 @@ def test_the_startup_notices_put_the_version_notice_first_and_drop_empty_parts(m
         pass
     monkeypatch.setattr(mod, "_core_version_notice", lambda: "version notice")
     monkeypatch.setattr(mod, "_deploy_gap_block", lambda _root: "# Deploy gaps: 2")
+    monkeypatch.setattr(mod, "_practice_facts_notice", lambda _root: "")  # would read the real checkout
+    monkeypatch.setattr(mod, "_classification_notice", lambda _root: "")
     both = mod._startup_notices(Path("."))
     assert both.splitlines()[0] == "version notice" and "Deploy gaps" in both
     monkeypatch.setattr(mod, "_core_version_notice", lambda: "")

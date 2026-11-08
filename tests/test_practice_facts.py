@@ -170,3 +170,62 @@ def test_the_seed_holds_no_personal_protocol_data(tmp_path, monkeypatch):
     pf.seed_claude_md(proj)
 
     assert "someone" not in (proj / "CLAUDE.md").read_text()
+
+
+# ── established practices: facts at session start until CLAUDE.md imports them ─────────────────────────────────────────
+
+
+def test_a_practice_whose_claude_md_does_not_import_the_facts_gets_them_at_session_start(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    proj = _practice(tmp_path, FULL)
+    (proj / "CLAUDE.md").write_text("# outreach\n\nOur own rules.\n")
+
+    block = pf.session_block(proj)
+
+    assert "empirica.david.empirica-outreach" in block  # the facts themselves
+    assert "@.empirica/practice-facts.md" in block and "approve" in block  # the offered one-line import
+    assert (proj / ".empirica" / "practice-facts.md").exists()  # refreshed too
+    assert (proj / "CLAUDE.md").read_text() == "# outreach\n\nOur own rules.\n"  # never edited
+
+
+def test_a_practice_that_imports_the_facts_gets_nothing_extra(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    proj = _practice(tmp_path, FULL)
+    (proj / ".claude").mkdir()
+    (proj / ".claude" / "CLAUDE.md").write_text("# outreach\n@../.empirica/practice-facts.md\n")
+
+    assert pf.session_block(proj) == ""
+
+
+def test_a_practice_with_no_claude_md_is_offered_the_seed(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    proj = _practice(tmp_path, FULL)
+
+    block = pf.session_block(proj)
+
+    assert "empirica.david.empirica-outreach" in block and "CLAUDE.md" in block
+    assert not (proj / "CLAUDE.md").exists()  # offered, not written
+
+
+def test_a_directory_that_is_not_a_practice_gets_nothing(tmp_path):
+    assert pf.session_block(tmp_path) == ""
+
+
+def test_session_start_includes_the_block():
+    import ast
+    from pathlib import Path
+
+    hook = Path(__file__).resolve().parents[1] / "empirica/plugins/claude-code-integration/hooks/session-init.py"
+    tree = ast.parse(hook.read_text())
+    notices = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_startup_notices")
+    called = {n.func.id for n in ast.walk(notices) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert "_practice_facts_notice" in called
+
+
+def test_the_block_opens_with_a_plain_line_for_the_banner(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    proj = _practice(tmp_path, FULL)
+
+    first = pf.session_block(proj).splitlines()[0]
+
+    assert first and not first.startswith(("<!--", "#"))

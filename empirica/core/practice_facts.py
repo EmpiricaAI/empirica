@@ -178,3 +178,53 @@ def seed_claude_md(project_path: Path | str) -> Path | None:
     except OSError:
         return None
     return target
+
+
+# ── established practices: the facts at session start until the practice's CLAUDE.md imports them ─────────────────────
+
+IMPORT_LINE = "@.empirica/practice-facts.md"
+
+
+def _imports_facts(project_path: Path) -> bool | None:
+    """True when a CLAUDE.md here imports the facts file, False when one exists without it, None when there is none."""
+    found = None
+    for candidate in (project_path / "CLAUDE.md", project_path / ".claude" / "CLAUDE.md"):
+        try:
+            text = candidate.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        found = False
+        if "practice-facts.md" in text:
+            return True
+    return found
+
+
+def session_block(project_path: Path | str) -> str:
+    """What session start adds for this practice: refresh the facts file, and when the practice's CLAUDE.md does not import it
+    yet, the facts themselves with the one-line import offered. A practice whose CLAUDE.md imports them gets nothing here: they
+    already load from the cached front. The CLAUDE.md is never edited from here; the person approves the change."""
+    project_path = Path(project_path)
+    if _project(project_path) is None:
+        return ""
+    write(project_path)
+    imports = _imports_facts(project_path)
+    if imports:
+        return ""
+    if imports is None:
+        offer = (
+            "This practice has no CLAUDE.md. Offer the person one: a heading, the line `"
+            + IMPORT_LINE
+            + "` so these facts load"
+            " from the cached front of the context, and the practice's own sections; write it only once they approve."
+        )
+    else:
+        offer = (
+            "This practice's CLAUDE.md does not import these facts, so they arrive here, after the cached part of the context."
+            " Offer the person a one-line diff adding `"
+            + IMPORT_LINE
+            + "` near the top of CLAUDE.md; apply it only once they"
+            " approve."
+        )
+    facts = "\n".join(line for line in render(project_path).splitlines() if not line.startswith("<!--")).strip()
+    # A plain first line: the session banner shows only the first line of these notices.
+    return "This practice's facts (generated from .empirica/project.yaml):\n\n" + facts + "\n\n" + offer
