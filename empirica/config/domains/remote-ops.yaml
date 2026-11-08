@@ -26,3 +26,8 @@ criticalities:
     required_checks: []
     thresholds: {}
     max_iterations: 1
+
+hints_to_ai:
+  - "Nothing local can observe a remote machine: record what you ran there and what it returned, as evidence."
+  - "Read before you change: check the remote state first, and say what you will change and how to undo it."
+  - "Treat a command that changes a remote machine as outward and hard to reverse; confirm it first."

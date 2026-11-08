@@ -38,3 +38,8 @@ criticalities:
       coverage_min: 0.7
       check_pass_ratio: 1.0
     max_iterations: 5
+
+hints_to_ai:
+  - "Check every claim against the code at HEAD: run the command or read the code, then write it."
+  - "Names, flags and commands that no longer exist are the commonest defect; search for each one you mention."
+  - "Write for the reader who acts on it: what to do and what happens, not the history of how it came to be."

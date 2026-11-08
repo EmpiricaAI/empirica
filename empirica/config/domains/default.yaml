@@ -49,3 +49,8 @@ criticalities:
       coverage_min: 0.7
       check_pass_ratio: 1.0
     max_iterations: 8
+
+hints_to_ai:
+  - "Name what the next action rests on before acting: a file you read, a command you ran, and over what."
+  - "Commit after each finished task, so the work is visible to the checks."
+  - "A defect you found in the code is a finding; one you introduced is a mistake, logged with how to prevent it."
