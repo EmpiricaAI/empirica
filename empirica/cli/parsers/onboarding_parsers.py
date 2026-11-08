@@ -80,6 +80,14 @@ Run this after 'brew install empirica' or 'pip install empirica'.
     )
     setup_cc_parser.add_argument("--force", action="store_true", help="Reinstall plugin even if it already exists")
     setup_cc_parser.add_argument(
+        "--scope",
+        choices=["user", "project"],
+        default="user",
+        help="user (default): Empirica in every Claude Code session on this machine, set up under ~/.claude. "
+        "project: only in this git repository; hooks go into its .claude/settings.local.json, the prompt is imported "
+        "from its CLAUDE.md, and nothing under ~/.claude changes",
+    )
+    setup_cc_parser.add_argument(
         "--ai-id",
         help=(
             "The practice this deploy is performed FOR, when the caller knows it "

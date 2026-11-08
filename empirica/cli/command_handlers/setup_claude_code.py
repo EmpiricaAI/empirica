@@ -1553,6 +1553,84 @@ def _install_claude_md(plugin_dir, claude_dir, output_format):
             print("   ⚠️  CLAUDE.md template not found in plugin")
 
 
+def _ignore_project_scope_files(repo_root: Path) -> None:
+    """Keep the per-user files out of git: .empirica/ except project.yaml (provision-practice's rule) and the local settings."""
+    from empirica.cli.command_handlers.provision_practice_commands import _ensure_gitignore, _gitignore_lines
+
+    _ensure_gitignore(repo_root, dry_run=False)
+    if ".claude/settings.local.json" not in _gitignore_lines(repo_root):
+        gitignore = repo_root / ".gitignore"
+        text = gitignore.read_text() if gitignore.exists() else ""
+        gitignore.write_text(text + ("" if not text or text.endswith("\n") else "\n") + ".claude/settings.local.json\n")
+
+
+def setup_project_scope(args, repo_root) -> int:
+    """`--scope project`: Empirica in this repository only; nothing under ~/.claude changes.
+
+    Hooks and the statusline go into <repo>/.claude/settings.local.json (Claude Code's per-user, uncommitted project settings)
+    and run from the installed package's plugin directory, so there is no copy under ~/.claude/plugins, no enabledPlugins entry
+    and no marketplace registration. The prompt is rendered to <repo>/.empirica/empirica-system-prompt.md and imported from the
+    repo's CLAUDE.md (one line added; the rest of the file is left as it is). Returns an exit code.
+    """
+    output_format = getattr(args, "output", "human")
+    if repo_root is None:
+        msg = "--scope project installs into a git repository; run it inside one"
+        print(json.dumps({"ok": False, "error": msg}) if output_format == "json" else f"❌ {msg}")
+        return 1
+    repo_root = Path(repo_root)
+    plugin_dir = _get_plugin_source_dir()
+    if plugin_dir is None:
+        msg = "could not find the bundled plugin files in the installed empirica package"
+        print(json.dumps({"ok": False, "error": msg}) if output_format == "json" else f"❌ {msg}")
+        return 1
+    python_cmd = _hook_interpreter()
+    quiet = "json"  # the shared helpers print their human progress lines unless told json
+
+    settings_file = repo_root / ".claude" / "settings.local.json"
+    settings_file.parent.mkdir(parents=True, exist_ok=True)
+    settings, stamp = _read_json_with_stamp(settings_file, {})
+    if getattr(args, "force", False):
+        _force_clean_hooks(settings, quiet)
+    _configure_statusline(settings, plugin_dir, python_cmd, quiet)
+    _configure_permissions(settings, quiet)
+    _register_all_hooks(settings, plugin_dir, python_cmd, quiet)
+    _repair_hook_interpreters(settings, plugin_dir, python_cmd, quiet)
+    _write_json_file(settings_file, settings, expect_stamp=stamp)
+
+    prompt_dst = repo_root / ".empirica" / "empirica-system-prompt.md"
+    prompt_dst.parent.mkdir(parents=True, exist_ok=True)
+    _render_versioned_template(plugin_dir / "templates" / "empirica-system-prompt-lean.md", prompt_dst)
+    include_line = "@.empirica/empirica-system-prompt.md"
+    claude_md = repo_root / "CLAUDE.md"
+    existing = claude_md.read_text() if claude_md.exists() else ""
+    if include_line not in existing:
+        if existing:
+            claude_md.write_text(f"{include_line}\n\n{existing}")
+        else:
+            # A new CLAUDE.md: keep AGENTS.md loaded explicitly, since whether Claude Code still reads it beside a CLAUDE.md
+            # is not documented.
+            agents = "\n@AGENTS.md" if (repo_root / "AGENTS.md").exists() else ""
+            claude_md.write_text(f"{include_line}{agents}\n")
+    _ignore_project_scope_files(repo_root)
+
+    result = {
+        "ok": True,
+        "scope": "project",
+        "settings": str(settings_file),
+        "hooks_from": str(plugin_dir),
+        "prompt": str(prompt_dst),
+        "claude_md": str(claude_md),
+        "user_claude_dir_changed": False,
+    }
+    if output_format == "json":
+        print(json.dumps(result, indent=2))
+    else:
+        print("✅ Empirica set up for this repository only (nothing under ~/.claude changed)")
+        print(f"   hooks:  {settings_file}  (per user, not committed)")
+        print(f"   prompt: {prompt_dst}, imported from {claude_md}")
+    return 0
+
+
 def _register_marketplace(marketplace_dir, plugins_dir, claude_dir, plugin_dir, plugin_key, output_format):
     """Register plugin in marketplace, installed_plugins, and known_marketplaces."""
     if output_format != "json":
@@ -2419,6 +2497,10 @@ def _refuse_apply_without_uninstall(args, output_format: str) -> int | None:
 
 def handle_setup_claude_code_command(args):
     """Handle the setup command (harness integration)."""
+    if getattr(args, "scope", "user") == "project":
+        from empirica.config.path_resolver import get_git_root
+
+        return setup_project_scope(args, get_git_root())
     try:
         output_format = getattr(args, "output", "human")
         refused = _refuse_apply_without_uninstall(args, output_format)

@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.22
-**Generated:** 2026-11-07 08:26:19 UTC
+**Generated:** 2026-11-08 18:25:13 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -4469,6 +4469,8 @@ Configure harness integration (hooks, system prompt)
   Which harness to configure (default: $EMPIRICA_HARNESS, else claude-code). Supported: claude-code. Others are refused by name rather than silently handed Claude Code's files.
 - `--force` — optional · flag
   Reinstall plugin even if it already exists
+- `--scope` — optional · type=`choice` · choices={user, project} · default=`user`
+  user (default): Empirica in every Claude Code session on this machine, set up under ~/.claude. project: only in this git repository; hooks go into its .claude/settings.local.json, the prompt is imported from its CLAUDE.md, and nothing under ~/.claude changes
 - `--ai-id` — optional
   The practice this deploy is performed FOR, when the caller knows it (a single-practice box, or a script that was told). Recorded in the plugin's writer stamp. Left off on a multi-practice box: a fleet deploy is run by an operator, not by a practice, and a guessed name there is worse than none — the stamp records user@host either way.
 - `--skip-credentials` — optional · flag
