@@ -14,6 +14,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from empirica.cli.command_handlers.goal_commands import _ruling_prediction_warning
 
 HOOK = (
@@ -63,6 +65,19 @@ def test_hook_reminds_when_no_option_is_recommended():
 
 def test_hook_is_silent_when_the_prediction_is_marked():
     assert _run_hook(_ask([{"label": "A (Recommended)", "description": ""}, {"label": "B", "description": ""}])) == ""
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        [{"label": "A (not recommended)", "description": ""}, {"label": "B", "description": ""}],
+        [{"label": "A", "description": "(Recommended) in the description only"}, {"label": "B", "description": ""}],
+        [{"label": "Recommended setup", "description": ""}, {"label": "B", "description": ""}],
+    ],
+)
+def test_a_label_that_only_mentions_recommended_still_gets_the_reminder(options):
+    """Near misses (goal 546e7c33): the prediction is an option whose LABEL carries "(Recommended)", not any mention."""
+    assert "Recommended" in json.loads(_run_hook(_ask(options)))["hookSpecificOutput"]["additionalContext"]
 
 
 def test_hook_is_silent_for_multi_select_and_other_tools_and_bad_input():
