@@ -110,13 +110,11 @@ go, and `--apply` removes it. The machine-wide install is removed the same way, 
 
 See [Claude Code Setup](docs/human/developers/CLAUDE_CODE_SETUP.md) for details — including a **["What the hooks inject"](docs/human/developers/CLAUDE_CODE_SETUP.md#what-the-hooks-inject-for-claude-reading-this-before-agreeing-to-install) section** for Claude sessions that want to see the contract (which hook fires when, what it adds to the AI's context, source pointers for every emission) before agreeing to install.
 
-**Already have Claude Code configured?** Use `--force` to replace your default Claude Code settings with Empirica's epistemic hooks. Without `--force`, setup only writes files that don't already exist — so if you've already used Claude Code, the default internals stay in place and Empirica's hooks won't activate.
+**Already have Claude Code configured?** Setup adds Empirica's hooks beside yours and keeps your own status line (Empirica's is added only where none is set); nothing of yours is removed. Re-running it is safe. After an upgrade, `--force` clears Empirica's own hook entries and registers them fresh, still leaving hooks from other plugins (Railway, Superpowers, etc.) and your own in place:
 
 ```bash
 empirica setup --force
 ```
-
-`--force` replaces hooks in `settings.json` but **only removes Empirica's own hooks** — hooks from other plugins (Railway, Superpowers, etc.) are preserved.
 
 ### Alternative Installation Methods
 

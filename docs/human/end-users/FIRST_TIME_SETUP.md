@@ -10,7 +10,8 @@
 pip install empirica                 # 1. Install the CLI
 cd your-project                       # 2. Any git repo
 empirica project-init                 # 3. Mints .empirica/ + project.yaml
-empirica setup            # (optional, Claude Code users) installs plugin + hooks
+empirica setup            # (optional, Claude Code users) installs plugin + hooks machine-wide;
+                                      #    add --scope project for this repository only
 empirica diagnose                     # Sanity check — green = ready
 ```
 
@@ -76,9 +77,14 @@ If you're using Claude Code as your AI:
 empirica setup
 ```
 
-This installs the empirica plugin to `~/.claude/plugins/local/empirica/`,
-writes `~/.claude/CLAUDE.md`, registers PreToolUse / PreCompact /
-SessionStart hooks in `~/.claude/settings.json`.
+This installs Empirica for every Claude Code session on this machine: the
+plugin goes to `~/.claude/plugins/local/empirica/`, one import line is added to
+`~/.claude/CLAUDE.md`, and its hooks are registered in `~/.claude/settings.json`
+beside any you already have. To keep it to one repository instead, run
+`empirica setup --scope project` inside it: the hooks go into that
+repository's `.claude/settings.local.json` and nothing under `~/.claude`
+changes (the credentials wizard below is not part of that path). See
+[Installation](02_INSTALLATION.md) for both.
 
 It also runs an **interactive credentials wizard** if you don't already
 have `~/.empirica/credentials.yaml`. The wizard prompts for:

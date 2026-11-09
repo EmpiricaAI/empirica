@@ -73,7 +73,8 @@ empirica --version
 ```bash
 cd your-project              # any git repo
 empirica project-init        # creates .empirica/ — required for every command
-empirica setup   # Claude Code users only: plugin + statusline + hooks
+empirica setup   # Claude Code users only: plugin + statusline + hooks, for every session on this machine
+                 # (or `empirica setup --scope project`: this repository only, nothing under ~/.claude)
 empirica diagnose            # sanity check — tells you if anything's off
 ```
 

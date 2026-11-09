@@ -10,7 +10,7 @@ the foundation layer.**
 | You want to | Start here |
 |---|---|
 | Set up Claude Code | [CLAUDE_CODE_SETUP.md](CLAUDE_CODE_SETUP.md) |
-| Read the live system prompt | `~/.claude/empirica-system-prompt.md` (after `empirica setup`) |
+| Read the live system prompt | `~/.claude/empirica-system-prompt.md` after `empirica setup`; `.empirica/empirica-system-prompt.md` in the repository after `empirica setup --scope project` |
 | Browse the CLI | [CLI_COMMANDS_UNIFIED.md](CLI_COMMANDS_UNIFIED.md) (see currency disclaimer at top) |
 | Build a skill | [skills/SKILL_PIPELINE.md](skills/SKILL_PIPELINE.md) |
 | Build on the foundation layer | [EXTENDING_EMPIRICA.md](EXTENDING_EMPIRICA.md) |
@@ -21,7 +21,7 @@ the foundation layer.**
 
 | Guide | Purpose |
 |---|---|
-| [CLAUDE_CODE_SETUP.md](CLAUDE_CODE_SETUP.md) | Hooks, statusline — what `setup-claude-code` does + manual fallback |
+| [CLAUDE_CODE_SETUP.md](CLAUDE_CODE_SETUP.md) | Hooks, statusline, the two install scopes — what `setup-claude-code` does + manual fallback |
 | [AI_SELF_MANAGEMENT.md](AI_SELF_MANAGEMENT.md) | Self-serve docs, prompt-improvement protocol, source-of-truth paths |
 | [MULTI_SESSION_LEARNING.md](MULTI_SESSION_LEARNING.md) | How learning compounds across sessions + AIs |
 

@@ -10,9 +10,13 @@
 pip install empirica
 cd your-project
 empirica project-init
-empirica setup      # the canonical path
+empirica setup      # the canonical path: Empirica in every Claude Code session on this machine
 empirica diagnose               # sanity check
 ```
+
+Or, to keep Empirica to one repository and leave `~/.claude` alone, run
+`empirica setup --scope project` inside that repository (see
+[Two scopes](#two-scopes) below).
 
 That's the supported flow. The sections below explain what
 `setup-claude-code` does and how to interpret the statusline. Manual
@@ -21,18 +25,25 @@ flow can't run.
 
 ---
 
-## What Gets Installed
+## Two scopes
 
-| Component | Purpose | Where |
+| | `--scope user` (default) | `--scope project` |
 |---|---|---|
-| Plugin | Hooks (Sentinel, session lifecycle, compaction), skills, statusline script | `~/.claude/plugins/local/empirica/` |
-| `CLAUDE.md` | System prompt include (`@~/.claude/empirica-system-prompt.md`) | `~/.claude/CLAUDE.md` |
-| Lean system prompt | Canonical prompt rendered with installed version | `~/.claude/empirica-system-prompt.md` |
-| Settings | `statusLine` block + hooks for all events | `~/.claude/settings.json` |
-| Marketplace | Local plugin registry | `~/.claude/plugins/known_marketplaces.json` |
+| Where Empirica is active | Every Claude Code session on this machine | Sessions started in this repository |
+| Hooks and status line | `~/.claude/settings.json` | The repository's `.claude/settings.local.json` (per-user, not committed) |
+| Hook scripts run from | A copy in `~/.claude/plugins/local/empirica/` | The installed package's plugin directory |
+| System prompt | `~/.claude/empirica-system-prompt.md`, imported from `~/.claude/CLAUDE.md` | `.empirica/empirica-system-prompt.md`, imported from the repository's `CLAUDE.md` with one line |
+| Also written | Plugin and marketplace registration under `~/.claude/plugins/` | Both local files added to `.gitignore`; a new `CLAUDE.md` also imports `AGENTS.md` when the repository has one |
+| Remove with | `empirica setup --uninstall`, then `--apply` | the same, with `--scope project`, inside the repository |
 
-`setup-claude-code` is idempotent — re-running with `--force` updates
-files but preserves user overrides in `CLAUDE.md`.
+`--scope project` needs a git repository and writes nothing under `~/.claude`. In both scopes your own hooks and
+status line stay: Empirica's hooks are added beside them, its status line only where none is set, and the uninstall
+removes only entries that run from Empirica's own plugin directory. The `CLAUDE.md` import line is reported for you
+to remove, never edited.
+
+Re-running setup is safe: each hook is registered once, and the plugin files are synced on every run (a copy you
+changed locally is backed up first, and named). `--force` also clears Empirica's own hook entries and registers them
+fresh, which picks up a changed timeout or matcher after an upgrade.
 
 ---
 
@@ -40,19 +51,25 @@ files but preserves user overrides in `CLAUDE.md`.
 
 | Hook | Event | Purpose |
 |---|---|---|
-| `sentinel-gate.py` | PreToolUse (Edit/Write, Bash) | Noetic firewall — denies Edit/Write/mutating Bash until the transaction is certified by grounded PREFLIGHT `claims` or a CHECK |
-| `ruling-shape.py` | PreToolUse (AskUserQuestion) | Reminder when a single-select question has no `(Recommended)` option; never blocks |
-| `tool-router.py` | UserPromptSubmit | Context injection (active goals, artifact reminders) |
+| `sentinel-gate.py` | PreToolUse (Edit/Write, Bash) | Noetic firewall — denies Edit/Write/mutating Bash until the transaction is certified by grounded PREFLIGHT `claims` or a CHECK; records each decision in `.empirica/decisions.jsonl` |
+| `ruling-shape.py` | PreToolUse (AskUserQuestion) | Reminder when a single-select question has no `(Recommended)` option; never blocks. Marks a cockpit pane as waiting on a question |
+| `pane-waiting.py` | PermissionRequest, Notification | Marks a cockpit pane as waiting on a permission dialog, and sends a desktop notification when one goes unanswered; never decides |
+| `tool-router.py` | UserPromptSubmit | Suggests a domain agent, skill or workflow for the prompt, from whole-word keywords and the session's vectors |
+| `context-shift-tracker.py` | UserPromptSubmit | Classifies the prompt against the open transaction; keeps practitioner presence fresh; artifact reminders |
+| `loop-install-pickup.py`, `loop-uninstall-pickup.py`, `listener-install-pickup.py`, `listener-uninstall-pickup.py` | UserPromptSubmit | Surface loop and listener install or removal requests the cockpit wrote |
+| `entity-extractor.py` | PostToolUse (Edit/Write) | Extracts codebase entities from edited files; records the call's outcome |
+| `truncation-legibility.py` | PostToolUse (Bash) | Says so when the output you just read was partial (`head -N` that filled, a paged JSON response) |
+| `tool-failure.py` | PostToolUseFailure | Logs a genuine approach failure as a dead-end (not timeouts, outages or partial successes); records the outcome |
+| `task-completed.py` | TaskCompleted | Bridges Claude Code tasks to Empirica goals |
 | `pre-compact.py` | PreCompact | Saves a snapshot of epistemic state before context loss; never blocks compaction (a failed capture saves a `degraded` snapshot and lets it proceed) |
-| `session-init.py` | SessionStart (startup, resume) | Creates session, bootstraps project, posts orientation |
+| `session-init.py` | SessionStart (startup, resume) | Creates session, bootstraps project, posts orientation and the practice's facts |
 | `post-compact.py` | SessionStart (compact) | Recovers state after compaction |
 | `ewm-protocol-loader.py` | SessionStart | Loads `workflow-protocol.yaml` if EWM interview ran |
+| `session-monitor-arm.py` | SessionStart | Arms Monitor for canonical loops if registered |
 | `transaction-enforcer.py` | Stop | Reminds about open transaction before session end |
 | `subagent-start.py` / `subagent-stop.py` | SubagentStart/Stop | Child session lineage + findings rollup |
 | `session-end-postflight.py` | SessionEnd | Auto-POSTFLIGHT if a transaction is still open |
 | `curate-snapshots.py` | SessionEnd | Prunes old snapshots |
-| `truncation-legibility.py` | PostToolUse (Bash) | Says so when the output you just read was partial (`head -N` that filled, a paged response) |
-| `session-monitor-arm.py` | SessionStart | Arms Monitor for canonical loops if registered |
 
 The Sentinel firewall is the load-bearing one: it gates praxic tools
 (Edit/Write/Bash) until the transaction is certified. A CHECK that falls

@@ -46,11 +46,35 @@ configure the statusline + hooks:
 empirica setup
 ```
 
-This copies the plugin files into `~/.claude/plugins/local/empirica/`, adds
-the `statusLine` block to `~/.claude/settings.json`, and registers the
-Sentinel + compact + session-lifecycle hooks. The next time you launch
-`claude` inside an Empirica project, the statusline will show up automatically
-and `SessionStart` will create a session for you.
+This is the machine-wide install (`--scope user`, the default): Empirica is
+active in every Claude Code session on this machine. It copies the plugin files
+into `~/.claude/plugins/local/empirica/`, registers the Sentinel, compact and
+session-lifecycle hooks in `~/.claude/settings.json` beside any hooks you
+already have, and adds Empirica's `statusLine` there unless you already have
+one. The next time you launch `claude` inside an Empirica project, the
+statusline shows up and `SessionStart` creates a session for you.
+
+**Only in one repository.** If you already have a Claude Code setup and want
+Empirica in some projects only, run setup inside that repository instead:
+
+```bash
+cd your-repo
+empirica setup --scope project
+```
+
+That writes the hooks and status line into the repository's
+`.claude/settings.local.json` (Claude Code's per-user settings, not committed),
+runs them from the installed package, renders the prompt into
+`.empirica/empirica-system-prompt.md`, and imports it from the repository's
+`CLAUDE.md` with one line (a new `CLAUDE.md` also imports `AGENTS.md` when the
+repository has one). The two local files are added to `.gitignore`. Nothing
+under `~/.claude` changes, so Claude Code sessions in other directories run
+without Empirica.
+
+Re-running setup is safe in both scopes: Empirica's hooks are registered once,
+and your own hooks and status line are left in place. `--force` clears
+Empirica's own hook entries and registers them fresh, which is useful after an
+upgrade changed them.
 
 ### 5. (Standalone users) Create your first session manually
 ```bash
@@ -353,9 +377,17 @@ python -m empirica.vision.slide_processor --help
 
 ```bash
 # Undo what `empirica setup` wrote (plugin, hooks, config keys in ~/.claude).
-# Prints the plan only; add --apply to actually remove
+# Prints the plan only; add --apply to actually remove.
+# Only hooks and a status line that run from Empirica's plugin directory are
+# removed; your own entries stay, and your CLAUDE.md is reported, not edited.
 empirica setup --uninstall
 empirica setup --uninstall --apply
+
+# A project-scoped install is removed from inside that repository the same way.
+# It removes .empirica/empirica-system-prompt.md and Empirica's entries in
+# .claude/settings.local.json; the import line in CLAUDE.md is yours to remove.
+empirica setup --scope project --uninstall
+empirica setup --scope project --uninstall --apply
 
 # Uninstall package
 pip uninstall empirica
