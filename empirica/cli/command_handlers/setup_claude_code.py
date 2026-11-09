@@ -595,6 +595,31 @@ def _register_all_hooks(settings, plugin_dir, python_cmd, output_format):
         output_format,
     )
 
+    # A cockpit pane waiting on its person: marked when a permission dialog is shown, and a desktop notification when
+    # Claude Code reports nobody has answered (goal dfa8b484). Both events are rare, so this costs nothing per tool call.
+    waiting_script = f"{python_cmd} {plugin_dir}/hooks/pane-waiting.py"
+    _register_hook(
+        settings,
+        "PermissionRequest",
+        "pane-waiting",
+        [{"matcher": ".*", "hooks": [{"type": "command", "command": waiting_script, "timeout": 5}]}],
+        "PermissionRequest (cockpit waiting mark) hook",
+        output_format,
+    )
+    _register_hook(
+        settings,
+        "Notification",
+        "pane-waiting",
+        [
+            {
+                "matcher": "permission_prompt|elicitation_dialog|agent_needs_input",
+                "hooks": [{"type": "command", "command": waiting_script, "timeout": 5}],
+            }
+        ],
+        "Notification (cockpit waiting) hook",
+        output_format,
+    )
+
     precompact_script = f"{python_cmd} {plugin_dir}/hooks/pre-compact.py"
     _register_hook(
         settings,

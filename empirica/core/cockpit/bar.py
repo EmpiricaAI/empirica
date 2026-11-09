@@ -76,6 +76,8 @@ _DIM = "#[bg=colour237 fg=colour244]"
 #: One x per dead pane in the session. Non-empty means some pane has stopped.
 _DEAD = "#{W:#{P:#{?pane_dead,x,}}}"
 _DEAD_IN_WINDOW = "#{P:#{?pane_dead,x,}}"
+#: Non-empty when a pane in the window waits on its person (a permission dialog or a question); hooks set and clear the pane option.
+_WAITING_IN_WINDOW = "#{P:#{?@empirica_waiting,w,}}"
 _DEFAULT_STATUS_CLICK = "switch-client -t ="
 _PREV_BORDER_OPTION = "@empirica_prev_border_click"
 BORDER_CLICK = "MouseUp1Border"
@@ -103,14 +105,15 @@ def chip_format(key: str, label: str) -> str:
 
 
 def tabs_format() -> str:
-    """The practice tabs. A red mark on a tab means a pane in that practice has stopped."""
+    """The practice tabs. A red mark on a tab means a pane in that practice has stopped; an orange ! that one waits on its person."""
     other = (
         "#[range=window|#{window_index} bg=colour238 fg=colour252] #I "
-        f"#{{?{_DEAD_IN_WINDOW},#[fg=colour196]✗ #[fg=colour252],}}#W #[norange default] "
+        f"#{{?{_DEAD_IN_WINDOW},#[fg=colour196]✗ #[fg=colour252],}}"
+        f"#{{?{_WAITING_IN_WINDOW},#[fg=colour208 bold]! #[fg=colour252 nobold],}}#W #[norange default] "
     )
     current = (
         "#[range=window|#{window_index} bg=colour34 fg=colour231 bold] #I > "
-        f"#{{?{_DEAD_IN_WINDOW},✗ ,}}#W #[norange default] "
+        f"#{{?{_DEAD_IN_WINDOW},✗ ,}}#{{?{_WAITING_IN_WINDOW},! ,}}#W #[norange default] "
     )
     return f"#[align=left]#{{W:{other},{current}}}"
 
@@ -157,7 +160,8 @@ def commands_format() -> str:
     """
     button = "#[bg=colour25 fg=colour231 bold] ☰ commands #[default] "
     chips = "".join(chip_format(key, label) for key, label in CHIPS)
-    return f" {button}{chips}#[bg=colour25 fg=colour231 bold] ? help #[default] "
+    waiting = f"#{{?@empirica_waiting,{_ORANGE} waiting: #{{@empirica_waiting}} #[default] ,}}"
+    return f" {waiting}{button}{chips}#[bg=colour25 fg=colour231 bold] ? help #[default] "
 
 
 # ── layout ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────

@@ -60,6 +60,23 @@ def hand_to_the_gate(payload: dict) -> None:
         pass
 
 
+def _mark_question() -> None:
+    """Mark this cockpit pane waiting on a question (pane_waiting.py beside this hook); best effort, never in the way."""
+    try:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "_empirica_pane_waiting", Path(__file__).with_name("pane_waiting.py")
+        )
+        if spec is None or spec.loader is None:
+            return
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.set_waiting(module.current_pane(), module.label_for("AskUserQuestion"))
+    except Exception:
+        pass
+
+
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
@@ -68,6 +85,7 @@ def main() -> int:
     if payload.get("tool_name") != "AskUserQuestion":
         return 0
     hand_to_the_gate(payload)
+    _mark_question()
     missing = unpredicted(payload.get("tool_input") or {})
     if not missing:
         return 0

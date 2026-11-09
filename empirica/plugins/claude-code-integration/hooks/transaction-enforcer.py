@@ -135,7 +135,33 @@ def _clear_turn_counter(instance_id: str):
         counter_path.unlink()
 
 
+def _clear_pane_waiting() -> None:
+    """Clear this cockpit pane's waiting mark, if one is set (pane_waiting.py beside this hook). One stat when none is.
+
+    Claude Code has no hook for a permission dialog or a question being answered, so whatever the pane does next clears it. The
+    same function is copied into each hook that clears; tests/test_cockpit_pane_waiting.py keeps the copies identical."""
+    import os
+    from pathlib import Path
+
+    pane = os.environ.get("TMUX_PANE", "")
+    if not pane.startswith("%") or not (Path.home() / ".empirica" / "pane_waiting" / pane[1:]).exists():
+        return
+    try:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "_empirica_pane_waiting", Path(__file__).with_name("pane_waiting.py")
+        )
+        if spec is not None and spec.loader is not None:
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            module.clear_if_waiting(pane)
+    except Exception:
+        pass
+
+
 def main():
+    _clear_pane_waiting()
     hook_input = json.loads(sys.stdin.read())
 
     # CRITICAL: Prevent infinite loops
