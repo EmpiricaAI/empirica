@@ -83,6 +83,20 @@ empirica setup
 
 Then just start working. The hooks, Sentinel, system prompt, and statusline are all configured automatically.
 
+**Where Empirica is active.** `empirica setup` is machine-wide by default: the hooks, the Sentinel, the prompt and the
+statusline apply to every Claude Code session on this machine, set up under `~/.claude`. To use Empirica in one repository
+only, run setup inside that repository with `--scope project`:
+
+```bash
+cd your-repo
+empirica setup --scope project
+```
+
+That writes the hooks into the repository's `.claude/settings.local.json` (Claude Code's per-user, uncommitted settings),
+runs them from the installed package, renders the prompt into `.empirica/` and imports it from the repository's `CLAUDE.md`
+with one line. Nothing under `~/.claude` changes. To remove it: `empirica setup --scope project --uninstall` shows what would
+go, and `--apply` removes it. The machine-wide install is removed the same way, without `--scope`.
+
 > **`empirica setup --harness` picks the harness.** It resolves from
 > `--harness`, else `$EMPIRICA_HARNESS`, else `claude-code`. An unsupported
 > harness is **refused by name and nothing is written** — previously it wrote

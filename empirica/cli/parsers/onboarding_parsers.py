@@ -52,6 +52,11 @@ def add_onboarding_parsers(subparsers):
         description="""
 Configure this machine's AI harness to run Empirica.
 
+Scope: machine-wide by default (--scope user: every Claude Code session, set up under
+~/.claude). --scope project sets Empirica up in the current git repository only:
+hooks in its .claude/settings.local.json, the prompt imported from its CLAUDE.md,
+nothing under ~/.claude. --uninstall plans the removal for the same scope; --apply runs it.
+
 Which harness: --harness, else $EMPIRICA_HARNESS (the same signal the hooks
 read), else claude-code. A harness with no writer is REFUSED by name and
 nothing is written — it used to install Claude Code's surface regardless and
