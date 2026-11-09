@@ -132,14 +132,21 @@ A cockpit shows your practices at the top and its commands on the line under eac
 routine actions do not need a command line.
 
 ```
- 1 core   2 > cortex   3 ✗ outreach                         serve ● cortex ● load 2.1  14:02
+ 1 core   2 > cortex   3 ✗ outreach   4 ! research          serve ● cortex ● load 2.1  14:02
  ...
-── ☰ commands  R restart  A refresh 1  M listener  I inbox 2  C claude  S sessions  L login  ? help ──
+── waiting: approve Bash  ☰ commands  R restart  A refresh 1  M listener  I inbox 2  C claude  S sessions  L login  ? help ──
 ```
 
 The top line is your practices, with whatever your tmux `status-right` already shows on the
-right. A red ✗ on a practice means a pane in it has stopped. When the practices do not fit, the
-right-hand readout moves to a second line at the top.
+right. A red ✗ on a practice means a pane in it has stopped; an orange `!` means a pane in it is
+waiting on you. When the practices do not fit, the right-hand readout moves to a second line at the top.
+
+**Waiting on you.** When Claude Code in a pane shows a permission dialog or asks a question, the
+line under that pane starts with `waiting: approve <tool>` or `waiting: question`, and its practice
+tab gets the `!`. The mark clears with whatever the pane does next (a tool runs, you type a prompt,
+the turn ends), because Claude Code has no event for a dialog being answered. If a dialog goes
+unanswered for a few seconds, Claude Code says so and the cockpit sends a desktop notification
+(through `notify-send`, where it is installed). Sessions outside a cockpit are never notified.
 
 The line under each pane shows the commands, coloured by state: red is broken now, orange is
 waiting, dim is nothing to do. `R` is about the pane it sits under.
@@ -260,8 +267,9 @@ groups:
       - {project: research-ecodex}
 ```
 
-`refresh` brings each back with its own conversation: `claude --continue` for the
-first, `ecodex resume --last` for the second. `provision-practice research
+`refresh` brings each back with its own conversation: the claude pane's own session
+by id (see [When a practice dies](#when-a-practice-dies-refresh)), and `ecodex resume --last`
+for the second. `provision-practice research
 --cockpit-profile P --second-pane ecodex` writes both entries and the window for you
 (the second one is named `research-ecodex`). `--launch ecodex` alone makes a practice
 whose only pane runs ecodex.
@@ -285,7 +293,7 @@ projects:                      # everything a pane may reference
     path: ~/empirical-ai/empirica
     launch: claude --dangerously-skip-permissions
     instance_id: core          # optional; "" = never bind an identity
-    resume: claude --continue  # optional; what `refresh` runs to bring it back
+    resume: claude --continue  # optional; replaces refresh's own choice (the pane's session by id, else --continue)
 
 groups:                        # one tmux window per group
   - name: core
@@ -340,10 +348,14 @@ empirica cockpit refresh
 ```
 
 `refresh` restarts every dead practice pane in place, in its directory, with its
-identity, and resumes its last conversation (`claude --continue`). If your
-`launch:` uses a bare `--resume`, which would stop at a session picker, `refresh`
-swaps it for `--continue`; `resume:` in the config overrides this. A running
-practice is never touched, so `refresh` is safe to run at any time.
+identity, and resumes the conversation that pane was in: `claude --resume <id>`,
+with the session id the pane's own record holds. The id is used only when that
+record is for the practice's directory and a transcript with that id was started
+there; otherwise the pane resumes the newest conversation in its directory
+(`claude --continue`). A `--continue` or a bare `--resume` in your `launch:` is
+replaced accordingly; `resume:` in the config overrides all of this. The refresh
+result names the session each pane resumed. A running practice is never touched,
+so `refresh` is safe to run at any time.
 
 If a practice pane was closed entirely, `refresh` lists it as missing and
 `empirica cockpit launch` adds back exactly that pane.
@@ -399,4 +411,4 @@ which is what an abandoned pane leaves behind, together with how to close one.
 | `ghostty not found on PATH` | Install it, or `--surface alacritty` / `surface: tmux`. |
 | A practice shows as `tmux_N` in `empirica status --all` | It was started outside the cockpit, or by a cockpit older than identity binding. `refresh` binds it the next time it restarts. |
 | `refresh` says a pane "could not be matched" | Its window or directory differs from the config, or two practices share a directory. Recreate the layout with `kill` + `launch` when convenient. |
-| The wrong practice resumed after `refresh` | `--continue` resumes the most recent conversation *in that directory*. Two practices sharing a directory share that history; give each its own path, or set `resume:` to `claude --resume <session-id>`. |
+| The wrong conversation resumed after `refresh` | `refresh` resumes the pane's own session by id when it can confirm it, else the newest conversation in that directory (`--continue`). Check the session it names in its result. A `resume:` line in the config replaces both; remove it to get the by-id resume. |
