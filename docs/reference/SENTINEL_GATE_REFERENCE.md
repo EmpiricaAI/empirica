@@ -188,6 +188,54 @@ The project root comes from the shared project resolver: `instance_projects/{ins
 
 ---
 
+## The decision record
+
+Every PreToolUse decision is appended as one JSON line to the practice's `.empirica/decisions.jsonl` (the seat's
+`~/.empirica/decisions.jsonl` outside a practice), and the call's outcome as a second line after it. It is the labelled
+record a local decision model can learn from, and the audit trail for the planned discipline layer. Source:
+`empirica/core/decision_record.py`.
+
+**The decision line.**
+
+| Field | Meaning |
+|---|---|
+| `ts`, `vocabulary`, `mode` | When; the vocabulary version (bumped when a field's meaning changes); the gate's mode (`strict`) |
+| `harness`, `permission_mode` | The harness, and its own permission mode as its hook input carries it (null when it does not) |
+| `claude_session_id`, `transaction_id`, `tx_status`, `tool_use_id`, `turn_id` | Which session, transaction, call and turn |
+| `tool`, `command_class` | The tool, and for a shell call the program it runs (`unparsed` when the text does not name one) |
+| `input_sha256` | A SHA-256 of the input. The input itself is never written: a command or a file can hold a secret |
+| `decision`, `rule` | What the gate decided, and which stage of the gate decided it (`noetic-firewall`, `pipeline`, ...) |
+| `inferred_effect_classes`, `inferred_reliable` | For a shell call, what its text says it will change (`vcs_remote` for `git push`, `delete_recursive` plus where for `rm -rf build`, nothing for an `empirica` verb that only reads), and whether the text can settle it: false for code run by an interpreter, a command substitution or a heredoc |
+| `effect_classes` | Always null here: the call has not run yet |
+| `sampled` | Whether this call's effects are observed (below) |
+| `human_override` | Always null: no hook sees a person's answer at the harness's prompt |
+
+**The post line** (`"event": "post"`), written by the hooks that run after the call (entity-extractor, truncation-legibility,
+tool-failure), paired on `tool_use_id`: `outcome` (success, failure or interrupted), and `effect_classes` with `observed`.
+For Edit and Write the classes come from where each file is (`project_write`, `outside_write`, `config_write` for harness and
+shell configuration, `empirica_state` for `.empirica` and `~/.empirica`). For a shell call they are observed only when it was
+sampled; otherwise `observed` is false.
+
+**Inferred and observed are kept apart.** `inferred_effect_classes` is a prediction from the text, not a measurement and not a
+label to train or judge a model on. What a sampled call changed is measured: every call whose text cannot settle it, and a
+fixed one in ten of the rest (by a hash of the call id), get a snapshot before and after the call: the practice's git status
+and refs, and a short list of configuration files. The post line then carries the classes seen and `observation_scope`, which
+names that view (`practice_git_status`, `practice_git_refs`, `config_files`), so what it cannot see is explicit: the network,
+processes, remote machines and files outside the practice. Before-snapshots are kept in `~/.empirica/decision_snapshots/`
+for at most a day.
+
+**Not tamper-proof.** The agent whose calls are recorded can edit or delete the file with its own shell. It is a record for
+measurement, not evidence against the agent.
+
+**Permission answers are not recorded.** `record_permission_request` and `infer_overrides` exist to derive whether a
+permission dialog was approved (a successful post line for the same input in the same turn) and mark that answer as
+inferred, but no registered hook calls `record_permission_request` yet, so the file holds no `permission_request` lines.
+
+**Cost and size.** One append per call, no database and no network. The file rolls over to one backup
+(`decisions.jsonl.1`) at 10 MB. `EMPIRICA_DECISION_RECORD=0` turns it off.
+
+---
+
 ## Environment variables
 
 | Variable | Default | Effect |
@@ -200,6 +248,7 @@ The project root comes from the shared project resolver: `instance_projects/{ins
 | `EMPIRICA_MIN_NOETIC_DURATION` | `30` | Seconds between PREFLIGHT and CHECK below which an artifact-free CHECK is rushed |
 | `EMPIRICA_INSTANCE_ID`, `CLAUDE_INSTANCE_ID` | unset | Explicit instance id |
 | `EMPIRICA_HARNESS` | `claude-code` | Selects the repair text when the hook cannot import `empirica` |
+| `EMPIRICA_DECISION_RECORD` | on | `0`/`false`/`no`/`off`: stop writing the decision record |
 
 The full list is in [Environment Variables](ENVIRONMENT_VARIABLES.md).
 
