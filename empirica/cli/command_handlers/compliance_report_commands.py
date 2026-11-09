@@ -1681,7 +1681,7 @@ def _emit_compliance_to_system_events(report: dict[str, Any], *, quiet: bool = F
         )
         status, body = emit_system_event(envelope)
         if not quiet:
-            if status == 200:
+            if 200 <= status < 300:  # cortex answers 202 Accepted (prop_ezqtrzl7hvag5j25rrh6wwxdhq D5)
                 print(f"  📡 emitted to System│Diagnostics ({envelope['event_type']})")
             else:
                 print(f"  ⚠ emit failed ({status}): {body.get('error')}")

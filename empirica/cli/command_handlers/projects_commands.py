@@ -2138,6 +2138,16 @@ def _interpret_cortex_register_response(
             "diverged": diverged,
             "local_project_id": local_project_id if diverged else None,
         }
+    if status == 409 and "slug_taken" in str(body or ""):
+        # A DIFFERENT project holds this slug: a collision, not this project already registered (cortex D2,
+        # prop_ezqtrzl7hvag5j25rrh6wwxdhq). Reading it as success left the practice unregistered without a word.
+        return {
+            "ok": False,
+            "status": 409,
+            "outcome": "slug_taken",
+            "reason": _owner_conflict_message(body) or "another project already holds this name on cortex",
+            "hint": "rename the practice (its directory or `name` in .empirica/project.yaml), then register again",
+        }
     if status == 409:
         returned_id = (body or {}).get("project_id") or (body or {}).get("id")
         diverged = bool(returned_id and returned_id != local_project_id)
