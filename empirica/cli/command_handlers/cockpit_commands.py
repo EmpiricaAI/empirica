@@ -1855,10 +1855,66 @@ def handle_instance_group_command(args) -> int:
 
 # ─── group dispatchers (mapped from cli_core 'sentinel'/'loop' commands) ────
 
+
+def handle_sentinel_mode_command(args) -> int:
+    """`empirica sentinel mode [strict|discipline|off] [--max-act-without-gate N] [--seat]`: show or set the mode and the budget.
+
+    Without a value it shows what is in force here and where each setting came from. With one, it writes this practice's
+    .empirica/config.yaml (or, with --seat, ~/.empirica/config.yaml) and shows the result, which an environment variable can
+    still override. See empirica/core/sentinel_discipline.py (goal 543fd1c6).
+    """
+    from empirica.config.path_resolver import get_git_root
+    from empirica.core import sentinel_discipline as sd
+    from empirica.utils.session_resolver import _get_instance_suffix
+
+    root = get_git_root()
+    practice = root if root is not None and (Path(root) / ".empirica" / "project.yaml").exists() else None
+    value = getattr(args, "value", None)
+    budget = getattr(args, "max_act_without_gate", None)
+    written = None
+    if value is not None or budget is not None:
+        if getattr(args, "seat", False):
+            target = Path.home() / ".empirica" / "config.yaml"
+        elif practice is not None:
+            target = Path(practice) / ".empirica" / "config.yaml"
+        else:
+            msg = (
+                "not inside a practice (no .empirica/project.yaml at the git root): pass --seat to set it for this seat"
+            )
+            return _emit(args, {"ok": False, "error": msg}, f"❌ {msg}")
+        try:
+            sd.write_setting(target, mode=value, budget=budget)
+        except ValueError as e:
+            return _emit(args, {"ok": False, "error": str(e)}, f"❌ {e}")
+        written = str(target)
+    eff = sd.effective(practice)
+    pending = len(sd.ledger(_get_instance_suffix()))
+    payload = {
+        "ok": True,
+        "mode": eff["mode"],
+        "mode_source": eff["mode_source"],
+        "max_act_without_gate": eff["budget"],
+        "max_act_without_gate_source": eff["budget_source"],
+        "ignored": eff["ignored"],
+        "out_of_loop_acts_pending": pending,
+        "written": written,
+    }
+    lines = []
+    if written:
+        lines.append(f"✓ wrote {written}")
+    lines.append(f"mode: {eff['mode']}  ({eff['mode_source']})")
+    lines.append(f"max-act-without-gate: {eff['budget']}  ({eff['budget_source']})")
+    if eff["mode"] == "discipline":
+        lines.append(f"out-of-loop acts since the last PREFLIGHT, this instance: {pending}")
+    lines += [f"⚠ ignored: {i}" for i in eff["ignored"]]
+    return _emit(args, payload, "\n".join(lines))
+
+
 _SENTINEL_DISPATCH = {
     "pause": handle_sentinel_pause_command,
     "resume": handle_sentinel_resume_command,
     "status": handle_sentinel_status_command_cockpit,
+    "mode": handle_sentinel_mode_command,
 }
 
 _LOOP_DISPATCH = {
@@ -2767,7 +2823,7 @@ _LISTENER_DISPATCH = {
 def handle_sentinel_group_command(args) -> int:
     action = getattr(args, "sentinel_action", None)
     if not action:
-        sys.stdout.write("usage: empirica sentinel <pause|resume|status> [--instance ID] [--reason TEXT]\n")
+        sys.stdout.write("usage: empirica sentinel <pause|resume|status|mode> [--instance ID] [--reason TEXT]\n")
         return 2
     handler = _SENTINEL_DISPATCH.get(action)
     if handler is None:

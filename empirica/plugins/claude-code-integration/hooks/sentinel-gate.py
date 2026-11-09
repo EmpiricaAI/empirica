@@ -5396,7 +5396,7 @@ def _check_postflight_loop_closed(
                         "only). Re-run `empirica preflight-submit -` ALONE, then run the rest.",
                     )
 
-            return ("deny", _closed_loop_message(tool_name, tool_input))
+            return _discipline_answer(tool_name, tool_input) or ("deny", _closed_loop_message(tool_name, tool_input))
     except (ValueError, TypeError):
         pass  # If timestamps can't be compared, continue with other checks
 
@@ -5823,6 +5823,44 @@ def _check_project_context(cursor, db, session_id: str, preflight_project_id) ->
     )
 
 
+def _discipline_answer(tool_name: str, tool_input) -> tuple | None:
+    """Discipline mode's answer for a praxic call outside a transaction (empirica/core/sentinel_discipline.py), or None.
+
+    None keeps the refusal the caller was about to give: strict mode (the built-in default until the pilot, goal 543fd1c6), a
+    module that cannot be loaded, or any error. Settings are read only here, on the out-of-transaction branch, so a call inside
+    a transaction pays nothing for them.
+    """
+    global _decision_rule
+    try:
+        import importlib.util
+
+        decision_record = _decision_record()
+        if decision_record is None:
+            return None
+        path = Path(decision_record.__file__).with_name("sentinel_discipline.py")
+        spec = importlib.util.spec_from_file_location("_empirica_sentinel_discipline", path)
+        if spec is None or spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        hook_input = _record_input or {}
+        cwd = hook_input.get("cwd") or os.getcwd()
+        project = decision_record.project_path_for(hook_input.get("session_id"), cwd)
+        answer = module.decide(
+            tool_name,
+            tool_input,
+            cwd=cwd,
+            project_root=project,
+            suffix=_instance_suffix(),
+            empirica_is_read=empirica_command_only_reads,
+        )
+        if answer is not None:
+            _decision_rule = "discipline-budget"
+        return answer
+    except Exception:
+        return None
+
+
 def _handle_no_preflight(tool_name: str, tool_input: dict, session_id: str, env_annotation: str) -> tuple:
     """Handle tool calls when no PREFLIGHT exists yet.
 
@@ -5860,6 +5898,9 @@ def _handle_no_preflight(tool_name: str, tool_input: dict, session_id: str, env_
                     pass
             return ("allow", f"Transition command (no PREFLIGHT yet - starting new cycle).{pre_tx_nudge}")
 
+    answer = _discipline_answer(tool_name, tool_input)
+    if answer is not None:
+        return answer
     return (
         "deny",
         f"No open transaction. Submit PREFLIGHT with your self-assessed vectors to begin measured work.{pre_tx_nudge}{env_annotation}",
@@ -6277,7 +6318,11 @@ def _handle_closed_transaction(tool_name: str, tool_input: dict) -> None:
     elif _is_noetic_tool(tool_name):
         respond("allow", "Noetic tool (transaction closed)")
         sys.exit(0)
-    # Praxic tool with closed transaction → correct error message
+    # Praxic tool with closed transaction → discipline mode's answer, else the correct error message
+    answer = _discipline_answer(tool_name, tool_input)
+    if answer is not None:
+        respond(*answer)
+        sys.exit(0)
     respond("deny", _closed_loop_message(tool_name, tool_input))
     sys.exit(0)
 

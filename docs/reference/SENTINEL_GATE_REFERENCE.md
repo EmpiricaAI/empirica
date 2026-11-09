@@ -188,6 +188,37 @@ The project root comes from the shared project resolver: `instance_projects/{ins
 
 ---
 
+## Modes: strict, discipline, off
+
+`strict` is the default: every change outside a transaction is refused, as described above. `discipline` lets small,
+project-local work run without a transaction, up to a budget; `off` allows every call (and still records it).
+
+In `discipline`, a change outside a transaction is allowed when its effect is readable from the call and stays inside the
+practice: an Edit or Write to a file in the practice, a shell command whose only effects are writing the practice's files,
+its own Empirica state or a local commit. Each one is written to an out-of-loop ledger for the instance, and once
+`max-act-without-gate` of them have run the next is refused with what was already changed and a request to PREFLIGHT. The
+next PREFLIGHT takes the ledger, reports it as `prior_untracked` and keeps it in the transaction file, and the budget starts
+again. Anything outward or irreversible always needs a transaction, whatever the budget: a push, a tag, a publish
+(`npm`/`cargo`/`poetry`/`uv` publish, `twine upload`, `gh release`), an install, a recursive delete, a remote command, a
+network send, a process signal, a change to harness or shell configuration or outside the practice, a non-file tool, and a
+shell command whose effect cannot be read from its text (inline interpreter code, a substitution, a heredoc). When the
+call's practice cannot be found, a write counts as outside it.
+
+| Setting | Values | Default |
+|---|---|---|
+| mode | `strict`, `discipline`, `off` | `strict`, until a pilot on a few practices decides the default |
+| `max-act-without-gate` | 0 to 1000 | 3 |
+
+Each setting resolves on its own, highest first: `EMPIRICA_SENTINEL_MODE` / `EMPIRICA_MAX_ACT_WITHOUT_GATE`, the practice's
+`.empirica/config.yaml`, the seat's `~/.empirica/config.yaml` (both under `sentinel:` with `mode` and
+`max_act_without_gate`), then the default. `empirica sentinel mode` shows what is in force and where it came from;
+`empirica sentinel mode discipline --max-act-without-gate 2` writes the practice's file (`--seat` writes the seat's), and
+`empirica doctor` reports the same and warns on a value ignored as invalid. The settings are read only when a call outside
+a transaction would be refused (about 9 ms then); calls inside a transaction do not read them. Source:
+`empirica/core/sentinel_discipline.py`.
+
+---
+
 ## The decision record
 
 Every PreToolUse decision is appended as one JSON line to the practice's `.empirica/decisions.jsonl` (the seat's
@@ -250,6 +281,8 @@ came in the same turn, else `denied_or_aborted`, each marked `inferred: true`.
 | `EMPIRICA_INSTANCE_ID`, `CLAUDE_INSTANCE_ID` | unset | Explicit instance id |
 | `EMPIRICA_HARNESS` | `claude-code` | Selects the repair text when the hook cannot import `empirica` |
 | `EMPIRICA_DECISION_RECORD` | on | `0`/`false`/`no`/`off`: stop writing the decision record |
+| `EMPIRICA_SENTINEL_MODE` | `strict` | `strict`, `discipline` or `off` (see [Modes](#modes-strict-discipline-off)); overrides the config files |
+| `EMPIRICA_MAX_ACT_WITHOUT_GATE` | `3` | Changes allowed outside a transaction in `discipline` mode before PREFLIGHT is required |
 
 The full list is in [Environment Variables](ENVIRONMENT_VARIABLES.md).
 

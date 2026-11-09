@@ -478,7 +478,7 @@ def test_run_all_checks_returns_complete_list(all_checks):
     assert "Deployed plugin fresh" in names
 
 
-def test_run_all_checks_count_is_45(all_checks):
+def test_run_all_checks_count_is_46(all_checks):
     """+1 for check_engagement_registry_drift (engagement dual-write, 1.13.23).
     +1 for check_cli_matches_checkout (CLI/checkout skew the version cannot see).
     +1 for check_plugin_freshness (deployed plugin copy vs package version).
@@ -529,12 +529,15 @@ def test_run_all_checks_count_is_45(all_checks):
       a line each time in precompact.log and nobody read it: #415).
     +1 for check_credential_health (a terminal 401 is now recorded so the retry loops stop, and a
       credential suppressed that way must not read the same as one never configured).
+    +1 for check_sentinel_mode (the Sentinel's mode and out-of-loop budget resolve from four places;
+      this shows the value in force and its source, and warns on a setting ignored as invalid).
 
     A hardcoded count is a tripwire for "a check was added/removed without
     thinking about the suite" — when it fires, update it deliberately (and add
     the name assertion below), never by pasting the new number blind."""
     checks = all_checks
-    assert len(checks) == 45
+    assert len(checks) == 46
+    assert any(c.name == "Sentinel mode" for c in checks)
     # The tripwire earns its keep only if the NEW check is named. A bumped
     # number alone records that something changed, not what.
     assert any(c.name == "notes/sqlite divergence" for c in checks)

@@ -219,6 +219,33 @@ def _add_sentinel_group(subparsers):
     _add_sentinel_target(status)
     _add_output(status)
 
+    mode = sentinel_subs.add_parser(
+        "mode",
+        help="Show or set the Sentinel mode and the out-of-loop budget",
+        description=(
+            "strict (the default) refuses every change outside a transaction. discipline lets small, project-local changes "
+            "whose effect is readable from the call run without one, up to --max-act-without-gate since the last PREFLIGHT, "
+            "and records each for the next PREFLIGHT; pushes, tags, publishes, installs, recursive deletes, remote, network "
+            "and configuration changes always need a transaction. off allows everything. Precedence: "
+            "EMPIRICA_SENTINEL_MODE / EMPIRICA_MAX_ACT_WITHOUT_GATE, then this practice's .empirica/config.yaml, then "
+            "~/.empirica/config.yaml, then the built-in values. Without arguments it shows what is in force and where it came from."
+        ),
+    )
+    mode.add_argument("value", nargs="?", choices=["strict", "discipline", "off"], help="The mode to set")
+    mode.add_argument(
+        "--max-act-without-gate",
+        dest="max_act_without_gate",
+        type=int,
+        metavar="N",
+        help="Changes allowed outside a transaction before PREFLIGHT is required (0 to 1000)",
+    )
+    mode.add_argument(
+        "--seat",
+        action="store_true",
+        help="Write ~/.empirica/config.yaml (every practice on this seat) instead of this practice's .empirica/config.yaml",
+    )
+    _add_output(mode)
+
 
 def _add_offon_aliases(subparsers):
     """Top-level `empirica off` / `empirica on` — the user-facing Sentinel toggle.

@@ -46,6 +46,8 @@ This document lists all environment variables that control Empirica's behavior.
 | `EMPIRICA_SENTINEL_LOOPING` | Enable investigate loops (env var fallback; ignored whenever `~/.empirica/sentinel_enabled` exists) | `true` | `true`, `false` |
 | `EMPIRICA_SENTINEL_FAIL_CLOSED` | Deny, instead of allow, when the Sentinel itself crashes (not for "no project", which is a stated allow) | unset | `1`, `true`, `yes` |
 | `EMPIRICA_DECISION_RECORD` | Write each Sentinel decision and its outcome to `.empirica/decisions.jsonl` ([the decision record](SENTINEL_GATE_REFERENCE.md#the-decision-record)) | on | `0`, `false`, `no`, `off` turn it off |
+| `EMPIRICA_SENTINEL_MODE` | The Sentinel's mode ([Modes](SENTINEL_GATE_REFERENCE.md#modes-strict-discipline-off)); overrides `.empirica/config.yaml` and `~/.empirica/config.yaml` | `strict` | `strict`, `discipline`, `off` |
+| `EMPIRICA_MAX_ACT_WITHOUT_GATE` | Changes allowed outside a transaction in `discipline` mode before PREFLIGHT is required | `3` | `0` to `1000` |
 | `EMPIRICA_HARNESS` | Which harness hosts the hooks, case-insensitive. Non-`claude-code` values (codex sets `codex`) change the repair hint, the tool-router hints and skip the deploy-gap block | `claude-code` | `claude-code`, `codex`, ... |
 | `EMPIRICA_KNOW_THRESHOLD` | Minimum KNOW confidence | Model-dependent | 0.0-1.0 |
 | `EMPIRICA_UNCERTAINTY_THRESHOLD` | Maximum UNCERTAINTY allowed | Model-dependent | 0.0-1.0 |

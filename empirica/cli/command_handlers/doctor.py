@@ -600,6 +600,21 @@ def check_claude_code_cli() -> Check:
     return Check("Claude Code CLI on PATH", PASS, path, data={"path": path})
 
 
+def check_sentinel_mode(cwd: Path | None = None) -> Check:
+    """The Sentinel mode and out-of-loop budget in force here, and where each came from (goal 543fd1c6). WARN only for a
+    setting that was ignored as invalid, so a typo in a config file cannot silently leave the built-in in force."""
+    from empirica.core import sentinel_discipline as sd
+
+    root = Path(cwd or Path.cwd())
+    practice = root if (root / ".empirica" / "project.yaml").exists() else None
+    eff = sd.effective(practice)
+    detail = f"{eff['mode']} ({eff['mode_source']}); max-act-without-gate {eff['budget']} ({eff['budget_source']})"
+    data = {k: eff[k] for k in ("mode", "mode_source", "budget", "budget_source", "ignored")}
+    if eff["ignored"]:
+        return Check("Sentinel mode", WARN, detail, "ignored: " + "; ".join(eff["ignored"]), data=data)
+    return Check("Sentinel mode", PASS, detail, data=data)
+
+
 def check_git_present() -> Check:
     path = _which("git")
     if not path:
@@ -2949,6 +2964,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_claude_code_cli(),
         check_git_present(),
         check_noetic_tools(),
+        check_sentinel_mode(cwd),
         # Project state
         check_empirica_folder(cwd),
         check_project_yaml(cwd),

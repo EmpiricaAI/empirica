@@ -508,6 +508,47 @@ def _preflight_enrich_transaction_file(resolved_project_path, parsed):
         logger.warning(f"Transaction enrichment failed: {e}")
 
 
+def _preflight_take_out_of_loop(resolved_project_path) -> list[dict]:
+    """The changes discipline mode let run outside a transaction since the last one (core/sentinel_discipline.py's ledger).
+
+    Taken, so the budget starts again, and written into this transaction's file as ``prior_untracked``: they are this
+    transaction's work, made before it opened (goal 543fd1c6). Non-fatal: PREFLIGHT never fails over the ledger.
+    """
+    import json as _json
+
+    try:
+        from empirica.core.sentinel_discipline import take_ledger
+
+        entries = take_ledger(R.instance_suffix())
+    except Exception:
+        return []
+    if entries and resolved_project_path:
+        try:
+            tx_file = Path(resolved_project_path) / ".empirica" / f"active_transaction{R.instance_suffix()}.json"
+            data = _json.loads(tx_file.read_text())
+            data["prior_untracked"] = entries
+            tmp = tx_file.with_suffix(".json.tmp")
+            tmp.write_text(_json.dumps(data, indent=2))
+            tmp.replace(tx_file)
+        except Exception as e:
+            logger.debug("prior_untracked not written to the transaction file: %s", e)
+    return entries
+
+
+def _attach_prior_untracked(result: dict, resolved_project_path) -> None:
+    """Report the out-of-loop changes PREFLIGHT took, so the practitioner declares them."""
+    prior_untracked = _preflight_take_out_of_loop(resolved_project_path)
+    if prior_untracked:
+        result["prior_untracked"] = {
+            "count": len(prior_untracked),
+            "acts": prior_untracked,
+            "note": (
+                "Changes made outside a transaction under the Sentinel's discipline mode, before this PREFLIGHT. "
+                "They are this transaction's work: name them in your reasoning or claims. The budget starts again."
+            ),
+        }
+
+
 def _preflight_promote_pending_calibration(resolved_project_path):
     """Apply a calibration override that was queued (deferred-to-boundary) while a
     prior transaction was open. Called at PREFLIGHT — the transaction boundary.
@@ -1573,6 +1614,7 @@ def handle_preflight_submit_command(args):
             # threaded through the builder's ten parameters.
             if preflight_claims:
                 result["claims"] = preflight_claims
+            _attach_prior_untracked(result, resolved_project_path)
             if open_falsifiers:
                 result["open_falsifiers"] = open_falsifiers
             if preflight_falsifiers:
