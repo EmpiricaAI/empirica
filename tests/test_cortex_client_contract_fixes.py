@@ -69,3 +69,20 @@ def test_in_flight_is_told_apart_from_a_key_conflict():
     assert _in_flight(409, {"error": "idempotency_key_in_flight"}) is True
     assert _in_flight(409, {"error": "idempotency_key_conflict"}) is False  # a real collision stays a refusal
     assert _in_flight(200, {"error": "idempotency_key_in_flight"}) is False
+
+
+# ── D6: a sync for a practice cortex does not know is dropped, and POSTFLIGHT says so ────────────────────────────────────
+
+
+def test_an_unknown_project_sync_refusal_becomes_a_warning_with_the_fix():
+    from empirica.cli.command_handlers._workflow_postflight import _sync_unregistered_message
+
+    msg = _sync_unregistered_message(400, '{"error": "Unknown project_id"}')
+    assert msg and "project-register" in msg
+
+
+def test_other_sync_errors_are_not_called_unregistered():
+    from empirica.cli.command_handlers._workflow_postflight import _sync_unregistered_message
+
+    assert _sync_unregistered_message(400, '{"error": "bad payload"}') is None
+    assert _sync_unregistered_message(500, "Unknown project_id") is None

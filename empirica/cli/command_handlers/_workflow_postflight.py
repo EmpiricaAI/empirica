@@ -1524,9 +1524,8 @@ def _cortex_resolve_project_id(session_id: str) -> str:
 def _cortex_resolve_project_metadata(session_id: str) -> dict:
     """Resolve {project_id, name, repo_url} for the session's project.
 
-    Used to enrich the Cortex /v1/sync payload so Cortex's auto-create path
-    (triggered when /v1/sync references an unknown project_id) populates
-    proper name + repo_url instead of falling back to name=<UUID>. Without
+    Sent with the Cortex /v1/sync payload. Cortex does NOT auto-create an unknown project from it (it answers 400
+    Unknown project_id; register first, cortex D6), so these fields only label a project cortex already holds. Without
     this enrichment, every POSTFLIGHT for a fresh project seeds Cortex with
     UUID-named rows that bulk-register later can't override (the existing
     idempotent register_or_get_project skips already-existing IDs).
@@ -1942,12 +1941,26 @@ def _run_postflight_goal_criteria(session_id, transaction_id, evidence_bundle=No
         return None
 
 
+def _sync_unregistered_message(code: int, body_text: str) -> str | None:
+    """The warning for cortex refusing a sync because it does not know the project, or None for any other answer.
+
+    Cortex does not create a project from /v1/sync (register first is the contract); it answers 400 "Unknown project_id"."""
+    if code == 400 and "unknown project_id" in (body_text or "").lower():
+        return (
+            "cortex sync dropped: cortex does not know this practice (400 Unknown project_id). "
+            "Register it once with `empirica project-register`, then later POSTFLIGHTs sync."
+        )
+    return None
+
+
 def _run_postflight_cortex_sync(session_id, reasoning, resolved_project_path):
     """Push this transaction's artifacts to remote Cortex.
 
     Each POSTFLIGHT is a sync boundary -- artifacts flow to the
-    cloud intelligence layer at the natural measurement cadence.
+    cloud intelligence layer at the natural measurement cadence. A sync for a practice cortex does not know is refused,
+    not auto-created, and raised so POSTFLIGHT shows it.
     """
+    unregistered = None
 
     try:
         from empirica.config.credentials_loader import get_credentials_loader
@@ -2000,10 +2013,18 @@ def _run_postflight_cortex_sync(session_id, reasoning, resolved_project_path):
             headers={"Authorization": f"Bearer {_cortex_key}", "Content-Type": "application/json"},
             method="POST",
         )
-        urllib.request.urlopen(_req, timeout=5)
+        try:
+            urllib.request.urlopen(_req, timeout=5)
+        except urllib.error.HTTPError as http_err:
+            body_text = http_err.read().decode("utf-8", "replace") if hasattr(http_err, "read") else ""
+            unregistered = _sync_unregistered_message(http_err.code, body_text)
         logger.debug("Cortex sync push at POSTFLIGHT boundary")
     except Exception:
         pass  # Non-fatal
+    if unregistered:
+        # Raised so _soft_run shows it as a POSTFLIGHT warning: the sync was dropped, and saying nothing made an
+        # unregistered practice look synced (cortex D6, prop_ezqtrzl7hvag5j25rrh6wwxdhq).
+        raise RuntimeError(unregistered)
 
 
 def _postflight_publish_bus_event(session_id, transaction_id, vectors, deltas, internal_consistency):
@@ -2398,10 +2419,6 @@ def handle_postflight_submit_command(args):
             )
             if retrospective:
                 result["retrospective"] = retrospective
-            if warnings:
-                # Soft-failures: visible to AI without erasing the closed loop
-                result["warnings"] = warnings
-
             _soft_run(
                 "cortex_sync",
                 warnings,
@@ -2410,6 +2427,10 @@ def handle_postflight_submit_command(args):
                 reasoning,
                 resolved_project_path,
             )
+            if warnings:
+                # Soft-failures: visible to AI without erasing the closed loop. Attached after the sync, so a sync
+                # warning is kept (it was added to the list after the list had been attached only when non-empty).
+                result["warnings"] = warnings
 
         except Exception as e:
             logger.error(f"Failed to save postflight assessment: {e}")
