@@ -53,7 +53,7 @@ ai_id resolution (InstanceResolver.ai_id):
      → source of truth; written by `empirica project-init`,
        overridable at provisioning time
 
-  4. basename(project_path).removeprefix('empirica-')
+  4. basename(project_path), exact, prefix kept
      → fallback derivation when project.yaml has no explicit ai_id
        (legacy install paths, freshly-init'd projects before first save)
 

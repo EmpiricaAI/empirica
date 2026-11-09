@@ -191,21 +191,25 @@ The project root comes from the shared project resolver: `instance_projects/{ins
 ## Modes: strict, discipline, off
 
 `strict` is the default: every change outside a transaction is refused, as described above. `discipline` lets small,
-project-local work run without a transaction, up to a budget; `off` allows every call (and still records it).
+project-local work run without a transaction, up to a budget; `off` allows every call outside a transaction. Inside an
+open transaction the usual rules apply in every mode.
 
-In `discipline`, a change outside a transaction is allowed when its effect is readable from the call and stays inside the
-practice: an Edit or Write to a file in the practice, a shell command whose only effects are writing the practice's files,
-its own Empirica state or a local commit. Each one is written to an out-of-loop ledger for the instance, and once
-`max-act-without-gate` of them have run the next is refused with what was already changed and a request to PREFLIGHT. The
-next PREFLIGHT takes the ledger, reports it as `prior_untracked` and keeps it in the transaction file, and the budget starts
-again. Anything outward or irreversible always needs a transaction, whatever the budget: a push, a tag, a publish
-(`npm`/`cargo`/`poetry`/`uv` publish, `twine upload`, `gh release`), an install, a recursive delete, a remote command, a
-network send, a process signal, a change to harness or shell configuration or outside the practice, a non-file tool, and a
-shell command whose effect cannot be read from its text (inline interpreter code, a substitution, a heredoc). When the
-call's practice cannot be found, a write counts as outside it. Planned work gets no budget at all: when the latest
-prompt asks for planned or multi-step work (the same whole-word check the prompt hint uses), or since that prompt the
-session entered plan mode, created two or more tasks (TaskCreate) or wrote a TodoWrite of two or more items, a change
-outside a transaction is refused.
+In `discipline`, what may run outside a transaction is an allowlist, and anything not on it is refused:
+
+- an Edit, Write, MultiEdit or NotebookEdit to a file whose real path (symlinks followed) is inside the practice and not
+  under `.git`, `.claude`, `.codex`, `.empirica`, `.vscode` or `.idea`;
+- a shell command made only of `git add`, `git commit` (a message and `-a`/`-q`/`-s`/`-v`; not `--amend`), `git mv`,
+  `git rm` (not recursive), `mkdir` and `touch`, on paths inside the practice, run from inside it, joined by `&&` or `;`,
+  with no redirect, pipe, background job, command substitution, heredoc, wrapper such as `sudo`, or `git -C`/`-c`.
+
+Each allowed change is written to an out-of-loop ledger for the instance, and once `max-act-without-gate` of them have run
+the next is refused with what was already changed and a request to PREFLIGHT. The next PREFLIGHT reports the ledger as
+`prior_untracked`, keeps it in the transaction file, and only then clears it, so the budget starts again. When the call's
+practice cannot be found, every write counts as outside it. Planned work gets no budget at all: when the latest prompt
+contains a planning word (plan, planning, implement, implementation, spec, specification, transaction, preflight,
+artifact, epistemic, decompose, complex, multi-step, "break this down", "how should I approach"; matched as whole
+words), or since that prompt the session entered plan mode, created two or more tasks (TaskCreate) or wrote a TodoWrite
+of two or more items, a change outside a transaction is refused.
 
 | Setting | Values | Default |
 |---|---|---|
@@ -226,14 +230,14 @@ a transaction would be refused (about 9 ms then); calls inside a transaction do 
 
 Every PreToolUse decision is appended as one JSON line to the practice's `.empirica/decisions.jsonl` (the seat's
 `~/.empirica/decisions.jsonl` outside a practice), and the call's outcome as a second line after it. It is the labelled
-record a local decision model can learn from, and the audit trail for the planned discipline layer. Source:
+record a local decision model can learn from, and the audit trail of discipline mode's decisions. Source:
 `empirica/core/decision_record.py`.
 
 **The decision line.**
 
 | Field | Meaning |
 |---|---|
-| `ts`, `vocabulary`, `mode` | When; the vocabulary version (bumped when a field's meaning changes); the gate's mode (`strict`) |
+| `ts`, `vocabulary`, `mode` | When; the vocabulary version (bumped when a field's meaning changes); `mode` is always `strict` in this version, and a decision made by discipline mode carries `rule: discipline-budget` |
 | `harness`, `permission_mode` | The harness, and its own permission mode as its hook input carries it (null when it does not) |
 | `claude_session_id`, `transaction_id`, `tx_status`, `tool_use_id`, `turn_id` | Which session, transaction, call and turn |
 | `tool`, `command_class` | The tool, and for a shell call the program it runs (`unparsed` when the text does not name one) |
@@ -264,7 +268,8 @@ measurement, not evidence against the agent.
 **Permission dialogs are recorded; the answers are inferred.** When Claude Code shows a permission dialog, the
 `pane-waiting.py` hook writes a `permission_request` line (tool, input hash, permission mode, turn). No hook sees the
 answer, so `infer_overrides` derives it from what followed: `approved` when a successful post line for the same input
-came in the same turn, else `denied_or_aborted`, each marked `inferred: true`.
+came in the same turn, else `denied_or_aborted`, each marked `inferred: true`. Post lines exist only for Edit, Write,
+Bash and failed calls, so an approved WebFetch or MCP call is read as `denied_or_aborted`.
 
 **Cost and size.** One append per call, no database and no network. The file rolls over to one backup
 (`decisions.jsonl.1`) at 10 MB. `EMPIRICA_DECISION_RECORD=0` turns it off.

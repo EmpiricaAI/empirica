@@ -67,7 +67,8 @@ That writes the hooks and status line into the repository's
 runs them from the installed package, renders the prompt into
 `.empirica/empirica-system-prompt.md`, and imports it from the repository's
 `CLAUDE.md` with one line (a new `CLAUDE.md` also imports `AGENTS.md` when the
-repository has one). The two local files are added to `.gitignore`. Nothing
+repository has one). `.gitignore` gains `.empirica/` (except `project.yaml`) and
+`.claude/settings.local.json`. Nothing
 under `~/.claude` changes, so Claude Code sessions in other directories run
 without Empirica.
 
@@ -384,7 +385,7 @@ empirica setup --uninstall
 empirica setup --uninstall --apply
 
 # A project-scoped install is removed from inside that repository the same way.
-# It removes .empirica/empirica-system-prompt.md and Empirica's entries in
+# It removes .empirica/empirica-system-prompt.md and Empirica's hooks and status line in
 # .claude/settings.local.json; the import line in CLAUDE.md is yours to remove.
 empirica setup --scope project --uninstall
 empirica setup --scope project --uninstall --apply

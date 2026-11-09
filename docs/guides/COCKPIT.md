@@ -143,10 +143,12 @@ waiting on you. When the practices do not fit, the right-hand readout moves to a
 
 **Waiting on you.** When Claude Code in a pane shows a permission dialog or asks a question, the
 line under that pane starts with `waiting: approve <tool>` or `waiting: question`, and its practice
-tab gets the `!`. The mark clears with whatever the pane does next (a tool runs, you type a prompt,
-the turn ends), because Claude Code has no event for a dialog being answered. If a dialog goes
+tab gets the `!`. The mark clears on the pane's next Edit, Write or Bash, a failed tool, a prompt or the
+turn ending, because Claude Code has no event for a dialog being answered; a turn that goes on
+with only reads or MCP calls keeps it until then. If a dialog goes
 unanswered for a few seconds, Claude Code says so and the cockpit sends a desktop notification
-(through `notify-send`, where it is installed). Sessions outside a cockpit are never notified.
+(through `notify-send`, where it is installed). Sessions outside tmux are never notified;
+any tmux pane gets the mark, a cockpit's bar is where it shows.
 
 The line under each pane shows the commands, coloured by state: red is broken now, orange is
 waiting, dim is nothing to do. `R` is about the pane it sits under.

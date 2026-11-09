@@ -53,7 +53,7 @@ one:
 | `operations` | Machines and services it touches · What needs a person before it changes · How a change is undone |
 | Anything else | What good work looks like here · What needs a person's approval · Where its work goes |
 
-"What this practice is for" is filled from the project's description when one was written (not the generated `<name> project`).
+"What this practice is for" is filled from the project's description when one was written (a description ending in " project", like the generated `<name> project`, is treated as not written).
 
 An existing `CLAUDE.md` is never touched. The file grows by approved changes: when the AI learns something durable about
 how this practice works, it proposes the line as a diff and writes it only once the person approves. It holds rules, not
