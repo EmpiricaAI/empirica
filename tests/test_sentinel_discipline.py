@@ -596,3 +596,44 @@ def test_preflight_keeps_the_ledger_when_the_transaction_file_cannot_take_it(hom
     _decide(home, suffix="_pf3")
     entries = wp._preflight_take_out_of_loop(str(home[1]))  # no transaction file there
     assert len(entries) == 1 and len(sd.ledger("_pf3")) == 1, "reported, and kept for a later PREFLIGHT"
+
+
+# ── third sweep pass: files the protected list missed ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "CLAUDE.md.",
+        "CLAUDE.md ",
+        "CLAUDE.md::$DATA",
+        ".cursorrules",
+        "GEMINI.md",
+        ".claude-plugin/plugin.json",
+        "plugin/hooks/hooks.json",
+        ".venv/lib/python3.13/site-packages/evil.pth",
+        "x.pth",
+        "sitecustomize.py",
+        ".devcontainer/devcontainer.json",
+        "$HOME/.bashrc",
+        ".g\u200cit/hooks/pre-commit",
+    ],
+)
+def test_files_that_run_code_or_alias_protected_names_are_refused(home, name):
+    assert _judge(home, "Write", {"file_path": name, "content": "x"})["trivial"] is False
+
+
+def test_the_running_empirica_package_is_never_written_out_of_loop(home):
+    from pathlib import Path
+
+    package_file = Path(sd.__file__).resolve()
+    root = str(package_file.parents[2])  # a practice whose tree contains the package, as core's does
+    verdict = sd.judge("Write", {"file_path": str(package_file), "content": "x"}, cwd=root, project_root=root)
+    assert verdict["trivial"] is False
+
+
+def test_a_practice_at_or_above_home_allows_nothing(home):
+    h = str(home[0])
+    for root in (h, str(home[0].parent)):
+        verdict = sd.judge("Write", {"file_path": h + "/.bashrc", "content": "x"}, cwd=root, project_root=root)
+        assert verdict["trivial"] is False

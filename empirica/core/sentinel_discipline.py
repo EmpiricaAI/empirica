@@ -26,6 +26,7 @@ import json
 import os
 import re
 import time
+import unicodedata
 from pathlib import Path
 
 MODES = ("strict", "discipline", "off")
@@ -43,12 +44,20 @@ BUDGET_MAX = 1000
 #: clone, sed -ri, curl -o, cp -t, symlinks and git -C through (finding fddc9b63). The inference stays a record, not a gate.
 #: Directories inside a practice whose files configure tools, run code or govern this mode: never written out of loop. Compared
 #: case-folded, since .Git is .git on a case-insensitive filesystem.
-_PROTECTED_PARTS = {".git", ".claude", ".codex", ".empirica", ".vscode", ".idea", ".husky", ".github", ".gitlab"}
+_PROTECTED_PARTS = {
+    ".git", ".claude", ".codex", ".empirica", ".vscode", ".idea", ".husky", ".github", ".gitlab", ".claude-plugin", ".cursor",
+    ".devcontainer", "site-packages",
+}  # fmt: skip
 #: Files anywhere in the practice that run code or change what an agent is told when something else reads them.
 _PROTECTED_NAMES = {
     ".pre-commit-config.yaml", ".envrc", ".gitattributes", ".gitmodules", ".gitignore", ".mcp.json", "claude.md",
-    "claude.local.md", "agents.md", ".npmrc", ".pypirc", "makefile", "justfile", "taskfile.yml",
+    "claude.local.md", "agents.md", ".npmrc", ".pypirc", "makefile", "justfile", "taskfile.yml", "gemini.md", ".cursorrules",
+    ".windsurfrules", ".clinerules", ".aider.conf.yml", "mise.toml", ".mise.toml", ".nvim.lua", ".exrc", "hooks.json",
+    "sitecustomize.py", "usercustomize.py",
 }  # fmt: skip
+#: The running empirica package: its hooks load sentinel_discipline.py and decision_record.py from here on every call, so an
+#: out-of-loop edit under it could switch the gate off from the next call (third sweep pass).
+_PACKAGE_ROOT = os.path.realpath(Path(__file__).resolve().parents[1])
 _FILE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 
 
@@ -221,11 +230,21 @@ def _in_practice(path: str, cwd: str | None, project_root: str | None) -> bool:
         return False
     raw = os.path.expanduser(path)
     full = raw if os.path.isabs(raw) else os.path.join(cwd or os.getcwd(), raw)
+    if "$" in raw or any(unicodedata.category(ch) == "Cf" for ch in raw):
+        return False  # an unexpanded variable, or an invisible format character some filesystems ignore
     real, root = os.path.realpath(full), os.path.realpath(project_root)
+    home = os.path.realpath(os.path.expanduser("~"))
+    if root == home or home.startswith(root.rstrip(os.sep) + os.sep) or root == os.sep:
+        return False  # a practice at or above the home directory would reach the shell's and the agent's own files
     if real == root or not real.startswith(root + os.sep):
         return False
-    parts = [part.casefold() for part in Path(os.path.relpath(real, root)).parts]
-    if any(part in _PROTECTED_PARTS for part in parts) or parts[-1] in _PROTECTED_NAMES:
+    if real == _PACKAGE_ROOT or real.startswith(_PACKAGE_ROOT + os.sep):
+        return False
+    raw_parts = Path(os.path.relpath(real, root)).parts
+    if any(":" in part or part.rstrip(". ") != part for part in raw_parts):
+        return False  # Windows aliases: CLAUDE.md. / "CLAUDE.md " / CLAUDE.md::$DATA name the protected file
+    parts = [part.casefold() for part in raw_parts]
+    if any(part in _PROTECTED_PARTS for part in parts) or parts[-1] in _PROTECTED_NAMES or parts[-1].endswith(".pth"):
         return False
     try:
         if os.stat(real).st_nlink > 1:
