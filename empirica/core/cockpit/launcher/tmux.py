@@ -29,6 +29,7 @@ from empirica.core.cockpit.launcher.config import (
     LauncherConfig,
     PaneSpec,
 )
+from empirica.core.cockpit.launcher.resume_ids import last_session_id
 from empirica.core.cockpit.launcher.state import (
     write_clean_shutdown,
     write_lock,
@@ -893,10 +894,12 @@ class RefreshResult:
 _RESUME_LAST_PROGRAMS = frozenset({"codex", "ecodex"})
 
 
-def resume_command(proj) -> str:
+def resume_command(proj, session_id: str | None = None) -> str:
     """The command that brings ``proj``'s pane back with its conversation.
 
-    An explicit ``resume`` wins. For claude launches, ``--continue`` resumes
+    An explicit ``resume`` wins. With ``session_id`` (the session the pane last ran, confirmed by ``resume_ids``), a claude launch
+    resumes exactly that one with ``--resume <id>``, in place of any ``--continue`` or bare ``--resume`` in the launch line; a launch
+    that already names a session with ``--resume <id>`` is kept. Without it, ``--continue`` resumes
     the most recent conversation in the pane's directory without a prompt; a
     bare ``--resume`` would open the session picker instead, so it is swapped.
     ``--resume <id>`` names a conversation already and is kept. Anything that
@@ -921,6 +924,15 @@ def resume_command(proj) -> str:
         tokens = shlex.split(proj.launch)
     except ValueError:
         return proj.launch
+    names_a_session = any(
+        t in ("--resume", "-r") and i + 1 < len(tokens) and not tokens[i + 1].startswith("-")
+        for i, t in enumerate(tokens)
+    )
+    if session_id and not names_a_session:
+        # Edit the original string (see below for why): drop the launch's own continue or bare resume, then name the session.
+        # The flag goes with the space before it, so nothing else in the line moves.
+        stripped = re.sub(r"\s+(?:--continue|-c|--resume|-r)(?!\S)", "", proj.launch)
+        return f"{stripped} --resume {session_id}"
     if any(t in ("--continue", "-c") for t in tokens):
         return proj.launch
     # Edit the ORIGINAL string, never shlex.join the tokens: the launch line is run by a shell, and
@@ -1080,8 +1092,11 @@ def refresh_cockpit(
                 }
             )
             continue
-        command = resume_command(proj)
         iid = row["iid"] or None
+        session_id = (
+            last_session_id(iid, proj.path) if _launch_program(proj.launch) == "claude" and not proj.resume else None
+        )
+        command = resume_command(proj, session_id)
         args = ["respawn-pane", "-k", "-t", row["pane_id"], "-c", proj.path, *_identity_args(iid), command]
         result = _tmux(*args)
         out.respawned.append(
@@ -1090,6 +1105,7 @@ def refresh_cockpit(
                 "pane_id": row["pane_id"],
                 "instance_id": iid,
                 "command": command,
+                "session_id": session_id,  # None: resumed the newest conversation in the directory
                 "error": None if result.returncode == 0 else (result.stderr.strip() or "respawn-pane failed"),
             }
         )
