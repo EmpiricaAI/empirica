@@ -86,3 +86,23 @@ def test_other_sync_errors_are_not_called_unregistered():
 
     assert _sync_unregistered_message(400, '{"error": "bad payload"}') is None
     assert _sync_unregistered_message(500, "Unknown project_id") is None
+
+
+# ── doctor reads cortex's capability document, not just any answer ──────────────────────────────────────────────────────
+
+
+def test_doctor_passes_on_the_capability_document_and_warns_without_it(monkeypatch):
+    import json
+
+    from empirica.cli.command_handlers import doctor
+
+    monkeypatch.setattr(doctor, "_resolve_cortex_creds", lambda: ("https://c.example", None))
+    doc = {"edition": "cortex", "contract": "1.0", "capabilities": ["mailbox", "roster"]}
+    monkeypatch.setattr(doctor, "_http_get", lambda url, *a, **k: (200, json.dumps(doc)))
+    ok = doctor.check_cortex_reachability()
+    assert ok.status == "PASS" and "2 capabilities" in ok.detail
+
+    monkeypatch.setattr(doctor, "_http_get", lambda url, *a, **k: (404, "not found"))
+    assert doctor.check_cortex_reachability().status == "WARN"
+    monkeypatch.setattr(doctor, "_http_get", lambda url, *a, **k: (200, "<html>hello</html>"))
+    assert doctor.check_cortex_reachability().status == "WARN"

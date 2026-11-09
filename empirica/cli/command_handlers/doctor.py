@@ -2451,40 +2451,46 @@ def check_sync_state(cwd: Path | None = None) -> Check:
 
 
 def check_cortex_reachability() -> Check:
-    """Basic auth-less reachability probe.
+    """Reach cortex's capability document, GET /v1/health: ``{edition, contract, capabilities}``.
 
-    Any HTTP response (including 404 / 401) means a server is listening —
-    only network/DNS failure counts as unreachable. The auth check above
-    is the authoritative auth signal; this is just "can we talk to the
-    box at all?"
+    It used to accept any HTTP answer from /v1/health, /cortex/health or the root as "reachable", which passed against a
+    server that serves none of them (cortex measured /v1/health, /cortex/health and / all answering 404, D6 of
+    prop_ezqtrzl7hvag5j25rrh6wwxdhq). A server that answers without the document is reported, not passed: it is an older
+    cortex, or not a cortex. The auth check is separate.
     """
     url, _ = _resolve_cortex_creds()
     cortex_url = url or "https://cortex.getempirica.com"
-    base = cortex_url.rstrip("/")
-    # Try /v1/health first (current API surface), fall back to /cortex/health,
-    # then plain root. Any HTTP response = reachable.
-    for probe in (f"{base}/v1/health", f"{base}/cortex/health", base):
-        status, body = _http_get(probe)
-        if status >= 0:
-            # Server responded — that's reachability, regardless of status code.
-            return Check(
-                "Cortex reachability",
-                PASS,
-                f"{probe} → {status}",
-                data={"url": cortex_url, "probe": probe, "status": status},
-            )
-        # Network/DNS failure — try next probe in case it's a path-specific block.
-        last_error = body
+    probe = f"{cortex_url.rstrip('/')}/v1/health"
+    status, body = _http_get(probe)
+    data: dict[str, Any] = {"url": cortex_url, "probe": probe, "status": status}
+    if status < 0:
+        return Check(
+            "Cortex reachability",
+            WARN,
+            f"{cortex_url} unreachable: {body}",
+            "Check network or CORTEX_REMOTE_URL env var",
+            data={**data, "error": body},
+        )
+    try:
+        doc = json.loads(body) if status == 200 else None
+    except ValueError:
+        doc = None
+    if not isinstance(doc, dict) or "capabilities" not in doc:
+        return Check(
+            "Cortex reachability",
+            WARN,
+            f"{probe} -> {status}, no capability document",
+            "The server answers but does not publish {edition, contract, capabilities}: an older cortex, or not a cortex",
+            data=data,
+        )
+    capabilities = doc.get("capabilities") or []
+    data.update(edition=doc.get("edition"), contract=doc.get("contract"), capabilities=capabilities)
     return Check(
         "Cortex reachability",
-        WARN,
-        f"{base} unreachable: {last_error}",
-        "Check network or CORTEX_REMOTE_URL env var",
-        data={"url": cortex_url, "error": last_error},
+        PASS,
+        f"{doc.get('edition')} edition, contract {doc.get('contract')}, {len(capabilities)} capabilities",
+        data=data,
     )
-
-
-# ─── Tailscale mesh ────────────────────────────────────────────────────
 
 
 def check_tailscale() -> Check:
