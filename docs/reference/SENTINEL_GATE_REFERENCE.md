@@ -194,13 +194,14 @@ The project root comes from the shared project resolver: `instance_projects/{ins
 project-local work run without a transaction, up to a budget; `off` allows every call outside a transaction. Inside an
 open transaction the usual rules apply in every mode.
 
-In `discipline`, what may run outside a transaction is an allowlist, and anything not on it is refused:
-
-- an Edit, Write, MultiEdit or NotebookEdit to a file whose real path (symlinks followed) is inside the practice and not
-  under `.git`, `.claude`, `.codex`, `.empirica`, `.vscode` or `.idea`;
-- a shell command made only of `git add`, `git commit` (a message and `-a`/`-q`/`-s`/`-v`; not `--amend`), `git mv`,
-  `git rm` (not recursive), `mkdir` and `touch`, on paths inside the practice, run from inside it, joined by `&&` or `;`,
-  with no redirect, pipe, background job, command substitution, heredoc, wrapper such as `sudo`, or `git -C`/`-c`.
+In `discipline`, only a file edit may run outside a transaction: an Edit, Write, MultiEdit or NotebookEdit to a file whose
+real path (symlinks followed) is inside the practice, not a hard link to another file, not under `.git`, `.claude`,
+`.codex`, `.empirica`, `.vscode`, `.idea`, `.husky`, `.github` or `.gitlab` (compared case-folded), and not a file that runs
+code or instructs the agent when something else reads it (`.pre-commit-config.yaml`, `.envrc`, `.gitattributes`,
+`.gitmodules`, `.gitignore`, `.mcp.json`, `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.npmrc`, `.pypirc`, `Makefile`,
+`justfile`, `Taskfile.yml`). Every shell command needs a transaction: a shell allowlist checked with a Python tokenizer was
+bypassed ten ways by what bash does and the tokenizer does not model (comments, ANSI-C quoting, brace and `$IFS`
+expansion, git pathspec magic).
 
 Each allowed change is written to an out-of-loop ledger for the instance, and once `max-act-without-gate` of them have run
 the next is refused with what was already changed and a request to PREFLIGHT. The next PREFLIGHT reports the ledger as

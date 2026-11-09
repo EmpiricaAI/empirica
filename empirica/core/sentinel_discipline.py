@@ -25,7 +25,6 @@ import importlib.util
 import json
 import os
 import re
-import shlex
 import time
 from pathlib import Path
 
@@ -42,11 +41,14 @@ BUDGET_MAX = 1000
 #: What discipline mode runs outside a transaction is an ALLOWLIST, and it fails closed. An earlier draft allowed anything whose
 #: effects the decision record inferred as project-local; the 1.14.23 sweep found that inference let git config / clean / reset /
 #: clone, sed -ri, curl -o, cp -t, symlinks and git -C through (finding fddc9b63). The inference stays a record, not a gate.
-_GIT_VERBS = {"add", "commit", "mv", "rm"}
-_COMMANDS = {"git", "mkdir", "touch"}
-#: Directories inside a practice whose files configure tools that run code or govern this mode: never written out of loop.
-_PROTECTED_PARTS = {".git", ".claude", ".codex", ".empirica", ".vscode", ".idea"}
-_PUNCTUATION = set("();<>|&")
+#: Directories inside a practice whose files configure tools, run code or govern this mode: never written out of loop. Compared
+#: case-folded, since .Git is .git on a case-insensitive filesystem.
+_PROTECTED_PARTS = {".git", ".claude", ".codex", ".empirica", ".vscode", ".idea", ".husky", ".github", ".gitlab"}
+#: Files anywhere in the practice that run code or change what an agent is told when something else reads them.
+_PROTECTED_NAMES = {
+    ".pre-commit-config.yaml", ".envrc", ".gitattributes", ".gitmodules", ".gitignore", ".mcp.json", "claude.md",
+    "claude.local.md", "agents.md", ".npmrc", ".pypirc", "makefile", "justfile", "taskfile.yml",
+}  # fmt: skip
 _FILE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 
 
@@ -213,107 +215,35 @@ def _file_paths(dr, tool_name: str, tool_input: dict, cwd: str | None) -> list[s
 
 
 def _in_practice(path: str, cwd: str | None, project_root: str | None) -> bool:
-    """True when ``path`` (resolved against ``cwd``, symlinks followed) is inside the practice and outside its protected dirs."""
+    """True when ``path`` (resolved against ``cwd``, symlinks followed) is inside the practice, outside its protected
+    directories, not a protected file, and not a hard link to another file (an edit through it changes that file too)."""
     if not project_root:
         return False
     raw = os.path.expanduser(path)
     full = raw if os.path.isabs(raw) else os.path.join(cwd or os.getcwd(), raw)
     real, root = os.path.realpath(full), os.path.realpath(project_root)
-    if real != root and not real.startswith(root + os.sep):
+    if real == root or not real.startswith(root + os.sep):
         return False
-    return not any(part in _PROTECTED_PARTS for part in Path(os.path.relpath(real, root)).parts)
-
-
-def _commit_args_ok(args: list[str]) -> str | None:
-    """None when every git commit argument is a plain message or a benign flag; else the first that is not."""
-    i = 0
-    while i < len(args):
-        a = args[i]
-        if a in ("-m", "--message"):
-            i += 2
-            continue
-        if a.startswith("--message=") or a in ("-a", "--all", "-q", "--quiet", "-s", "--signoff", "-v", "--verbose"):
-            i += 1
-            continue
-        if a.startswith("-") and not a.startswith("--") and set(a[1:]) <= set("aqsvm"):
-            i += 2 if a.endswith("m") else 1  # a cluster such as -am takes the message next
-            continue
-        return a
-    return None
-
-
-def _statement_why(words: list[str], cwd: str | None, project_root: str | None) -> str | None:
-    """Why one shell statement is not trivial, or None when it is."""
-    program, args = words[0], words[1:]
-    if program not in _COMMANDS:
-        return f"{program} is not one of the commands discipline mode runs without a transaction (git add/commit/mv/rm, mkdir, touch)"
-    if program == "git":
-        verb = args[0] if args else ""
-        if verb not in _GIT_VERBS:
-            return f"git {verb or '(no verb)'} is not one of git add, commit, mv, rm"
-        rest = args[1:]
-        if verb == "commit":
-            bad = _commit_args_ok(rest)
-            return f"git commit {bad} is not allowed without a transaction" if bad else None
-        allowed_flags = {
-            "add": {"-A", "--all", "-u", "--update", "--"},
-            "mv": {"--"},
-            "rm": {"-q", "--quiet", "--cached", "--"},
-        }
-        for a in rest:
-            if a.startswith("-") and a not in allowed_flags[verb]:
-                return f"git {verb} {a} is not allowed without a transaction"
-        paths = [a for a in rest if not a.startswith("-")]
-    else:
-        flags = [a for a in args if a.startswith("-")]
-        if any(f not in ({"-p", "--parents"} if program == "mkdir" else set()) for f in flags):
-            return f"{program} {flags[0]} is not allowed without a transaction"
-        paths = [a for a in args if not a.startswith("-")]
-        if not paths:
-            return f"{program} names nothing to change"
-    outside = [p for p in paths if not _in_practice(p, cwd, project_root)]
-    if outside:
-        return f"{outside[0]} is outside the practice or in a protected directory"
-    return None
-
-
-def _shell_why(command: str, cwd: str | None, project_root: str | None) -> str | None:
-    if any(marker in command for marker in ("$(", "`", "<<")):
-        return "what it changes cannot be read from its text"
+    parts = [part.casefold() for part in Path(os.path.relpath(real, root)).parts]
+    if any(part in _PROTECTED_PARTS for part in parts) or parts[-1] in _PROTECTED_NAMES:
+        return False
     try:
-        lexer = shlex.shlex(command.replace("\n", " ; "), posix=True, punctuation_chars=True)
-        lexer.whitespace_split = True
-        tokens = list(lexer)
-    except ValueError:
-        return "its text does not parse"
-    statements: list[list[str]] = [[]]
-    for token in tokens:
-        if token in ("&&", ";"):
-            statements.append([])
-        elif token and set(token) <= _PUNCTUATION:
-            return f"it uses {token!r} (a redirect, pipe or background job)"
-        else:
-            statements[-1].append(token)
-    statements = [st for st in statements if st]
-    if not statements:
-        return "it changes nothing"
-    if not _in_practice(cwd or os.getcwd(), None, project_root) and os.path.realpath(
-        cwd or os.getcwd()
-    ) != os.path.realpath(project_root or "/nonexistent"):
-        return "its working directory is outside the practice"
-    for words in statements:
-        why = _statement_why(words, cwd, project_root)
-        if why:
-            return why
-    return None
+        if os.stat(real).st_nlink > 1:
+            return False
+    except FileNotFoundError:
+        pass  # a new file has no other names
+    except OSError:
+        return False
+    return True
 
 
 def judge(tool_name: str, tool_input, *, cwd: str | None, project_root: str | None, empirica_is_read=None) -> dict:
     """Whether this call may run as an out-of-loop act: {"trivial": bool, "classes": [...], "why": str}.
 
-    An allowlist: a file edit inside the practice (symlinks followed, protected dirs excluded), or a shell command made only of
-    git add/commit/mv/rm, mkdir and touch on paths inside the practice, joined by && or ;. ``empirica_is_read`` is accepted for
-    the caller's signature and unused."""
+    Only a file edit (Edit, Write, MultiEdit, NotebookEdit) whose real path is inside the practice, outside its protected
+    directories and files, and not a hard link. Every shell command needs a transaction: an allowlist checked with a Python
+    tokenizer was bypassed ten ways by what bash does and shlex does not model (comments, ANSI-C quoting, brace and IFS
+    expansion, pathspec magic; 1.14.23 sweep, second pass). ``empirica_is_read`` is accepted for the caller's signature."""
     tool_input = tool_input if isinstance(tool_input, dict) else {}
     if tool_name in _FILE_TOOLS:
         paths = _file_paths(_decision_record(), tool_name, tool_input, cwd)
@@ -324,20 +254,16 @@ def judge(tool_name: str, tool_input, *, cwd: str | None, project_root: str | No
             return {
                 "trivial": False,
                 "classes": ["outside_write"],
-                "why": f"{outside[0]} is outside the practice or in a protected directory",
+                "why": f"{outside[0]} is outside the practice, protected, or a hard link",
             }
         return {"trivial": True, "classes": ["project_write"], "why": ""}
     if tool_name == "Bash":
-        command = str(tool_input.get("command") or "")
-        why = _shell_why(command, cwd, project_root)
-        if why:
-            return {"trivial": False, "classes": ["unknown"], "why": why}
         return {
-            "trivial": True,
-            "classes": ["vcs_local" if command.lstrip().startswith("git") else "project_write"],
-            "why": "",
+            "trivial": False,
+            "classes": ["unknown"],
+            "why": "shell commands need a transaction in discipline mode (only file edits inside the practice do not)",
         }
-    return {"trivial": False, "classes": ["external_tool"], "why": f"{tool_name} is not a file edit or a shell command"}
+    return {"trivial": False, "classes": ["external_tool"], "why": f"{tool_name} is not a file edit"}
 
 
 # ── plan-shaped work: no budget ────────────────────────────────────────────────────────────────────────────────────────
