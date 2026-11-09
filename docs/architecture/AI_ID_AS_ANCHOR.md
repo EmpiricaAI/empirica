@@ -50,7 +50,7 @@ ai_id resolution (InstanceResolver.ai_id):
        e. None — DO NOT fall back to cwd
 
   3. project.yaml `ai_id` field at the resolved path
-     → source of truth; written by setup-claude-code at project init,
+     → source of truth; written by `empirica project-init`,
        overridable at provisioning time
 
   4. basename(project_path).removeprefix('empirica-')
@@ -94,13 +94,13 @@ Illegitimate (avoid):
 `.empirica/project.yaml`'s `ai_id` field is the lever for non-default
 identity assignment. Three example scenarios:
 
-### Default: setup-claude-code derives at init
+### Default: project-init derives it
 
 ```bash
 # In ~/empirical-ai/empirica-cortex:
 empirica project-init
-# → project.yaml carries: ai_id: cortex
-#   (derived from basename via _derive_ai_id → InstanceResolver.ai_id chain)
+# → project.yaml carries: ai_id: empirica-cortex
+#   (the exact directory basename, prefix kept: project_init._derive_ai_id)
 ```
 
 ### Sandbox provisioning: explicit ai_id

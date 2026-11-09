@@ -276,9 +276,8 @@ refuses at once. A basename subscription is accepted by ntfy, matches no event, 
 chat-layer shorthand documented in `*-org-prompt.md`; they are NOT
 the local `ai_id` and NOT wire-valid.
 
-**Where it's written:** `setup-claude-code` (via the `project_init`
-handler) derives the local `ai_id` and persists it in
-`.empirica/project.yaml`. The implementation is the directory
+**Where it's written:** `empirica project-init` derives the local
+`ai_id` and persists it in `.empirica/project.yaml`. The implementation is the directory
 basename — see `empirica.cli.command_handlers.project_init._derive_ai_id`.
 
 **Where it's read:** AI sessions read `ai_id` from project.yaml at
@@ -489,7 +488,7 @@ per the structure above.
 **Step 3 — Setup the Claude Code plugin.**
 
 ```bash
-empirica setup --force
+empirica setup          # after an upgrade, --force re-registers Empirica's hooks
 ```
 
 This installs the hooks (including `session-monitor-arm.py` which arms

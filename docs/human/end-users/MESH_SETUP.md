@@ -96,10 +96,11 @@ If you're being onboarded into an existing organisation (e.g., your team already
 
 ## Step 2 — Configure Credentials
 
-Run the setup-claude-code wizard, which discovers and persists creds for you:
+Run setup in an interactive terminal: when credentials are missing, its wizard asks for them and saves them
+(it is skipped with `--output json` or when stdin is not a terminal):
 
 ```bash
-empirica setup --force
+empirica setup
 ```
 
 The wizard prompts for:
@@ -183,7 +184,7 @@ For each project you want included in the mesh:
 ```bash
 cd your-project
 empirica project-init                       # if not already done
-empirica setup --force          # if you haven't run it for this project
+empirica setup                  # once per machine, if you haven't (it is not per project)
 empirica projects-sync                      # discovers + registers locally + pushes to Cortex
 ```
 
