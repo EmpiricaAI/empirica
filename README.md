@@ -438,21 +438,20 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.14.22
+## What's New in 1.14.23
 
-- **The cockpit has bars.** Practices and their health are on top; under each pane is a line of commands, red when something is broken and orange when something waits. Click it for a menu with a Close item, or press `Ctrl+b e` and a letter; `?` opens a guide to working with practices, shipped in the package.
-- **The Sentinel records its decisions.** Every PreToolUse decision is a line in the practice's `.empirica/decisions.jsonl`, with its outcome after the call, what a shell command's text says it will change, and, on a sample of calls, what it was observed to change. The input is kept only as a hash. Against 1.14.21 a gated call costs 1 to 3 ms more.
-- **A project's domain is a domain name.** `domain:` names a domain file, PREFLIGHT starts from it, and `project-init`, `project-update` and `provision-practice` refuse anything else; project types are one list with a meaning each.
-- **`provision-practice` sets a practice up completely:** `--type`, `--description`, `--domain`, a `.gitignore` that keeps only `project.yaml` under `.empirica`, and `--second-pane` for a second AI app beside the first in the same window.
-- **The listener creates one TLS context per process** instead of one per call, which grew its memory on every tick. The side-by-side measurement of the effect is still running.
-- **Commands print their answer once and refuse with exit 1.** Fourteen printed their JSON twice and several refusals exited 0; a test walks every command handler for both shapes.
+- **Empirica can be installed into one repository only.** `empirica setup --scope project` writes nothing under `~/.claude`; the machine-wide install stays the default, and both are removed with `--uninstall`, then `--apply`.
+- **Every practice has instructions of its own** from its first session: a generated facts file, and a `CLAUDE.md` started for a new practice and grown by approved changes.
+- **The cockpit shows which practice is waiting on you,** with a desktop notification, and `refresh` resumes each pane's own conversation by id.
+- **The Sentinel has an opt-in discipline mode:** small file edits inside a practice may run without a transaction, up to a budget you set; everything else still needs one.
+- **Keyword matchers stop firing on look-alike text,** in the uninstall, the Sentinel, the decision record, the failure filter and the prompt hints, each with tests of what it must not match.
 
-All 25 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 13 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.14.22** — The cockpit has bars. Practices and their health are on top; under each pane is a line of commands, red when something is broken and orange when something…
 - **1.14.21** — `empirica-mcp` is removed, and the CLI is the one integration surface. All 79 of its tools ran the `empirica` CLI as a subprocess (69 distinct verbs), the…
-- **1.14.20** — project-bootstrap shows the whole picture. Decisions come newest first from SQLite with an exact total, the semantic links among the artifacts shown are li…
 
 ## What's Coming
 

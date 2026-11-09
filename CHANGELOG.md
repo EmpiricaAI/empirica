@@ -5,7 +5,15 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.14.23] - 2026-11-10
+
+### Highlights
+
+- **Empirica can be installed into one repository only.** `empirica setup --scope project` writes nothing under `~/.claude`; the machine-wide install stays the default, and both are removed with `--uninstall`, then `--apply`.
+- **Every practice has instructions of its own** from its first session: a generated facts file, and a `CLAUDE.md` started for a new practice and grown by approved changes.
+- **The cockpit shows which practice is waiting on you,** with a desktop notification, and `refresh` resumes each pane's own conversation by id.
+- **The Sentinel has an opt-in discipline mode:** small file edits inside a practice may run without a transaction, up to a budget you set; everything else still needs one.
+- **Keyword matchers stop firing on look-alike text,** in the uninstall, the Sentinel, the decision record, the failure filter and the prompt hints, each with tests of what it must not match.
 
 ### Added
 

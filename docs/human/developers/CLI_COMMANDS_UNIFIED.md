@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.14.22
-**Generated:** 2026-11-09 10:49:55 UTC
+**Framework version:** 1.14.23
+**Generated:** 2026-11-09 23:07:42 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -2966,6 +2966,22 @@ Show Sentinel pause state
   Fan out across ALL live instances of the resolved practice (required when an ai_id maps to >1 live instance)
 - `--global` — optional · flag
   Target the single global pause file (pauses the Sentinel for ALL instances, present and future). Broadest scope — overrides --instance/--all.
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format (default: human)
+
+
+##### `empirica sentinel mode`
+
+Show or set the Sentinel mode and the out-of-loop budget
+
+**Arguments:**
+
+- `value` — **required** · type=`choice` · choices={strict, discipline, off}
+  The mode to set
+- `--max-act-without-gate` — optional · type=`int`
+  Changes allowed outside a transaction before PREFLIGHT is required (0 to 1000)
+- `--seat` — optional · flag
+  Write ~/.empirica/config.yaml (every practice on this seat) instead of this practice's .empirica/config.yaml
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format (default: human)
 
