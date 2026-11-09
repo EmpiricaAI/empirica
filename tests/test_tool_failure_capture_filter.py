@@ -116,3 +116,38 @@ def test_an_ok_true_inside_a_longer_failure_report_does_not_hide_a_nested_error_
     """Control for the other direction: a result that lists a failed item must still be captured."""
     error = 'Exit code 2\n{"results": [{"ok": true}, {"ok": false, "error": "cortex rejected the payload: schema mismatch"}]}'
     assert hook._is_interesting_failure("Bash", error) is True
+
+
+# ── near misses: a genuine failure that merely contains a success word (goal 546e7c33) ─────────────────────────────────────
+#
+# The success markers were bare substrings, so a failure whose text shares a word or an arrow with a success was vetoed as
+# "the work landed". Each case below is a real failure shape that must still be captured; the positive controls above (a
+# landed push, `12 passed`, `3 files changed`, `Successfully installed`) must still veto.
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        "error[E0425]: cannot find value `cfg` in this scope\n --> src/main.rs:2:5\n  |\n2 |     cfg.load()\n  |     ^^^ not found",
+        'Traceback (most recent call last):\n  File "a.py", line 3, in load\n    def load(path: str) -> dict:\n'
+        "TypeError: load() got an unexpected keyword argument 'strict' in the vendored client",
+        "TypeError: too many positional arguments passed to load_config(); the 2.x API takes a single mapping",
+        "Successfully built qdrant-client\nFailed to build hnswlib\nERROR: Could not build wheels for hnswlib",
+        "ImportError: cannot import name 'AsyncClient' -> the module was split into qdrant_client.async_qdrant_client",
+    ],
+)
+def test_a_failure_that_only_shares_a_success_word_is_still_captured(hook, error):
+    assert hook._is_interesting_failure("Bash", error) is True
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        "Exit code 1\nTo github.com:o/r.git\n * [new branch]      feat -> feat\nthen: timeout waiting for CI",
+        "Exit code 1\n[develop 1a2b3c4] fix x\n 1 file changed, 2 insertions(+)\ngh: run not found yet",
+        "Exit code 1\n3 failed, 41 passed in 2.10s",
+        "Exit code 1\nSuccessfully installed empirica-1.14.22\nthen the import check failed",
+    ],
+)
+def test_the_success_shapes_still_veto(hook, error):
+    assert hook._is_interesting_failure("Bash", error) is False

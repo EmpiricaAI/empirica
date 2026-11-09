@@ -62,16 +62,20 @@ IGNORE_PATTERNS = [
     "Temporary failure in name resolution",
 ]
 
-# Substrings that indicate the command actually DID its work before something else in
+# Output shapes that indicate the command actually DID its work before something else in
 # the same invocation failed. A partial success must never be recorded as an approach
 # that does not work.
+#
+# Each is the SHAPE the success takes, not a word from it: as bare substrings, "->" vetoed every Rust compile error
+# (`--> src/main.rs:2:5`) and any traceback quoting an annotated signature, "passed" vetoed "too many arguments passed",
+# and "Successfully" vetoed pip's "Successfully built x ... Failed to build y" (goal 546e7c33).
 SUCCESS_MARKERS = [
-    " -> ",  # git push refspec output
-    "->",
-    "files changed",
-    "Successfully",
-    "✅",
-    "passed",
+    re.compile(r"^\s+[0-9a-f]{7,}\.\.\.?[0-9a-f]{7,}\s+\S+ -> \S+", re.M),  # git push: old..new  src -> dst
+    re.compile(r"^\s*[*+] \[new (?:branch|tag)\]\s+\S+ -> \S+", re.M),  # git push of a new branch or tag
+    re.compile(r"\b\d+ files? changed\b"),  # git commit / diff --stat
+    re.compile(r"\bSuccessfully (?:installed|uninstalled|tagged|created|pushed|deployed|published|updated|merged)\b"),
+    re.compile(r"\b\d+ passed\b"),  # pytest's summary line
+    re.compile("\u2705"),
 ]
 
 # The CLI reports its own success as JSON. A result that says `"ok": true` is work that landed whatever the process exit
@@ -95,7 +99,7 @@ def _is_interesting_failure(tool_name: str, error: str) -> bool:
         return False
     # If the output shows the work landed, the command did not fail in the sense that
     # matters — something later in the same invocation did.
-    if any(marker in error for marker in SUCCESS_MARKERS):
+    if any(marker.search(error) for marker in SUCCESS_MARKERS):
         return False
     if _OK_TRUE.search(error) and not _OK_FALSE.search(error):
         return False
