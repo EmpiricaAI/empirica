@@ -48,6 +48,7 @@ AGENT_DOMAINS = {
             "threat",
             "attack",
             "sanitiz",
+            "oauth",
         ],
         "description": "Security analysis and hardening",
     },
@@ -694,11 +695,37 @@ def determine_mode(vectors):
     return "cautious_implementation"
 
 
+# Keywords match words, not substrings: as substrings "auth" matched "author", "ux" "linux", "layer" "player", "review"
+# "preview" and "check" "checkout", and "investigate" missed "investigating" (goal 546e7c33). A keyword matches itself and
+# its regular inflections; the stems below are prefixes on purpose and match any word they begin.
+_STEMS = frozenset({"sanitiz", "scalab", "optimiz", "profil", "query optim", "calibrat"})
+_KEYWORD_RES: dict[str, re.Pattern] = {}
+
+
+def _keyword_re(kw: str) -> re.Pattern:
+    rx = _KEYWORD_RES.get(kw)
+    if rx is None:
+        if kw in _STEMS:
+            body = re.escape(kw) + r"\w*"
+        elif kw.endswith("e"):
+            body = re.escape(kw[:-1]) + r"(?:e|es|ed|ing|ion|ions)\b"
+        elif kw.endswith("y") and len(kw) > 3:
+            body = re.escape(kw[:-1]) + r"(?:y|ies|ied)\b"
+        else:
+            body = re.escape(kw) + r"(?:s|es|ed|ing|ion|ions)?\b"
+        rx = _KEYWORD_RES[kw] = re.compile(r"(?<![\w])" + body)
+    return rx
+
+
+def _keyword_hits(text: str, keywords) -> int:
+    return sum(1 for kw in keywords if _keyword_re(kw).search(text))
+
+
 def match_agents(task_lower):
     """Match task keywords to domain-specific agents."""
     matches = []
     for agent_name, config in AGENT_DOMAINS.items():
-        keyword_hits = sum(1 for kw in config["keywords"] if kw in task_lower)
+        keyword_hits = _keyword_hits(task_lower, config["keywords"])
         if keyword_hits > 0:
             confidence = min(0.95, 0.5 + keyword_hits * 0.15)
             matches.append(
@@ -715,20 +742,20 @@ def match_agents(task_lower):
 
 def is_investigation_task(task_lower):
     """Check if the task suggests investigation/exploration."""
-    return any(kw in task_lower for kw in INVESTIGATION_KEYWORDS)
+    return _keyword_hits(task_lower, INVESTIGATION_KEYWORDS) > 0
 
 
 def is_epistemic_task(task_lower):
     """Check if the task involves epistemic workflow."""
-    return any(kw in task_lower for kw in EPISTEMIC_KEYWORDS)
+    return _keyword_hits(task_lower, EPISTEMIC_KEYWORDS) > 0
 
 
 def is_blindspot_relevant(task_lower, mode, vectors):
     """Check if blindspot scanning would be valuable for this task."""
     # Explicit blindspot keywords
-    if any(
-        kw in task_lower
-        for kw in [
+    if _keyword_hits(
+        task_lower,
+        [
             "blindspot",
             "blind spot",
             "unknown unknown",
@@ -739,7 +766,7 @@ def is_blindspot_relevant(task_lower, mode, vectors):
             "coverage gap",
             "gap in",
             "gaps in",
-        ]
+        ],
     ):
         return True
     # High uncertainty + investigation mode
@@ -818,8 +845,8 @@ def _mode_based_advice(
         return [
             "Uncertainty is high — use `empirica investigate` or spawn a domain agent for systematic investigation."
         ]
-    if mode == "cautious_implementation" and any(
-        kw in task_lower for kw in ["try", "attempt", "approach", "workaround", "fix"]
+    if mode == "cautious_implementation" and _keyword_hits(
+        task_lower, ["try", "attempt", "approach", "workaround", "fix"]
     ):
         return ["If this approach doesn't work, log it with `empirica deadend-log` to prevent re-exploration."]
     return []
