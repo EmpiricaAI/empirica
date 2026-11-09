@@ -25,6 +25,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import time
 from pathlib import Path
 
@@ -38,35 +39,14 @@ ENV_MODE = "EMPIRICA_SENTINEL_MODE"
 ENV_BUDGET = "EMPIRICA_MAX_ACT_WITHOUT_GATE"
 BUDGET_MAX = 1000
 
-#: Effect classes that always need a transaction, whatever the budget: outward, irreversible, or outside the practice.
-ALWAYS_GATED = frozenset(
-    {
-        "vcs_remote",
-        "install",
-        "delete_recursive",
-        "remote_exec",
-        "network_send",
-        "credential_write",
-        "config_write",
-        "outside_write",
-        "process",
-    }
-)
-#: Effect classes an out-of-loop act may have.
-TRIVIAL = frozenset({"project_write", "empirica_state", "vcs_local"})
-#: Programs whose subcommand publishes, and those subcommands.
-_PUBLISHERS = {
-    "npm": {"publish"},
-    "pnpm": {"publish"},
-    "yarn": {"publish", "npm"},
-    "cargo": {"publish"},
-    "twine": {"upload"},
-    "gem": {"push"},
-    "poetry": {"publish"},
-    "uv": {"publish"},
-    "flit": {"publish"},
-    "hatch": {"publish"},
-}
+#: What discipline mode runs outside a transaction is an ALLOWLIST, and it fails closed. An earlier draft allowed anything whose
+#: effects the decision record inferred as project-local; the 1.14.23 sweep found that inference let git config / clean / reset /
+#: clone, sed -ri, curl -o, cp -t, symlinks and git -C through (finding fddc9b63). The inference stays a record, not a gate.
+_GIT_VERBS = {"add", "commit", "mv", "rm"}
+_COMMANDS = {"git", "mkdir", "touch"}
+#: Directories inside a practice whose files configure tools that run code or govern this mode: never written out of loop.
+_PROTECTED_PARTS = {".git", ".claude", ".codex", ".empirica", ".vscode", ".idea"}
+_PUNCTUATION = set("();<>|&")
 _FILE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 
 
@@ -165,15 +145,26 @@ def write_setting(path: Path, *, mode: str | None = None, budget: int | None = N
         raise ValueError(f"mode must be one of {', '.join(MODES)}")
     if budget is not None and _valid_budget(budget) is None:
         raise ValueError(f"max-act-without-gate must be a whole number from 0 to {BUDGET_MAX}")
-    block = dict(_sentinel_block(path))
+    existing = _sentinel_block(path)
+    block: dict = {}
+    if _valid_mode(existing.get("mode")) is not None:  # a bare `off` reads back as False and is kept as off
+        block["mode"] = _valid_mode(existing.get("mode"))
+    if _valid_budget(existing.get("max_act_without_gate")) is not None:
+        block["max_act_without_gate"] = _valid_budget(existing.get("max_act_without_gate"))
+    extra = {k: v for k, v in existing.items() if k not in ("mode", "max_act_without_gate")}
     if mode is not None:
         block["mode"] = _valid_mode(mode)
     if budget is not None:
         block["max_act_without_gate"] = _valid_budget(budget)
-    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    target = Path(os.path.realpath(path))  # write through a symlink, never replace it with a plain file
+    lines = target.read_text(encoding="utf-8").splitlines() if target.is_file() else []
     start = next((i for i, line in enumerate(lines) if re.match(r"^sentinel\s*:", line)), None)
     if start is not None:
-        end = next((j for j in range(start + 1, len(lines)) if _TOP_LEVEL_KEY.match(lines[j])), len(lines))
+        # The block is the indented lines right after it; the first blank or unindented line ends it, so nothing after the
+        # block (a comment, a quoted or dotted key) is ever deleted.
+        end = start + 1
+        while end < len(lines) and lines[end].strip() and lines[end][:1] in (" ", "\t"):
+            end += 1
         del lines[start:end]
     else:
         if lines and lines[-1].strip():
@@ -184,12 +175,14 @@ def write_setting(path: Path, *, mode: str | None = None, budget: int | None = N
         rendered.append(f'  mode: "{block["mode"]}"')  # quoted: a bare off would read back as false
     if "max_act_without_gate" in block:
         rendered.append(f"  max_act_without_gate: {block['max_act_without_gate']}")
-    rendered += [f"  {k}: {json.dumps(v)}" for k, v in block.items() if k not in ("mode", "max_act_without_gate")]
+    rendered += [f"  {k}: {json.dumps(v)}" for k, v in extra.items()]
     lines[start:start] = rendered
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(target.suffix + ".tmp")
     tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    if target.exists():
+        os.chmod(tmp, target.stat().st_mode & 0o7777)
+    tmp.replace(target)
     return {k: block[k] for k in ("mode", "max_act_without_gate") if k in block}
 
 
@@ -207,22 +200,6 @@ def _decision_record():
     return module
 
 
-def _publishes(dr, command: str) -> str | None:
-    """The publishing step in a shell command (`git tag v1`, `npm publish`, `twine upload`), or None."""
-    for words in dr._statements(command) or []:
-        program, args = dr._program_and_args(words)
-        positional = [a for a in args if not a.startswith("-")]
-        listing = {"-l", "--list", "-n", "--contains", "--no-contains", "--points-at", "--merged", "--no-merged", "-d"}
-        if program == "git" and positional[:1] == ["tag"] and len(positional) > 1 and not listing & set(args):
-            return "git tag"  # creating a tag; listing (`-l 'v1*'`) and deleting a local one (`-d`) are not publishing
-        if program == "gh" and positional[:1] == ["release"]:
-            return "gh release"
-        verbs = _PUBLISHERS.get(program)
-        if verbs and positional[:1] and positional[0] in verbs:
-            return f"{program} {positional[0]}"
-    return None
-
-
 def _file_paths(dr, tool_name: str, tool_input: dict, cwd: str | None) -> list[str]:
     """The files a file tool writes, absolute: a relative path is read against the call's working directory."""
     if tool_name == "MultiEdit":
@@ -235,42 +212,132 @@ def _file_paths(dr, tool_name: str, tool_input: dict, cwd: str | None) -> list[s
     return [p if os.path.isabs(os.path.expanduser(p)) else os.path.join(base, p) for p in raw]
 
 
-def judge(tool_name: str, tool_input, *, cwd: str | None, project_root: str | None, empirica_is_read) -> dict:
-    """Whether this call may run as an out-of-loop act: {"trivial": bool, "classes": [...], "why": str}."""
+def _in_practice(path: str, cwd: str | None, project_root: str | None) -> bool:
+    """True when ``path`` (resolved against ``cwd``, symlinks followed) is inside the practice and outside its protected dirs."""
+    if not project_root:
+        return False
+    raw = os.path.expanduser(path)
+    full = raw if os.path.isabs(raw) else os.path.join(cwd or os.getcwd(), raw)
+    real, root = os.path.realpath(full), os.path.realpath(project_root)
+    if real != root and not real.startswith(root + os.sep):
+        return False
+    return not any(part in _PROTECTED_PARTS for part in Path(os.path.relpath(real, root)).parts)
+
+
+def _commit_args_ok(args: list[str]) -> str | None:
+    """None when every git commit argument is a plain message or a benign flag; else the first that is not."""
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in ("-m", "--message"):
+            i += 2
+            continue
+        if a.startswith("--message=") or a in ("-a", "--all", "-q", "--quiet", "-s", "--signoff", "-v", "--verbose"):
+            i += 1
+            continue
+        if a.startswith("-") and not a.startswith("--") and set(a[1:]) <= set("aqsvm"):
+            i += 2 if a.endswith("m") else 1  # a cluster such as -am takes the message next
+            continue
+        return a
+    return None
+
+
+def _statement_why(words: list[str], cwd: str | None, project_root: str | None) -> str | None:
+    """Why one shell statement is not trivial, or None when it is."""
+    program, args = words[0], words[1:]
+    if program not in _COMMANDS:
+        return f"{program} is not one of the commands discipline mode runs without a transaction (git add/commit/mv/rm, mkdir, touch)"
+    if program == "git":
+        verb = args[0] if args else ""
+        if verb not in _GIT_VERBS:
+            return f"git {verb or '(no verb)'} is not one of git add, commit, mv, rm"
+        rest = args[1:]
+        if verb == "commit":
+            bad = _commit_args_ok(rest)
+            return f"git commit {bad} is not allowed without a transaction" if bad else None
+        allowed_flags = {
+            "add": {"-A", "--all", "-u", "--update", "--"},
+            "mv": {"--"},
+            "rm": {"-q", "--quiet", "--cached", "--"},
+        }
+        for a in rest:
+            if a.startswith("-") and a not in allowed_flags[verb]:
+                return f"git {verb} {a} is not allowed without a transaction"
+        paths = [a for a in rest if not a.startswith("-")]
+    else:
+        flags = [a for a in args if a.startswith("-")]
+        if any(f not in ({"-p", "--parents"} if program == "mkdir" else set()) for f in flags):
+            return f"{program} {flags[0]} is not allowed without a transaction"
+        paths = [a for a in args if not a.startswith("-")]
+        if not paths:
+            return f"{program} names nothing to change"
+    outside = [p for p in paths if not _in_practice(p, cwd, project_root)]
+    if outside:
+        return f"{outside[0]} is outside the practice or in a protected directory"
+    return None
+
+
+def _shell_why(command: str, cwd: str | None, project_root: str | None) -> str | None:
+    if any(marker in command for marker in ("$(", "`", "<<")):
+        return "what it changes cannot be read from its text"
+    try:
+        lexer = shlex.shlex(command.replace("\n", " ; "), posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return "its text does not parse"
+    statements: list[list[str]] = [[]]
+    for token in tokens:
+        if token in ("&&", ";"):
+            statements.append([])
+        elif token and set(token) <= _PUNCTUATION:
+            return f"it uses {token!r} (a redirect, pipe or background job)"
+        else:
+            statements[-1].append(token)
+    statements = [st for st in statements if st]
+    if not statements:
+        return "it changes nothing"
+    if not _in_practice(cwd or os.getcwd(), None, project_root) and os.path.realpath(
+        cwd or os.getcwd()
+    ) != os.path.realpath(project_root or "/nonexistent"):
+        return "its working directory is outside the practice"
+    for words in statements:
+        why = _statement_why(words, cwd, project_root)
+        if why:
+            return why
+    return None
+
+
+def judge(tool_name: str, tool_input, *, cwd: str | None, project_root: str | None, empirica_is_read=None) -> dict:
+    """Whether this call may run as an out-of-loop act: {"trivial": bool, "classes": [...], "why": str}.
+
+    An allowlist: a file edit inside the practice (symlinks followed, protected dirs excluded), or a shell command made only of
+    git add/commit/mv/rm, mkdir and touch on paths inside the practice, joined by && or ;. ``empirica_is_read`` is accepted for
+    the caller's signature and unused."""
     tool_input = tool_input if isinstance(tool_input, dict) else {}
-    dr = _decision_record()
     if tool_name in _FILE_TOOLS:
-        paths = _file_paths(dr, tool_name, tool_input, cwd)
+        paths = _file_paths(_decision_record(), tool_name, tool_input, cwd)
         if not paths:
             return {"trivial": False, "classes": ["unknown"], "why": "the file it writes cannot be read from the call"}
-        classes = sorted({dr.path_effect(p, project_root) for p in paths})
-    elif tool_name == "Bash":
+        outside = [p for p in paths if not _in_practice(p, cwd, project_root)]
+        if outside:
+            return {
+                "trivial": False,
+                "classes": ["outside_write"],
+                "why": f"{outside[0]} is outside the practice or in a protected directory",
+            }
+        return {"trivial": True, "classes": ["project_write"], "why": ""}
+    if tool_name == "Bash":
         command = str(tool_input.get("command") or "")
-        step = _publishes(dr, command)
-        if step:
-            return {"trivial": False, "classes": ["vcs_remote"], "why": f"{step} publishes"}
-        inferred = dr.infer_shell_effects(
-            command, cwd=cwd, project_path=project_root, empirica_is_read=empirica_is_read
-        )
-        classes = inferred["classes"]
-        if not inferred["reliable"]:
-            return {"trivial": False, "classes": classes, "why": "what it changes cannot be read from its text"}
-    else:
+        why = _shell_why(command, cwd, project_root)
+        if why:
+            return {"trivial": False, "classes": ["unknown"], "why": why}
         return {
-            "trivial": False,
-            "classes": ["external_tool"],
-            "why": f"{tool_name} is not a file edit or a shell command",
+            "trivial": True,
+            "classes": ["vcs_local" if command.lstrip().startswith("git") else "project_write"],
+            "why": "",
         }
-    gated = sorted(set(classes) & ALWAYS_GATED)
-    if gated:
-        return {"trivial": False, "classes": classes, "why": f"it changes {', '.join(gated)}"}
-    if not set(classes) <= TRIVIAL:
-        return {
-            "trivial": False,
-            "classes": classes,
-            "why": f"its effect is {', '.join(sorted(set(classes) - TRIVIAL))}",
-        }
-    return {"trivial": True, "classes": classes, "why": ""}
+    return {"trivial": False, "classes": ["external_tool"], "why": f"{tool_name} is not a file edit or a shell command"}
 
 
 # ── plan-shaped work: no budget ────────────────────────────────────────────────────────────────────────────────────────
@@ -425,7 +492,7 @@ def decide(
     if mode == "strict":
         return None
     if mode == "off":
-        return ("allow", f"Sentinel mode off ({settings['mode_source']}): allowed and recorded.")
+        return ("allow", f"Sentinel mode off ({settings['mode_source']}): allowed outside a transaction, not counted.")
     planning = plan_shaped(suffix, transcript_path)
     if planning:
         return ("deny", f"Outside a transaction, and this is planned work: {planning}. Open one with PREFLIGHT.")

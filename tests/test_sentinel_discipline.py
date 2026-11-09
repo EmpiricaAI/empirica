@@ -120,9 +120,10 @@ def _judge(home, tool, tool_input):
     [
         ("Edit", {"file_path": "src/app.py", "old_string": "a", "new_string": "b"}),
         ("Write", {"file_path": "README.md", "content": "x"}),
-        ("Bash", {"command": "sed -i 's/a/b/' src/app.py"}),
         ("Bash", {"command": "git add -A && git commit -m 'fix typo'"}),
-        ("Bash", {"command": "echo note >> NOTES.md"}),
+        ("Bash", {"command": "git commit -am 'fix: a < b and $HOME stay text'"}),
+        ("Bash", {"command": "mkdir -p docs/new; touch docs/new/a.md"}),
+        ("Bash", {"command": "git mv a.py b.py && git rm -q c.py"}),
     ],
 )
 def test_a_project_local_change_readable_from_the_call_is_trivial(home, tool, tool_input):
@@ -131,45 +132,81 @@ def test_a_project_local_change_readable_from_the_call_is_trivial(home, tool, to
 
 
 @pytest.mark.parametrize(
-    "tool, tool_input, why",
+    "tool, tool_input",
     [
-        ("Bash", {"command": "git commit -m x && git push"}, "vcs_remote"),
-        ("Bash", {"command": "git tag v1.2.0"}, "publishes"),
-        ("Bash", {"command": "npm publish"}, "publishes"),
-        ("Bash", {"command": "twine upload dist/*"}, "publishes"),
-        ("Bash", {"command": "gh release create v1"}, "publishes"),
-        ("Bash", {"command": "pip install requests"}, "install"),
-        ("Bash", {"command": "rm -rf build"}, "delete_recursive"),
-        ("Bash", {"command": "ssh host 'touch x'"}, "remote_exec"),
-        ("Bash", {"command": "curl -XPOST https://x/api"}, "network_send"),
-        ("Bash", {"command": "echo x >> ~/.bashrc"}, "config_write"),
-        ("Bash", {"command": "kill 1234"}, "process"),
-        ("Bash", {"command": "python3 -c 'print(1)'"}, "cannot be read"),
-        ("Bash", {"command": "echo $(date) > f"}, "cannot be read"),
-        ("Edit", {"file_path": "/etc/hosts", "old_string": "a", "new_string": "b"}, "outside_write"),
-        ("mcp__cortex__cortex_propose", {"title": "x"}, "not a file edit"),
+        ("Bash", {"command": "git commit -m x && git push"}),
+        ("Bash", {"command": "git tag v1.2.0"}),
+        ("Bash", {"command": "git -C . tag v9.9.9"}),
+        ("Bash", {"command": "git -c a=b commit -m x"}),
+        ("Bash", {"command": "git config --global core.hooksPath /tmp/h"}),
+        ("Bash", {"command": "git config core.fsmonitor 'rm -rf ~'"}),
+        ("Bash", {"command": "git clean -fdx"}),
+        ("Bash", {"command": "git reset --hard"}),
+        ("Bash", {"command": "git clone https://x/y.git ~/.config/x"}),
+        ("Bash", {"command": "git send-email a.patch"}),
+        ("Bash", {"command": "git commit --amend -m x"}),
+        ("Bash", {"command": "git rm -r src"}),
+        ("Bash", {"command": "git add -p"}),
+        ("Bash", {"command": "npm publish"}),
+        ("Bash", {"command": "twine upload dist/*"}),
+        ("Bash", {"command": "pip install requests"}),
+        ("Bash", {"command": "rm -rf build"}),
+        ("Bash", {"command": "rm notes.txt"}),
+        ("Bash", {"command": "ssh host 'touch x'"}),
+        ("Bash", {"command": "curl https://x/api -o ~/.bashrc"}),
+        ("Bash", {"command": "sed -i 's/a/b/' src/app.py"}),
+        ("Bash", {"command": "sed -ri 's/a/b/' ~/.bashrc"}),
+        ("Bash", {"command": "cp -t ~/.config/autostart f"}),
+        ("Bash", {"command": "echo x >& ~/.bashrc"}),
+        ("Bash", {"command": "echo note >> NOTES.md"}),
+        ("Bash", {"command": "cd /tmp && touch x"}),
+        ("Bash", {"command": "ln -s ~/.bashrc x"}),
+        ("Bash", {"command": "touch ~/.bashrc"}),
+        ("Bash", {"command": "touch .git/hooks/pre-commit"}),
+        ("Bash", {"command": "mkdir .claude/x"}),
+        ("Bash", {"command": "sudo touch x"}),
+        ("Bash", {"command": "FOO=1 touch x"}),
+        ("Bash", {"command": 'git commit -m "$(rm -rf ~)"'}),
+        ("Bash", {"command": "touch a | tee b"}),
+        ("Bash", {"command": "kill 1234"}),
+        ("Bash", {"command": "python3 -c 'print(1)'"}),
+        ("Edit", {"file_path": "/etc/hosts", "old_string": "a", "new_string": "b"}),
+        ("Edit", {"file_path": ".git/config", "old_string": "a", "new_string": "b"}),
+        ("Write", {"file_path": ".claude/settings.json", "content": "{}"}),
+        ("Write", {"file_path": ".empirica/config.yaml", "content": "sentinel: {}"}),
+        ("mcp__cortex__cortex_propose", {"title": "x"}),
     ],
 )
-def test_outward_or_unreadable_acts_are_never_trivial(home, tool, tool_input, why):
+def test_anything_off_the_allowlist_is_never_trivial(home, tool, tool_input):
     verdict = _judge(home, tool, tool_input)
-    assert verdict["trivial"] is False and why in verdict["why"], verdict
+    assert verdict["trivial"] is False and verdict["why"], verdict
 
 
-def test_listing_tags_is_not_publishing(home):
-    assert "publishes" not in _judge(home, "Bash", {"command": "git tag -l 'v1*'"})["why"]
+def test_a_symlink_inside_the_practice_that_points_out_is_outside(home):
+    import os
+
+    target = home[0] / "secret.txt"
+    target.write_text("x")
+    os.symlink(target, home[1] / "link.txt")
+    verdict = _judge(home, "Write", {"file_path": str(home[1] / "link.txt"), "content": "y"})
+    assert verdict["trivial"] is False and "outside" in verdict["why"]
+
+
+def test_git_status_style_reads_never_reach_the_allowlist_as_writes(home):
+    assert _judge(home, "Bash", {"command": "git tag -l 'v1*'"})["trivial"] is False  # not on the allowlist either way
 
 
 # ── the budget ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 
-def _decide(home, command="sed -i s/a/b/ f.txt", suffix="_t1"):
+def _decide(home, command="touch f.txt", suffix="_t1"):
     proj = home[1]
     return sd.decide(
         "Bash", {"command": command}, cwd=str(proj), project_root=str(proj), suffix=suffix, empirica_is_read=_is_read
     )
 
 
-def _answer(home, command="sed -i s/a/b/ f.txt", suffix="_t1") -> tuple[str, str]:
+def _answer(home, command="touch f.txt", suffix="_t1") -> tuple[str, str]:
     result = _decide(home, command, suffix)
     assert result is not None, "discipline mode always answers"
     return result
@@ -273,7 +310,7 @@ def test_discipline_allows_a_trivial_act_before_preflight_then_stops(gate, home,
 def test_discipline_still_refuses_a_push_before_preflight(gate, home, monkeypatch):
     monkeypatch.setenv(sd.ENV_MODE, "discipline")
     decision, message = gate._handle_no_preflight("Bash", {"command": "git push origin main"}, "s-1", "")
-    assert decision == "deny" and "vcs_remote" in message
+    assert decision == "deny" and "git push" in message
 
 
 def test_after_postflight_discipline_answers_too(gate, home, monkeypatch, capsys):
@@ -294,7 +331,7 @@ def test_without_a_resolvable_practice_every_write_is_outside_and_refused(gate, 
     monkeypatch.setenv(sd.ENV_MODE, "discipline")
     (home[1] / ".empirica" / "project.yaml").unlink()
     decision, message = gate._handle_no_preflight("Edit", _edit(home[1]), "s-1", "")
-    assert decision == "deny" and "outside_write" in message
+    assert decision == "deny" and "outside the practice" in message
 
 
 # ── empirica sentinel mode ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -491,3 +528,47 @@ def test_the_prompt_hook_sets_and_clears_the_flag(home, tmp_path):
 
     assert run("plan the next three transactions") != []
     assert run("rename the explorer panel") == []
+
+
+# ── write_setting keeps what it does not own (sweep fddc9b63) ───────────────────────────────────────────────────────────
+
+
+def test_a_hand_written_bare_off_survives_setting_the_budget(home):
+    path = home[0] / ".empirica" / "config.yaml"
+    path.write_text("sentinel:\n  mode: off\n")
+    sd.write_setting(path, budget=5)
+    assert sd.effective(None)["mode"] == "off" and sd.effective(None)["budget"] == 5
+
+
+def test_lines_after_the_block_are_kept_even_without_a_plain_key_between(home):
+    path = home[0] / ".empirica" / "config.yaml"
+    original = 'sentinel:\n  mode: strict\n\n# a comment about qdrant\n"quoted.key": 1\nqdrant.url: http://x\n'
+    path.write_text(original)
+    sd.write_setting(path, mode="discipline")
+    text = path.read_text()
+    assert '# a comment about qdrant\n"quoted.key": 1\nqdrant.url: http://x\n' in text
+    assert sd.effective(None)["mode"] == "discipline"
+
+
+def test_a_symlinked_config_is_written_through_and_keeps_its_permissions(home):
+    import os
+    import stat
+
+    real = home[0] / "real-config.yaml"
+    real.write_text("a: 1\n")
+    os.chmod(real, 0o600)
+    link = home[0] / ".empirica" / "config.yaml"
+    os.symlink(real, link)
+    sd.write_setting(link, mode="off")
+    assert link.is_symlink() and "sentinel:" in real.read_text()
+    assert stat.S_IMODE(real.stat().st_mode) == 0o600
+
+
+def test_preflight_keeps_the_ledger_when_the_transaction_file_cannot_take_it(home, monkeypatch):
+    from empirica.cli.command_handlers import _workflow_preflight as wp
+
+    monkeypatch.setattr(wp.R, "instance_suffix", staticmethod(lambda: "_pf3"))
+    monkeypatch.setenv(sd.ENV_MODE, "discipline")
+    _decide(home, suffix="_pf3")
+    entries = wp._preflight_take_out_of_loop(str(home[1]))  # no transaction file there
+    assert len(entries) == 1 and len(sd.ledger("_pf3")) == 1, "reported, and kept for a later PREFLIGHT"

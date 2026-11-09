@@ -605,7 +605,11 @@ def check_sentinel_mode(cwd: Path | None = None) -> Check:
     setting that was ignored as invalid, so a typo in a config file cannot silently leave the built-in in force."""
     from empirica.core import sentinel_discipline as sd
 
-    root = Path(cwd or Path.cwd())
+    here = Path(cwd or Path.cwd())
+    code, out, _err = _run(["git", "-C", str(here), "rev-parse", "--show-toplevel"])
+    root = (
+        Path(out.strip()) if code == 0 and out.strip() else here
+    )  # the git root, as `empirica sentinel mode` reads it
     practice = root if (root / ".empirica" / "project.yaml").exists() else None
     eff = sd.effective(practice)
     detail = f"{eff['mode']} ({eff['mode_source']}); max-act-without-gate {eff['budget']} ({eff['budget_source']})"

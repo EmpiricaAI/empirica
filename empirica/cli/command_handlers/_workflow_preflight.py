@@ -517,21 +517,24 @@ def _preflight_take_out_of_loop(resolved_project_path) -> list[dict]:
     import json as _json
 
     try:
-        from empirica.core.sentinel_discipline import take_ledger
+        from empirica.core import sentinel_discipline as sd
 
-        entries = take_ledger(R.instance_suffix())
+        entries = sd.ledger(R.instance_suffix())
     except Exception:
         return []
-    if entries and resolved_project_path:
-        try:
-            tx_file = Path(resolved_project_path) / ".empirica" / f"active_transaction{R.instance_suffix()}.json"
-            data = _json.loads(tx_file.read_text())
-            data["prior_untracked"] = entries
-            tmp = tx_file.with_suffix(".json.tmp")
-            tmp.write_text(_json.dumps(data, indent=2))
-            tmp.replace(tx_file)
-        except Exception as e:
-            logger.debug("prior_untracked not written to the transaction file: %s", e)
+    if not entries or not resolved_project_path:
+        return entries  # reported, but kept until a transaction file can hold them
+    try:
+        tx_file = Path(resolved_project_path) / ".empirica" / f"active_transaction{R.instance_suffix()}.json"
+        data = _json.loads(tx_file.read_text())
+        data["prior_untracked"] = entries
+        tmp = tx_file.with_suffix(".json.tmp")
+        tmp.write_text(_json.dumps(data, indent=2))
+        tmp.replace(tx_file)
+    except Exception as e:
+        logger.warning("prior_untracked not written to the transaction file, ledger kept: %s", e)
+        return entries
+    sd.take_ledger(R.instance_suffix())  # only once they are safely in the transaction
     return entries
 
 
