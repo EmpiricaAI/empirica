@@ -167,3 +167,17 @@ def test_importing_the_package_loads_none_of_its_modules():
     )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout.strip()
     assert out == "[]"
+
+
+def test_from_request_signature_is_what_cortex_calls():
+    """Cortex imports the contract from core and calls from_request(body, org_id=..., source_fallback=..., canonicalize=...)
+    with canonicalize keyword-only and last (prop_zrlzl26acffnrnxgjbnpwskzo4). Changing this breaks Cortex's import of a
+    released core; change it only together with Cortex."""
+    import inspect
+
+    from empirica.core.orchestration.schemas import Proposal
+
+    params = list(inspect.signature(Proposal.from_request).parameters.values())
+    assert [p.name for p in params] == ["body", "org_id", "source_fallback", "canonicalize"]
+    assert [p.kind.name for p in params[1:]] == ["KEYWORD_ONLY"] * 3
+    assert params[-1].default is None and params[2].default == ""
