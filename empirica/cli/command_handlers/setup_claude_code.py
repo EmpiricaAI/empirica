@@ -473,15 +473,16 @@ def runs_from(entry, markers=PLUGIN_PATH_MARKERS) -> bool:
     return False
 
 
-def _force_clean_hooks(settings, output_format):
+def _force_clean_hooks(settings, output_format, markers=PLUGIN_PATH_MARKERS):
     """Remove only Empirica hooks and statusline from settings, preserving everything else.
 
     Previously this did settings['hooks'] = {} which nuked ALL hooks including Railway, Superpowers, and custom hooks, and
-    then popped any statusLine, the person's own included. Both are now matched on the plugin path (`runs_from`).
+    then popped any statusLine, the person's own included. Both are now matched on the plugin path (`runs_from`): the
+    deployed plugin directory by default, the package's own for a project-scope install.
     """
     for event in list(settings.get("hooks", {}).keys()):
         original_count = len(settings["hooks"][event])
-        settings["hooks"][event] = [hook for hook in settings["hooks"][event] if not runs_from(hook)]
+        settings["hooks"][event] = [hook for hook in settings["hooks"][event] if not runs_from(hook, markers)]
         removed = original_count - len(settings["hooks"][event])
         if removed > 0:
             logger.debug(f"--force: removed {removed} Empirica hooks from {event}")
@@ -489,7 +490,7 @@ def _force_clean_hooks(settings, output_format):
         if not settings["hooks"][event]:
             del settings["hooks"][event]
 
-    if isinstance(settings.get("statusLine"), dict) and runs_from(settings["statusLine"]):
+    if isinstance(settings.get("statusLine"), dict) and runs_from(settings["statusLine"], markers):
         settings.pop("statusLine")
     if output_format != "json":
         print("   --force: cleared Empirica hooks and statusLine (other plugins preserved)")
@@ -1631,7 +1632,8 @@ def setup_project_scope(args, repo_root) -> int:
     settings_file.parent.mkdir(parents=True, exist_ok=True)
     settings, stamp = _read_json_with_stamp(settings_file, {})
     if getattr(args, "force", False):
-        _force_clean_hooks(settings, quiet)
+        # Project-scope hooks run from the package's plugin directory, not ~/.claude/plugins/local/empirica.
+        _force_clean_hooks(settings, quiet, markers=(plugin_dir.as_posix(),))
     _configure_statusline(settings, plugin_dir, python_cmd, quiet)
     _configure_permissions(settings, quiet)
     _register_all_hooks(settings, plugin_dir, python_cmd, quiet)

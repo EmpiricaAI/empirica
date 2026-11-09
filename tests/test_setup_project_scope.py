@@ -161,3 +161,27 @@ def test_uninstall_with_scope_project_is_a_plan_unless_applied(repo, capsys):
     assert rc == 0
     assert json.loads(capsys.readouterr().out)["dry_run"] is True
     assert (repo / ".claude" / "settings.local.json").read_text() == before
+
+
+def test_force_in_project_scope_replaces_its_own_hooks_and_status_line_and_keeps_the_project_s(repo):
+    """--force clears Empirica's entries before registering them again; in project scope they run from the package's plugin
+    directory, not ~/.claude/plugins/local/empirica, so that is what --force must match."""
+    scc.setup_project_scope(_args(), repo)
+    _seed_other_hook(repo)
+    settings_file = repo / ".claude" / "settings.local.json"
+    settings = json.loads(settings_file.read_text())
+    for entries in settings["hooks"].values():  # an older install: the same hooks with a stale timeout
+        for e in entries:
+            for h in e["hooks"]:
+                if "sentinel-gate.py" in h["command"]:
+                    h["timeout"] = 1
+    settings_file.write_text(json.dumps(settings))
+
+    scc.setup_project_scope(_args("--force"), repo)
+
+    after = json.loads(settings_file.read_text())
+    gate = [h for es in after["hooks"].values() for e in es for h in e["hooks"] if "sentinel-gate.py" in h["command"]]
+    assert gate and all(h["timeout"] == 10 for h in gate), "--force registers Empirica's hooks fresh"
+    assert len(gate) == 2, "once each, not added again beside the stale copies"
+    commands = [h["command"] for es in after["hooks"].values() for e in es for h in e["hooks"]]
+    assert "bash /srv/empirica-tools/lint.sh" in commands, "the project's own hook stays"
