@@ -661,7 +661,9 @@ def _register_all_hooks(settings, plugin_dir, python_cmd, output_format):
                 ],
             },
             {
-                "matcher": "startup|resume",
+                # clear too: a /clear starts a new conversation, and session-init treats it like a startup, so the pane's record
+                # (instance_projects) follows the new session and `cockpit refresh` never resumes a cleared one (1.14.23 sweep).
+                "matcher": "startup|resume|clear",
                 "hooks": [
                     {"type": "command", "command": sessioninit_script, "timeout": 30},
                     {"type": "command", "command": ewm_script, "timeout": 10, "allowFailure": True},

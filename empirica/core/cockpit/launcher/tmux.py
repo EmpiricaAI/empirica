@@ -23,6 +23,7 @@ import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from empirica.core.cockpit.launcher.config import (
     GroupSpec,
@@ -924,11 +925,23 @@ def resume_command(proj, session_id: str | None = None) -> str:
         tokens = shlex.split(proj.launch)
     except ValueError:
         return proj.launch
-    names_a_session = any(
+    names_a_session = any(t.startswith(("--resume=", "-r=")) for t in tokens) or any(
         t in ("--resume", "-r") and i + 1 < len(tokens) and not tokens[i + 1].startswith("-")
         for i, t in enumerate(tokens)
     )
-    if session_id and not names_a_session:
+    if names_a_session:
+        return proj.launch
+    # Only a simple command line is edited: a chained one (`claude -c; exec bash`) would hand the flag to the next program,
+    # and a quoted argument (`--append-system-prompt "say -c"`) holds text the flag removal must not touch (1.14.23 sweep).
+    chained = any(c in proj.launch for c in ";&|")
+    simple = (
+        not chained
+        and not any(c in proj.launch for c in "<>`$")
+        and not any(any(ch.isspace() for ch in t) for t in tokens)
+    )
+    if chained:
+        return proj.launch
+    if session_id and simple:
         # Edit the original string (see below for why): drop the launch's own continue or bare resume, then name the session.
         # The flag goes with the space before it, so nothing else in the line moves.
         stripped = re.sub(r"\s+(?:--continue|-c|--resume|-r)(?!\S)", "", proj.launch)
@@ -1003,6 +1016,17 @@ def _only_pane_error(
     if spec is None or not _runs_resumable(spec, config):
         return f"pane {pane_id} is not a practice pane of this cockpit, so there is nothing to resume in it"
     return None
+
+
+def _clear_waiting_mark(pane_id: str) -> None:
+    """A respawned pane is not waiting on anyone: drop its bar mark and flag (hooks/pane_waiting.py), never raising."""
+    if not re.fullmatch(r"%\d{1,6}", pane_id or ""):
+        return
+    try:
+        (Path.home() / ".empirica" / "pane_waiting" / pane_id[1:]).unlink(missing_ok=True)
+    except OSError:
+        pass
+    _tmux("set-option", "-p", "-u", "-t", pane_id, "@empirica_waiting")
 
 
 def refresh_cockpit(
@@ -1099,6 +1123,7 @@ def refresh_cockpit(
         command = resume_command(proj, session_id)
         args = ["respawn-pane", "-k", "-t", row["pane_id"], "-c", proj.path, *_identity_args(iid), command]
         result = _tmux(*args)
+        _clear_waiting_mark(row["pane_id"])
         out.respawned.append(
             {
                 "key": key,

@@ -176,3 +176,39 @@ def test_refresh_falls_back_to_continue_when_the_session_cannot_be_confirmed(hom
 
     assert entry["command"] == "claude --continue"
     assert entry["session_id"] is None
+
+
+# ── 1.14.23 sweep (finding fddc9b63) ─────────────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "launch, expected",
+    [
+        ("claude --resume=aaaa-explicit", "claude --resume=aaaa-explicit"),  # names its session with =
+        ('claude --append-system-prompt "say -c then -r" -c', 'claude --append-system-prompt "say -c then -r" -c'),
+        ("claude --continue; exec bash", "claude --continue; exec bash"),
+        ("claude --continue && echo done", "claude --continue && echo done"),
+    ],
+)
+def test_a_launch_line_that_is_not_a_simple_command_is_not_edited(launch, expected):
+    assert T.resume_command(_proj(launch), session_id=SID) == expected
+
+
+def test_session_init_runs_after_clear_so_the_record_follows_the_new_conversation(tmp_path):
+    from empirica.cli.command_handlers.setup_claude_code import _register_all_hooks
+
+    settings: dict = {}
+    _register_all_hooks(settings, tmp_path / "plugin", "python3", "json")
+    matchers = [e["matcher"] for e in settings["hooks"]["SessionStart"] if "session-init.py" in json.dumps(e)]
+    assert any("clear" in m.split("|") for m in matchers)
+
+
+def test_refresh_clears_a_respawned_pane_s_waiting_mark(home, monkeypatch):
+    h, proj = home
+    flags = h / ".empirica" / "pane_waiting"
+    flags.mkdir(parents=True)
+    (flags / "1").write_text('{"label": "question"}')
+
+    _refresh(monkeypatch, proj, "core")
+
+    assert not (flags / "1").exists()
