@@ -17,7 +17,10 @@ Fill in the angle brackets. Send each reviewer the same brief with its own scope
 
 Add one job per area where it applies: public text that makes claims (README, ROADMAP, changelog Highlights): re-run the command behind each claim
 against HEAD, ask whether each falsifier tests the prediction it guards, and try the generators that write it with an input shape they were not written for
-(a sentinel after the span must survive); hooks that run on every prompt (anything crashing, dangling, or adding per-call cost), and
-docs/prompt accuracy (sections or behaviours referred to that no longer exist).
+(a sentinel after the span must survive); hooks that run on every prompt (anything crashing, dangling, or adding per-call cost),
+docs/prompt accuracy (sections or behaviours referred to that no longer exist), and every keyword, substring, prefix or regex matcher
+the diff adds or changes: name the text it should NOT fire on (a word containing the keyword, the same flag in another spelling, the
+keyword quoted in source or prose) and check a test holds that near miss beside the positive case. A matcher with only positive tests
+is a candidate; on one sweep, eight of twelve such matchers fired on their near misses.
 
 The reviewers' verdicts are uncalibrated. Their value is the candidates; the confirmation is yours.
