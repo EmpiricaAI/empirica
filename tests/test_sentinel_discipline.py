@@ -438,7 +438,10 @@ def _call(name, **inp):
         ([_prompt("fix it"), _call("TodoWrite", todos=[{"c": 1}, {"c": 2}])], True),
         ([_prompt("fix it"), _call("TaskCreate")], False),  # one task is not a plan
         ([_prompt("fix it"), _call("TodoWrite", todos=[{"c": 1}])], False),
-        ([_call("EnterPlanMode"), _prompt("now just fix the typo"), _call("Edit")], False),  # planning before the prompt
+        (
+            [_call("EnterPlanMode"), _prompt("now just fix the typo"), _call("Edit")],
+            False,
+        ),  # planning before the prompt
         ([_prompt("go"), _call("TaskCreate"), _tool_result(), _call("TaskCreate"), _tool_result()], True),  # a tool
         # result is filed under "user" but is not the person's prompt
     ],
@@ -469,7 +472,9 @@ def test_the_prompt_hook_sets_and_clears_the_flag(home, tmp_path):
     import sys
     from pathlib import Path
 
-    hook = Path(__file__).resolve().parents[1] / "empirica/plugins/claude-code-integration/hooks/context-shift-tracker.py"
+    hook = (
+        Path(__file__).resolve().parents[1] / "empirica/plugins/claude-code-integration/hooks/context-shift-tracker.py"
+    )
     env = {**os.environ, "HOME": str(home[0]), "TMUX_PANE": "%7731"}
 
     def run(prompt):
