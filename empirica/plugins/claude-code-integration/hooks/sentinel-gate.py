@@ -5853,6 +5853,7 @@ def _discipline_answer(tool_name: str, tool_input) -> tuple | None:
             project_root=project,
             suffix=_instance_suffix(),
             empirica_is_read=empirica_command_only_reads,
+            transcript_path=hook_input.get("transcript_path"),
         )
         if answer is not None:
             _decision_rule = "discipline-budget"

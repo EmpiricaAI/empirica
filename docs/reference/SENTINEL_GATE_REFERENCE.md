@@ -202,7 +202,10 @@ again. Anything outward or irreversible always needs a transaction, whatever the
 (`npm`/`cargo`/`poetry`/`uv` publish, `twine upload`, `gh release`), an install, a recursive delete, a remote command, a
 network send, a process signal, a change to harness or shell configuration or outside the practice, a non-file tool, and a
 shell command whose effect cannot be read from its text (inline interpreter code, a substitution, a heredoc). When the
-call's practice cannot be found, a write counts as outside it.
+call's practice cannot be found, a write counts as outside it. Planned work gets no budget at all: when the latest
+prompt asks for planned or multi-step work (the same whole-word check the prompt hint uses), or since that prompt the
+session entered plan mode, created two or more tasks (TaskCreate) or wrote a TodoWrite of two or more items, a change
+outside a transaction is refused.
 
 | Setting | Values | Default |
 |---|---|---|

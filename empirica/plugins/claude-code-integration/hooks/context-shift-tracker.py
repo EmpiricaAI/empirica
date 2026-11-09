@@ -157,6 +157,28 @@ _COMPLEX_WORK = re.compile(
 )
 
 
+def _mark_plan_shaped(prompt: str) -> None:
+    """Keep the Sentinel's plan-shaped flag in step with the latest prompt (core/sentinel_discipline.py, goal 543fd1c6): in
+    discipline mode, planned or multi-step work gets no out-of-loop budget. Loaded by file path; never raises."""
+    try:
+        import importlib.util
+
+        from empirica.utils.session_resolver import InstanceResolver
+
+        spec = importlib.util.find_spec("empirica")
+        if spec is None or not spec.submodule_search_locations:
+            return
+        path = Path(next(iter(spec.submodule_search_locations))) / "core" / "sentinel_discipline.py"
+        module_spec = importlib.util.spec_from_file_location("_empirica_sentinel_discipline", path)
+        if module_spec is None or module_spec.loader is None:
+            return
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        module.mark_plan_shaped(InstanceResolver.instance_suffix(), bool(_COMPLEX_WORK.search(prompt)))
+    except Exception:
+        pass
+
+
 def _build_no_transaction_nudge(hook_input):
     """Build a skill nudge message when no active transaction exists."""
     skill_nudge = (
@@ -365,6 +387,7 @@ def main():
     _clear_pane_waiting()
     hook_input = json.loads(sys.stdin.read() or "{}")
     claude_session_id = hook_input.get("session_id")
+    _mark_plan_shaped(str(hook_input.get("prompt") or ""))
 
     # Keep practitioner presence fresh each turn (the mesh active-state signal) —
     # best-effort, non-blocking. See _refresh_presence.

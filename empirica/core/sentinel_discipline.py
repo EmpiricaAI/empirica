@@ -273,6 +273,91 @@ def judge(tool_name: str, tool_input, *, cwd: str | None, project_root: str | No
     return {"trivial": True, "classes": classes, "why": ""}
 
 
+# ── plan-shaped work: no budget ────────────────────────────────────────────────────────────────────────────────────────
+#
+# Work that is being planned is not trivial, however small its first edit. Two signals, both since the person's latest prompt:
+# the prompt asked for planned or multi-step work (context-shift-tracker classifies it on UserPromptSubmit and keeps the flag
+# below), or the session entered plan mode or laid out tasks (two or more TaskCreate calls, or a TodoWrite of two or more items),
+# read from the transcript's tail. Either one sends the act to a transaction.
+
+_TRANSCRIPT_TAIL = 512 * 1024
+
+
+def plan_flag_path(suffix: str) -> Path:
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", suffix or "")
+    return Path.home() / ".empirica" / f"plan_shaped{safe}.json"
+
+
+def mark_plan_shaped(suffix: str, prompt_is_plan_shaped: bool) -> None:
+    """Set or clear the prompt signal; context-shift-tracker calls this on every prompt. Never raises."""
+    path = plan_flag_path(suffix)
+    try:
+        if prompt_is_plan_shaped:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"ts": round(time.time(), 3)}), encoding="utf-8")
+        else:
+            path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _is_person_prompt(record: dict) -> bool:
+    """A user record that is the person's prompt, not a tool result Claude Code also files under `user`."""
+    if record.get("type") != "user":
+        return False
+    content = (record.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return bool(content.strip())
+    if isinstance(content, list):
+        kinds = {c.get("type") for c in content if isinstance(c, dict)}
+        return "tool_result" not in kinds and "text" in kinds
+    return False
+
+
+def planning_in_transcript(transcript_path: str | None) -> str | None:
+    """What in the transcript since the person's latest prompt makes this plan-shaped, or None."""
+    if not transcript_path:
+        return None
+    try:
+        with open(transcript_path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - _TRANSCRIPT_TAIL))
+            lines = fh.read().split(b"\n")
+    except OSError:
+        return None
+    task_creates = 0
+    for raw in reversed(lines):
+        try:
+            record = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        if _is_person_prompt(record):
+            break
+        content = (record.get("message") or {}).get("content") if record.get("type") == "assistant" else None
+        for item in content if isinstance(content, list) else []:
+            if not isinstance(item, dict) or item.get("type") != "tool_use":
+                continue
+            name = item.get("name")
+            if name == "EnterPlanMode":
+                return "the session entered plan mode"
+            if name == "TaskCreate":
+                task_creates += 1
+            todos = (item.get("input") or {}).get("todos") if name == "TodoWrite" else None
+            if isinstance(todos, list) and len(todos) >= 2:
+                return f"the session laid out {len(todos)} todos"
+    if task_creates >= 2:
+        return f"the session created {task_creates} tasks"
+    return None
+
+
+def plan_shaped(suffix: str, transcript_path: str | None) -> str | None:
+    if plan_flag_path(suffix).exists():
+        return "the latest prompt asks for planned or multi-step work"
+    return planning_in_transcript(transcript_path)
+
+
 # ── the out-of-loop ledger ──────────────────────────────────────────────────────────────────────────────────────────────
 
 
@@ -325,7 +410,14 @@ def _describe(entries: list[dict]) -> str:
 
 
 def decide(
-    tool_name: str, tool_input, *, cwd: str | None, project_root: str | None, suffix: str, empirica_is_read
+    tool_name: str,
+    tool_input,
+    *,
+    cwd: str | None,
+    project_root: str | None,
+    suffix: str,
+    empirica_is_read,
+    transcript_path: str | None = None,
 ) -> tuple[str, str] | None:
     """The gate's answer for a praxic call outside a transaction, or None for no opinion (strict: refuse as before)."""
     settings = effective(project_root)
@@ -334,6 +426,9 @@ def decide(
         return None
     if mode == "off":
         return ("allow", f"Sentinel mode off ({settings['mode_source']}): allowed and recorded.")
+    planning = plan_shaped(suffix, transcript_path)
+    if planning:
+        return ("deny", f"Outside a transaction, and this is planned work: {planning}. Open one with PREFLIGHT.")
     verdict = judge(tool_name, tool_input, cwd=cwd, project_root=project_root, empirica_is_read=empirica_is_read)
     if not verdict["trivial"]:
         return (

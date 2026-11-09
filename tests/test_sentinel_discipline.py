@@ -405,3 +405,84 @@ def test_doctor_names_the_mode_and_warns_on_an_ignored_setting(home, monkeypatch
     (home[1] / ".empirica" / "config.yaml").write_text("sentinel:\n  max_act_without_gate: lots\n")
     bad = check_sentinel_mode(home[1])
     assert bad.status == "WARN" and "lots" in bad.hint
+
+
+# ── plan-shaped work gets no budget ─────────────────────────────────────────────────────────────────────────────────────
+
+
+def _transcript(tmp_path, *records):
+    import json
+
+    path = tmp_path / "t.jsonl"
+    path.write_text("\n".join(json.dumps(r) for r in records) + "\n")
+    return str(path)
+
+
+def _prompt(text):
+    return {"type": "user", "message": {"role": "user", "content": text}}
+
+
+def _tool_result():
+    return {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "content": "ok"}]}}
+
+
+def _call(name, **inp):
+    return {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]}}
+
+
+@pytest.mark.parametrize(
+    "records, plan",
+    [
+        ([_prompt("fix it"), _call("EnterPlanMode")], True),
+        ([_prompt("fix it"), _call("TaskCreate"), _tool_result(), _call("TaskCreate")], True),
+        ([_prompt("fix it"), _call("TodoWrite", todos=[{"c": 1}, {"c": 2}])], True),
+        ([_prompt("fix it"), _call("TaskCreate")], False),  # one task is not a plan
+        ([_prompt("fix it"), _call("TodoWrite", todos=[{"c": 1}])], False),
+        ([_call("EnterPlanMode"), _prompt("now just fix the typo"), _call("Edit")], False),  # planning before the prompt
+        ([_prompt("go"), _call("TaskCreate"), _tool_result(), _call("TaskCreate"), _tool_result()], True),  # a tool
+        # result is filed under "user" but is not the person's prompt
+    ],
+)
+def test_planning_since_the_latest_prompt_is_read_from_the_transcript(tmp_path, records, plan):
+    assert (sd.planning_in_transcript(_transcript(tmp_path, *records)) is not None) is plan
+
+
+def test_no_transcript_means_no_transcript_signal(tmp_path):
+    assert sd.planning_in_transcript(None) is None
+    assert sd.planning_in_transcript(str(tmp_path / "missing.jsonl")) is None
+
+
+def test_plan_shaped_work_is_refused_with_budget_left(home, monkeypatch, tmp_path):
+    monkeypatch.setenv(sd.ENV_MODE, "discipline")
+    sd.mark_plan_shaped("_t1", True)
+    decision, message = _answer(home)
+    assert decision == "deny" and "planned work" in message
+
+    sd.mark_plan_shaped("_t1", False)
+    assert _answer(home)[0] == "allow"
+
+
+def test_the_prompt_hook_sets_and_clears_the_flag(home, tmp_path):
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    hook = Path(__file__).resolve().parents[1] / "empirica/plugins/claude-code-integration/hooks/context-shift-tracker.py"
+    env = {**os.environ, "HOME": str(home[0]), "TMUX_PANE": "%7731"}
+
+    def run(prompt):
+        subprocess.run(
+            [sys.executable, str(hook)],
+            input=json.dumps({"prompt": prompt, "session_id": "s"}),
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+            check=False,
+        )
+        return sorted(p.name for p in (home[0] / ".empirica").glob("plan_shaped*.json"))
+
+    assert run("plan the next three transactions") != []
+    assert run("rename the explorer panel") == []
