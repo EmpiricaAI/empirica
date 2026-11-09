@@ -70,10 +70,14 @@ IGNORE_PATTERNS = [
 # (`--> src/main.rs:2:5`) and any traceback quoting an annotated signature, "passed" vetoed "too many arguments passed",
 # and "Successfully" vetoed pip's "Successfully built x ... Failed to build y" (goal 546e7c33).
 SUCCESS_MARKERS = [
-    re.compile(r"^\s+[0-9a-f]{7,}\.\.\.?[0-9a-f]{7,}\s+\S+ -> \S+", re.M),  # git push: old..new  src -> dst
+    re.compile(
+        r"^\s*\+?\s*[0-9a-f]{7,}\.\.\.?[0-9a-f]{7,}\s+\S+ -> \S+", re.M
+    ),  # git push: old..new or + old...new (forced)
     re.compile(r"^\s*[*+] \[new (?:branch|tag)\]\s+\S+ -> \S+", re.M),  # git push of a new branch or tag
     re.compile(r"\b\d+ files? changed\b"),  # git commit / diff --stat
-    re.compile(r"\bSuccessfully (?:installed|uninstalled|tagged|created|pushed|deployed|published|updated|merged)\b"),
+    re.compile(
+        r"\bSuccessfully (?:installed|uninstalled|tagged|created|pushed|deployed|published|updated|merged|rebased)\b"
+    ),
     re.compile(r"\b\d+ passed\b"),  # pytest's summary line
     re.compile("\u2705"),
 ]
@@ -252,9 +256,11 @@ def _clear_pane_waiting() -> None:
     from pathlib import Path
 
     pane = os.environ.get("TMUX_PANE", "")
-    if not pane.startswith("%") or not (Path.home() / ".empirica" / "pane_waiting" / pane[1:]).exists():
+    if not pane.startswith("%"):
         return
     try:
+        if not (Path.home() / ".empirica" / "pane_waiting" / pane[1:]).exists():  # inside the try: a stat can raise
+            return
         import importlib.util
 
         spec = importlib.util.spec_from_file_location(

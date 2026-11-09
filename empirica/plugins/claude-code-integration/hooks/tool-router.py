@@ -34,6 +34,8 @@ AGENT_DOMAINS = {
         "keywords": [
             "security",
             "auth",
+            "authorize",
+            "authenticate",
             "authentication",
             "authorization",
             "encrypt",
@@ -712,7 +714,7 @@ def _keyword_re(kw: str) -> re.Pattern:
         elif kw.endswith("y") and len(kw) > 3:
             body = re.escape(kw[:-1]) + r"(?:y|ies|ied)\b"
         else:
-            body = re.escape(kw) + r"(?:s|es|ed|ing|ion|ions)?\b"
+            body = re.escape(kw) + r"(?:s|es|ed|er|ers|ing|ion|ions)?\b"
         rx = _KEYWORD_RES[kw] = re.compile(r"(?<![\w])" + body)
     return rx
 

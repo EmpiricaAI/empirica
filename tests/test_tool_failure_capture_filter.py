@@ -151,3 +151,14 @@ def test_a_failure_that_only_shares_a_success_word_is_still_captured(hook, error
 )
 def test_the_success_shapes_still_veto(hook, error):
     assert hook._is_interesting_failure("Bash", error) is False
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        "Exit code 128\nTo github.com:o/r.git\n + abc1234...def5678 develop -> develop (forced update)\nthen the import check failed: ModuleNotFoundError",
+        "Exit code 128\nSuccessfully rebased and updated refs/heads/feat.\nthen the import check failed: ModuleNotFoundError",
+    ],
+)
+def test_a_forced_push_and_a_rebase_that_landed_still_veto(hook, error):
+    assert hook._is_interesting_failure("Bash", error) is False

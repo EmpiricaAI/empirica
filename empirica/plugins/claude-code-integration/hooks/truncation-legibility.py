@@ -85,7 +85,12 @@ def declared_in_output(stdout: str) -> list[str]:
     try:
         doc = json.loads(stdout)
     except ValueError:
-        return []
+        # A paged reply read with 2>&1 carries stderr after the object: decode the object that starts the output.
+        start = stdout.lstrip()
+        try:
+            doc, _end = json.JSONDecoder().raw_decode(start) if start.startswith("{") else (None, 0)
+        except ValueError:
+            return []
     if not isinstance(doc, dict):
         return []
     found = [name for name in _DECLARED if doc.get(name) is True]
@@ -179,9 +184,11 @@ def _clear_pane_waiting() -> None:
     from pathlib import Path
 
     pane = os.environ.get("TMUX_PANE", "")
-    if not pane.startswith("%") or not (Path.home() / ".empirica" / "pane_waiting" / pane[1:]).exists():
+    if not pane.startswith("%"):
         return
     try:
+        if not (Path.home() / ".empirica" / "pane_waiting" / pane[1:]).exists():  # inside the try: a stat can raise
+            return
         import importlib.util
 
         spec = importlib.util.spec_from_file_location(

@@ -170,3 +170,8 @@ def test_text_that_only_mentions_page_fields_is_quiet(hook, home, command, stdou
 def test_a_json_response_that_is_a_page_is_still_flagged(hook, home):
     assert hook.notices("gh api x", json.dumps({"truncated": True, "count": 3}))
     assert hook.notices("curl -s x", json.dumps({"total_matching": 9, "count": 3}))
+
+
+def test_a_paged_json_reply_with_merged_stderr_is_still_flagged(hook, home):
+    out = json.dumps({"truncated": True, "count": 3}) + "\nwarning: something on stderr\n"
+    assert hook.notices("empirica goals-list --output json 2>&1", out)

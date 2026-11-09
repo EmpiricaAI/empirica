@@ -367,9 +367,11 @@ def _clear_pane_waiting() -> None:
     from pathlib import Path
 
     pane = os.environ.get("TMUX_PANE", "")
-    if not pane.startswith("%") or not (Path.home() / ".empirica" / "pane_waiting" / pane[1:]).exists():
+    if not pane.startswith("%"):
         return
     try:
+        if not (Path.home() / ".empirica" / "pane_waiting" / pane[1:]).exists():  # inside the try: a stat can raise
+            return
         import importlib.util
 
         spec = importlib.util.spec_from_file_location(

@@ -34,7 +34,7 @@ def _agents(router, text):
         "update the author and authority fields in the citation",
         "fix the linux path for the flux build",
         "rename player.py and the explorer panel",
-        "rename indexer.py in the cpufreq folder",
+        "rename pindex.py in the cpufreq folder",  # index inside a word; "indexer" is its family since -er
     ],
 )
 def test_words_that_only_contain_a_keyword_match_no_agent(router, text):
@@ -85,3 +85,16 @@ def test_the_dead_end_hint_words_match_words(router):
     assert router._keyword_hits("add a prefix to the registry entry for the fixture", words) == 0
     assert router._keyword_hits("try the workaround, then fixing the retry is next", words) == 3
     assert router.is_investigation_task("open the explorer panel") is False
+
+
+@pytest.mark.parametrize(
+    "text, agent",
+    [
+        ("authorize the admin endpoint", "empirica:security"),
+        ("authenticate users against the directory", "empirica:security"),
+        ("an attacker could replay the token", "empirica:security"),
+        ("the page is slower since the change", "empirica:performance"),
+    ],
+)
+def test_word_families_the_substring_match_used_to_catch(router, text, agent):
+    assert agent in _agents(router, text)
