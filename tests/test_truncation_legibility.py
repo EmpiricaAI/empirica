@@ -140,3 +140,33 @@ def test_the_cli_core_records_returned_results():
     from empirica.cli import cli_core
 
     assert "partial_view.record(" in inspect.getsource(cli_core._handle_command_result)
+
+
+# ── near misses: output that only contains the words of a page (goal 546e7c33) ──────────────────────────────────────────────
+#
+# The page check searched any output for "has_more": true or a matched > count pair, so reading this test file, or grepping
+# source that builds such a dict, announced "the response declared itself partial". Only a JSON response is a page.
+
+
+@pytest.mark.parametrize(
+    "command, stdout",
+    [
+        (
+            "sed -n 70,75p tests/test_truncation_legibility.py",
+            'out = hook.notices("gh api x", json.dumps({"count": 20, "matched": 118, "has_more": True}))\n',
+        ),
+        ("rg -n has_more src", 'src/page.py:12:    return {"has_more": true, "items": items}\n'),
+        ("cat notes.md", 'The CLI prints `"truncated": true` when it stops at the limit.\n'),
+        (
+            "gh api x",
+            json.dumps({"items": [{"truncated": True}], "count": 1}),
+        ),  # a field of an item, not of the response
+    ],
+)
+def test_text_that_only_mentions_page_fields_is_quiet(hook, home, command, stdout):
+    assert hook.notices(command, stdout) == []
+
+
+def test_a_json_response_that_is_a_page_is_still_flagged(hook, home):
+    assert hook.notices("gh api x", json.dumps({"truncated": True, "count": 3}))
+    assert hook.notices("curl -s x", json.dumps({"total_matching": 9, "count": 3}))

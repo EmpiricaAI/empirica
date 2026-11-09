@@ -48,13 +48,12 @@ _SPLIT = re.compile(r";|&&|\|\||\n")
 _HEAD = re.compile(r"^head\s+(?:-n\s*|-)(\d+)\s*$")
 _HEAD_BARE = re.compile(r"^head\s*$")
 _SED = re.compile(r"""^sed\s+-n\s+['"]?(\d+),(\d+)p['"]?\s*$""")
-_DECLARED = [
-    ("has_more", re.compile(r'"has_more"\s*:\s*true')),
-    ("truncated", re.compile(r'"truncated"\s*:\s*true')),
-]
+# A response is a page when it is a JSON object whose OWN fields say so. Searching any output for these words announced a
+# page for source code, grep hits and prose that merely contain them, and for an item's field (goal 546e7c33).
+_DECLARED = ("has_more", "truncated")
 _PAIRS = [
-    ("matched", re.compile(r'"matched"\s*:\s*(\d+)'), re.compile(r'"(?:returned|count)"\s*:\s*(\d+)')),
-    ("total_matching", re.compile(r'"total_matching"\s*:\s*(\d+)'), re.compile(r'"(?:goals_count|count)"\s*:\s*(\d+)')),
+    ("matched", ("returned", "count")),
+    ("total_matching", ("goals_count", "count")),
 ]
 MAX_RECORD_AGE_S = 600
 
@@ -83,11 +82,18 @@ def count_lines(text: str) -> int:
 
 
 def declared_in_output(stdout: str) -> list[str]:
-    found = [name for name, rx in _DECLARED if rx.search(stdout)]
-    for name, big, small in _PAIRS:
-        b, s = big.search(stdout), small.search(stdout)
-        if b and s and int(b.group(1)) > int(s.group(1)):
-            found.append(f"{name} {b.group(1)} > returned {s.group(1)}")
+    try:
+        doc = json.loads(stdout)
+    except ValueError:
+        return []
+    if not isinstance(doc, dict):
+        return []
+    found = [name for name in _DECLARED if doc.get(name) is True]
+    for name, smaller in _PAIRS:
+        big = doc.get(name)
+        small = next((doc[k] for k in smaller if isinstance(doc.get(k), int)), None)
+        if isinstance(big, int) and small is not None and big > small:
+            found.append(f"{name} {big} > returned {small}")
     return found
 
 
