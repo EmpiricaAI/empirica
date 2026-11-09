@@ -51,6 +51,9 @@ CORTEX_REPRO = r"""grep -rn "is_archived" --include=*.py src/ | grep -v "^src/.*
         "sed -n '1,5p' f.txt",
         "sed -E 's/a+/b/' f.txt",
         "grep x f | sed 's/a/b/' | head -5",
+        "sed -e 's/-i/x/' f.txt",  # near miss: "-i" inside the script is not the flag
+        "sed -n -e '/index/p' -- -i",  # after --, "-i" is a file name
+        "sed -E -l 80 's/i/j/' f.txt",
     ],
 )
 def test_sed_writing_to_stdout_is_noetic(gate, command):
@@ -66,6 +69,10 @@ def test_sed_writing_to_stdout_is_noetic(gate, command):
         "sed --in-place 's/a/b/' f.txt",
         "sed --in-place=.bak 's/a/b/' f.txt",
         "cat f | sed -i 's/a/b/' g.txt",  # mutating mid-pipe, not first
+        "sed -e 's/a/b/' -i f.txt",  # -i after a flag's value: the scan stopped at the value (goal 546e7c33)
+        "sed 's/a/b/' -i f.txt",  # GNU getopt permutes, so a flag after the script still applies
+        "sed -n -e p --in-place=.bak f.txt",
+        "sed -E -l 80 -i s/a/b/ f.txt",  # -l takes a value; the value is not the script
     ],
 )
 def test_sed_editing_in_place_is_praxic(gate, command):
@@ -322,3 +329,10 @@ def test_arithmetic_extractor_unit(gate):
     assert gate._extract_command_substitutions('sed -n "$((ln-25)),$((ln+18))p" f') == []
     inner = gate._extract_command_substitutions("echo $(( $(date +%s) + 1 ))")
     assert inner == ["date +%s"]
+
+
+def test_file_compiling_a_magic_file_is_praxic_and_reading_one_is_not(gate):
+    """`file -C -m magic` writes magic.mgc; `file -m magic f` only reads with it (goal 546e7c33)."""
+    assert not gate.is_safe_bash_command({"command": "file -C -m magic"})
+    assert not gate.is_safe_bash_command({"command": "file --compile -m magic"})
+    assert gate.is_safe_bash_command({"command": "file -b -m magic f.bin"})

@@ -2380,6 +2380,8 @@ _TOOL_DANGEROUS_FLAGS: dict[str, frozenset[str]] = {
     "info": frozenset({"-o", "--output"}),
     "scc": frozenset({"-o", "--output"}),
     "sort": frozenset({"-o", "--output", "--compress-program"}),
+    # file -C compiles the magic file it is given and writes <name>.mgc
+    "file": frozenset({"-C", "--compile"}),
 }
 
 # awk family writes via print/printf > "file" INSIDE its program (the
@@ -2394,19 +2396,40 @@ _AWK_NAMES = frozenset({"awk", "gawk", "mawk", "nawk"})
 _SED_NAMES = frozenset({"sed", "gsed"})
 
 
+_SED_VALUE_LETTERS = frozenset("efl")  # -e SCRIPT, -f FILE, -l N: the value is attached or the next word
+_SED_LONG_VALUES = frozenset({"--expression", "--file", "--line-length"})
+
+
 def _sed_edits_in_place(stripped: str) -> bool:
-    """True if this sed invocation writes files rather than stdout."""
-    for tok in stripped.split()[1:]:
-        if not tok.startswith("-") or tok == "-":
-            break  # first non-flag token is the script; flags are done
+    """True if this sed invocation writes files rather than stdout.
+
+    Every word is scanned up to ``--``, not only those before the script: GNU getopt permutes, so ``sed 's/a/b/' -i f``
+    and ``sed -e 's/a/b/' -i f`` edit in place too. A value-taking flag's value is skipped, so ``-e 's/-i/x/'`` is not
+    read as ``-i``.
+    """
+    toks = _tool_tokens(stripped)[1:]
+    i = 0
+    while i < len(toks):
+        tok = toks[i]
+        i += 1
         if tok == "--":
             break
         if tok.startswith("--"):
-            if tok.split("=", 1)[0] in ("--in-place", "--inplace"):
+            name, eq, _ = tok.partition("=")
+            if name in ("--in-place", "--inplace"):
                 return True
+            if name in _SED_LONG_VALUES and not eq:
+                i += 1
             continue
-        if "i" in tok[1:]:  # -i, -i.bak, -ni, -ni.bak
-            return True
+        if not tok.startswith("-") or tok == "-":
+            continue  # the script or a file operand
+        for j, letter in enumerate(tok[1:], start=1):
+            if letter == "i":  # -i, -i.bak, -ni, -ni.bak: the rest of the word is the suffix
+                return True
+            if letter in _SED_VALUE_LETTERS:
+                if j == len(tok) - 1:
+                    i += 1  # the value is the next word
+                break
     return False
 
 

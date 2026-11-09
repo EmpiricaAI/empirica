@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`setup-claude-code --uninstall` and `--force` remove only what Empirica wrote.** Hooks and the status line count as Empirica's when they run from its plugin directory, and plugin entries when their name is `empirica` or the legacy `empirica-integration`. Before, any hook, status line, plugin or setting whose text contained the word "empirica" was claimed, so your own hook under a path like `~/empirica-tools/` would have been removed with ours. `--force` also kept no status line before re-adding Empirica's; it now replaces only Empirica's own and leaves yours in place.
 - **The decision record no longer reads some changing shell commands as reads.** A bare `git stash` (which saves and resets the working tree), `git tag -a v1 -m ...`, a branch named after a listing word (`git branch list`), and requests whose method or body flag is written attached (`curl -XPOST`, `curl -d@body.json`, `gh api --method=DELETE`, `gh api -fbody=x`) were recorded as changing nothing, with the inference marked reliable. Each now has a test beside its read twin.
+- **The Sentinel gates two in-place edits it read as reads.** `sed -e 's/a/b/' -i f` and `sed 's/a/b/' -i f` edit the file (GNU sed accepts `-i` anywhere on the line), but the check stopped looking at the first word that was not a flag; and `file -C` writes a compiled magic file. A standing test now holds 96 commands that look like reads but change something, beside 22 reads that must stay ungated.
 
 ## [1.14.22] - 2026-11-07
 
