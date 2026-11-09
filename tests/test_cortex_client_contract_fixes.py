@@ -38,3 +38,34 @@ def test_a_202_from_system_events_reads_as_emitted(monkeypatch, capsys):
     cr._emit_compliance_to_system_events({"score": 1.0, "checks": []})
     out = capsys.readouterr().out
     assert "emitted" in out and "failed" not in out
+
+
+# ── D3: a recipient repeating its own archive is already archived, not failed ────────────────────────────────────────────
+
+
+def test_a_repeat_archive_by_the_same_recipient_succeeds():
+    from empirica.cli.command_handlers.mailbox_commands import _archive_succeeded
+
+    assert _archive_succeeded(200, {"error": "already_archived", "is_archived": False}) is True
+    assert _archive_succeeded(200, {"is_archived": True, "error": "x"}) is True
+    assert _archive_succeeded(200, {"ok": True}) is True
+
+
+def test_other_errors_and_statuses_still_fail():
+    from empirica.cli.command_handlers.mailbox_commands import _archive_succeeded
+
+    assert _archive_succeeded(200, {"error": "not_found"}) is False
+    assert _archive_succeeded(200, {"ok": False}) is False
+    assert _archive_succeeded(403, {"error": "already_archived"}) is False
+    assert _archive_succeeded(200, None) is False
+
+
+# ── D4: an identical propose still in flight is landing, not refused ─────────────────────────────────────────────────────
+
+
+def test_in_flight_is_told_apart_from_a_key_conflict():
+    from empirica.cli.command_handlers.mailbox_commands import _in_flight
+
+    assert _in_flight(409, {"error": "idempotency_key_in_flight"}) is True
+    assert _in_flight(409, {"error": "idempotency_key_conflict"}) is False  # a real collision stays a refusal
+    assert _in_flight(200, {"error": "idempotency_key_in_flight"}) is False

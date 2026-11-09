@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -468,6 +469,16 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
             "propose committed, this returns that same proposal rather than a second one.\n"
         )
         status, propose_resp = _http_post(propose_url, propose_body, api_key, 20.0)
+        # The retry can arrive while the first propose is still being processed: cortex answers 409
+        # idempotency_key_in_flight, meaning the first one is landing, not that this was refused (cortex D4,
+        # prop_ezqtrzl7hvag5j25rrh6wwxdhq). Wait for it to finish and ask again with the same key, which then returns it.
+        for _ in range(3):
+            if not _in_flight(status, propose_resp):
+                break
+            time.sleep(2.0)
+            status, propose_resp = _http_post(propose_url, propose_body, api_key, 20.0)
+        if _in_flight(status, propose_resp):
+            status, propose_resp = -1, {"error": "the first propose is still in flight on cortex"}
 
     new_proposal_id = propose_resp.get("proposal_id") if isinstance(propose_resp, dict) else None
     propose_ok = (200 <= status < 300) and new_proposal_id is not None
@@ -1064,6 +1075,24 @@ def handle_mailbox_show_command(
     return 0
 
 
+def _in_flight(status: int, resp) -> bool:
+    """Cortex's answer while an identical propose (same idempotency key) is still being processed: not a refusal."""
+    return status == 409 and "idempotency_key_in_flight" in str(resp or "")
+
+
+def _archive_succeeded(status: int, resp) -> bool:
+    """Whether an archive call left the proposal archived for this caller.
+
+    Already archived is the requested state, said two ways: the shared ``is_archived: true``, or (per-recipient archive, a
+    recipient repeating its own archive) ``error: already_archived`` with the shared flag still false, which the old check
+    read as a failure (cortex D3, prop_ezqtrzl7hvag5j25rrh6wwxdhq)."""
+    if not isinstance(resp, dict) or not 200 <= status < 300:
+        return False
+    if resp.get("is_archived") is True or resp.get("error") == "already_archived":
+        return True
+    return resp.get("error") is None and resp.get("ok") is not False
+
+
 def handle_mailbox_archive_command(
     args,
     *,
@@ -1118,13 +1147,8 @@ def handle_mailbox_archive_command(
     # a batch would see "failed" on every proposal it had already handled and could
     # not tell those apart from a genuine failure. Same false-signal family as the
     # rest of this surface, in the other direction: a false negative on a no-op.
-    already = isinstance(resp, dict) and resp.get("is_archived") is True
-    ok = (
-        isinstance(resp, dict)
-        and 200 <= status < 300
-        and (already or (resp.get("error") is None and resp.get("ok") is not False))
-    )
-    if not ok:
+    already = isinstance(resp, dict) and (resp.get("is_archived") is True or resp.get("error") == "already_archived")
+    if not _archive_succeeded(status, resp):
         sys.stderr.write(f"mailbox archive: failed (status={status}): {resp}\n")
         return 1
 
