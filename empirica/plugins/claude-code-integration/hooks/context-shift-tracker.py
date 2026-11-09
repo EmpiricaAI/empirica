@@ -15,6 +15,7 @@ POSTFLIGHT reads counters for calibration; next-PREFLIGHT uses them for divergen
 
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -147,6 +148,15 @@ def _append_to_output(output, message):
         output["hookSpecificOutput"]["additionalContext"] = message
 
 
+# Whole words: as substrings, "plan" and "spec" fired on "explanation", "airplane", "inspect", "respect" and "special"
+# (goal 546e7c33). A nudge that fires on ordinary words trains the reader to skip it.
+_COMPLEX_WORK = re.compile(
+    r"\b(?:plan|plans|planning|implement|implementation|implementing|spec|specs|specification|transactions?"
+    r"|preflight|artifacts?|epistemic|decompose|complex|multi-step)\b|break this down|how should i approach",
+    re.IGNORECASE,
+)
+
+
 def _build_no_transaction_nudge(hook_input):
     """Build a skill nudge message when no active transaction exists."""
     skill_nudge = (
@@ -155,23 +165,8 @@ def _build_no_transaction_nudge(hook_input):
         "you are unsure which Empirica skill fits"
     )
 
-    user_prompt = hook_input.get("prompt", "").lower()
-    complex_work_signals = [
-        "plan",
-        "implement",
-        "spec",
-        "transaction",
-        "transactions",
-        "preflight",
-        "artifacts",
-        "epistemic",
-        "break this down",
-        "how should i approach",
-        "decompose",
-        "multi-step",
-        "complex",
-    ]
-    if any(signal in user_prompt for signal in complex_work_signals):
+    user_prompt = hook_input.get("prompt", "")
+    if _COMPLEX_WORK.search(user_prompt):
         skill_nudge += " | complex work detected — consider /epistemic-transaction for structured decomposition"
 
     return skill_nudge
