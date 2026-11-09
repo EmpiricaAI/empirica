@@ -30,12 +30,38 @@ def _helpers():
     return module
 
 
+def _decision_record():
+    """empirica/core/decision_record.py, loaded from its file. Importing it through the package runs empirica/core's own
+    imports (about 22 ms measured), and this runs after every call. None when empirica is not installed. The same function is
+    copied into each hook that records an outcome; tests/test_decision_record.py keeps the copies identical."""
+    try:
+        import importlib.util
+
+        spec = importlib.util.find_spec("empirica")
+        if spec is None or not spec.submodule_search_locations:
+            return None
+        path = Path(next(iter(spec.submodule_search_locations))) / "core" / "decision_record.py"
+        module_spec = importlib.util.spec_from_file_location("_empirica_decision_record", path)
+        if module_spec is None or module_spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        return module
+    except Exception:
+        return None
+
+
 def handle(payload: dict, pw) -> str:
     """What was done, for tests: 'marked', 'notified', or ''."""
+    event = payload.get("hook_event_name")
+    if event == "PermissionRequest":
+        # The decision record's permission line, in or out of a cockpit: what infer_overrides reads an answer from.
+        dr = _decision_record()
+        if dr is not None:
+            dr.record_permission_request(payload)
     pane = pw.current_pane()
     if pane is None:
         return ""
-    event = payload.get("hook_event_name")
     if event == "PermissionRequest":
         return "marked" if pw.set_waiting(pane, pw.label_for(payload.get("tool_name"))) else ""
     if event == "Notification" and payload.get("notification_type") in NOTIFY_TYPES:

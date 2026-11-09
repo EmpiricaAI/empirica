@@ -231,3 +231,26 @@ def test_the_bar_draws_the_mark_from_the_pane_option():
 
     assert "@empirica_waiting" in tabs_format()
     assert "waiting: #{@empirica_waiting}" in commands_format()
+
+
+def test_a_permission_dialog_is_written_to_the_decision_record_in_or_out_of_a_cockpit(hook, pw, tmp_path, monkeypatch):
+    """The record's permission_request line is what infer_overrides reads an answer from; it had no caller before."""
+    monkeypatch.delenv("TMUX_PANE", raising=False)
+    practice = tmp_path / "practice"
+    (practice / ".empirica").mkdir(parents=True)
+    (practice / ".empirica" / "project.yaml").write_text("name: practice\n")
+
+    hook.handle(
+        {
+            "hook_event_name": "PermissionRequest",
+            "tool_name": "Bash",
+            "tool_input": {"command": "git push"},
+            "cwd": str(practice),
+            "session_id": "s-1",
+        },
+        pw,
+    )
+
+    lines = [json.loads(x) for x in (practice / ".empirica" / "decisions.jsonl").read_text().splitlines()]
+    assert [(r["event"], r["tool"]) for r in lines] == [("permission_request", "Bash")]
+    assert "git push" not in json.dumps(lines), "the input is kept only as a hash"

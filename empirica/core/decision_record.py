@@ -167,7 +167,7 @@ def append(record: dict, path: Path, *, max_bytes: int = MAX_BYTES) -> bool:
 OUTCOME_HOOKS = ("entity-extractor.py", "truncation-legibility.py", "tool-failure.py")
 # Every hook that loads this module by its file (the three above and the gate): importing it through the package runs
 # empirica/core's init, which the gate's read path never needed and which cost it about 12 ms a call.
-LOADER_HOOKS = (*OUTCOME_HOOKS, "sentinel-gate.py")
+LOADER_HOOKS = (*OUTCOME_HOOKS, "sentinel-gate.py", "pane-waiting.py")
 
 # What a call changed. Draft, checked by ecodex (prop_2zqpvjdjwfbghgbi6f2rjtghgm). Only the four path classes are produced so
 # far, for Edit, Write and codex's apply_patch; a shell call is recorded with no class and observed false until the before-and-after comparison exists.

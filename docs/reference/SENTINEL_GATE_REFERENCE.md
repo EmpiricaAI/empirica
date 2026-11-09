@@ -227,9 +227,10 @@ for at most a day.
 **Not tamper-proof.** The agent whose calls are recorded can edit or delete the file with its own shell. It is a record for
 measurement, not evidence against the agent.
 
-**Permission answers are not recorded.** `record_permission_request` and `infer_overrides` exist to derive whether a
-permission dialog was approved (a successful post line for the same input in the same turn) and mark that answer as
-inferred, but no registered hook calls `record_permission_request` yet, so the file holds no `permission_request` lines.
+**Permission dialogs are recorded; the answers are inferred.** When Claude Code shows a permission dialog, the
+`pane-waiting.py` hook writes a `permission_request` line (tool, input hash, permission mode, turn). No hook sees the
+answer, so `infer_overrides` derives it from what followed: `approved` when a successful post line for the same input
+came in the same turn, else `denied_or_aborted`, each marked `inferred: true`.
 
 **Cost and size.** One append per call, no database and no network. The file rolls over to one backup
 (`decisions.jsonl.1`) at 10 MB. `EMPIRICA_DECISION_RECORD=0` turns it off.
