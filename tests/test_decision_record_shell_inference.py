@@ -132,3 +132,37 @@ def test_the_gate_s_read_check_knows_the_reads_whose_names_do_not_say_so(command
         command, cwd="/w", project_path="/w", empirica_is_read=gate.empirica_command_only_reads
     )
     assert got["classes"] == classes
+
+
+# ── near misses: text that looks like a read but changes something, and its read twin (goal 546e7c33) ─────────────────────
+#
+# A keyword classifier is wrong in the direction that matters when a mutating command shares a verb, a flag or a spelling with
+# a read. Each pair below is a read and the near-miss that writes; both must be classed correctly.
+
+
+@pytest.mark.parametrize(
+    "read, write, write_classes",
+    [
+        ("git stash list", "git stash", ["vcs_local"]),  # bare stash saves and resets the working tree
+        ("git stash show -p", "git stash -u", ["vcs_local"]),
+        ("git tag -l 'v1*'", "git tag -a v1.0 -m 'release'", ["vcs_local"]),  # -a annotates here, it lists for branch
+        ("git branch -a", "git branch list", ["vcs_local"]),  # creates a branch named "list"
+        ("git branch -r", "git branch -r -d origin/old", ["vcs_local"]),
+        ("git remote show origin", "git remote add up https://x/y.git", ["vcs_local"]),
+        ("git worktree list", "git worktree add ../wt feature", ["vcs_local"]),
+        ("gh api repos/o/r", "gh api repos/o/r/git/refs/heads/x --method=DELETE", ["network_send"]),
+        ("gh api repos/o/r -XGET", "gh api repos/o/r -XDELETE", ["network_send"]),
+        ("gh api repos/o/r --jq .name", "gh api repos/o/r/issues -fbody=hi", ["network_send"]),
+        ("curl -sS https://x/api", "curl -sS -d@body.json https://x/api", ["network_send"]),
+        ("curl -XGET https://x/api", "curl -XPOST https://x/api", ["network_send"]),
+        ("curl -sXHEAD https://x/api", "curl -sXPUT https://x/api", ["network_send"]),
+        ("curl -H 'X-Mode: d' https://x/api", "curl -H 'X-Mode: d' --data=x https://x/api", ["network_send"]),
+        ("wget -q https://x/f", "wget --method=POST https://x/api", ["network_send"]),
+        ("wget -X /private -r https://x/", "wget --post-data=a=1 https://x/api", ["network_send"]),  # -X excludes dirs
+        ("curl -sO https://x/f.tgz", "curl -sO -T f.tgz https://x/up/", ["network_send"]),
+    ],
+)
+def test_a_near_miss_write_is_not_classed_as_its_read_twin(read, write, write_classes):
+    assert infer(read) == {"classes": [], "reliable": True}
+    got = infer(write)
+    assert got["classes"] == write_classes and got["reliable"] is True

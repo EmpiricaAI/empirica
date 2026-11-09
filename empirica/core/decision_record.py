@@ -417,6 +417,36 @@ def _positional(args: list[str]) -> list[str]:
     return [a for a in args if not a.startswith("-")]
 
 
+#: For the git verbs that list or change depending on their arguments: the subcommands that only read. A bare ``git stash`` is
+#: not here because it saves and resets the working tree; ``branch`` and ``tag`` have no read subcommands (``git branch list``
+#: creates a branch named "list").
+_GIT_READ_SUBCOMMANDS = {
+    "stash": {"list", "show"},
+    "worktree": {"list"},
+    "notes": {"list", "show"},
+    "remote": {"show", "get-url"},
+}
+#: For branch and tag, a listing is a call with no names at all, or one that asks for the list by flag. The same letter means
+#: different things per verb (``git branch -a`` lists all, ``git tag -a`` annotates), so the flags are per verb.
+_GIT_LISTING_FLAGS = {
+    "branch": {"-l", "--list", "--show-current"},
+    "tag": {"-l", "--list"},
+}
+_GIT_BRANCH_WRITE_FLAGS = {
+    "-d",
+    "-D",
+    "--delete",
+    "-m",
+    "-M",
+    "--move",
+    "-c",
+    "-C",
+    "--copy",
+    "-u",
+    "--set-upstream-to",
+}
+
+
 def _git(args: list[str]) -> set[str]:
     rest = list(args)
     while rest and rest[0].startswith("-"):
@@ -429,14 +459,53 @@ def _git(args: list[str]) -> set[str]:
         return set()
     if verb == "push":
         return {"vcs_remote"}
-    listing = not _positional(tail) or any(a in ("-l", "--list", "-a", "-r", "-v", "--show-current") for a in tail)
-    if verb in ("branch", "tag", "remote", "stash", "worktree", "notes") and (
-        listing or tail[:1] in (["list"], ["show"])
-    ):
-        return set()
+    if verb in ("branch", "tag"):
+        writes = verb == "branch" and any(a in _GIT_BRANCH_WRITE_FLAGS for a in tail)
+        if not writes and (not _positional(tail) or any(a in _GIT_LISTING_FLAGS[verb] for a in tail)):
+            return set()
+        return {"vcs_local"}
+    if verb in _GIT_READ_SUBCOMMANDS:
+        sub = _positional(tail)[:1]
+        if (sub and sub[0] in _GIT_READ_SUBCOMMANDS[verb]) or (not tail and verb != "stash"):
+            return set()
+        if verb == "remote" and tail and not sub and all(a in ("-v", "--verbose") for a in tail):
+            return set()
+        return {"vcs_local"}
     if verb == "config" and any(a.startswith("--get") or a == "--list" or a == "-l" for a in tail):
         return set()
     return {"vcs_local"}
+
+
+def _flags(args: list[str], short_values: str, long_values: set[str]) -> list[tuple[str, str]]:
+    """The flags in ``args`` as (name, value) pairs, in every spelling a CLI accepts: ``--name value``, ``--name=value``,
+    ``-Xvalue``, and short flags clustered before one that takes a value (``-sXPOST``). ``short_values`` and
+    ``long_values`` name the flags that take a value; a value given as the next word is consumed, not read as a flag."""
+    out: list[tuple[str, str]] = []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        nxt = args[i + 1] if i + 1 < len(args) else ""
+        i += 1
+        if arg.startswith("--"):
+            name, eq, value = arg.partition("=")
+            if not eq and name in long_values:
+                value, i = nxt, i + 1
+            out.append((name, value))
+        elif arg.startswith("-") and len(arg) > 1:
+            for j, letter in enumerate(arg[1:], start=1):
+                if letter in short_values:
+                    value = arg[j + 1 :]
+                    if not value:
+                        value, i = nxt, i + 1
+                    out.append(("-" + letter, value))
+                    break
+                out.append(("-" + letter, ""))
+    return out
+
+
+_GH_API_LONG_VALUES = {
+    "--method", "--field", "--raw-field", "--input", "--header", "--jq", "--template", "--preview", "--cache", "--hostname",
+}  # fmt: skip
 
 
 def _gh(args: list[str]) -> set[str]:
@@ -444,29 +513,55 @@ def _gh(args: list[str]) -> set[str]:
     if not words:
         return set()
     if words[0] == "api":
-        method = "GET"
-        for flag, value in zip(args, args[1:] + [""]):
-            if flag in ("-X", "--method"):
+        method, sends = "", False
+        for name, value in _flags(args, "XfFHqtp", _GH_API_LONG_VALUES):
+            if name in ("-X", "--method"):
                 method = value.upper()
-            elif flag in ("-f", "-F", "--field", "--raw-field", "--input") and method == "GET":
-                method = "POST"
+            elif name in ("-f", "-F", "--field", "--raw-field", "--input"):
+                sends = True  # gh api defaults to POST once a field or body is given
+        method = method or ("POST" if sends else "GET")
         return set() if method in ("GET", "HEAD") else {"network_send"}
     if words[0] == "auth" or (len(words) > 1 and words[1] in _GH_READS):
         return set()
     return {"vcs_remote"}
 
 
+_CURL_SENDING = {
+    "-d",
+    "--data",
+    "--data-raw",
+    "--data-binary",
+    "--data-urlencode",
+    "-F",
+    "--form",
+    "-T",
+    "--upload-file",
+}
+_CURL_SENDING |= {"--json", "--post-data", "--post-file", "--body-data", "--body-file"}  # the last four are wget's
+#: curl's and wget's short flags that take a value, so a value is never read as a flag cluster (``-H 'X-Mode: d'``).
+_CURL_SHORT_VALUES = "dFTXHuoAeEbcrwxyYzKmCUPQtD"
+_CURL_LONG_VALUES = _CURL_SENDING | {
+    "--request",
+    "--method",
+    "--header",
+    "--user",
+    "--output",
+    "--user-agent",
+    "--referer",
+}
+
+
 def _curl(program: str, args: list[str]) -> set[str]:
-    sending = {"-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "-F", "--form", "-T", "--upload-file"}
-    sending |= {"--json", "--post-data", "--post-file"}
-    for flag, value in zip(args, args[1:] + [""]):
-        name = flag.split("=", 1)[0]
+    if program == "wget":
+        short_values, sending = "OoaAPeUTtwYQX", {"--post-data", "--post-file", "--body-data", "--body-file"}
+        method_flags: tuple[str, ...] = ("--method",)  # wget's -X excludes directories
+    else:
+        short_values, sending, method_flags = _CURL_SHORT_VALUES, _CURL_SENDING, ("-X", "--request", "--method")
+    for name, value in _flags(args, short_values, _CURL_LONG_VALUES):
         if name in sending:
             return {"network_send"}
-        if name in ("-X", "--request", "--method"):
-            method = (flag.split("=", 1)[1] if "=" in flag else value).upper()
-            if method not in ("GET", "HEAD"):
-                return {"network_send"}
+        if name in method_flags and value.upper() not in ("GET", "HEAD"):
+            return {"network_send"}
     return set()
 
 
