@@ -43,8 +43,12 @@ Writes `.empirica/project.yaml` with:
   `<org>.<tenant>.<exact-project-name>` — your local `ai_id` is the
   third component.
 
-You only run this once per repo. Re-run with `--force` if you want to
-overwrite an existing `project.yaml`.
+It also writes `.empirica/practice-facts.md` (what the project file says, for the AI to read) and, when the
+repository has no `CLAUDE.md`, a short one that imports it. See
+[A practice's own instructions](PRACTICE_INSTRUCTIONS.md).
+
+You only run this once per repo. Re-running with `--force` re-initialises it: the values already in
+`project.yaml` are kept, except the ones you pass as flags (`--type`, `--domain`, the description, tags, languages).
 
 ### Switch projects
 
@@ -80,11 +84,13 @@ empirica projects-sync
 ### Update project metadata
 
 ```bash
-empirica project-update --type software --domain "AI infrastructure"
+empirica project-update --type cli --domain research
 empirica project-update --add-tag "ai-infra"
 ```
 
-`project-update` merges into `.empirica/project.yaml` atomically.
+`--type` is one of the listed project types and `--domain` is the name of a domain file (`empirica project-update
+--help` lists both); text that describes the project goes in a tag. `project-update` merges into
+`.empirica/project.yaml` atomically and rewrites `.empirica/practice-facts.md` when its text changes.
 
 ---
 

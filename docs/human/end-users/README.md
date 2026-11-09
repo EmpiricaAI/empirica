@@ -37,6 +37,7 @@
 |------|---------|
 | `SESSION_GOAL_WORKFLOW.md` | Sessions, transactions, goals, tasks |
 | `PROJECT_MANAGEMENT_FOR_USERS.md` | Project model + auto-detection + workspace |
+| `PRACTICE_INSTRUCTIONS.md` | A practice's own instructions: the generated facts file and its `CLAUDE.md` |
 
 ### Mesh & Coordination
 | File | Purpose |
