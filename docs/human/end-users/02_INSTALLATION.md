@@ -106,7 +106,7 @@ next step. Especially useful if the statusline isn't showing up in Claude Code.
 pip install empirica
 
 # Specific version
-pip install empirica==1.14.22
+pip install empirica==1.14.23
 
 # Upgrade to latest
 pip install --upgrade empirica
@@ -121,13 +121,13 @@ brew install empirica
 ### Option 3: Docker
 ```bash
 # Standard image
-docker pull nubaeon/empirica:1.14.22
+docker pull nubaeon/empirica:1.14.23
 
 # Security-hardened Alpine (recommended)
-docker pull nubaeon/empirica:1.14.22-alpine
+docker pull nubaeon/empirica:1.14.23-alpine
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.14.22 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.14.23 /bin/bash
 ```
 
 ### Option 4: From Source
