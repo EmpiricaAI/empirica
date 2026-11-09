@@ -47,8 +47,12 @@ def home(tmp_path):
         json.dumps(
             {
                 "enabledPlugins": {"empirica@local": True, "someone-else@local": True},
-                "hooks": {"UserPromptSubmit": [{"hooks": [{"command": "empirica hook"}]}]},
-                "statusLine": {"command": "empirica statusline"},
+                "hooks": {
+                    "UserPromptSubmit": [
+                        {"hooks": [{"command": f"python3 {c}/plugins/local/empirica/hooks/session-init.py"}]}
+                    ]
+                },
+                "statusLine": {"command": f"python3 {c}/plugins/local/empirica/scripts/statusline_empirica.py"},
                 "permissions": {"allow": ["Bash(ls)"]},
                 "theirOwnSetting": 42,
             }
@@ -300,3 +304,95 @@ def test_the_plugin_BACKUP_dir_is_reported_not_deleted(home):
 
     apply_uninstall(home, plan)
     assert (bak / "hooks" / "patched.py").read_text() == "their local patch", "their edits survive uninstall"
+
+
+# ── negative controls: the word "empirica" alone is not ours (goal 546e7c33) ──────────────────────────────────────────────
+#
+# Ours is matched on what only we write: the plugin directory hooks run from, the plugin's registry names, the exact MCP
+# server name. Each test below puts a person's own entry that merely CONTAINS the word next to ours, and checks that ours
+# goes while theirs stays.
+
+
+def _settings(home):
+    return home / ".claude" / "settings.json"
+
+
+def _add(home, **extra):
+    path = _settings(home)
+    data = json.loads(path.read_text())
+    for key, value in extra.items():
+        if key == "hooks":
+            for event, entries in value.items():
+                data.setdefault("hooks", {}).setdefault(event, []).extend(entries)
+        elif isinstance(value, dict) and isinstance(data.get(key), dict):
+            data[key].update(value)
+        else:
+            data[key] = value
+    path.write_text(json.dumps(data))
+
+
+def test_a_users_hook_under_a_path_containing_empirica_survives(home):
+    theirs = {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash /home/me/empirica-tools/lint.sh"}]}
+    _add(home, hooks={"PostToolUse": [theirs], "UserPromptSubmit": [theirs]})
+
+    keys = next(e["remove_keys"] for e in plan_uninstall(home)["edit_shared"] if e["path"] == str(_settings(home)))
+    assert "hooks.PostToolUse" not in keys, "an event holding only their hook is not ours"
+    assert "hooks.UserPromptSubmit" in keys, "positive control: the event that holds ours is still found"
+
+    apply_uninstall(home)
+
+    after = json.loads(_settings(home).read_text())["hooks"]
+    assert after == {"PostToolUse": [theirs], "UserPromptSubmit": [theirs]}
+
+
+def test_a_users_own_statusline_mentioning_empirica_survives(home):
+    _add(home, statusLine={"type": "command", "command": "~/bin/empirica-aware-status.sh"})
+
+    apply_uninstall(home)
+
+    assert json.loads(_settings(home).read_text())["statusLine"]["command"] == "~/bin/empirica-aware-status.sh"
+
+
+def test_another_plugin_whose_name_contains_empirica_survives(home):
+    _add(home, enabledPlugins={"empirica-tools@theirs": True})
+
+    apply_uninstall(home)
+
+    enabled = json.loads(_settings(home).read_text())["enabledPlugins"]
+    assert "empirica-tools@theirs" in enabled
+    assert "empirica@local" not in enabled
+
+
+def test_a_top_level_key_containing_empirica_survives(home):
+    _add(home, empiricalNotes={"keep": True})
+
+    apply_uninstall(home)
+
+    assert json.loads(_settings(home).read_text())["empiricalNotes"] == {"keep": True}
+
+
+def test_hooks_from_the_legacy_plugin_dir_and_windows_paths_are_ours(home):
+    """Positive controls for the narrower match: the legacy directory name and a backslash path still count as ours."""
+    legacy = {"hooks": [{"command": "python3 /h/.claude/plugins/local/empirica-integration/hooks/old.py"}]}
+    windows = {"hooks": [{"command": "py C:\\Users\\me\\.claude\\plugins\\local\\empirica\\hooks\\gate.py"}]}
+    _add(home, hooks={"PreToolUse": [legacy, windows]})
+
+    apply_uninstall(home)
+
+    assert "PreToolUse" not in json.loads(_settings(home).read_text()).get("hooks", {})
+
+
+def test_setup_force_keeps_a_users_hook_and_statusline_and_replaces_ours():
+    from empirica.cli.command_handlers.setup_claude_code import _force_clean_hooks
+
+    theirs = {"hooks": [{"command": "bash /srv/empirica-tools/lint.sh"}]}
+    ours = {"hooks": [{"command": "python3 /h/.claude/plugins/local/empirica/hooks/sentinel-gate.py"}]}
+    settings = {"hooks": {"PreToolUse": [theirs, ours]}, "statusLine": {"command": "~/bin/my-status.sh"}}
+
+    _force_clean_hooks(settings, "json")
+
+    assert settings == {"hooks": {"PreToolUse": [theirs]}, "statusLine": {"command": "~/bin/my-status.sh"}}
+
+    ours_status = {"hooks": {}, "statusLine": {"command": "python3 /h/.claude/plugins/local/empirica/scripts/s.py"}}
+    _force_clean_hooks(ours_status, "json")
+    assert "statusLine" not in ours_status, "positive control: our statusline is replaced on --force"

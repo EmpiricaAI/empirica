@@ -448,25 +448,40 @@ def _register_hook(settings, event, detect_pattern, entries, label, output_forma
             print(f"   {label} already configured")
 
 
-def _force_clean_hooks(settings, output_format):
-    """Remove only Empirica hooks from settings, preserving other plugins' hooks.
+#: Where a user-scope install runs its hooks and statusline from: the deployed plugin directory, under its current and its
+#: legacy name. A hook or statusline is ours when its text names one of these paths, not when it merely contains the word
+#: "empirica": a person's own hook under ~/empirica-tools/ is theirs.
+PLUGIN_PATH_MARKERS = (f"plugins/local/{PLUGIN_NAME}/", "plugins/local/empirica-integration/")
 
-    Previously this did settings['hooks'] = {} which nuked ALL hooks
-    including Railway, Superpowers, and custom hooks. Now filters by
-    plugin path to only remove Empirica's entries.
+#: The plugin registry names a user-scope install has used (`<name>@<marketplace>` keys).
+PLUGIN_REGISTRY_NAMES = (PLUGIN_NAME, "empirica-integration")
+
+
+def runs_from(entry, markers=PLUGIN_PATH_MARKERS) -> bool:
+    """True when a settings entry (a hook entry or the statusLine) names one of ``markers`` as a path.
+
+    Backslashes are read as slashes, so a Windows path matches too, and each marker must end at a separator, so
+    ``.../claude-code-integration`` does not match ``.../claude-code-integration-old/``.
     """
-    plugin_path_patterns = [
-        f"plugins/local/{PLUGIN_NAME}/",  # Current name
-        "plugins/local/empirica-integration/",  # Legacy name
-        "plugins/local/empirica/",  # Short name
-    ]
+    text = json.dumps(entry).replace("\\\\", "/")
+    for marker in markers:
+        marker = marker.replace("\\", "/")
+        if not marker.endswith("/"):
+            marker += "/"
+        if marker in text:
+            return True
+    return False
+
+
+def _force_clean_hooks(settings, output_format):
+    """Remove only Empirica hooks and statusline from settings, preserving everything else.
+
+    Previously this did settings['hooks'] = {} which nuked ALL hooks including Railway, Superpowers, and custom hooks, and
+    then popped any statusLine, the person's own included. Both are now matched on the plugin path (`runs_from`).
+    """
     for event in list(settings.get("hooks", {}).keys()):
         original_count = len(settings["hooks"][event])
-        settings["hooks"][event] = [
-            hook
-            for hook in settings["hooks"][event]
-            if not any(pattern in str(hook) for pattern in plugin_path_patterns)
-        ]
+        settings["hooks"][event] = [hook for hook in settings["hooks"][event] if not runs_from(hook)]
         removed = original_count - len(settings["hooks"][event])
         if removed > 0:
             logger.debug(f"--force: removed {removed} Empirica hooks from {event}")
@@ -474,7 +489,8 @@ def _force_clean_hooks(settings, output_format):
         if not settings["hooks"][event]:
             del settings["hooks"][event]
 
-    settings.pop("statusLine", None)
+    if isinstance(settings.get("statusLine"), dict) and runs_from(settings["statusLine"]):
+        settings.pop("statusLine")
     if output_format != "json":
         print("   --force: cleared Empirica hooks and statusLine (other plugins preserved)")
 

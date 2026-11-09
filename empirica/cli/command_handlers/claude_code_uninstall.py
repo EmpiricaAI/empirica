@@ -28,9 +28,12 @@ from pathlib import Path
 
 from empirica.cli.command_handlers.setup_claude_code import (
     PLUGIN_NAME,
+    PLUGIN_PATH_MARKERS,
+    PLUGIN_REGISTRY_NAMES,
     ConcurrentlyModified,
     _read_json_with_stamp,
     _write_json_file,
+    runs_from,
 )
 
 #: The line setup appends to the user's own CLAUDE.md. Matched to REPORT, never
@@ -55,8 +58,17 @@ def _claude_paths(home: Path) -> dict[str, Path]:
     }
 
 
-def _json_keys_we_own(path: Path, marker: str = PLUGIN_NAME) -> list[str] | None:
+def _is_our_plugin_key(key: str) -> bool:
+    """`empirica@local` or `empirica-integration@local`; not `empirica-tools@theirs`."""
+    return key.split("@", 1)[0] in PLUGIN_REGISTRY_NAMES
+
+
+def _json_keys_we_own(path: Path, markers: tuple[str, ...] = PLUGIN_PATH_MARKERS) -> list[str] | None:
     """Which of OUR keys are in a shared JSON file, or None if it cannot be read.
+
+    Every match is on something only we write: the exact MCP server name, a plugin's registry name, and for hooks and
+    the statusline the directory they run from (``markers``). The word "empirica" alone matched a person's own hook
+    under ~/empirica-tools/ and would have deleted it.
 
     None is not an empty list. Returning `[]` for an unparseable file would
     classify it as "nothing of ours here" and drop it from the plan silently —
@@ -71,7 +83,7 @@ def _json_keys_we_own(path: Path, marker: str = PLUGIN_NAME) -> list[str] | None
     if isinstance(data.get("mcpServers"), dict) and PLUGIN_NAME in data["mcpServers"]:
         found.append(f"mcpServers.{PLUGIN_NAME}")
     if isinstance(data.get("enabledPlugins"), dict):
-        found += [f"enabledPlugins.{k}" for k in data["enabledPlugins"] if PLUGIN_NAME in k]
+        found += [f"enabledPlugins.{k}" for k in data["enabledPlugins"] if _is_our_plugin_key(k)]
     if isinstance(data.get("plugins"), dict):
         # Keyed `<name>@<marketplace>` — `empirica@local`, not `empirica`. An
         # exact-key check found nothing and silently left the registry entry
@@ -79,17 +91,18 @@ def _json_keys_we_own(path: Path, marker: str = PLUGIN_NAME) -> list[str] | None
         # and worked. Two shapes, one file, and only one of them was handled.
         # Measured on a real home: `empirica@local` AND the legacy
         # `empirica-integration@local`.
-        found += [f"plugins.{k}" for k in data["plugins"] if PLUGIN_NAME in k]
-    if isinstance(data.get("statusLine"), dict) and marker in json.dumps(data["statusLine"]):
+        found += [f"plugins.{k}" for k in data["plugins"] if _is_our_plugin_key(k)]
+    if isinstance(data.get("statusLine"), dict) and runs_from(data["statusLine"], markers):
         found.append("statusLine")
     hooks = data.get("hooks")
     if isinstance(hooks, dict):
         for event, entries in hooks.items():
-            if isinstance(entries, list) and any(marker in json.dumps(e) for e in entries):
+            if isinstance(entries, list) and any(runs_from(e, markers) for e in entries):
                 found.append(f"hooks.{event}")
-    for k in list(data.keys()):
-        if PLUGIN_NAME in k.lower() and k not in ("mcpServers", "enabledPlugins", "plugins", "hooks"):
-            found.append(k)
+    # A top-level key of ours: only the plugin's own name. Nothing in setup writes one today; any other key that
+    # contains the word belongs to someone else.
+    if PLUGIN_NAME in data:
+        found.append(PLUGIN_NAME)
     return sorted(set(found))
 
 
@@ -216,7 +229,7 @@ def plan_uninstall(home: Path | None = None) -> dict:
     return out
 
 
-def _strip_keys(data: dict, keys: list[str], marker: str = PLUGIN_NAME) -> dict:
+def _strip_keys(data: dict, keys: list[str], markers: tuple[str, ...] = PLUGIN_PATH_MARKERS) -> dict:
     """Remove exactly what is ours. Nothing else, at any depth.
 
     `hooks.<Event>` is the case that needs care and did not get it first time.
@@ -225,8 +238,8 @@ def _strip_keys(data: dict, keys: list[str], marker: str = PLUGIN_NAME) -> dict:
     along with ours. Measured on a real home: 12 hook events, any of which a user
     may share.
 
-    So hook events are FILTERED, not popped: entries mentioning empirica go, the
-    rest stay, and the event key itself survives if anything is left. Same rule as
+    So hook events are FILTERED, not popped: entries that run from our plugin
+    directory (``markers``) go, the rest stay, and the event key itself survives if anything is left. Same rule as
     everywhere else here — strip ours, touch nothing else — applied one level
     deeper than the dotted-key form expresses.
     """
@@ -236,7 +249,7 @@ def _strip_keys(data: dict, keys: list[str], marker: str = PLUGIN_NAME) -> dict:
             hooks = data.get("hooks")
             if not isinstance(hooks, dict) or not isinstance(hooks.get(event), list):
                 continue
-            kept = [e for e in hooks[event] if marker not in json.dumps(e)]
+            kept = [e for e in hooks[event] if not runs_from(e, markers)]
             if kept:
                 hooks[event] = kept
             else:
@@ -259,8 +272,8 @@ def plan_project_uninstall(repo_root: Path | str, marker: str) -> dict:
     """What `--uninstall --scope project` WOULD do in this repository. Pure read, same shape as plan_uninstall.
 
     ``marker`` is the installed package's plugin directory: every hook and the statusline that `--scope project` wrote run from
-    there, so matching on it removes exactly ours. The broad plugin-name match the user scope uses would also catch a project's
-    own hooks under any path containing "empirica". The repo's CLAUDE.md is the person's file and is reported, not edited.
+    there, so matching on it removes exactly ours (the user scope matches the deployed plugin directory the same way). The
+    repo's CLAUDE.md is the person's file and is reported, not edited.
     """
     repo_root = Path(repo_root)
     out: dict = {
@@ -275,11 +288,11 @@ def plan_project_uninstall(repo_root: Path | str, marker: str) -> dict:
     (out["remove_ours"] if prompt.exists() else out["absent"]).append(str(prompt))
     settings = repo_root / ".claude" / "settings.local.json"
     if settings.exists():
-        keys = _json_keys_we_own(settings, marker)
+        keys = _json_keys_we_own(settings, (marker,))
         if keys is None:
             out["unreadable"].append(str(settings))
         elif keys:
-            out["edit_shared"].append({"path": str(settings), "remove_keys": keys, "marker": marker})
+            out["edit_shared"].append({"path": str(settings), "remove_keys": keys, "markers": [marker]})
         else:
             out["absent"].append(f"{settings} (no empirica keys)")
     else:
@@ -332,7 +345,7 @@ def apply_uninstall(home: Path | None = None, the_plan: dict | None = None) -> d
             # whose contents we never read, while deleting.
             receipt["refused"].append(f"{entry['path']}: unreadable ({type(e).__name__}) — NOT modified")
             continue
-        _strip_keys(data, entry["remove_keys"], entry.get("marker", PLUGIN_NAME))
+        _strip_keys(data, entry["remove_keys"], tuple(entry.get("markers") or PLUGIN_PATH_MARKERS))
         try:
             _write_json_file(path, data, expect_stamp=stamp)
             receipt["edited"].append({"path": entry["path"], "removed_keys": entry["remove_keys"]})
