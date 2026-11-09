@@ -16,6 +16,8 @@ import sys
 from itertools import pairwise
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[1]
 HANDLERS = REPO / "empirica" / "cli" / "command_handlers"
 
@@ -35,10 +37,20 @@ def _json_print_arg(node):
 
 
 def _is_refusal_print(node) -> bool:
+    """print(...) of a dict literal carrying "ok": False, or of a message that starts with ❌. Read from the AST, not the
+    source text: a help line that merely names the flag (`print("'ok': False marks a refusal")`) is not a refusal."""
     if not (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "print" and node.args):
         return False
-    text = ast.unparse(node.args[0])
-    return '"ok": False' in text or "'ok': False" in text or text.lstrip("f").lstrip("'\"").startswith("❌")
+    first = node.args[0]
+    for sub in ast.walk(first):
+        if isinstance(sub, ast.Dict) and any(
+            isinstance(k, ast.Constant) and k.value == "ok" and isinstance(v, ast.Constant) and v.value is False
+            for k, v in zip(sub.keys, sub.values)
+        ):
+            return True
+    if isinstance(first, ast.JoinedStr) and first.values:
+        first = first.values[0]
+    return isinstance(first, ast.Constant) and isinstance(first.value, str) and first.value.startswith("❌")
 
 
 def _handlers():
@@ -181,23 +193,25 @@ def _bare_return(node) -> bool:
     )
 
 
+def _has_wide_shape(fn) -> bool:
+    for node in ast.walk(fn):
+        for field in ("body", "orelse", "finalbody"):
+            stmts = getattr(node, field, None)
+            if not isinstance(stmts, list):
+                continue
+            for i, stmt in enumerate(stmts):
+                before = stmts[max(0, i - 3) : i]
+                refused = any(_is_refusal_print(n) for s in before for n in ast.walk(s))
+                printed = any(_prints_json(n) for s in before for n in ast.walk(s))
+                if (_bare_return(stmt) and refused) or (
+                    isinstance(stmt, ast.Return) and isinstance(stmt.value, ast.Dict) and printed
+                ):
+                    return True
+    return False
+
+
 def _wide_hits() -> set[tuple[str, str]]:
-    found = set()
-    for name, fn in _handlers():
-        for node in ast.walk(fn):
-            for field in ("body", "orelse", "finalbody"):
-                stmts = getattr(node, field, None)
-                if not isinstance(stmts, list):
-                    continue
-                for i, stmt in enumerate(stmts):
-                    before = stmts[max(0, i - 3) : i]
-                    refused = any(_is_refusal_print(n) for s in before for n in ast.walk(s))
-                    printed = any(_prints_json(n) for s in before for n in ast.walk(s))
-                    if (_bare_return(stmt) and refused) or (
-                        isinstance(stmt, ast.Return) and isinstance(stmt.value, ast.Dict) and printed
-                    ):
-                        found.add((name, fn.name))
-    return found
+    return {(name, fn.name) for name, fn in _handlers() if _has_wide_shape(fn)}
 
 
 def test_no_new_handler_has_the_wider_shapes():
@@ -220,3 +234,63 @@ def test_project_switch_to_an_unknown_project_exits_1(tmp_path):
     proc = _cli(tmp_path, "project-switch", "no-such-project-xyz", "--output", "json")
 
     assert proc.returncode == 1
+
+
+# ── the scans' own negative controls (goal 546e7c33) ──────────────────────────────────────────────────────────────────────
+#
+# The positive control above shows each scan fires on a handler written to have the defect. These show it stays quiet on
+# handlers that only look like one: a printed result with an exit code returned, a success printed, a help line that names
+# the "ok" flag. A scan that fires on those is fixed in the scan, not by adding the handler to KNOWN_OLDER.
+
+
+def _fn(src: str):
+    return next(n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef))
+
+
+def _strict_hits(fn) -> list[str]:
+    printed = {x.id for node in ast.walk(fn) if isinstance(x := _json_print_arg(node), ast.Name)}
+    returned = [
+        "returns-printed"
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Name) and node.value.id in printed
+    ]
+    refusals = [
+        "refusal-then-none"
+        for node in ast.walk(fn)
+        for field in ("body", "orelse", "finalbody")
+        if isinstance(getattr(node, field, None), list)
+        for a, b in pairwise(getattr(node, field))
+        if isinstance(a, ast.Expr) and _is_refusal_print(a.value) and _bare_return(b)
+    ]
+    return returned + refusals
+
+
+@pytest.mark.parametrize(
+    "src",
+    [
+        "def handle_a(args):\n    result = {'ok': True}\n    print(json.dumps(result))\n    return 0",
+        "def handle_a(args):\n    result = {'ok': True}\n    print(json.dumps(result))\n    return other",
+        "def handle_a(args):\n    print(json.dumps({'ok': False, 'error': 'x'}))\n    return 1",
+        "def handle_a(args):\n    print(json.dumps({'ok': True}))\n    return",
+        "def handle_a(args):\n    print('\u2705 done')\n    return",
+        "def handle_a(args):\n    print(\"use --output json; 'ok': False marks a refusal\")\n    return",
+        "def handle_a(args):\n    print('see \"ok\": False in the docs')\n    return None",
+    ],
+)
+def test_the_scans_stay_quiet_on_handlers_that_only_look_like_the_defect(src):
+    fn = _fn(src)
+    assert _strict_hits(fn) == []
+    assert _has_wide_shape(fn) is False
+
+
+@pytest.mark.parametrize(
+    "src",
+    [
+        "def handle_a(args):\n    print(json.dumps({'ok': False, 'error': 'x'}))\n    return",
+        'def handle_a(args):\n    print(json.dumps({"ok": False}, indent=2))\n    return None',
+        "def handle_a(args):\n    print(f'\u274c {err}')\n    return",
+        "def handle_a(args):\n    print('\u274c failed')\n    return",
+    ],
+)
+def test_the_scans_still_fire_on_a_refusal_that_returns_none(src):
+    assert _strict_hits(_fn(src)) == ["refusal-then-none"]
