@@ -169,6 +169,12 @@ def _decide(home, command="sed -i s/a/b/ f.txt", suffix="_t1"):
     )
 
 
+def _answer(home, command="sed -i s/a/b/ f.txt", suffix="_t1") -> tuple[str, str]:
+    result = _decide(home, command, suffix)
+    assert result is not None, "discipline mode always answers"
+    return result
+
+
 def test_strict_has_no_opinion(home):
     assert _decide(home) is None
     assert sd.ledger("_t1") == []
@@ -185,7 +191,7 @@ def test_discipline_allows_trivial_acts_up_to_the_budget_then_asks_for_a_transac
 
     assert _decide(home)[0] == "allow"
     assert _decide(home)[0] == "allow"
-    decision, message = _decide(home)
+    decision, message = _answer(home)
 
     assert decision == "deny" and "No longer trivial" in message and "PREFLIGHT" in message
     assert len(sd.ledger("_t1")) == 2
@@ -199,7 +205,7 @@ def test_a_budget_of_zero_allows_no_act(home, monkeypatch):
 
 def test_an_outward_act_is_refused_even_with_budget_left_and_is_not_counted(home, monkeypatch):
     monkeypatch.setenv(sd.ENV_MODE, "discipline")
-    decision, message = _decide(home, "git push")
+    decision, message = _answer(home, "git push")
     assert decision == "deny" and "not trivial" in message
     assert sd.ledger("_t1") == []
 
