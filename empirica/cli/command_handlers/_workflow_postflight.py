@@ -1978,6 +1978,7 @@ def _run_postflight_cortex_sync(session_id, reasoning, resolved_project_path):
         if not (_cortex_url and _cortex_key):
             return
 
+        import urllib.error
         import urllib.request
 
         _meta = _cortex_resolve_project_metadata(session_id)
