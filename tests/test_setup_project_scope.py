@@ -185,3 +185,64 @@ def test_force_in_project_scope_replaces_its_own_hooks_and_status_line_and_keeps
     assert len(gate) == 2, "once each, not added again beside the stale copies"
     commands = [h["command"] for es in after["hooks"].values() for e in es for h in e["hooks"]]
     assert "bash /srv/empirica-tools/lint.sh" in commands, "the project's own hook stays"
+
+
+# ── 1.14.23 sweep (finding fddc9b63) ─────────────────────────────────────────────────────────────────────────────────────
+
+
+def test_hooks_from_a_moved_package_path_are_replaced_not_kept(repo):
+    """A Python upgrade or a reinstall moves the package; the old entries must not linger beside, or instead of, the new."""
+    settings_file = repo / ".claude" / "settings.local.json"
+    settings_file.parent.mkdir(parents=True)
+    old = "python3 /old/lib/python3.12/site-packages/empirica/plugins/claude-code-integration/hooks/sentinel-gate.py"
+    settings_file.write_text(json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"command": old}]}]}}))
+
+    scc.setup_project_scope(_args(), repo)
+
+    commands = [
+        h["command"] for es in json.loads(settings_file.read_text())["hooks"].values() for e in es for h in e["hooks"]
+    ]
+    assert old not in commands
+    assert sum("sentinel-gate.py" in c for c in commands) == 2  # Edit|Write and Bash, from the current path
+
+
+def test_the_project_uninstall_finds_entries_from_an_older_package_path(repo):
+    from empirica.cli.command_handlers.claude_code_uninstall import plan_project_uninstall
+
+    settings_file = repo / ".claude" / "settings.local.json"
+    settings_file.parent.mkdir(parents=True)
+    old = "python3 /old/site-packages/empirica/plugins/claude-code-integration/hooks/sentinel-gate.py"
+    settings_file.write_text(json.dumps({"hooks": {"PreToolUse": [{"hooks": [{"command": old}]}]}}))
+
+    plan = plan_project_uninstall(repo, scc.PROJECT_PLUGIN_MARKER)
+
+    assert any(e["path"] == str(settings_file) and "hooks.PreToolUse" in e["remove_keys"] for e in plan["edit_shared"])
+
+
+@pytest.mark.parametrize("extra", [["--harness", "codex"], ["--apply"]])
+def test_project_scope_keeps_the_harness_and_apply_refusals(repo, capsys, extra):
+    args = create_argument_parser().parse_args(["setup-claude-code", "--scope", "project", "--output", "json", *extra])
+    rc = scc.handle_setup_claude_code_command(args)
+    assert rc != 0
+    assert not (repo / ".claude" / "settings.local.json").exists()
+
+
+def test_project_scope_is_refused_beside_a_machine_wide_install(repo, tmp_path, capsys):
+    home_claude = tmp_path / "home" / ".claude"
+    home_claude.mkdir(parents=True)
+    gate = "python3 " + str(home_claude) + "/plugins/local/empirica/hooks/sentinel-gate.py"
+    (home_claude / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [{"hooks": [{"command": gate}]}]}}))
+
+    rc = scc.setup_project_scope(_args(), repo)
+
+    assert rc == 1 and "twice" in capsys.readouterr().out
+    assert not (repo / ".claude" / "settings.local.json").exists()
+
+
+def test_a_settings_file_changed_during_setup_is_reported_not_raised(repo, monkeypatch, capsys):
+    def racing(*_a, **_k):
+        raise scc.ConcurrentlyModified("changed while setup prepared its write")
+
+    monkeypatch.setattr(scc, "_write_json_file", racing)
+    rc = scc.setup_project_scope(_args(), repo)
+    assert rc == 1 and "changed" in capsys.readouterr().out

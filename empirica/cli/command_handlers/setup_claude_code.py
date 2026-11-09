@@ -453,6 +453,11 @@ def _register_hook(settings, event, detect_pattern, entries, label, output_forma
 #: "empirica": a person's own hook under ~/empirica-tools/ is theirs.
 PLUGIN_PATH_MARKERS = (f"plugins/local/{PLUGIN_NAME}/", "plugins/local/empirica-integration/")
 
+#: What every project-scope hook and statusline command contains, wherever the package is installed (site-packages of any Python,
+#: a pipx venv, an editable checkout): the package-relative plugin directory. Matching on the full current path missed entries
+#: written from an older install after an upgrade moved the package (1.14.23 sweep).
+PROJECT_PLUGIN_MARKER = "empirica/plugins/claude-code-integration/"
+
 #: The plugin registry names a user-scope install has used (`<name>@<marketplace>` keys).
 PLUGIN_REGISTRY_NAMES = (PLUGIN_NAME, "empirica-integration")
 
@@ -1625,20 +1630,48 @@ def setup_project_scope(args, repo_root) -> int:
         msg = "could not find the bundled plugin files in the installed empirica package"
         print(json.dumps({"ok": False, "error": msg}) if output_format == "json" else f"❌ {msg}")
         return 1
+    user_settings = Path.home() / ".claude" / "settings.json"
+    try:
+        user_hooks = json.loads(user_settings.read_text()).get("hooks") or {}
+    except (OSError, ValueError, AttributeError):
+        user_hooks = {}
+    if isinstance(user_hooks, dict) and any(
+        runs_from(e) for es in user_hooks.values() if isinstance(es, list) for e in es
+    ):
+        msg = (
+            "Empirica is already installed machine-wide (~/.claude/settings.json), so a project-scope install here would run "
+            "every hook twice. Keep the machine-wide install, or remove it first: empirica setup --uninstall --apply"
+        )
+        print(json.dumps({"ok": False, "error": msg}) if output_format == "json" else f"❌ {msg}")
+        return 1
     python_cmd = _hook_interpreter()
     quiet = "json"  # the shared helpers print their human progress lines unless told json
 
     settings_file = repo_root / ".claude" / "settings.local.json"
     settings_file.parent.mkdir(parents=True, exist_ok=True)
     settings, stamp = _read_json_with_stamp(settings_file, {})
-    if getattr(args, "force", False):
-        # Project-scope hooks run from the package's plugin directory, not ~/.claude/plugins/local/empirica.
-        _force_clean_hooks(settings, quiet, markers=(plugin_dir.as_posix(),))
+    # Clear Empirica's own entries (matched on the package-relative path) on --force, or when any of them runs from another
+    # install location: those are replaced rather than kept beside, or instead of, the current ones. The project's own hooks
+    # stay. An unchanged install is left byte-identical.
+    current = (plugin_dir.as_posix(),)
+    entries = [e for es in (settings.get("hooks") or {}).values() if isinstance(es, list) for e in es]
+    if isinstance(settings.get("statusLine"), dict):
+        entries.append(settings["statusLine"])
+    moved = any(runs_from(e, (PROJECT_PLUGIN_MARKER,)) and not runs_from(e, current) for e in entries)
+    if moved or getattr(args, "force", False):
+        _force_clean_hooks(settings, quiet, markers=(PROJECT_PLUGIN_MARKER,))
     _configure_statusline(settings, plugin_dir, python_cmd, quiet)
     _configure_permissions(settings, quiet)
     _register_all_hooks(settings, plugin_dir, python_cmd, quiet)
     _repair_hook_interpreters(settings, plugin_dir, python_cmd, quiet)
-    _write_json_file(settings_file, settings, expect_stamp=stamp)
+    try:
+        _write_json_file(settings_file, settings, expect_stamp=stamp)
+    except ConcurrentlyModified as e:
+        msg = (
+            f"{settings_file} changed while setup was preparing its write; nothing was written. Run setup again. ({e})"
+        )
+        print(json.dumps({"ok": False, "error": msg}) if output_format == "json" else f"❌ {msg}")
+        return 1
 
     prompt_dst = repo_root / ".empirica" / "empirica-system-prompt.md"
     prompt_dst.parent.mkdir(parents=True, exist_ok=True)
@@ -2514,7 +2547,7 @@ def _handle_project_uninstall(repo_root, apply_it: bool) -> int:
             )
         )
         return 1
-    the_plan = plan_project_uninstall(repo_root, str(source))
+    the_plan = plan_project_uninstall(repo_root, PROJECT_PLUGIN_MARKER)
     if not apply_it:
         the_plan["dry_run"] = True
         the_plan["next"] = "empirica setup-claude-code --scope project --uninstall --apply"
@@ -2574,21 +2607,29 @@ def _refuse_apply_without_uninstall(args, output_format: str) -> int | None:
     return 2
 
 
+def _setup_guards_and_dispatch(args, output_format):
+    """The refusals every setup run gets, in both scopes, then the uninstall and project-scope paths. An exit code when the
+    run is handled here, None to continue with the user-scope install. The guards come first: --scope project once returned
+    before them, so a refused harness or a stray --apply still wrote settings (1.14.23 sweep)."""
+    project_scope = getattr(args, "scope", "user") == "project"
+    refused = _refuse_apply_without_uninstall(args, output_format)
+    if refused is not None:
+        return refused
+    if getattr(args, "uninstall", False):
+        return _handle_project_scope(args) if project_scope else _handle_uninstall(bool(getattr(args, "apply", False)))
+    harness = resolve_harness(args)
+    if harness not in SUPPORTED_HARNESSES:
+        return _refuse_unsupported_harness(harness, output_format)
+    return _handle_project_scope(args) if project_scope else None
+
+
 def handle_setup_claude_code_command(args):
     """Handle the setup command (harness integration)."""
-    if getattr(args, "scope", "user") == "project":
-        return _handle_project_scope(args)
     try:
         output_format = getattr(args, "output", "human")
-        refused = _refuse_apply_without_uninstall(args, output_format)
-        if refused is not None:
-            return refused
-        if getattr(args, "uninstall", False):
-            return _handle_uninstall(bool(getattr(args, "apply", False)))
-
-        harness = resolve_harness(args)
-        if harness not in SUPPORTED_HARNESSES:
-            return _refuse_unsupported_harness(harness, output_format)
+        handled = _setup_guards_and_dispatch(args, output_format)
+        if handled is not None:
+            return handled
         force = getattr(args, "force", False)
         skip_claude_md = getattr(args, "skip_claude_md", False)
         skip_credentials = getattr(args, "skip_credentials", False)
