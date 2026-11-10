@@ -106,6 +106,29 @@ class ProposalStore:
             db.executescript(_SCHEMA)
 
     @contextmanager
+    def _exclusive(self) -> Iterator[None]:
+        """Hold the read-modify-write of one proposal against every other thread AND process on this database file.
+
+        archive and complete read the proposal, change it and rewrite the whole payload; with only the thread lock, a
+        second serve process (the persistent service plus a manual run) overwrote the first's change: of six processes
+        archiving their own copy, five were lost (1.15.0 sweep, L5b). One SQLite transaction across it would deadlock,
+        because core's ack logic writes back through ``update()`` on its own connection, so the lock is a file lock beside
+        the database. Without fcntl (Windows) the thread lock alone stays, as before.
+        """
+        with self._lock:
+            try:
+                import fcntl
+            except ImportError:
+                yield
+                return
+            with open(f"{self.path}.lock", "a") as fh:
+                fcntl.flock(fh, fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(fh, fcntl.LOCK_UN)
+
+    @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
         with connect(self.path, timeout=10) as db:
             db.execute("PRAGMA journal_mode=WAL")
@@ -165,7 +188,7 @@ class ProposalStore:
 
     def archive(self, proposal_id: str, ai_id: str) -> tuple[bool, bool]:
         """Archive ``ai_id``'s copy. Returns ``(found, already_archived)``."""
-        with self._lock:
+        with self._exclusive():
             p = self.get(proposal_id)
             if p is None:
                 return False, False
@@ -188,7 +211,7 @@ class ProposalStore:
         """Record ``ai_id``'s completion. Returns the updated proposal, or None when the id is unknown."""
         if result not in RESULT_TO_STATUS:
             raise ValueError(f"result must be one of {sorted(RESULT_TO_STATUS)}")
-        with self._lock:
+        with self._exclusive():
             p = self.get(proposal_id)
             if p is None:
                 return None

@@ -153,3 +153,49 @@ def test_the_registry_leaves_no_connection_open(tmp_path):
         except OSError:
             pass
     assert [h for h in left if str(tmp_path) in h] == []
+
+
+# ── L5b: read-modify-write across processes (1.15.0 sweep leftover, goal 8a26a2c3) ──────────────────────────────────
+# archive and complete read the proposal, change it and rewrite the whole payload; a second serve process (the persistent
+# service plus a manual run) could overwrite the first's change. Six processes each archive or ack their own copy.
+
+_TARGETS = tuple(f"local.me.t{i}" for i in range(6))
+
+
+def _race(path, work):
+    import multiprocessing as mp
+
+    ctx = mp.get_context("fork")
+    start, out = ctx.Barrier(len(_TARGETS)), ctx.Queue()
+
+    def one(ai_id):
+        start.wait()
+        try:
+            work(st.ProposalStore(path), ai_id)
+            out.put(("ok", ai_id))
+        except Exception as e:
+            out.put(("error", repr(e)))
+
+    procs = [ctx.Process(target=one, args=(t,)) for t in _TARGETS]
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join(30)
+    return [out.get(timeout=5) for _ in procs]
+
+
+def test_six_processes_archiving_their_own_copy_lose_none(tmp_path):
+    path = tmp_path / "shared.db"
+    saved, _ = st.ProposalStore(path).propose(_p(targets=_TARGETS), idempotency_key=None)
+    results = _race(path, lambda store, ai: store.archive(saved.id, ai))
+    assert all(r[0] == "ok" for r in results), results
+    assert sorted(st.ProposalStore(path).get(saved.id).archived_by) == sorted(_TARGETS)
+
+
+def test_six_processes_acking_their_own_part_lose_none(tmp_path):
+    path = tmp_path / "shared.db"
+    saved, _ = st.ProposalStore(path).propose(_p(targets=_TARGETS), idempotency_key=None)
+    results = _race(path, lambda store, ai: store.complete(saved.id, ai, result="shipped"))
+    assert all(r[0] == "ok" for r in results), results
+    done = st.ProposalStore(path).get(saved.id)
+    assert done.pending_targets() == [] and done.status != "accepted", (done.status, done.target_acks)
