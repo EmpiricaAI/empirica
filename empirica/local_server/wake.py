@@ -29,6 +29,12 @@ def _short(address: str) -> str:
     return address.rsplit(".", 1)[-1]
 
 
+def _count(e: BaseException) -> None:
+    FAILURES["count"] += 1
+    FAILURES["last_error"] = f"{type(e).__name__}: {e}"
+    logger.warning("empirica-local: wake line not written: %s", FAILURES["last_error"])
+
+
 def _write(lines: list[str]) -> None:
     log = fires_log()
     try:
@@ -37,13 +43,27 @@ def _write(lines: list[str]) -> None:
         with log.open("a", encoding="utf-8") as f:
             f.writelines(line + "\n" for line in lines)
     except OSError as e:
-        FAILURES["count"] += 1
-        FAILURES["last_error"] = str(e)
-        logger.warning("empirica-local: wake line not written to %s: %s", log, e)
+        _count(e)
 
 
 def proposed(proposal: Proposal) -> None:
-    """Wake every target of a newly stored proposal."""
+    """Wake every target of a newly stored proposal. Never raises: the proposal is stored already, and a raise here would
+    fail the request, whose retry is a replay that wakes nobody."""
+    try:
+        _proposed(proposal)
+    except Exception as e:  # counted and shown in /v1/health, not swallowed
+        _count(e)
+
+
+def finished(proposal: Proposal) -> None:
+    """Wake the source of a proposal that has just turned terminal. Never raises (see proposed)."""
+    try:
+        _finished(proposal)
+    except Exception as e:
+        _count(e)
+
+
+def _proposed(proposal: Proposal) -> None:
     wire = proposal.to_wire()
     _write(
         [
@@ -53,8 +73,7 @@ def proposed(proposal: Proposal) -> None:
     )
 
 
-def finished(proposal: Proposal) -> None:
-    """Wake the source of a proposal that has just turned terminal."""
+def _finished(proposal: Proposal) -> None:
     if proposal.source_claude:
         event = build_event(
             proposal.to_wire(), "status_changed", _short(proposal.source_claude), LOOP, direction="outbox"

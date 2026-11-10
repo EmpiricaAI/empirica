@@ -87,3 +87,30 @@ def test_arrival_acceptance_is_recorded_as_the_system_not_a_person(db):
     """No one reviewed it: the local edition accepts on arrival, and the wire must not say a human decided."""
     saved, _ = db.propose(_p())
     assert saved.to_wire()["decided_by_kind"] == "system" and saved.auto_routed is True
+
+
+def test_two_processes_racing_one_key_get_one_proposal_and_a_replay(tmp_path):
+    """Two serve processes on one database file: the second sender with the same key must replay, not fail."""
+    import multiprocessing as mp
+
+    path = tmp_path / "shared.db"
+    st.ProposalStore(path)
+    ctx = mp.get_context("fork")
+    start, out = ctx.Barrier(6), ctx.Queue()
+
+    def one():
+        start.wait()
+        try:
+            saved, replay = st.ProposalStore(path).propose(_p(), idempotency_key="same")
+            out.put((saved.id, replay))
+        except Exception as e:  # the failure is the thing under test
+            out.put(("error", repr(e)))
+
+    procs = [ctx.Process(target=one) for _ in range(6)]
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join(20)
+    results = [out.get(timeout=5) for _ in range(6)]
+    assert all(r[0] != "error" for r in results), results
+    assert len({r[0] for r in results}) == 1 and sum(1 for r in results if not r[1]) == 1

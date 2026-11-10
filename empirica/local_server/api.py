@@ -23,7 +23,7 @@ from typing import Any
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from empirica.core.orchestration.schemas import RESULT_TO_STATUS, Proposal
+from empirica.core.orchestration.schemas import RESULT_TO_STATUS, TERMINAL_STATUSES, Proposal
 from empirica.local_server import wake
 from empirica.local_server.store import CompletionRefused, IdempotencyConflict, ProposalStore, default_db_path
 
@@ -197,6 +197,41 @@ async def body_of(request: Request) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+_LOOPBACK_NAMES = ("127.0.0.1", "localhost", "::1", "[::1]")
+
+
+def _hostname(value: str) -> str:
+    """The host part of a Host header or an Origin URL, without port, lowercased."""
+    from urllib.parse import urlsplit
+
+    value = value.strip().lower()
+    if "://" in value:
+        return (urlsplit(value).hostname or "").lower()
+    if value.startswith("["):
+        return value.split("]", 1)[0] + "]"
+    return value.rsplit(":", 1)[0] if value.count(":") == 1 else value
+
+
+def require_local_caller(request: Request) -> None:
+    """Refuse what loopback alone does not stop: the browser on this machine (1.15.0 sweep).
+
+    - Host must name the loopback interface: a page whose own name was rebound to 127.0.0.1 is same-origin to itself, and
+      only its Host header gives it away (403).
+    - An Origin, when a browser sends one, must be a loopback origin (403).
+    - A POST must be application/json: a text/plain POST is a "simple" request a page on any site can send with no
+      preflight (415). Every core client already sends JSON.
+    - Then the token, when one is configured (401).
+    """
+    if _hostname(request.headers.get("host", "")) not in _LOOPBACK_NAMES:
+        raise HTTPException(status_code=403, detail="not a loopback host")
+    origin = request.headers.get("origin")
+    if origin and _hostname(origin) not in _LOOPBACK_NAMES:
+        raise HTTPException(status_code=403, detail="cross-origin request refused")
+    if request.method == "POST" and not request.headers.get("content-type", "").lower().startswith("application/json"):
+        raise HTTPException(status_code=415, detail="application/json required")
+    require_token(request)
+
+
 def require_token(request: Request) -> None:
     """401 unless no token is configured or the bearer matches it (compared in constant time)."""
     token = configured_token()
@@ -210,11 +245,12 @@ def require_token(request: Request) -> None:
 def register(r) -> None:
     """Add the group-A routes to router ``r``; call before the catch-all so these win."""
     ctx = _Ctx()
-    auth = [Depends(require_token)]
+    auth = [Depends(require_local_caller)]
     _identity_routes(r, ctx, auth)
     _project_routes(r, ctx, auth)
     _mailbox_read_routes(r, ctx, auth)
     _mailbox_write_routes(r, ctx, auth)
+    _mailbox_archive_route(r, ctx, auth)
     _presence_routes(r, ctx, auth)
 
 
@@ -354,6 +390,11 @@ def _mailbox_write_routes(r, ctx: _Ctx, auth) -> None:
         if current is None:
             return refuse("not found", 404)
         acker = body.get("ai_id") or (current.distinct_targets() or [""])[0]
+        if acker not in current.distinct_targets():
+            return refuse("only a target of this proposal can complete it", 403, targets=current.distinct_targets())
+        if current.status in TERMINAL_STATUSES:
+            return {"ok": True, "proposal_id": current.id, "status": current.status, "note": "already_completed",
+                    "target_acks": current.target_acks, "pending_targets": current.pending_targets()}  # fmt: skip
         try:
             done = ctx.store().complete(
                 proposal_id, acker, result=result, note=body.get("note"), commit_sha=body.get("commit_sha"),
@@ -363,7 +404,7 @@ def _mailbox_write_routes(r, ctx: _Ctx, auth) -> None:
             return refuse(str(e), e.status_code)
         if done is None:
             return refuse("not found", 404)
-        if done.completed_at:
+        if done.status in TERMINAL_STATUSES:  # this call made it terminal: the check above returns for one already so
             wake.finished(done)
         return {
             "ok": True,
@@ -373,6 +414,8 @@ def _mailbox_write_routes(r, ctx: _Ctx, auth) -> None:
             "pending_targets": done.pending_targets(),
         }
 
+
+def _mailbox_archive_route(r, ctx: _Ctx, auth) -> None:
     @r.post("/v1/orchestration/{proposal_id}/archive", dependencies=auth)
     async def archive(proposal_id: str, request: Request):  # pyright: ignore[reportUnusedFunction]
         body = await body_of(request)
@@ -383,6 +426,8 @@ def _mailbox_write_routes(r, ctx: _Ctx, auth) -> None:
         if current is None:
             return refuse("not found", 404)
         ai_id = body.get("ai_id") or (current.distinct_targets() or [""])[0]
+        if ai_id not in (*current.distinct_targets(), current.source_claude):
+            return refuse("only a target or the source can archive its copy", 403)
         _, already = ctx.store().archive(proposal_id, ai_id)
         return {"ok": True, "proposal_id": proposal_id, "reason": reason, "no_op": already, "is_archived": True}
 

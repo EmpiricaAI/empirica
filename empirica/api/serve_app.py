@@ -418,7 +418,9 @@ def create_serve_app() -> FastAPI:
     # serve can bind elsewhere with tokens; the local server must never be reachable from another machine (spec 5b).
     from empirica.api.entity_mint_auth import is_loopback_host
 
-    if is_loopback_host(os.environ.get("EMPIRICA_SERVE_HOST", "127.0.0.1")):
+    # No EMPIRICA_SERVE_HOST means nothing says the bind is loopback (uvicorn --factory --host 0.0.0.0 runs this too), so
+    # the routes stay unmounted; `empirica serve` and the persistent unit always set it.
+    if is_loopback_host(os.environ.get("EMPIRICA_SERVE_HOST", "")):
         from empirica.local_server import router as local_contract_router
 
         app.include_router(local_contract_router())

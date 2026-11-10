@@ -27,7 +27,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.delenv("EMPIRICA_LOCAL_DB", raising=False)
     from empirica.api.serve_app import create_serve_app
 
-    return TestClient(create_serve_app())
+    return TestClient(create_serve_app(), base_url="http://127.0.0.1:8000")
 
 
 def _register(client, name):
@@ -203,3 +203,83 @@ def test_a_wake_line_that_cannot_be_written_is_counted_in_the_capability_documen
 def test_mesh_sharing_agreements_are_an_empty_list_not_501(client):
     resp = client.get("/v1/orgs/me/mesh_sharing_agreements")
     assert resp.status_code == 200 and resp.json() == {"agreements": []}
+
+
+# ── the 1.15.0 sweep: the browser on this machine, completion rights, repeat wakes ─────────────────────────────────────
+
+
+def test_a_web_page_cannot_post_into_the_mailbox(client, tmp_path):
+    """A text/plain POST is a 'simple' request: a page on any site can send it with no preflight. Loopback stops other
+    machines, not the browser here."""
+    body = '{"type":"collab_brief","title":"t","summary":"s","source_claude":"local.tester.a","target_claudes":["local.tester.b"]}'
+    sneaky = client.post("/v1/orchestration/propose", content=body, headers={"Content-Type": "text/plain"})
+    assert sneaky.status_code == 415
+    foreign = client.post(
+        "/v1/orchestration/propose", content=body,
+        headers={"Content-Type": "application/json", "Origin": "https://evil.example"},
+    )  # fmt: skip
+    assert foreign.status_code == 403
+    assert client.get("/v1/orchestration/inbox", params={"ai_id": f"{ME}.b"}).json()["proposals"] == []
+    assert _fires(tmp_path) == []
+
+
+def test_a_rebound_hostname_cannot_read_the_mailbox(client):
+    """DNS rebinding: a page whose name now resolves to 127.0.0.1 is same-origin to itself; its Host header gives it away."""
+    _send(client)
+    resp = client.get("/v1/orchestration/inbox", params={"ai_id": f"{ME}.b"}, headers={"Host": "evil.example:8000"})
+    assert resp.status_code == 403
+
+
+def test_a_loopback_origin_is_allowed(client):
+    resp = client.post(
+        "/v1/orchestration/propose",
+        json={"type": "collab_brief", "title": "t", "summary": "s", "source_claude": f"{ME}.a", "target_claudes": [f"{ME}.b"]},
+        headers={"Origin": "http://localhost:3000"},
+    )  # fmt: skip
+    assert resp.status_code == 200
+
+
+def test_a_finished_proposal_cannot_be_completed_again(client, tmp_path):
+    pid = _send(client).json()["proposal_id"]
+    assert (
+        client.post(f"/v1/orchestration/{pid}/complete", json={"result": "shipped", "ai_id": f"{ME}.b"}).status_code
+        == 200
+    )
+    wakes = len(_fires(tmp_path))
+    again = client.post(f"/v1/orchestration/{pid}/complete", json={"result": "failed", "ai_id": f"{ME}.b"})
+    assert again.status_code == 200 and again.json()["note"] == "already_completed"
+    assert client.get(f"/v1/orchestration/{pid}").json()["status"] == "completed"
+    assert len(_fires(tmp_path)) == wakes  # no second wake
+
+
+def test_only_a_target_can_complete(client):
+    pid = _send(client).json()["proposal_id"]
+    resp = client.post(f"/v1/orchestration/{pid}/complete", json={"result": "shipped", "ai_id": f"{ME}.zzz"})
+    assert resp.status_code == 403
+    assert client.get(f"/v1/orchestration/{pid}").json()["status"] == "accepted"
+
+
+def test_a_repeated_ack_on_a_finished_multi_target_proposal_does_not_wake_again(client, tmp_path):
+    pid = _send(client, targets=(f"{ME}.b", f"{ME}.c")).json()["proposal_id"]
+    for t in ("b", "c"):
+        client.post(f"/v1/orchestration/{pid}/complete", json={"result": "shipped", "ai_id": f"{ME}.{t}"})
+    wakes = len(_fires(tmp_path))
+    client.post(f"/v1/orchestration/{pid}/complete", json={"result": "shipped", "ai_id": f"{ME}.c"})
+    assert len(_fires(tmp_path)) == wakes
+
+
+def test_archive_is_only_for_a_target_or_the_source(client):
+    pid = _send(client).json()["proposal_id"]
+    resp = client.post(f"/v1/orchestration/{pid}/archive", json={"reason": "r", "ai_id": "anything.at.all"})
+    assert resp.status_code == 403
+    ok = client.post(f"/v1/orchestration/{pid}/archive", json={"reason": "r", "ai_id": f"{ME}.a"})
+    assert ok.status_code == 200 and ok.json()["no_op"] is False
+
+
+def test_a_wake_error_of_any_kind_is_counted_not_raised(client, monkeypatch):
+    from empirica.local_server import wake
+
+    monkeypatch.setitem(wake.FAILURES, "count", 0)
+    monkeypatch.setattr(wake, "build_event", lambda *a, **k: (_ for _ in ()).throw(KeyError("boom")))
+    assert _send(client).status_code == 200
+    assert wake.FAILURES["count"] == 1

@@ -100,6 +100,9 @@ class ProposalStore:
         """Store ``proposal`` accepted. Returns ``(stored, replayed)``; raises :class:`IdempotencyConflict`."""
         fp = _fingerprint(proposal)
         with self._lock, self._connect() as db:
+            # The write lock before the lookup: a second serve process on the same file (the persistent service plus a
+            # manual run) otherwise passes the same check and loses the insert with an IntegrityError (1.15.0 sweep).
+            db.execute("BEGIN IMMEDIATE")
             if idempotency_key:
                 row = db.execute(
                     "SELECT id, idem_fingerprint FROM proposals WHERE source = ? AND idem_key = ?",

@@ -68,3 +68,15 @@ def test_on_any_other_bind_the_contract_routes_do_not_exist(client_for, host):
     client = client_for(host)
     assert client.get("/v1/health").status_code == 404
     assert client.get("/v1/users/me").status_code == 404
+
+
+def test_without_a_serve_host_the_contract_routes_are_not_mounted(tmp_path, monkeypatch):
+    """Built directly (uvicorn --factory --host 0.0.0.0) with no EMPIRICA_SERVE_HOST, nothing says the bind is loopback."""
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("EMPIRICA_SERVE_HOST", raising=False)
+    from empirica.api.serve_app import create_serve_app
+
+    resp = TestClient(create_serve_app()).get("/v1/users/me")
+    assert resp.status_code == 404 or "edition" not in resp.text
