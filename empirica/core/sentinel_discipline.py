@@ -21,13 +21,17 @@ setting has to be read from a file.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import json
+import logging
 import os
 import re
 import time
 import unicodedata
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 MODES = ("strict", "discipline", "off")
 #: Until the pilot (3-4 practices, two weeks) decides the flip for 1.15.0.
@@ -379,6 +383,37 @@ def ledger_path(suffix: str) -> Path:
     return Path.home() / ".empirica" / f"out_of_loop{safe}.jsonl"
 
 
+@contextlib.contextmanager
+def _ledger_lock(suffix: str):
+    """Serialize the ledger's read-count-append (decide) and read-remove (take_ledger) across processes.
+
+    Without it, parallel tool calls each read the same count and all pass the budget (12 of 12 allowed against 3 in the
+    test), and an act appended between take_ledger's read and its unlink is lost. fcntl is POSIX-only; where it is missing,
+    or the lock cannot be taken (an NFS home), the ledger runs unserialized as before, with a warning.
+    """
+    try:
+        import fcntl
+    except ImportError:
+        yield
+        return
+    path = ledger_path(suffix).with_suffix(".lock")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fh = open(path, "a")  # noqa: SIM115 - held for the with-block
+    except OSError as e:
+        logger.warning(f"out-of-loop ledger lock unavailable ({e}); running unserialized")
+        yield
+        return
+    try:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        except OSError as e:
+            logger.warning(f"out-of-loop ledger lock unavailable ({e}); running unserialized")
+        yield
+    finally:
+        fh.close()  # closing releases the lock
+
+
 def ledger(suffix: str) -> list[dict]:
     try:
         lines = ledger_path(suffix).read_text(encoding="utf-8").splitlines()
@@ -397,11 +432,12 @@ def ledger(suffix: str) -> list[dict]:
 
 def take_ledger(suffix: str) -> list[dict]:
     """The ledger's acts, removed: what PREFLIGHT declares as already changed."""
-    entries = ledger(suffix)
-    try:
-        ledger_path(suffix).unlink()
-    except OSError:
-        pass
+    with _ledger_lock(suffix):
+        entries = ledger(suffix)
+        try:
+            ledger_path(suffix).unlink()
+        except OSError:
+            pass
     return entries
 
 
@@ -448,25 +484,26 @@ def decide(
             f"Outside a transaction, and not trivial: {verdict['why']}. Open one with PREFLIGHT (discipline mode lets only "
             "project-local changes whose effect is readable from the call run without one).",
         )
-    done = ledger(suffix)
-    if len(done) >= budget:
-        return (
-            "deny",
-            f"No longer trivial: {len(done)} change(s) already made outside a transaction (budget {budget}, from "
-            f"{settings['budget_source']}). PREFLIGHT, declaring what was already changed: {_describe(done)}.",
-        )
-    dr = _decision_record()
-    entry = _entry(dr, tool_name, tool_input if isinstance(tool_input, dict) else {}, verdict["classes"], cwd)
-    try:
-        path = ledger_path(suffix)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry) + "\n")
-    except OSError:
-        return (
-            "deny",
-            "Outside a transaction, and the out-of-loop ledger cannot be written, so this act would go unrecorded.",
-        )
+    with _ledger_lock(suffix):
+        done = ledger(suffix)
+        if len(done) >= budget:
+            return (
+                "deny",
+                f"No longer trivial: {len(done)} change(s) already made outside a transaction (budget {budget}, from "
+                f"{settings['budget_source']}). PREFLIGHT, declaring what was already changed: {_describe(done)}.",
+            )
+        dr = _decision_record()
+        entry = _entry(dr, tool_name, tool_input if isinstance(tool_input, dict) else {}, verdict["classes"], cwd)
+        try:
+            path = ledger_path(suffix)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry) + "\n")
+        except OSError:
+            return (
+                "deny",
+                "Outside a transaction, and the out-of-loop ledger cannot be written, so this act would go unrecorded.",
+            )
     return (
         "allow",
         f"Out of loop, act {len(done) + 1} of {budget} (discipline mode): recorded, and declared at the next PREFLIGHT.",

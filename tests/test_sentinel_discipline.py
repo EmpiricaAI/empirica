@@ -637,3 +637,43 @@ def test_a_practice_at_or_above_home_allows_nothing(home):
     for root in (h, str(home[0].parent)):
         verdict = sd.judge("Write", {"file_path": h + "/.bashrc", "content": "x"}, cwd=root, project_root=root)
         assert verdict["trivial"] is False
+
+
+# ── the ledger under parallel calls (1.14.23 sweep, item 7) ────────────────────────────────────────────────────────────
+
+
+def _race(home, monkeypatch, n: int = 12) -> list[str]:
+    """n processes decide at once, each pausing between reading the count and appending, so an unlocked ledger lets
+    every one of them see the same count."""
+    import multiprocessing as mp
+    import time as _time
+
+    monkeypatch.setenv(sd.ENV_MODE, "discipline")
+    real_entry = sd._entry
+
+    def slow_entry(*a, **k):
+        _time.sleep(0.05)
+        return real_entry(*a, **k)
+
+    monkeypatch.setattr(sd, "_entry", slow_entry)
+    ctx = mp.get_context("fork")
+    start, out = ctx.Barrier(n), ctx.Queue()
+
+    def one():
+        start.wait()
+        out.put(_answer(home)[0])
+
+    procs = [ctx.Process(target=one) for _ in range(n)]
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join(20)
+    return [out.get(timeout=5) for _ in range(n)]
+
+
+@pytest.mark.skipif(not hasattr(__import__("os"), "fork"), reason="needs fork")
+def test_parallel_calls_cannot_spend_more_than_the_budget(home, monkeypatch):
+    answers = _race(home, monkeypatch)
+    budget = sd.effective(str(home[1]))["budget"]
+    assert answers.count("allow") == budget
+    assert len(sd.ledger("_t1")) == budget
