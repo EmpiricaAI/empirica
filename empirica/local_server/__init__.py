@@ -61,7 +61,15 @@ def health_document() -> dict:
         "edition": EDITION,
         "contract": str(contract().get("contract", "")),
         "capabilities": sorted(IMPLEMENTED),
+        "wake": _wake_health(),
     }
+
+
+def _wake_health() -> dict:
+    """Failed wake-line writes since start: a stored proposal nobody was woken for must be visible somewhere."""
+    from empirica.local_server.wake import FAILURES
+
+    return {"via": "loop_fires.log", "failures": FAILURES["count"], "last_error": FAILURES["last_error"]}
 
 
 def router():

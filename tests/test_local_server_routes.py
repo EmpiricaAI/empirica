@@ -6,6 +6,7 @@ answers 501 with ``orchestration.cross_tenant``: the boundary is in the target, 
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 import pytest
@@ -164,3 +165,36 @@ def test_a_configured_token_is_required(client, monkeypatch):
     assert client.get("/v1/users/me", headers={"Authorization": "Bearer wrong"}).status_code == 401
     assert client.get("/v1/users/me", headers={"Authorization": "Bearer sekrit"}).status_code == 200
     assert client.get("/v1/health").status_code == 200
+
+
+# ── wake (phase 1.4): core's own proposal_event lines in ~/.empirica/loop_fires.log, which the session Monitor tails ──
+
+
+def _fires(tmp_path):
+    log = tmp_path / ".empirica" / "loop_fires.log"
+    return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+
+def test_a_proposal_wakes_each_target_and_a_completion_wakes_the_source(client, tmp_path):
+    pid = _send(client, targets=(f"{ME}.b", f"{ME}.c"), key="w").json()["proposal_id"]
+    inbox = [(e["instance_id"], e["direction"], e["status"]) for e in _fires(tmp_path)]
+    assert inbox == [("b", "inbox", "accepted"), ("c", "inbox", "accepted")]
+    assert all(e["event_type"] == "proposal_event" and e["proposal_id"] == pid for e in _fires(tmp_path))
+    _send(client, targets=(f"{ME}.b", f"{ME}.c"), key="w")  # a replay wakes nobody
+    assert len(_fires(tmp_path)) == 2
+    body = {"result": "shipped", "commit_sha": "abc1234"}
+    client.post(f"/v1/orchestration/{pid}/complete", json={**body, "ai_id": f"{ME}.b"})
+    assert len(_fires(tmp_path)) == 2  # one of two targets: the proposal is still open
+    client.post(f"/v1/orchestration/{pid}/complete", json={**body, "ai_id": f"{ME}.c"})
+    last = _fires(tmp_path)[-1]
+    assert (last["instance_id"], last["direction"], last["status"]) == ("a", "outbox", "completed")
+
+
+def test_a_wake_line_that_cannot_be_written_is_counted_in_the_capability_document(client, tmp_path, monkeypatch):
+    from empirica.local_server import wake
+
+    monkeypatch.setitem(wake.FAILURES, "count", 0)
+    (tmp_path / ".empirica" / "loop_fires.log").mkdir(parents=True)  # a directory where the log should be
+    assert _send(client).status_code == 200  # the proposal is still stored
+    health = client.get("/v1/health").json()["wake"]
+    assert health["failures"] == 1 and health["last_error"]

@@ -24,6 +24,7 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from empirica.core.orchestration.schemas import RESULT_TO_STATUS, Proposal
+from empirica.local_server import wake
 from empirica.local_server.store import CompletionRefused, IdempotencyConflict, ProposalStore, default_db_path
 
 ORG = "local"
@@ -331,6 +332,8 @@ def _mailbox_write_routes(r, ctx: _Ctx, auth) -> None:
             saved, replayed = ctx.store().propose(proposal, idempotency_key=key)
         except IdempotencyConflict as e:
             return refuse("idempotency_key_conflict", 409, proposal_id=e.original_id)
+        if not replayed:
+            wake.proposed(saved)
         return {"ok": True, "proposal_id": saved.id, "status": saved.status, "replay_caught": replayed}
 
     @r.post("/v1/orchestration/{proposal_id}/complete", dependencies=auth)
@@ -352,6 +355,8 @@ def _mailbox_write_routes(r, ctx: _Ctx, auth) -> None:
             return refuse(str(e), e.status_code)
         if done is None:
             return refuse("not found", 404)
+        if done.completed_at:
+            wake.finished(done)
         return {
             "ok": True,
             "proposal_id": done.id,
