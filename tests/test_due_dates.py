@@ -117,3 +117,23 @@ def test_set_due_writes_the_column_and_refuses_an_unknown_type(conn):
     assert set_due(conn, "goal", "missing", "2026-12-24") is False
     with pytest.raises(DueDateError):
         set_due(conn, "finding", "x", "2026-12-24")
+
+
+def test_due_option_reads_the_json_config_first_then_the_flag():
+    from types import SimpleNamespace
+
+    from empirica.data.due import due_option
+
+    assert due_option({"due": "2026-12-01"}, SimpleNamespace(due="2027-01-01")) == "2026-12-01"
+    assert due_option(None, SimpleNamespace(due="2027-01-01")) == "2027-01-01"
+    assert due_option([1, 2], SimpleNamespace()) is None
+    with pytest.raises(DueDateError):
+        due_option({"due": "soon"}, SimpleNamespace())
+
+
+def test_a_response_names_the_date_or_says_how_to_set_one():
+    from empirica.data.due import due_fields
+
+    assert due_fields("goal", "2026-12-01", hint=True) == {"due_at": "2026-12-01"}
+    assert "no due date" in due_fields("goal", None, hint=True)["due_hint"]
+    assert due_fields("assumption", None, hint=False) == {}

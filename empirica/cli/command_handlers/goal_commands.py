@@ -746,6 +746,15 @@ def handle_goals_create_command(args):
         # Stage 3: Duplicate detection
         _check_goal_duplicates(objective, session_id, output_format, args, config_data)
 
+        # A due date is read before anything is written: a bad one refuses the create rather than half-saving it.
+        from empirica.data.due import DueDateError, due_fields, due_option, stamp_due
+
+        try:
+            due_at = due_option(config_data, args)
+        except DueDateError as e:
+            print(json.dumps({"ok": False, "error": str(e)}) if output_format == "json" else f"❌ {e}")
+            return 1
+
         # Stage 4: Build and save goal
         goal, goal_repo, success_criteria_objects, scope, success, target_project_id = _build_and_save_goal(
             objective,
@@ -808,6 +817,9 @@ def handle_goals_create_command(args):
                 "scope": scope.to_dict(),
                 "timestamp": goal.created_timestamp,
             }
+            stamp_due(goal_repo.db.conn, "goal", goal.id, due_at)
+            row = goal_repo.db.conn.execute("SELECT status FROM goals WHERE id = ?", (goal.id,)).fetchone()
+            result.update(due_fields("goal", due_at, hint=bool(row and row[0] == "planned")))
             beads_issue_id = _goal_post_create_integrations(
                 goal,
                 session_id,
@@ -842,6 +854,10 @@ def handle_goals_create_command(args):
 
         # Stage 6: Format output
         _format_goal_output(output_format, result, objective, scope, estimated_complexity, beads_issue_id, use_beads)
+        if output_format != "json" and result.get("due_at"):
+            print(f"   Due: {result['due_at']}")
+        elif output_format != "json" and result.get("due_hint"):
+            print(f"💡 {result['due_hint']}")
 
         goal_repo.close()
         # `return None` here discarded the ok:False built four lines up — the

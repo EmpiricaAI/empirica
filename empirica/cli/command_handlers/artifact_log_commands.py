@@ -15,6 +15,7 @@ from typing import Any
 
 from empirica.core.cortex_capability import annotate_unavailable, unavailable_from_error, unavailable_message
 from empirica.core.mistake_text import build_mistake_text
+from empirica.data.due import DueDateError, due_fields, due_option, stamp_due
 from empirica.utils.session_resolver import InstanceResolver as R
 
 from ..cli_utils import handle_cli_error
@@ -1456,6 +1457,15 @@ def handle_finding_log_command(args):
             db.close()
 
 
+def _due_or_refuse(config_data, args, output_format) -> tuple[bool, str | None]:
+    """(True, date or None) for a readable ``--due``/``due``; (False, None) after printing the refusal."""
+    try:
+        return True, due_option(config_data, args)
+    except DueDateError as e:
+        print(json.dumps({"ok": False, "error": str(e)}) if output_format == "json" else f"❌ {e}")
+        return False, None
+
+
 def handle_unknown_log_command(args):
     """Handle unknown-log command - AI-first with config file support"""
     db = None
@@ -1477,6 +1487,9 @@ def handle_unknown_log_command(args):
 
         # Content-aware provenance nudge (non-blocking)
         _warn_unsourced_citations_if_needed(args, unknown)
+        due_ok, due_at = _due_or_refuse(config_data, args, ctx["output_format"])
+        if not due_ok:
+            return 1
 
         # Store to SQLite (durable)
         source_ids = _resolve_source_ids(args, ctx, db, locals().get("config_data"))
@@ -1496,6 +1509,7 @@ def handle_unknown_log_command(args):
             description=description,
             source_ids=source_ids,
         )
+        stamp_due(db.conn, "unknown", unknown_id, due_at)
 
         # Entity cross-link
         if ctx["via"] and ctx["entity_type"] != "project" and ctx["entity_id"]:
@@ -1588,6 +1602,7 @@ def handle_unknown_log_command(args):
             "suggested_links": suggested_links,
             "message": "Unknown logged to project scope",
         }
+        result.update(due_fields("unknown", due_at, hint=True))
 
         if output_format == "json":
             print(json.dumps(result, indent=2))
@@ -2187,6 +2202,9 @@ def handle_assumption_log_command(args):
 
         # Content-aware provenance nudge (non-blocking)
         _warn_unsourced_citations_if_needed(args, assumption)
+        due_ok, due_at = _due_or_refuse(config_data, args, ctx["output_format"])
+        if not due_ok:
+            return 1
 
         # Store to SQLite (durable)
         source_ids = _resolve_source_ids(args, ctx, db, locals().get("config_data"))
@@ -2205,6 +2223,7 @@ def handle_assumption_log_command(args):
             description=description,
             source_ids=source_ids,
         )
+        stamp_due(db.conn, "assumption", assumption_id, due_at)
 
         # GIT NOTES: Store in git notes for sync
         git_stored = False
@@ -2279,6 +2298,7 @@ def handle_assumption_log_command(args):
             "suggested_links": suggested_links,
             "message": "Assumption logged",
         }
+        result.update(due_fields("assumption", due_at, hint=False))
 
         if ctx["output_format"] == "json":
             print(json.dumps(result, indent=2))

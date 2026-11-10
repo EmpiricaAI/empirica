@@ -1128,6 +1128,10 @@ def add_checkpoint_parsers(subparsers):
         help="Optional rich markdown body — context behind the question, what you tried, what would resolve it. Rendered in extension and skill surfaces.",
     )
     unknown_log_parser.add_argument("--goal-id", help="Optional goal UUID")
+    unknown_log_parser.add_argument(
+        "--due",
+        help="When this should come back up: a date YYYY-MM-DD or an offset +7d / +2w. Listed under Due at bootstrap and session start once the date has come, until it is done, snoozed (update-artifacts due_at) or dropped",
+    )
     unknown_log_parser.add_argument("--task-id", help="Optional task UUID")
     unknown_log_parser.add_argument(
         "--subject", help="Subject/workstream identifier (auto-detected from directory if omitted)"
@@ -1372,6 +1376,10 @@ def add_checkpoint_parsers(subparsers):
         "--confidence", type=float, default=0.5, help="Confidence in this assumption (0.0-1.0)"
     )
     assumption_log_parser.add_argument("--domain", help="Domain scope (e.g., security, architecture)")
+    assumption_log_parser.add_argument(
+        "--due",
+        help="When this should come back up: a date YYYY-MM-DD or an offset +7d / +2w. Listed under Due at bootstrap and session start once the date has come, until it is done, snoozed (update-artifacts due_at) or dropped",
+    )
     assumption_log_parser.add_argument("--goal-id", help="Optional goal UUID")
     _add_entity_flags(assumption_log_parser)
     _add_edge_flags(assumption_log_parser)
@@ -2014,6 +2022,10 @@ Example:
     goals_create_parser.add_argument("--constraints", help="Constraints as JSON object")
     goals_create_parser.add_argument("--metadata", help="Metadata as JSON object")
     goals_create_parser.add_argument("--use-beads", action="store_true", help="Create BEADS issue and link to goal")
+    goals_create_parser.add_argument(
+        "--due",
+        help="When this should come back up: a date YYYY-MM-DD or an offset +7d / +2w. Listed under Due at bootstrap and session start once the date has come, until it is done, snoozed (update-artifacts due_at) or dropped",
+    )
     goals_create_parser.add_argument(
         "--status",
         choices=["planned", "in_progress", "blocked"],

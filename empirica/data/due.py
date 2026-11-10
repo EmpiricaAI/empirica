@@ -76,3 +76,33 @@ def due_items(conn: sqlite3.Connection, project_id: str, *, today: date | None =
     if shown and len(rows) > len(shown):
         shown[-1]["more"] = len(rows) - len(shown)
     return shown
+
+
+def missing_due_hint(artifact_type: str) -> str:
+    """What a create/log response says when a planned goal or an unknown carries no date: nothing will bring it back."""
+    what = "This planned goal" if artifact_type == "goal" else f"This {artifact_type}"
+    return (
+        f"{what} has no due date, so nothing will bring it back up. If it should return on a date, set one: "
+        f"update-artifacts with due_at, or --due next time ({FORMAT_HELP})."
+    )
+
+
+def due_option(config_data: object, args: object) -> str | None:
+    """The ISO date a create/log call asked for (``due`` in its JSON config, else ``--due``), or None. Raises
+    :class:`DueDateError` on a value it cannot read, before anything is written."""
+    raw = config_data.get("due") if isinstance(config_data, dict) else None
+    raw = raw or getattr(args, "due", None)
+    return parse_due(str(raw)) if raw else None
+
+
+def stamp_due(conn: sqlite3.Connection, artifact_type: str, artifact_id: str, due_at: str | None) -> None:
+    """Write ``due_at`` when one was given; nothing otherwise."""
+    if due_at:
+        set_due(conn, artifact_type, artifact_id, due_at)
+
+
+def due_fields(artifact_type: str, due_at: str | None, *, hint: bool) -> dict:
+    """What a create/log response says about the date: the date it set, or (when ``hint``) how to set one."""
+    if due_at:
+        return {"due_at": due_at}
+    return {"due_hint": missing_due_hint(artifact_type)} if hint else {}
