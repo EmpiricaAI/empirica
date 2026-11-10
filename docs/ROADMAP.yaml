@@ -87,7 +87,8 @@ items:
     falsifier: On a release that claims the fix, a listener's memory grows by more than 50 MB between hour 4 and hour 24 of uptime.
     horizon: "1.14.22"
     steered: true
-    status: predicted
+    status: shipped
+    resolved_in: "1.14.22"
     revisions:
       - "on": "2026-10-26"
         from: 0.65
@@ -97,15 +98,19 @@ items:
         from: 0.55
         to: 0.5
         reason: Not delivered by its 1.14.20 horizon. That release adds the stats line that attributes the growth and removes the five-minute window with no stream process after a quiet drop, but the memory growth itself is neither reproduced nor fixed, so nothing could have stopped it. The horizon moves to 1.14.22 and the confidence drops, because a prediction that misses its horizon was over-confident about when.
+      - "on": "2026-11-10"
+        from: 0.5
+        to: 0.5
+        reason: Shipped in 1.14.22, which gives every listener HTTPS call one SSL context per process; the growth was native memory held by a new context every 60 seconds. Measured from the listeners' own stats lines on one machine, all five units started after the fix grew 9.5 to 13.7 MB between hour 4 and hour 24 of uptime, under the falsifier's 50 MB. The run on the same unit before the fix grew from 233 MB to 949 MB over the same hours.
 
   - id: cockpit-rejoin
     title: Restarted cockpit panes rejoin the mesh unprompted
     prediction: After a cockpit restart by launch or by refresh, resumed sessions re-arm their listener and catch up on mail without anyone typing, using the wake and inbox poll added in 1.14.14.
-    confidence: 0.4
+    confidence: 0.35
     evidence: reported
     basis: Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. As of 1.14.19 cockpit refresh wakes each resumed claude pane once it is idle, which gives it the turn that arms the listener; that is tested with fakes and has not been measured on a live cockpit. The one live restart measured since (0 of 6 resumed panes armed before a human prompt) was a kill-server then launch, so the refresh wake never ran, and the listener wake service was off on every unit, so it grades neither. Launch gets the same wake as refresh in 1.14.22, tested with fakes, not yet measured on a live cockpit.
     falsifier: After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later.
-    horizon: "1.14.23"
+    horizon: "1.16.0"
     steered: true
     status: predicted
     revisions:
@@ -121,6 +126,10 @@ items:
         from: 0.4
         to: 0.4
         reason: Past its 1.14.21 horizon but untested rather than wrong. The measured restart did not go through refresh, which is the only path that wakes panes, and a restart by launch is the natural one for a person. The prediction now covers both paths, launch is being changed to wake like refresh, and the horizon moves to 1.14.23 so the next restart is the first real measurement. The confidence stays, because the cause is now known and one fix away, and a missed horizon was already priced in.
+      - "on": "2026-11-10"
+        from: 0.4
+        to: 0.35
+        reason: Past its 1.14.23 horizon and still unmeasured. The cockpit server on the machine checked has run since 2 November, before 1.14.22 shipped the launch wake, so no launch restart has happened on it, and no refresh since has been graded. The work it needs is done; the measurement is a restart. The horizon moves to 1.16.0 and the confidence drops, because a prediction that misses its horizon was over-confident about when.
 
   - id: wake-default
     title: Wake service on by default

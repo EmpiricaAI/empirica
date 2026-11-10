@@ -438,19 +438,16 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.15.0
+## What's New in 1.15.1
 
-- **Discipline is the Sentinel's default mode.** Outside a transaction, a few small file edits inside the practice run without one and are declared at the next PREFLIGHT; everything else still needs one. `empirica sentinel mode strict` keeps the old behaviour.
-- **empirica-local: the Cortex API from your own machine.** On a loopback bind, `empirica serve` answers the Cortex routes one person needs, from your practice registry, and says plainly that anything crossing a user or organisation boundary is not available. Cortex's conformance suite passes against it.
-- **Due dates on goals, unknowns and assumptions.** `--due 2026-12-01`, `+7d` or `+2w`; due items open the bootstrap and the session-start context, each answered by doing, snoozing or dropping it.
-- **The prompt router is four times faster:** about 940 ms to about 230 ms per prompt, with the same results.
+- **Several practices on one machine, with no Cortex and nothing to configure.** With no Cortex set up, the mailbox, project registration, heartbeats and session wake use the local server (`empirica serve`) automatically, and `provision-practice` starts it as a user service when it is not running. Practices are addressed `local.<you>.<practice>`. A configured Cortex always wins.
 
-All 11 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 10 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.15.0** — Discipline is the Sentinel's default mode. Outside a transaction, a few small file edits inside the practice run without one and are declared at the next P…
 - **1.14.23** — Empirica can be installed into one repository only. `empirica setup --scope project` writes nothing under `~/.claude`; the machine-wide install stays the d…
-- **1.14.22** — The cockpit has bars. Practices and their health are on top; under each pane is a line of commands, red when something is broken and orange when something…
 
 ## What's Coming
 
@@ -458,11 +455,10 @@ Empirica's own forecast, made in 1.14.14 from its open work, the demand it has m
 
 | Direction | Confidence | Why we expect it | What would change our mind |
 |---|---|---|---|
-| **Listener memory stays flat**: Within three releases a listener's memory stops growing with uptime, and a dead notification stream is restarted. | 50% (reported, planned) | Operators of long-running listeners report about 30 MB an hour in one case and over 1 GB at 29 hours in another, with a stream process that was not respawned after a drop. We have not yet reproduced it on a fresh unit. From 1.14.20 the listener logs its memory next to its activity, so the growth can be attributed, and a quiet stream that drops no longer waits five minutes with no stream process. | On a release that claims the fix, a listener's memory grows by more than 50 MB between hour 4 and hour 24 of uptime. |
-| **Restarted cockpit panes rejoin the mesh unprompted**: After a cockpit restart by launch or by refresh, resumed sessions re-arm their listener and catch up on mail without anyone typing, using the wake and inbox poll added in 1.14.14. | 40% (reported, planned) | Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. As of 1.14.19 cockpit refresh wakes each resumed claude pane once it is idle, which gives it the turn that arms the listener; that is tested with fakes and has not been measured on a live cockpit. The one live restart measured since (0 of 6 resumed panes armed before a human prompt) was a kill-server then launch, so the refresh wake never ran, and the listener wake service was off on every unit, so it grades neither. Launch gets the same wake as refresh in 1.14.22, tested with fakes, not yet measured on a live cockpit. | After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later. |
+| **Restarted cockpit panes rejoin the mesh unprompted**: After a cockpit restart by launch or by refresh, resumed sessions re-arm their listener and catch up on mail without anyone typing, using the wake and inbox poll added in 1.14.14. | 35% (reported, planned) | Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. As of 1.14.19 cockpit refresh wakes each resumed claude pane once it is idle, which gives it the turn that arms the listener; that is tested with fakes and has not been measured on a live cockpit. The one live restart measured since (0 of 6 resumed panes armed before a human prompt) was a kill-server then launch, so the refresh wake never ran, and the listener wake service was off on every unit, so it grades neither. Launch gets the same wake as refresh in 1.14.22, tested with fakes, not yet measured on a live cockpit. | After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later. |
 | **Wake service on by default**: The wake service stops being opt-in once a few weeks of live use show no wake into a busy pane. | 30% (measured) | It passed a live trial on two seats and refuses busy panes, drafts and dialogs. Open edge cases are an image-only prompt that can read as blank and a spinner scrolled out of view that reads as idle. | A report of a wake that interrupted a running turn or submitted a half-typed draft. |
 
-Forecast record: 7 shipped (0 of them not on the plan when predicted), 0 dropped, 0 retracted, 0 superseded so far.
+Forecast record: 8 shipped (0 of them not on the plan when predicted), 0 dropped, 0 retracted, 0 superseded so far.
 
 ## Privacy & Data
 
