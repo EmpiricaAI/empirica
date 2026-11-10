@@ -441,12 +441,49 @@ class PersistentListenerService:
             path.unlink()
             _systemctl("daemon-reload", check=False)
         elif self.backend == "launchd":
-            _launchctl("unload", str(path), check=False)
+            self.stop(ai_id)  # by label: an unload by path misses a label loaded from another domain or directory
             path.unlink()
         else:
             return False
         logger.info("Uninstalled listener service: %s", path)
         return True
+
+    # ── Stop / start (mesh off / mesh on) ─────────────────────────────────
+
+    def _launchd_target(self, ai_id: str) -> str:
+        import os
+
+        return f"gui/{os.getuid()}/com.empirica.listener.{_safe(ai_id)}"
+
+    def stop(self, ai_id: str) -> None:
+        """Stop the service and keep it from starting at the next boot. The caller re-reads status() for the outcome.
+
+        launchd had no branch at all: ``mesh off`` printed "listener stopped" while launchd kept the listener running and
+        its label enabled, so it came back at boot (mesh-support, edit1, 2026-11-10). bootout plus disable on the label is
+        what stopped it there; ``unload -w`` on the plist is the fallback for an older launchctl.
+        """
+        if self.backend == "systemd":
+            _systemctl("disable", "--now", f"{_unit_name(ai_id)}.service", check=False)
+        elif self.backend == "launchd":
+            target = self._launchd_target(ai_id)
+            booted = _launchctl("bootout", target, check=False).returncode == 0
+            _launchctl("disable", target, check=False)
+            path = self.unit_path(ai_id)
+            if not booted and path is not None and path.exists():
+                _launchctl("unload", "-w", str(path), check=False)
+
+    def start(self, ai_id: str) -> None:
+        """Enable the service and start it now. The caller re-reads status() for the outcome."""
+        if self.backend == "systemd":
+            _systemctl("enable", "--now", f"{_unit_name(ai_id)}.service", check=False)
+        elif self.backend == "launchd":
+            import os
+
+            _launchctl("enable", self._launchd_target(ai_id), check=False)
+            path = self.unit_path(ai_id)
+            if path is not None and path.exists():
+                if _launchctl("bootstrap", f"gui/{os.getuid()}", str(path), check=False).returncode != 0:
+                    _launchctl("load", "-w", str(path), check=False)
 
     # ── Status ──────────────────────────────────────────────────────────
 
@@ -516,6 +553,14 @@ def install_listener_for(ai_id: str, empirica_bin: str | None = None) -> Path:
 def uninstall_listener_for(ai_id: str) -> bool:
     """Convenience: stop + remove the persistent listener for `ai_id`. Returns True if anything was removed."""
     return PersistentListenerService().uninstall(ai_id)
+
+
+def stop_listener_for(ai_id: str) -> None:
+    PersistentListenerService().stop(ai_id)
+
+
+def start_listener_for(ai_id: str) -> None:
+    PersistentListenerService().start(ai_id)
 
 
 def listener_status_for(ai_id: str) -> ListenerStatus:

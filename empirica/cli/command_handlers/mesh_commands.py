@@ -38,6 +38,8 @@ from typing import NamedTuple
 from empirica.core.loop_scheduler.persistent_listener import (
     install_listener_for,
     listener_status_for,
+    start_listener_for,
+    stop_listener_for,
     uninstall_listener_for,
 )
 
@@ -870,18 +872,17 @@ def handle_mesh_on_command(args) -> int:
         except Exception as e:
             sys.stderr.write(f"install failed: {e}\n")
             return 1
-    if svc.backend == "systemd":
-        subprocess.run(
-            ["systemctl", "--user", "enable", "--now", f"empirica-listener-{ai_id}.service"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+    start_listener_for(ai_id)  # systemd and launchd alike (launchd had no branch)
     new_state = listener_status_for(ai_id)
     if new_state.active:
         print(f"OK -- {ai_id} listener active.")
         return 0
-    sys.stderr.write(f"failed to activate; check journalctl --user -u empirica-listener-{ai_id}.service\n")
+    where = (
+        f"launchctl print gui/$(id -u)/com.empirica.listener.{ai_id}"
+        if new_state.backend == "launchd"
+        else f"journalctl --user -u empirica-listener-{ai_id}.service"
+    )
+    sys.stderr.write(f"failed to activate; check {where}\n")
     return 1
 
 
@@ -891,13 +892,19 @@ def handle_mesh_off_command(args) -> int:
     if not svc.installed:
         print(f"service for '{ai_id}' not installed; nothing to do")
         return 0
-    if svc.backend == "systemd":
-        subprocess.run(
-            ["systemctl", "--user", "disable", "--now", f"empirica-listener-{ai_id}.service"],
-            capture_output=True,
-            text=True,
-            check=False,
+    # Stop it on every backend, then read the state back: the success line printed whatever happened, and on macOS
+    # nothing happened (mesh-support prop_isfyt5634vg6hmuuyb25ivog7m).
+    stop_listener_for(ai_id)
+    after = listener_status_for(ai_id)
+    if after.active:
+        manual = (
+            f"launchctl bootout gui/$(id -u)/com.empirica.listener.{ai_id} && "
+            f"launchctl disable gui/$(id -u)/com.empirica.listener.{ai_id}"
+            if after.backend == "launchd"
+            else f"systemctl --user disable --now empirica-listener-{ai_id}.service"
         )
+        sys.stderr.write(f"FAILED -- {ai_id} listener is still running after mesh off. Stop it by hand: {manual}\n")
+        return 1
     if getattr(args, "uninstall", False):
         try:
             uninstall_listener_for(ai_id)

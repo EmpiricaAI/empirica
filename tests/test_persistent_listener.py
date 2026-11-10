@@ -14,6 +14,8 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from empirica.core.loop_scheduler.persistent_listener import (
     ListenerServiceUnavailable,
     PersistentListenerService,
@@ -502,3 +504,101 @@ def test_is_listener_running_returns_true_when_active(tmp_path, monkeypatch):
         ),
     ):
         assert is_listener_running("cortex") is True
+
+
+# ── mesh off / mesh on on launchd (mesh-support prop_isfyt5634vg6hmuuyb25ivog7m) ─────────────────────────────────────
+# `mesh off` acted only on systemd and printed "listener stopped" on every backend: on macOS launchd kept the listener
+# running, label enabled, and it came back at boot.
+
+
+def _launchd_service(tmp_path, monkeypatch, calls, answers=None):
+    import os
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(os, "getuid", lambda: 501)
+    answers = answers or {}
+
+    def fake(*args, check=False):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, answers.get(args[0], 0), "", "")
+
+    patches = [
+        patch("empirica.core.loop_scheduler.persistent_listener.is_systemd_available", return_value=False),
+        patch("empirica.core.loop_scheduler.persistent_listener.is_launchd_available", return_value=True),
+        patch("empirica.core.loop_scheduler.persistent_listener._launchctl", side_effect=fake),
+    ]
+    for p in patches:
+        p.start()
+    mock_sys = patch("empirica.core.loop_scheduler.persistent_listener.sys").start()
+    mock_sys.platform = "darwin"
+    service = PersistentListenerService(empirica_bin="/path/to/empirica")
+    return service
+
+
+@pytest.fixture
+def stop_patches():
+    yield
+    patch.stopall()
+
+
+def test_stop_on_launchd_boots_out_and_disables_the_label(tmp_path, monkeypatch, stop_patches):
+    calls = []
+    service = _launchd_service(tmp_path, monkeypatch, calls)
+    service.stop("ffp-archive")
+    assert ("bootout", "gui/501/com.empirica.listener.ffp-archive") in calls
+    assert ("disable", "gui/501/com.empirica.listener.ffp-archive") in calls
+
+
+def test_stop_falls_back_to_unload_when_bootout_fails(tmp_path, monkeypatch, stop_patches):
+    calls = []
+    service = _launchd_service(tmp_path, monkeypatch, calls, answers={"bootout": 3})
+    plist = service.unit_path("ffp-archive")
+    plist.parent.mkdir(parents=True, exist_ok=True)
+    plist.write_text("<plist/>")
+    service.stop("ffp-archive")
+    assert ("unload", "-w", str(plist)) in calls
+
+
+def test_start_on_launchd_enables_then_bootstraps(tmp_path, monkeypatch, stop_patches):
+    calls = []
+    service = _launchd_service(tmp_path, monkeypatch, calls)
+    plist = service.unit_path("ffp-archive")
+    plist.parent.mkdir(parents=True, exist_ok=True)
+    plist.write_text("<plist/>")
+    service.start("ffp-archive")
+    assert calls[0] == ("enable", "gui/501/com.empirica.listener.ffp-archive")
+    assert ("bootstrap", "gui/501", str(plist)) in calls
+
+
+def test_mesh_off_says_so_when_the_listener_is_still_running(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from empirica.cli.command_handlers import mesh_commands as mc
+    from empirica.core.loop_scheduler.persistent_listener import ListenerStatus
+
+    running = ListenerStatus(ai_id="ffp-archive", backend="launchd", installed=True, active=True)
+    stopped = []
+    monkeypatch.setattr(mc, "listener_status_for", lambda ai_id: running)
+    monkeypatch.setattr(mc, "stop_listener_for", lambda ai_id: stopped.append(ai_id))
+    rc = mc.handle_mesh_off_command(SimpleNamespace(instance="ffp-archive", uninstall=False))
+    out, err = capsys.readouterr()
+    assert rc == 1 and stopped == ["ffp-archive"]
+    assert "listener stopped" not in out and "still running" in err and "launchctl bootout" in err
+
+
+def test_mesh_off_reports_stopped_only_once_it_is(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from empirica.cli.command_handlers import mesh_commands as mc
+    from empirica.core.loop_scheduler.persistent_listener import ListenerStatus
+
+    states = iter(
+        [
+            ListenerStatus(ai_id="x", backend="launchd", installed=True, active=True),
+            ListenerStatus(ai_id="x", backend="launchd", installed=True, active=False),
+        ]
+    )
+    monkeypatch.setattr(mc, "listener_status_for", lambda ai_id: next(states))
+    monkeypatch.setattr(mc, "stop_listener_for", lambda ai_id: None)
+    assert mc.handle_mesh_off_command(SimpleNamespace(instance="x", uninstall=False)) == 0
+    assert "listener stopped" in capsys.readouterr().out
