@@ -1349,8 +1349,8 @@ def _rebuild_ensure_goals(db, now, rebuilt, all_items_lists=()):
             db.adapter.execute(
                 "INSERT INTO goals (id, session_id, objective, scope, estimated_complexity, "
                 "created_timestamp, goal_data, status, project_id, is_completed, completed_timestamp, "
-                "completion_reason, archived, archived_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "completion_reason, archived, archived_at, due_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     gid,
                     gsid,
@@ -1366,6 +1366,7 @@ def _rebuild_ensure_goals(db, now, rebuilt, all_items_lists=()):
                     gdata.get("completion_reason"),
                     gdata.get("archived") or 0,
                     gdata.get("archived_at"),
+                    gdata.get("due_at"),  # carried in goal_data since 1.16 (D3); an older note has none
                 ),
             )
             db.adapter.commit()
@@ -1558,6 +1559,7 @@ def _rebuild_insert_breadcrumbs(db, findings, unknowns, dead_ends, mistakes, val
                 # fresh rows). Re-apply the resolution the note carries so
                 # resolved/superseded state survives rebuild + multi-device sync.
                 _rebuild_apply_resolution(db, key, new_id, item)
+                _rebuild_apply_due(db, key, new_id, item)
                 rebuilt[key] += 1
             except Exception as e:
                 logger.debug(f"{key} rebuild skip: {e}")
@@ -1565,6 +1567,18 @@ def _rebuild_insert_breadcrumbs(db, findings, unknowns, dead_ends, mistakes, val
                     db.adapter.conn.rollback()
                 except Exception:
                     pass
+
+
+def _rebuild_apply_due(db, key, new_id, item) -> None:
+    """An unknown's due date, from a note that carries one (1.16, D3). log_unknown takes no date, so it is set after the
+    identity restore, like the resolution. The note is the source here. Best-effort, like the resolution re-apply."""
+    if not new_id or key != "unknowns" or not item.get("due_at"):
+        return
+    try:
+        db.adapter.conn.execute("UPDATE project_unknowns SET due_at = ? WHERE id = ?", (str(item["due_at"]), new_id))
+        db.adapter.conn.commit()
+    except Exception as e:
+        logger.debug(f"rebuild due re-apply skip ({key} {new_id}): {e}")
 
 
 def _rebuild_apply_resolution(db, key, new_id, item) -> None:

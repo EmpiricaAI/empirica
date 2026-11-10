@@ -86,7 +86,7 @@ def importer_db(monkeypatch):
             resolved_timestamp REAL, superseded_by TEXT, resolution_kind TEXT);
         CREATE TABLE project_unknowns (id TEXT PRIMARY KEY, project_id TEXT, session_id TEXT, goal_id TEXT, subtask_id TEXT, unknown TEXT,
             is_resolved INT, resolved_by TEXT, created_timestamp REAL, resolved_timestamp REAL, unknown_data TEXT, subject TEXT, impact REAL,
-            transaction_id TEXT);
+            transaction_id TEXT, due_at TEXT);
         CREATE TABLE project_dead_ends (id TEXT PRIMARY KEY, project_id TEXT, session_id TEXT, goal_id TEXT, subtask_id TEXT, approach TEXT,
             why_failed TEXT, created_timestamp REAL, dead_end_data TEXT, subject TEXT, transaction_id TEXT, is_invalidated INT DEFAULT 0,
             invalidation_reason TEXT, invalidated_at REAL, invalidated_by TEXT);

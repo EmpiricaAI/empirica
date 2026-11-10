@@ -214,8 +214,8 @@ class ProfileImporter:
                     INSERT OR IGNORE INTO project_unknowns
                     (id, project_id, session_id, goal_id, subtask_id,
                      unknown, is_resolved, resolved_by, created_timestamp,
-                     resolved_timestamp, unknown_data, subject, impact, transaction_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     resolved_timestamp, unknown_data, subject, impact, transaction_id, due_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         data.get("unknown_id", unknown_id),
@@ -232,6 +232,7 @@ class ProfileImporter:
                         data.get("subject"),
                         data.get("impact", 0.5),
                         data.get("transaction_id"),
+                        data.get("due_at"),
                     ),
                 )
                 if cursor.rowcount > 0:
@@ -457,8 +458,8 @@ class ProfileImporter:
                     """
                     INSERT INTO assumptions
                     (id, assumption, confidence, status, project_id, session_id, transaction_id,
-                     goal_id, created_by_ai, created_timestamp, visibility)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local')
+                     goal_id, created_by_ai, created_timestamp, visibility, due_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local', ?)
                 """,
                     (
                         row_id,
@@ -473,6 +474,7 @@ class ProfileImporter:
                         data.get("goal_id"),
                         data.get("ai_id"),
                         ts,
+                        data.get("due_at"),
                     ),
                 )
                 imported += 1
@@ -506,8 +508,8 @@ class ProfileImporter:
                     """
                     INSERT OR IGNORE INTO goals
                     (id, session_id, objective, scope, is_completed, status,
-                     created_timestamp, project_id, transaction_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     created_timestamp, project_id, transaction_id, goal_data, due_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         data.get("goal_id", goal_id),
@@ -519,6 +521,9 @@ class ProfileImporter:
                         ts,
                         goal_data.get("project_id"),
                         goal_data.get("transaction_id"),
+                        # goal_data is NOT NULL: without it INSERT OR IGNORE skipped every goal, silently (1.16, D3)
+                        json.dumps(goal_data),
+                        goal_data.get("due_at"),
                     ),
                 )
                 if cursor.rowcount > 0:
