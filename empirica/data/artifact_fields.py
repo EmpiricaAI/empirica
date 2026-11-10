@@ -41,10 +41,10 @@ from __future__ import annotations
 #: carrying a contaminated `search` tag.
 ARTIFACT_UPDATABLE_FIELDS: dict[str, set[str]] = {
     "finding": {"impact", "subject", "epistemic_source", "visibility"},
-    "unknown": {"impact", "subject", "epistemic_source", "visibility"},
+    "unknown": {"impact", "subject", "epistemic_source", "visibility", "due_at"},
     "dead_end": {"impact", "subject", "epistemic_source", "visibility", "domain"},
     "mistake": {"prevention", "epistemic_source", "visibility"},
-    "assumption": {"confidence", "status", "epistemic_source", "visibility"},
+    "assumption": {"confidence", "status", "epistemic_source", "visibility", "due_at"},
     # `reversibility` is metadata about the decision (how costly it is to undo), not
     # the claim — so it belongs here by this file's own rule. It earned the slot the
     # hard way: a truthy-default bug made `decision-log --reversibility` a no-op, and
@@ -53,7 +53,8 @@ ARTIFACT_UPDATABLE_FIELDS: dict[str, set[str]] = {
     # bad value fails the UPDATE rather than landing.
     "decision": {"outcome", "regret_score", "reversibility", "epistemic_source", "visibility"},
     "source": {"confidence", "description"},
-    "goal": {"objective", "status"},
+    # `due_at` is when the item comes back up (empirica/data/due.py): moving it is a snooze, null clears it.
+    "goal": {"objective", "status", "due_at"},
     # A lesson's TEXT is immutable by the same rule as a finding's claim — a lesson
     # that turns out wrong is superseded, not edited. What is correctable is the
     # governance metadata, and `sharing_policy` is the one that matters: it decides
@@ -209,6 +210,13 @@ def value_problems(artifact_type: str, body: dict) -> dict[str, str]:
             problems[field] = f"{value!r} is not a number from 0 to 1"
         elif artifact_type == "goal" and field == "status" and value not in GOAL_STATUSES:
             problems[field] = f"{value!r} is not one of {', '.join(GOAL_STATUSES)}"
+        elif field == "due_at" and value is not None:
+            from empirica.data.due import DueDateError, parse_due
+
+            try:
+                parse_due(str(value))
+            except DueDateError as e:
+                problems[field] = str(e)
     return problems
 
 
@@ -232,5 +240,9 @@ def filter_updates(artifact_type: str, body: dict) -> tuple[dict, list[str]]:
     allowed = updatable_fields(artifact_type)
     problems = value_problems(artifact_type, body)
     updates = {k: v for k, v in body.items() if k in allowed and k not in problems}
+    if updates.get("due_at") is not None:
+        from empirica.data.due import parse_due
+
+        updates["due_at"] = parse_due(str(updates["due_at"]))  # store the date an offset names, not "+7d"
     rejected = [k for k in body if k not in allowed or k in problems]
     return updates, rejected

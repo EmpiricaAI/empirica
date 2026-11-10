@@ -137,3 +137,26 @@ def test_a_response_names_the_date_or_says_how_to_set_one():
     assert due_fields("goal", "2026-12-01", hint=True) == {"due_at": "2026-12-01"}
     assert "no due date" in due_fields("goal", None, hint=True)["due_hint"]
     assert due_fields("assumption", None, hint=False) == {}
+
+
+# ── snooze: update-artifacts may move or clear the date ─────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("kind", ["goal", "unknown", "assumption"])
+def test_a_snooze_is_a_due_at_correction_normalised_to_a_date(kind):
+    from empirica.data.artifact_fields import filter_updates
+
+    updates, rejected = filter_updates(kind, {"due_at": "2026-12-24"})
+    assert updates == {"due_at": "2026-12-24"} and rejected == []
+    relative, _ = filter_updates(kind, {"due_at": "+1w"})
+    assert len(relative["due_at"]) == 10 and relative["due_at"][4] == "-"
+    cleared, _ = filter_updates(kind, {"due_at": None})
+    assert cleared == {"due_at": None}
+
+
+def test_an_unreadable_snooze_is_rejected_and_other_types_cannot_carry_a_date():
+    from empirica.data.artifact_fields import filter_updates, value_problems
+
+    assert filter_updates("goal", {"due_at": "later"}) == ({}, ["due_at"])
+    assert "due_at" in value_problems("goal", {"due_at": "later"})
+    assert filter_updates("finding", {"due_at": "2026-12-24"}) == ({}, ["due_at"])

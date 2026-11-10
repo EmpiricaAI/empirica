@@ -11,6 +11,7 @@ import sys
 import time
 import uuid
 
+from empirica.data.artifact_fields import ARTIFACT_UPDATABLE_FIELDS
 from empirica.data.epistemic_source import EPISTEMIC_SOURCES
 from empirica.data.id_guard import resolve_id_prefix
 from empirica.data.impact_value import require_impact
@@ -2600,15 +2601,8 @@ UPDATE_ARTIFACTS_SCHEMA = {
             "<field>": "<new value — see per-type correctable fields below>",
         }
     ],
-    "_fields": {
-        "finding / unknown": "impact, subject, epistemic_source, visibility",
-        "dead_end": "impact, subject, epistemic_source, visibility, domain",
-        "mistake": "prevention, epistemic_source, visibility",
-        "assumption": "confidence, status, epistemic_source, visibility",
-        "decision": "outcome, regret_score, epistemic_source, visibility",
-        "source": "confidence, description",
-        "goal": "objective, status",
-    },
+    # Generated from the field map the writer enforces: the hand-written copy had drifted (no reversibility, no lesson).
+    "_fields": {kind: ", ".join(sorted(fields)) for kind, fields in ARTIFACT_UPDATABLE_FIELDS.items()},
     "_not_updatable": (
         "The CLAIM TEXT itself (finding/unknown/approach/mistake/choice) is immutable. "
         "Silently rewriting what an artifact SAID would make the record unfalsifiable — a "
