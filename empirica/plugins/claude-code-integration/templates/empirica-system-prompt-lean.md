@@ -248,7 +248,9 @@ PREFLIGHT → [noetic: investigate] → CHECK → [praxic: implement] → POSTFL
   - `goals-complete-task --task-id <ID> --evidence "..."` — close as you
     finish each one, with evidence (commit SHA, test result, file path).
   - Use `--status planned` on goals-create when the goal is queued but not
-    yet started (collaborative planning pattern).
+    yet started (collaborative planning pattern), with `--due` (a date or
+    `+7d`) for when it should come back up. Due items open the bootstrap:
+    answer each, do it, snooze it (`update-artifacts` `due_at`) or drop it.
 
   **Worked example** (user asks "audit X, fix gaps, ship"):
   ```bash
