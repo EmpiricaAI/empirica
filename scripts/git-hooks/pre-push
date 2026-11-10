@@ -8,8 +8,11 @@
 # repeatedly (#204, #248, #342, 2026-07-17). This hook runs the exact ruff
 # gate locally so local == CI mechanically, instead of relying on memory.
 #
-# pyright is intentionally NOT run here (slow; type misses are rarer and CI
-# catches them). Run the full trio with `make check` before a release.
+# pyright runs on the Python files the pushed commits change (seconds, not the
+# minutes a full run takes). It used to be left out as "rarer"; two type errors
+# in new test files reached develop in one session (2026-11-10), because pytest
+# does not type-check and CI runs `pyright empirica/ tests/`. Run the full trio
+# with `make check` before a release.
 #
 # Install with `make install-hooks` (preserves any existing beads pre-push as
 # pre-push.beads and delegates to it below).
@@ -17,6 +20,10 @@
 set -e
 REPO_ROOT=$(git rev-parse --show-toplevel)
 cd "$REPO_ROOT"
+
+# git passes "<local ref> <local sha> <remote ref> <remote sha>" lines on stdin. Read them once, and hand the same bytes
+# to the beads hook below, which used to receive this hook's stdin through exec.
+PUSH_REFS=$(cat)
 
 if command -v ruff >/dev/null 2>&1; then
     echo "pre-push: CI-parity ruff gate (ruff check + format --check)…" >&2
@@ -31,10 +38,33 @@ else
     echo "pre-push: ruff not found — skipping lint gate (pip install ruff)." >&2
 fi
 
+# pyright on the pushed .py files that still exist. A new branch (remote sha all zeros) is compared with origin/develop.
+ZERO=0000000000000000000000000000000000000000
+PY_FILES=$(printf '%s\n' "$PUSH_REFS" | while read -r _lref lsha _rref rsha; do
+    [ -n "$lsha" ] && [ "$lsha" != "$ZERO" ] || continue
+    if [ "$rsha" = "$ZERO" ]; then base=$(git merge-base "$lsha" origin/develop 2>/dev/null || true); else base=$rsha; fi
+    [ -n "$base" ] || continue
+    git diff --name-only --diff-filter=ACMR "$base" "$lsha" -- '*.py' 2>/dev/null
+done | sort -u | while read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done)
+if [ -n "$PY_FILES" ] && command -v pyright >/dev/null 2>&1; then
+    echo "pre-push: pyright on $(printf '%s\n' "$PY_FILES" | wc -l | tr -d ' ') changed file(s)…" >&2
+    # One path per word, as git printed them.
+    # shellcheck disable=SC2086
+    if ! pyright $PY_FILES >&2; then
+        echo "" >&2
+        echo "❌ pre-push: pyright found errors in the files this push changes — push aborted." >&2
+        exit 1
+    fi
+    echo "✓ pre-push: pyright clean on the changed files." >&2
+elif [ -n "$PY_FILES" ]; then
+    echo "pre-push: pyright not found — skipping the type check (pip install pyright)." >&2
+fi
+
 # Delegate to the beads pre-push (preserved by the installer) so JSONL-sync
 # gating still runs. If it isn't installed, this is a no-op.
 BEADS_HOOK="$(git rev-parse --git-path hooks/pre-push.beads)"
 if [ -x "$BEADS_HOOK" ]; then
-    exec "$BEADS_HOOK" "$@"
+    printf '%s\n' "$PUSH_REFS" | "$BEADS_HOOK" "$@"
+    exit $?
 fi
 exit 0
