@@ -5,6 +5,34 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.1] - 2026-11-10
+
+### Highlights
+
+- **Several practices on one machine, with no Cortex and nothing to configure.** With no Cortex set up, the mailbox, project registration, heartbeats and session wake use the local server (`empirica serve`) automatically, and `provision-practice` starts it as a user service when it is not running. Practices are addressed `local.<you>.<practice>`. A configured Cortex always wins.
+
+### Added
+
+- **`empirica mailbox send`** starts a conversation from the command line (`--to` one or more canonical addresses, `--title`, `--summary`, optional `--type` and `--payload`). Until now a practice could only reply. Sending the same message twice carries the same idempotency key, so a retry does not deliver it twice.
+- **`provision-practice --no-local-server`** keeps the mailbox but installs no service, for people who start `empirica serve` themselves.
+- **Claude Code sessions are woken by the local server.** With no Cortex, SessionStart arms a tail of `~/.empirica/loop_fires.log` for the practice it starts in. Other harnesses read new messages with `empirica mailbox poll`.
+
+### Changed
+
+- **A first practice on a machine with no Cortex is addressed automatically:** org `local`, tenant `EMPIRICA_LOCAL_USER` or your login name, substrate `local`. This applies only when no tenant, org or substrate is given and none is inherited from the current practice.
+
+### Fixed
+
+- **The local-server step fails visibly.** It refuses without the `[api]` extra (checked in the environment the service will run), reports an installed service that does not answer instead of rewriting it, and reports a server that never starts as an error, not a note under `ok`.
+- **A practice name with capitals or underscores** (`My_Research`) is matched as the local server writes it (`my-research`), both in the session's wake tail and in mailbox address lookup.
+- **An explicit `--cortex-url` for another host** never receives the local server's token.
+- **`mailbox send`** refuses a `--payload` that is not a JSON object, and keeps your own `idempotency_key` or `"idempotent": false`.
+- **No duplicate wake lines** when the content poll runs beside the local server.
+
+### Docs
+
+- The install guide has a section for several practices on one machine with no Cortex; the environment-variable reference adds `EMPIRICA_SERVE_PORT`, `EMPIRICA_LOCAL_USER` and `EMPIRICA_LOCAL_TOKEN`.
+
 ## [1.15.0] - 2026-11-10
 
 ### Highlights
