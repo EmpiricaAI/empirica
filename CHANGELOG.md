@@ -5,6 +5,35 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] - 2026-11-10
+
+### Highlights
+
+- **Discipline is the Sentinel's default mode.** Outside a transaction, a few small file edits inside the practice run without one and are declared at the next PREFLIGHT; everything else still needs one. `empirica sentinel mode strict` keeps the old behaviour.
+- **empirica-local: the Cortex API from your own machine.** On a loopback bind, `empirica serve` answers the Cortex routes one person needs, from your practice registry, and says plainly that anything crossing a user or organisation boundary is not available. Cortex's conformance suite passes against it.
+- **Due dates on goals, unknowns and assumptions.** `--due 2026-12-01`, `+7d` or `+2w`; due items open the bootstrap and the session-start context, each answered by doing, snoozing or dropping it.
+- **The prompt router is four times faster:** about 940 ms to about 230 ms per prompt, with the same results.
+
+### Added
+
+- **empirica-local inside `empirica serve`,** mounted only when serve binds a loopback host. Proposals land accepted; idempotency keys are scoped to the sender (the same key and body replays, a different body is refused); archive is per recipient; a proposal for several practices completes when each has acked. Sessions are woken through the same `~/.empirica/loop_fires.log` the session monitor already reads, so no listener or ntfy is needed, and a wake line that cannot be written is counted in `/v1/health`. Every route refuses a request whose Host or Origin is not loopback, and a POST that is not JSON, so a web page open in your browser cannot reach the mailbox.
+- **Due dates.** `goals-create`, `unknown-log` and `assumption-log` take `--due`; `update-artifacts` moves a date (`due_at`, an offset is stored as the date it names) or clears it; `goals-list` shows it. A planned goal or an unknown logged without a date says so in the response, so a date is set when it matters rather than from memory.
+- **One message for a capability the server lacks.** Wherever the client meets a 501 naming a capability (mailbox, project and source routes, Forgejo publish), it reports "not available on this server: <capability>".
+
+### Changed
+
+- **The Sentinel's built-in mode is discipline** (it was strict). A mode value the Sentinel does not recognise now resolves to strict rather than to the default: `EMPIRICA_SENTINEL_MODE` is also read by empirica-autonomy, whose `controller` meant blocking. Files that run code or hold secrets (`pyproject.toml`, `setup.py`, `package.json`, `conftest.py`, Dockerfiles, compose files, `.env`) always need a transaction. Runs without an instance id keep a budget per practice, and parallel tool calls can no longer spend more than the budget.
+- **The pre-push hook type-checks the files a push changes** with pyright, in a few seconds; reinstall it with `make install-hooks`.
+
+### Fixed
+
+- **Project-scope uninstall removes only what it wrote.** It could delete your own plugin or server entries in `.claude/settings.local.json`; both scopes now also report the `mcp__cortex__*` permission setup grants, for you to remove if you did not add it.
+- **`setup --scope project` keeps a CRLF `CLAUDE.md`'s line endings,** refuses a UTF-16 one before writing anything, and says that the committed `CLAUDE.md` now imports a prompt that is not committed.
+- **Cockpit waiting marks are per tmux server,** so two tmux servers no longer clear each other's mark for the same pane number; and a headless `claude -p` run inside a pane no longer takes that pane's session record.
+- **Cortex client.** A project-name collision is reported as a failure in bulk registration and sync too; a repeated archive succeeds; a re-run of `mailbox reply` while the first send is still in flight waits for it instead of reporting a rejection; a sync refused for an unregistered practice is a POSTFLIGHT warning, shown in human output as well; doctor reads Cortex reachability from `/v1/health`.
+- **Codex panes in the cockpit resume their own session** on refresh.
+- **The rendered prompt no longer carries a date,** so it does not change from one day to the next.
+
 ## [1.14.23] - 2026-11-10
 
 ### Highlights
