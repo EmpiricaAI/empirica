@@ -115,12 +115,27 @@ and stops has described a setup rather than performed one.
 
 `empirica provision-practice` already does the whole chain, idempotently:
 `mkdir` → `project-init` → patch `.empirica/project.yaml` (ai_id / tenant / org
-/ substrate) → `project-register` with Cortex → optional Forgejo backup remote.
-Safe to re-run; every step no-ops if already done.
+/ substrate) → with no Cortex configured, start the local server if it is not
+running → `project-register` (with Cortex, or with the local server) → optional
+Forgejo backup remote. Safe to re-run; every step no-ops if already done.
 
 So: from Phases 1–3, propose the practices their answers imply — a separate
 practice per distinct domain of work, which is the model Empirica is built on
 (a practice is an epistemic specialization, not a folder).
+
+**Start from the default set, then add what the answers imply.** Three practices
+are useful to almost everyone, so offer them first, named in the person's own words:
+
+| Role | What it does | Suggested name |
+|---|---|---|
+| Coordinator | plans across the other practices, hands each its part, and follows up | `<them>-coordinator` |
+| System support | looks after the person's own machine and tools: installs, updates, backups, diagnosing what broke | `<them>-support` |
+| Research | investigates questions and keeps what it learns for the others to find | `<them>-research` |
+
+Builders come from the interview, not from a default: one practice per codebase or
+product the person works on (Phase 3), named after it. Then anything else the
+answers imply (writing, outreach, operations). Offer, never impose: every one is an
+option in the provisioning question below.
 
 **Always dry-run first, and show the output before doing anything:**
 
@@ -153,8 +168,10 @@ Where the flags come from Phase 3:
 |---|---|
 | Code lives on Forgejo | `--forgejo-owner` + `--forgejo-host` (ask for both — they are not guessable) |
 | Code lives on GitHub / GitLab / local | omit the Forgejo flags |
-| Not on the mesh / standalone | `--no-cortex` |
+| No Cortex (one person, one machine) | omit both; practices hand work to each other through the local server, which `provision-practice` starts if it is not running. Proposals pass automatically: there is no review gate |
+| Wants a review gate on proposals | Cortex, with the ntfy app and the browser extension, is what adds it; omit the flags once `cortex.url` is set |
 | On the mesh | omit `--no-cortex`; `--tenant` / `--org` default from the current directory's project.yaml |
+| Fully standalone, no mailbox at all | `--no-cortex` (also skips the local server) |
 | Runs Claude Code in a terminal | `--cockpit-profile <name>` (each practice's pane runs `claude`) |
 | Runs ecodex in a terminal | `--cockpit-profile <name> --launch ecodex` |
 | Runs both | `--cockpit-profile <name> --second-pane ecodex`: one window per practice, claude and ecodex side by side in the same directory, each with its own identity |
