@@ -115,6 +115,8 @@ def _resolve_cortex_config(args) -> tuple[str | None, str | None]:
         creds = mesh_bearer()
     except Exception:
         creds = {}
+    if arg_url and creds.get("edition") == "local" and arg_url.rstrip("/") != str(creds.get("url") or "").rstrip("/"):
+        creds = {}  # an explicit other host never gets the local server's bearer (1.15.1 sweep, R1)
     url = arg_url or creds.get("url")
     key = arg_key or creds.get("bearer")
     return (url.rstrip("/") if url else None, key or None)

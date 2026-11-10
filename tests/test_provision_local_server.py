@@ -12,6 +12,8 @@ import pytest
 
 from empirica.cli.command_handlers import provision_practice_commands as pp
 
+_REAL_API_CHECK = pp._api_extra_missing  # captured at import, before conftest's autouse stub
+
 
 def _args(**kw):
     base = {"no_cortex": False, "no_local_server": False}
@@ -24,6 +26,8 @@ def ran(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(pp, "_run", lambda cmd, cwd, dry: calls.append(cmd) or (True, ""))
     monkeypatch.setattr(pp, "_wait_for_local_server", lambda: True)
+    monkeypatch.setattr(pp, "_api_extra_missing", lambda: None)  # never measure the box: its venv, its unit file
+    monkeypatch.setattr(pp, "_serve_unit_installed", lambda: False)
     return calls
 
 
@@ -62,3 +66,67 @@ def test_the_parser_has_the_opt_out():
 
     args = create_argument_parser().parse_args(["provision-practice", "demo", "--no-local-server"])
     assert args.no_local_server is True
+
+
+# ── 1.15.1 sweep, third reviewer ─────────────────────────────────────────────────────────────────────────────────────
+
+
+def test_without_the_api_extra_nothing_is_installed_and_the_step_says_why(ran, monkeypatch, tmp_path):
+    """Without fastapi/uvicorn the unit's `empirica serve` exits 1 and restarts until systemd gives up, while the step
+    reported ok. Refuse before installing, and name the extra."""
+    monkeypatch.setattr(pp, "_mesh_edition", lambda: None)
+    monkeypatch.setattr(pp, "_api_extra_missing", lambda: "No module named 'uvicorn'")
+    monkeypatch.setattr(pp, "_serve_unit_installed", lambda: False)
+    step = pp._local_server_step(_args(), tmp_path, dry_run=False)
+    assert ran == [] and step["error"] and "empirica[api]" in step["hint"]
+
+
+def test_the_service_is_installed_from_home_not_from_the_practice(monkeypatch, tmp_path):
+    """serve binds its project from WorkingDirectory: installing from the practice bound the machine's one serve unit
+    (the extension's daemon too) to whichever practice was provisioned last."""
+    cwds = []
+    monkeypatch.setattr(pp, "_run", lambda cmd, cwd, dry: cwds.append(cwd) or (True, ""))
+    monkeypatch.setattr(pp, "_wait_for_local_server", lambda: True)
+    monkeypatch.setattr(pp, "_mesh_edition", lambda: None)
+    monkeypatch.setattr(pp, "_api_extra_missing", lambda: None)
+    monkeypatch.setattr(pp, "_serve_unit_installed", lambda: False)
+    monkeypatch.setattr(pp.Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    pp._local_server_step(_args(), tmp_path / "practice", dry_run=False)
+    assert cwds == [tmp_path / "home"]
+
+
+def test_an_installed_unit_that_does_not_answer_is_reported_not_rewritten(ran, monkeypatch, tmp_path):
+    """An older serve still running, a failed unit, or another process on the port: each provision rewrote the unit (and
+    its one .bak). Leave it, and say what to check."""
+    monkeypatch.setattr(pp, "_mesh_edition", lambda: None)
+    monkeypatch.setattr(pp, "_api_extra_missing", lambda: None)
+    monkeypatch.setattr(pp, "_serve_unit_installed", lambda: True)
+    step = pp._local_server_step(_args(), tmp_path, dry_run=False)
+    assert ran == [] and step["error"] and "serve-service status" in step["hint"]
+
+
+def test_a_server_that_never_answers_after_install_is_an_error(monkeypatch, tmp_path):
+    monkeypatch.setattr(pp, "_run", lambda cmd, cwd, dry: (True, ""))
+    monkeypatch.setattr(pp, "_wait_for_local_server", lambda: False)
+    monkeypatch.setattr(pp, "_mesh_edition", lambda: None)
+    monkeypatch.setattr(pp, "_api_extra_missing", lambda: None)
+    monkeypatch.setattr(pp, "_serve_unit_installed", lambda: False)
+    step = pp._local_server_step(_args(), tmp_path, dry_run=False)
+    assert step["changed"] is True and step["error"] and "serve-service status" in step["hint"]
+
+
+def test_the_api_check_reads_the_interpreter_of_the_binary_the_unit_runs(monkeypatch, tmp_path):
+    """The unit runs `shutil.which('empirica')`, which may be another venv (pipx) than the one provisioning."""
+    py = tmp_path / "python3"
+    py.write_text("")
+    exe = tmp_path / "empirica"
+    exe.write_text(f"#!{py}\nimport sys\n")
+    seen = []
+    monkeypatch.setattr(pp.shutil, "which", lambda name: str(exe))
+    monkeypatch.setattr(
+        pp.subprocess,
+        "run",
+        lambda cmd, **kw: seen.append(cmd) or SimpleNamespace(returncode=1, stderr="ModuleNotFoundError: uvicorn"),
+    )
+    assert "uvicorn" in (_REAL_API_CHECK() or "")
+    assert seen and seen[0][0] == str(py)

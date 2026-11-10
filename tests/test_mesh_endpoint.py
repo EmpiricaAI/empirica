@@ -85,3 +85,16 @@ def test_the_default_probe_reads_a_real_health_document():
         assert me._probe_health("http://127.0.0.1:1/v1/health") is None  # nothing listening: None, fast
     finally:
         server.shutdown()
+
+
+def test_an_explicit_other_host_never_gets_the_local_bearer(monkeypatch):
+    """project-register --cortex-url https://other with no --api-key sent the local token to that host (1.15.1 sweep)."""
+    from types import SimpleNamespace
+
+    from empirica.cli.command_handlers import projects_commands as pc
+
+    monkeypatch.setattr(
+        me, "mesh_bearer", lambda *a, **k: {"url": "http://127.0.0.1:8000", "bearer": "local", "edition": "local"}
+    )
+    url, key = pc._resolve_cortex_config(SimpleNamespace(cortex_url="https://other.example", api_key=None))
+    assert url == "https://other.example" and key is None

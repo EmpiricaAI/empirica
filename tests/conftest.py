@@ -772,6 +772,26 @@ def _cockpit_state_stays_out_of_the_real_home(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _provision_never_installs_a_real_serve_service():
+    """provision-practice installs the serve service when no local server answers, which in a test means every run: it
+    read this box's real unit file and venv, and waited 8 s for a server that never came. Default the step's view to
+    "the local server is already running"; tests/test_provision_local_server.py patches its own view per test."""
+    try:
+        from empirica.cli.command_handlers import provision_practice_commands as pp
+    except Exception:
+        yield
+        return
+    mp = MonkeyPatch()  # its own, as in _no_live_local_server_probe below
+    mp.setattr(pp, "_mesh_edition", lambda: "local")
+    mp.setattr(pp, "_serve_unit_installed", lambda: False)
+    mp.setattr(pp, "_api_extra_missing", lambda: None)
+    try:
+        yield
+    finally:
+        mp.undo()
+
+
+@pytest.fixture(autouse=True)
 def _no_live_local_server_probe(request):
     """The mesh resolver finds `empirica serve` on loopback when no Cortex is configured. A test must not depend on
     whether the box it runs on has serve up (the reader audit found three that would pass on CI and fail here), so the

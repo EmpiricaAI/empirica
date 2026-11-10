@@ -94,3 +94,35 @@ def test_the_parser_has_send():
         ["mailbox", "send", "--to", "local.dana.a", "--to", "local.dana.b", "--title", "t", "--summary", "s"]
     )
     assert args.mailbox_action == "send" and args.to == ["local.dana.a", "local.dana.b"]
+
+
+def test_a_non_object_payload_is_refused_not_a_traceback(capsys):
+    calls, post = _post_recorder()
+    assert _run(_args(payload="[1]"), post) == 1
+    assert calls == [] and "JSON object" in capsys.readouterr().err
+
+
+def test_the_callers_own_key_and_opt_out_are_kept_and_the_payload_is_part_of_the_identity():
+    calls, post = _post_recorder()
+    _run(_args(payload='{"idempotency_key": "mine"}'), post)
+    _run(_args(payload='{"idempotent": false}'), post)
+    _run(_args(payload='{"a": 1}'), post)
+    _run(_args(payload='{"a": 2}'), post)
+    keys = [c["body"]["payload"].get("idempotency_key") for c in calls]
+    assert keys[0] == "mine" and keys[1] is None and keys[2] != keys[3]
+
+
+def test_a_practice_name_with_capitals_finds_its_slugged_roster_row():
+    """provision accepts `David_Research`; the local server's roster lists `david-research` (1.15.1 sweep)."""
+    from empirica.cli.command_handlers.mailbox_commands import _resolve_canonical_ai_id
+
+    roster = {
+        "self": {"tenant_slug": "dana"},
+        "org": {"tenants": [{"tenant_slug": "dana", "projects": [
+            {"slug": "david-research", "ai_id_short": "david-research", "ai_id_mesh": "local.dana.david-research"}
+        ]}]},
+    }  # fmt: skip
+    got = _resolve_canonical_ai_id(
+        "http://127.0.0.1:8000", "local", "David_Research", lambda url, key, t: (200, roster)
+    )
+    assert got == "local.dana.david-research"

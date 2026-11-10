@@ -11,7 +11,6 @@ Capabilities served here are the package's ``IMPLEMENTED``; anything else keeps 
 
 import hmac
 import json
-import os
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -37,18 +36,10 @@ def mesh_prefix() -> str:
 
 
 def configured_token() -> str | None:
-    token = os.environ.get("EMPIRICA_LOCAL_TOKEN")
-    if token:
-        return token
-    creds = Path.home() / ".empirica" / "credentials.yaml"
-    try:
-        import yaml
+    """The token this server requires (one definition, shared with the client: core/mesh_endpoint.py)."""
+    from empirica.core.mesh_endpoint import configured_local_token
 
-        data = yaml.safe_load(creds.read_text(encoding="utf-8")) or {}
-    except (OSError, ValueError):
-        return None
-    value = data.get("local_server_token") if isinstance(data, dict) else None
-    return str(value) if value else None
+    return configured_local_token()
 
 
 def _now() -> str:

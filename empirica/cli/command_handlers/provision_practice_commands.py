@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -63,12 +64,60 @@ def _wait_for_local_server(seconds: float = 8.0) -> bool:
     return False
 
 
+def _api_extra_missing() -> str | None:
+    """Why the binary the serve unit will run cannot start the server (no fastapi/uvicorn), or None when it can.
+
+    The unit runs ``shutil.which("empirica")`` (persistent_serve.py), which may belong to another venv than this
+    interpreter (pipx), so the check runs in that binary's interpreter, read from its shebang. Without the extra the unit's
+    `empirica serve` exits 1 and restarts until systemd gives up, while provisioning reported ok (1.15.1 sweep, P1)."""
+    interpreter = sys.executable
+    exe = shutil.which("empirica")
+    if exe:
+        try:
+            with open(exe, "rb") as fh:
+                first = fh.readline().decode("utf-8", "replace").strip()
+        except OSError:
+            first = ""
+        if first.startswith("#!"):
+            parts = first[2:].split()
+            if parts and os.path.basename(parts[0]) == "env" and len(parts) > 1:
+                parts = parts[1:]
+            if parts:
+                interpreter = parts[0]
+    try:
+        r = subprocess.run([interpreter, "-c", "import fastapi, uvicorn"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as e:
+        return f"could not run {interpreter}: {e}"
+    if r.returncode == 0:
+        return None
+    lines = (r.stderr or "").strip().splitlines()
+    return lines[-1] if lines else f"{interpreter} cannot import fastapi and uvicorn"
+
+
+def _local_url() -> str:
+    from empirica.core.mesh_endpoint import local_server_url
+
+    return local_server_url()
+
+
+def _serve_unit_installed() -> bool:
+    """Whether this machine already has the serve unit (systemd-user .service or launchd .plist)."""
+    try:
+        from empirica.core.loop_scheduler.persistent_serve import PersistentServeService
+
+        path = PersistentServeService().unit_path()
+        return bool(path and path.exists())
+    except Exception:
+        return False
+
+
 def _local_server_step(args, proj_dir: Path, dry_run: bool) -> dict:
     """The ``local-server`` step: with no Cortex configured and no local server running, install and start the serve service,
     so practices on this machine can hand work to each other (David's ruling 2026-11-10: nothing to configure).
 
     Onboarding is where it happens, and it says so. ``--no-local-server`` and ``--no-cortex`` skip it; plain ``setup`` never
-    installs a background service."""
+    installs a background service. Every way the server can end up not answering is an ``error`` with a hint, never a note
+    under ``ok: true``: a practice that cannot hear its mail looks exactly like one with no mail (1.15.1 sweep)."""
     step: dict = {"step": "local-server", "changed": False}
     if getattr(args, "no_local_server", False) or getattr(args, "no_cortex", False):
         return {**step, "note": "skipped (--no-local-server or --no-cortex)"}
@@ -77,7 +126,24 @@ def _local_server_step(args, proj_dir: Path, dry_run: bool) -> dict:
         return {**step, "note": "Cortex is configured: practices use it, no local server needed"}
     if edition == "local":
         return {**step, "note": "the local server is already running"}
-    ok, err = _run(["empirica", "serve-service", "install"], proj_dir, dry_run)
+    if _serve_unit_installed():
+        # An older serve still running, a failed unit, or another process on the port. Reinstalling would rewrite the one
+        # unit (and its one .bak) on every provision and still not restart an active unit.
+        return {
+            **step,
+            "error": f"the serve service is installed but nothing answers as the local server at {_local_url()}",
+            "hint": "check `empirica serve-service status`; an older serve may still be running (`systemctl --user "
+            "restart empirica-serve`), or another process holds the port",
+        }
+    missing = _api_extra_missing()
+    if missing:
+        return {
+            **step,
+            "error": f"the local server needs the [api] extra: {missing}",
+            "hint": "install it (`pipx install --force 'empirica[api]'` or `pip install 'empirica[api]'`), then run this again",
+        }
+    # From HOME: serve binds its project from WorkingDirectory, and this is the machine's one serve unit (P2).
+    ok, err = _run(["empirica", "serve-service", "install"], Path.home(), dry_run)
     if not ok:
         return {
             **step,
@@ -86,13 +152,17 @@ def _local_server_step(args, proj_dir: Path, dry_run: bool) -> dict:
         }
     if dry_run:
         return {**step, "changed": True, "note": "dry-run: would install and start the serve service"}
-    up = _wait_for_local_server()
+    if _wait_for_local_server():
+        return {
+            **step,
+            "changed": True,
+            "note": "installed and started the serve service: practices on this machine hand work to each other through it",
+        }
     return {
         **step,
         "changed": True,
-        "note": "installed and started the serve service: practices on this machine hand work to each other through it"
-        if up
-        else "installed the serve service, but the local server did not answer yet: check `empirica serve-service status`",
+        "error": "installed the serve service, but the local server did not answer",
+        "hint": "check `empirica serve-service status` and its log",
     }
 
 
@@ -450,7 +520,9 @@ def handle_provision_practice_command(args) -> int:
     tenant = getattr(args, "tenant", None) or inferred_tenant
     org = getattr(args, "org", None) or inferred_org
     substrate = _resolve_substrate(args)
-    if (not tenant or not org) and substrate != "local" and not _cortex_seat():
+    # Only when nothing was said: an explicit --substrate is kept, and a half-given address (`--org acme` alone) gets the
+    # usual "name both" message rather than `acme.<user>` beside a server that answers as `local.<user>` (1.15.1 sweep).
+    if not tenant and not org and substrate != "local" and not getattr(args, "substrate", None) and not _cortex_seat():
         # A first machine with no Cortex has no tenant or org to inherit: it is the local edition, addressed
         # local.<user>.<practice> by the local server (1.15.1). A Cortex seat still has to name or inherit them, and a
         # --no-cortex practice (no mailbox at all) stays unaddressed, as before.

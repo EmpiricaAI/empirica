@@ -247,6 +247,10 @@ def _resolve_canonical_ai_id(cortex_url: str, api_key: str, local_ai_id: str | N
     # slug — David and Philipp both have an `empirica-autonomy` — so an unscoped walk
     # could return a canonical id belonging to someone else's seat.
     own_tenant = ((body.get("self") or {}).get("tenant_slug")) or ""
+    # The local server registers `David_Research` as `david-research`; try the name as written, then as an address part.
+    from empirica.core.mesh_endpoint import slug
+
+    names = {local_ai_id, slug(local_ai_id)}
     for tenant in (body.get("org") or {}).get("tenants") or []:
         if not isinstance(tenant, dict) or (own_tenant and tenant.get("tenant_slug") != own_tenant):
             continue
@@ -256,7 +260,7 @@ def _resolve_canonical_ai_id(cortex_url: str, api_key: str, local_ai_id: str | N
             # resolver silently returned None for a practice that was right there.
             if not isinstance(proj, dict):
                 continue
-            if local_ai_id in (proj.get("slug"), proj.get("ai_id_short")):
+            if {proj.get("slug"), proj.get("ai_id_short")} & names:
                 mesh = proj.get("ai_id_mesh")
                 if isinstance(mesh, str) and mesh:
                     return mesh
@@ -1249,16 +1253,25 @@ def handle_mailbox_send_command(
     except json.JSONDecodeError as e:
         sys.stderr.write(f"mailbox send: --payload is not valid JSON: {e}\n")
         return 1
+    if not isinstance(payload, dict):
+        sys.stderr.write("mailbox send: --payload must be a JSON object\n")
+        return 1
     import hashlib as _hl
 
     from empirica.core.mesh_content import idempotency_key
 
-    payload["idempotency_key"] = idempotency_key(
+    # A caller's own key, or its opt-out (idempotent: false), is kept; otherwise the key is the message's identity, the
+    # payload included, so a different payload is a different message (1.15.1 sweep, R3).
+    if payload.get("idempotency_key") or payload.get("idempotent") is False:
+        pass
+    else:
+        payload["idempotency_key"] = idempotency_key(
         proposal_type,
         ",".join(sorted(targets)),
-        {"send_from": source, "title_digest": _hl.sha256(title.encode()).hexdigest()[:16],
-         "body_digest": _hl.sha256(summary.encode()).hexdigest()[:16]},
-    )  # fmt: skip
+            {"send_from": source, "title_digest": _hl.sha256(title.encode()).hexdigest()[:16],
+             "body_digest": _hl.sha256(summary.encode()).hexdigest()[:16],
+             "payload_digest": _hl.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]},
+        )  # fmt: skip
     body = {"api_key": api_key, "type": proposal_type, "title": title[:200], "summary": summary,
             "target_claudes": targets, "source_claude": source, "payload": payload}  # fmt: skip
     url = f"{cortex_url.rstrip('/')}/v1/orchestration/propose"

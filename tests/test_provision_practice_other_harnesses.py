@@ -247,3 +247,14 @@ def test_a_machine_with_no_cortex_defaults_to_the_local_edition(tmp_path, stub_r
     capsys.readouterr()
     data = yaml.safe_load(path.read_text())
     assert (data["tenant_slug"], data["org_id"], data["substrate"]) == ("dana", "local", "local")
+
+
+@pytest.mark.parametrize("given", [{"substrate": "git"}, {"org": "acme"}, {"tenant": "dana"}])
+def test_the_local_default_applies_only_when_nothing_was_said(tmp_path, capsys, monkeypatch, given):
+    """1.15.1 sweep: the default overrode an explicit --substrate, and kept `--org acme` beside substrate local (an address
+    the local server, which answers as local.<user>, never uses). Anything given: the usual "name both" refusal."""
+    monkeypatch.setattr(pp, "_cortex_seat", lambda: False)
+    kw = {"tenant": None, "org": None, **given}
+    rc = pp.handle_provision_practice_command(_args(tmp_path, dry_run=True, **kw))
+    _, err = capsys.readouterr()
+    assert rc == 1 and "--tenant/--org" in err

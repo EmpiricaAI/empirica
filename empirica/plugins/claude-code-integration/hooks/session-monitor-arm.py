@@ -237,6 +237,14 @@ def _build_monitor_block_from_cli(payload: dict | None, instance_id: str) -> str
             "ntfy subscriber. The persistent service handles ntfy + catch-up; "
             "the tail-Monitor handles in-session wake delivery."
         )
+    elif status == "local_server_tail_session":
+        mode_explainer = (
+            "No Cortex is configured: the local server (`empirica serve`) writes "
+            "each wake line for this practice to `~/.empirica/loop_fires.log`, "
+            "and the Monitor below tails it. There is no listener service and "
+            "no `listener arm` step. The tail has no catch-up of its own: mail "
+            "that arrived before it was armed is read with `empirica mailbox poll`."
+        )
     else:
         mode_explainer = (
             "No persistent service detected for this ai_id — the Monitor "
@@ -305,6 +313,15 @@ def _build_orphan_warning() -> str:
     )
 
 
+def _address_slug(text: str) -> str:
+    """The practice name as the local server writes it in wake lines (empirica.core.mesh_endpoint.slug): provision accepts
+    `David_Research`, the server registers and wakes `david-research`. Copied, since a hook cannot rely on the package
+    importing; tests/test_session_monitor_arm_hook.py asserts the copy agrees with the original."""
+    import re
+
+    return re.sub(r"[^a-z0-9-]+", "-", text.strip().lower()).strip("-") or "user"
+
+
 def _cwd_practice_ai_id() -> str | None:
     """The ai_id in the nearest .empirica/project.yaml above the working directory (CLAUDE_PROJECT_DIR first). The local
     server's wake lines carry the practice's ai_id, and a first session has no session records to resolve it from."""
@@ -316,7 +333,7 @@ def _cwd_practice_ai_id() -> str | None:
             f = d / ".empirica" / "project.yaml"
             if f.is_file():
                 value = (yaml.safe_load(f.read_text(encoding="utf-8")) or {}).get("ai_id")
-                return str(value) if value else None
+                return _address_slug(str(value)) if value else None
     except Exception:
         return None
     return None
@@ -557,7 +574,14 @@ def main() -> int:
     # service + no record of prior intent.
     local_server = False if (loops or listener_running) else _local_server_wake_source()
     if local_server:
-        instance_id = _cwd_practice_ai_id() or instance_id  # the id the local server's wake lines carry
+        # The id the local server's wake lines carry. Outside a practice no wake line carries any id, and the resolver's
+        # fallback (a pane id, `claude-code`, the last active project) would arm a tail that never fires or doubles
+        # another practice's events: arm nothing (1.15.1 sweep).
+        practice = _cwd_practice_ai_id()
+        if practice:
+            instance_id = practice
+        else:
+            local_server = False
     if not loops and not listener_running and not has_prior_intent and not local_server:
         print(json.dumps({}))
         return 0

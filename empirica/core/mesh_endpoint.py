@@ -62,13 +62,28 @@ def local_server_url() -> str:
     return f"http://127.0.0.1:{os.environ.get('EMPIRICA_SERVE_PORT', '8000')}"
 
 
+def configured_local_token() -> str | None:
+    """The token the local server requires: EMPIRICA_LOCAL_TOKEN, else ``local_server_token`` in
+    ~/.empirica/credentials.yaml, else None. Defined here, without FastAPI, so a client whose interpreter lacks the [api]
+    extra reads the same token the server checks (serve may run from another venv; 1.15.1 sweep, R4)."""
+    token = os.environ.get("EMPIRICA_LOCAL_TOKEN")
+    if token:
+        return token
+    from pathlib import Path
+
+    try:
+        import yaml
+
+        data = yaml.safe_load((Path.home() / ".empirica" / "credentials.yaml").read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError, ImportError):
+        return None
+    value = data.get("local_server_token") if isinstance(data, dict) else None
+    return str(value) if value else None
+
+
 def _local_token() -> str:
     """The token the local server checks, when one is configured; otherwise any bearer passes and "local" is sent."""
-    try:
-        from empirica.local_server.api import configured_token
-    except Exception:  # the [api] extra is absent: no local server runs here anyway
-        return os.environ.get("EMPIRICA_LOCAL_TOKEN") or "local"
-    return configured_token() or "local"
+    return configured_local_token() or "local"
 
 
 def mesh_bearer(loader=None, *, probe: Callable[[str], dict | None] | None = None) -> dict[str, Any]:

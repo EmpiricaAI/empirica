@@ -112,14 +112,26 @@ research, plus one practice per codebase you work on):
 
 ```bash
 pip install "empirica[api]"
-empirica provision-practice my-coordinator --cockpit-profile mine
-empirica provision-practice my-research --cockpit-profile mine
+empirica provision-practice my-coordinator
+empirica provision-practice my-research
 ```
 
 With no Cortex configured, the first `provision-practice` installs and starts
-the local server (`empirica serve-service install`, loopback only) and each
-practice registers with it as `local.<you>.<practice>`. `--no-local-server`
-skips that step. From inside a practice:
+the local server as a user service (`empirica serve-service install`: systemd-user
+on Linux and WSL2, launchd on macOS; it binds 127.0.0.1 only). Elsewhere, or with
+`--no-local-server`, start it yourself with `empirica serve`. Each practice
+registers with it as `local.<you>.<practice>`, where `<you>` is
+`EMPIRICA_LOCAL_USER` or your login name (a practice created from inside another
+practice inherits that one's tenant instead). If the `[api]` extra is missing,
+provisioning says so and installs nothing; if a serve service is already
+installed but does not answer (an older version still running, or another
+program on the port), it reports that rather than rewriting it.
+
+The server listens on port 8000 unless `EMPIRICA_SERVE_PORT` is set when it is
+installed, and every session finds it on the same variable. If you change the
+port, or set `EMPIRICA_LOCAL_USER`, set them in your login environment (for
+example `~/.config/environment.d/empirica.conf` on systemd) so the service and
+every terminal, desktop app or cockpit agree. From inside a practice:
 
 ```bash
 empirica mailbox send --to local.<you>.my-research --title "Question" --summary "..."
@@ -127,12 +139,16 @@ empirica mailbox poll                 # in my-research: the message is there
 empirica mailbox reply --parent-id <id> --summary "..." --result shipped
 ```
 
-Each message wakes the receiving session (its SessionStart arms a tail of
-`~/.empirica/loop_fires.log`). Proposals pass automatically: the local server
-has no review gate. A gate, people beyond you and organisations come with
-Cortex, used with the ntfy app and the browser extension; set `cortex.url`
-and the same commands use it instead. Anything that crosses a user or
-organisation boundary answers "not available on this server".
+In Claude Code, a session's SessionStart tells it to start a Monitor on
+`~/.empirica/loop_fires.log`, so a running session is woken when a message for
+its practice arrives (the Monitor lasts 30 minutes and is re-armed). Other
+harnesses (codex, ecodex) are not woken this way: they see new messages with
+`empirica mailbox poll`. Proposals pass automatically: the local server has no
+review gate. A gate, people beyond you and organisations come with Cortex, used
+with the ntfy app and the browser extension; once `cortex.url` is set in
+`~/.empirica/credentials.yaml` (or `empirica auth login`), the same commands use
+it instead. A message to an address outside `local.<you>.` answers "not
+available on this server".
 
 Knowledge and goals are already shared between practices on one machine:
 `empirica project-search --global` and `empirica goals-list --all-projects`.

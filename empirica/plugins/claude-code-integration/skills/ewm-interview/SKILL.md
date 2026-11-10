@@ -152,11 +152,14 @@ Only on an affirmative:
 
 ```bash
 empirica provision-practice <name> \
-  --tenant <tenant> --org <org> \
+  [--tenant <tenant> --org <org>] \
   --cockpit-profile <tenant> \
   [--forgejo-owner <owner> --forgejo-host <ssh-url>] \
-  [--no-cortex]
+  [--no-cortex | --no-local-server]
 ```
+
+With no Cortex, the local server needs the `[api]` extra (`pip install "empirica[api]"`). Without it,
+the `local-server` step reports an error and installs nothing: relay its `hint`, do not call the practice ready.
 
 `--cockpit-profile` adds each practice to one cockpit layout (`~/.empirica/cockpit/config-<name>.yaml`,
 created on the first call with a TUI window, then one window per practice). Pass the SAME name on
@@ -172,6 +175,7 @@ Where the flags come from Phase 3:
 | Wants a review gate on proposals | Cortex, with the ntfy app and the browser extension, is what adds it; omit the flags once `cortex.url` is set |
 | On the mesh | omit `--no-cortex`; `--tenant` / `--org` default from the current directory's project.yaml |
 | Fully standalone, no mailbox at all | `--no-cortex` (also skips the local server) |
+| Starts `empirica serve` themselves | `--no-local-server` (keeps the mailbox, installs no service) |
 | Runs Claude Code in a terminal | `--cockpit-profile <name>` (each practice's pane runs `claude`) |
 | Runs ecodex in a terminal | `--cockpit-profile <name> --launch ecodex` |
 | Runs both | `--cockpit-profile <name> --second-pane ecodex`: one window per practice, claude and ecodex side by side in the same directory, each with its own identity |

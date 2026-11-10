@@ -531,6 +531,10 @@ class SystemdLoopScheduler:
             from empirica.core.mesh_endpoint import mesh_bearer
 
             _resolved = mesh_bearer(get_credentials_loader())
+            if _resolved.get("edition") == "local":
+                # The local server writes its own wake lines to loop_fires.log; polling it here wrote every one twice
+                # (1.15.1 sweep, R5).
+                return None
             cortex_url = _resolved.get("url")
             api_key = _resolved.get("bearer")
         except Exception as e:
