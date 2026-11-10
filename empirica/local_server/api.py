@@ -217,6 +217,12 @@ def register(r) -> None:
 
 
 def _identity_routes(r, ctx: _Ctx, auth) -> None:
+    @r.get("/v1/orgs/me/mesh_sharing_agreements", dependencies=auth)
+    async def agreements():  # pyright: ignore[reportUnusedFunction]
+        # The contract's one group-B exception (local_status 200_empty_list): one person has no cross-org agreements,
+        # and an empty list is a true answer where 501 would read as "cannot tell".
+        return {"agreements": []}
+
     @r.get("/v1/users/me", dependencies=auth)
     async def users_me():  # pyright: ignore[reportUnusedFunction]
         return {

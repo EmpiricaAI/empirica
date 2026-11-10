@@ -198,3 +198,8 @@ def test_a_wake_line_that_cannot_be_written_is_counted_in_the_capability_documen
     assert _send(client).status_code == 200  # the proposal is still stored
     health = client.get("/v1/health").json()["wake"]
     assert health["failures"] == 1 and health["last_error"]
+
+
+def test_mesh_sharing_agreements_are_an_empty_list_not_501(client):
+    resp = client.get("/v1/orgs/me/mesh_sharing_agreements")
+    assert resp.status_code == 200 and resp.json() == {"agreements": []}
