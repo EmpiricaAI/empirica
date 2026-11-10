@@ -63,7 +63,9 @@ def _is_our_plugin_key(key: str) -> bool:
     return key.split("@", 1)[0] in PLUGIN_REGISTRY_NAMES
 
 
-def _json_keys_we_own(path: Path, markers: tuple[str, ...] = PLUGIN_PATH_MARKERS) -> list[str] | None:
+def _json_keys_we_own(
+    path: Path, markers: tuple[str, ...] = PLUGIN_PATH_MARKERS, *, registry: bool = True
+) -> list[str] | None:
     """Which of OUR keys are in a shared JSON file, or None if it cannot be read.
 
     Every match is on something only we write: the exact MCP server name, a plugin's registry name, and for hooks and
@@ -80,6 +82,10 @@ def _json_keys_we_own(path: Path, markers: tuple[str, ...] = PLUGIN_PATH_MARKERS
     except (OSError, ValueError):
         return None
     found = []
+    if not registry:
+        # A project-scope settings file: that install writes hooks and the statusline only (it runs from the package, with
+        # no plugin registration), so a plugin, server or top-level entry there is the person's own.
+        data = {k: data[k] for k in ("statusLine", "hooks") if k in data}
     if isinstance(data.get("mcpServers"), dict) and PLUGIN_NAME in data["mcpServers"]:
         found.append(f"mcpServers.{PLUGIN_NAME}")
     if isinstance(data.get("enabledPlugins"), dict):
@@ -155,6 +161,9 @@ def plan_uninstall(home: Path | None = None) -> dict:
             out["edit_shared"].append({"path": str(path), "remove_keys": keys})
         else:
             out["absent"].append(f"{path} (no empirica keys)")
+    allow_report = _mesh_allow_report(p["settings"]) if p["settings"].exists() else None
+    if allow_report:
+        out["report_only"].append(allow_report)
 
     # The user's OWN file. We appended a line to it; we do not take it back.
     #
@@ -268,6 +277,27 @@ def _strip_keys(data: dict, keys: list[str], markers: tuple[str, ...] = PLUGIN_P
     return data
 
 
+def _mesh_allow_report(path: Path) -> dict | None:
+    """The report for setup's ``permissions.allow`` grant in a settings file, or None when it is not there.
+
+    Setup adds ``mcp__cortex__*`` in both scopes, but a person may have added the same entry themselves, and nothing
+    records which. So it is reported, like the CLAUDE.md import line, rather than removed or left without a word.
+    """
+    from empirica.cli.command_handlers.setup_claude_code import MESH_MCP_ALLOW
+
+    try:
+        allow = (json.loads(path.read_text()).get("permissions") or {}).get("allow") or []
+    except (OSError, ValueError, AttributeError):
+        return None
+    present = [e for e in MESH_MCP_ALLOW if isinstance(allow, list) and e in allow]
+    if not present:
+        return None
+    return {
+        "path": str(path),
+        "why": f"setup pre-authorizes {', '.join(present)} in permissions.allow; remove it yourself unless you added it",
+    }
+
+
 def plan_project_uninstall(repo_root: Path | str, marker: str) -> dict:
     """What `--uninstall --scope project` WOULD do in this repository. Pure read, same shape as plan_uninstall.
 
@@ -288,7 +318,7 @@ def plan_project_uninstall(repo_root: Path | str, marker: str) -> dict:
     (out["remove_ours"] if prompt.exists() else out["absent"]).append(str(prompt))
     settings = repo_root / ".claude" / "settings.local.json"
     if settings.exists():
-        keys = _json_keys_we_own(settings, (marker,))
+        keys = _json_keys_we_own(settings, (marker,), registry=False)
         if keys is None:
             out["unreadable"].append(str(settings))
         elif keys:
@@ -297,6 +327,9 @@ def plan_project_uninstall(repo_root: Path | str, marker: str) -> dict:
             out["absent"].append(f"{settings} (no empirica keys)")
     else:
         out["absent"].append(str(settings))
+    allow_report = _mesh_allow_report(settings) if settings.exists() else None
+    if allow_report:
+        out["report_only"].append(allow_report)
     claude_md = repo_root / "CLAUDE.md"
     if claude_md.exists() and "@.empirica/empirica-system-prompt.md" in claude_md.read_text(errors="replace"):
         out["report_only"].append(

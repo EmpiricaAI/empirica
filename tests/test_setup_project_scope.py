@@ -246,3 +246,32 @@ def test_a_settings_file_changed_during_setup_is_reported_not_raised(repo, monke
     monkeypatch.setattr(scc, "_write_json_file", racing)
     rc = scc.setup_project_scope(_args(), repo)
     assert rc == 1 and "changed" in capsys.readouterr().out
+
+
+def test_the_project_uninstall_leaves_the_person_s_plugin_and_server_entries(repo):
+    """The project install writes no enabledPlugins, plugins or mcpServers, so any found there are the person's."""
+    from empirica.cli.command_handlers.claude_code_uninstall import apply_uninstall, plan_project_uninstall
+
+    scc.setup_project_scope(_args(), repo)
+    settings_file = repo / ".claude" / "settings.local.json"
+    settings = json.loads(settings_file.read_text())
+    settings["enabledPlugins"] = {"empirica@local": True}
+    settings["mcpServers"] = {"empirica": {"command": "their-own"}}
+    settings_file.write_text(json.dumps(settings))
+
+    apply_uninstall(the_plan=plan_project_uninstall(repo, str(scc._get_plugin_source_dir())))
+
+    after = json.loads(settings_file.read_text())
+    assert after["enabledPlugins"] == {"empirica@local": True}
+    assert after["mcpServers"] == {"empirica": {"command": "their-own"}}
+
+
+def test_the_project_uninstall_reports_the_mesh_allow_entry_and_leaves_it(repo):
+    from empirica.cli.command_handlers.claude_code_uninstall import apply_uninstall, plan_project_uninstall
+
+    scc.setup_project_scope(_args(), repo)
+    plan = plan_project_uninstall(repo, str(scc._get_plugin_source_dir()))
+    assert any("mcp__cortex__*" in str(r.get("why", "")) for r in plan["report_only"])
+    apply_uninstall(the_plan=plan)
+    allow = json.loads((repo / ".claude" / "settings.local.json").read_text())["permissions"]["allow"]
+    assert "mcp__cortex__*" in allow

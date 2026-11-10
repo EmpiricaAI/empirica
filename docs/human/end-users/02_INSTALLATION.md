@@ -387,6 +387,8 @@ empirica setup --uninstall --apply
 # A project-scoped install is removed from inside that repository the same way.
 # It removes .empirica/empirica-system-prompt.md and Empirica's hooks and status line in
 # .claude/settings.local.json; the import line in CLAUDE.md is yours to remove.
+# In both scopes the plan also reports the mcp__cortex__* permission setup granted:
+# you may have added it yourself, so remove it only if you did not.
 empirica setup --scope project --uninstall
 empirica setup --scope project --uninstall --apply
 

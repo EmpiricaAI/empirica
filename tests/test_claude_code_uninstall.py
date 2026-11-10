@@ -396,3 +396,13 @@ def test_setup_force_keeps_a_users_hook_and_statusline_and_replaces_ours():
     ours_status = {"hooks": {}, "statusLine": {"command": "python3 /h/.claude/plugins/local/empirica/scripts/s.py"}}
     _force_clean_hooks(ours_status, "json")
     assert "statusLine" not in ours_status, "positive control: our statusline is replaced on --force"
+
+
+def test_the_user_plan_reports_the_mesh_allow_entry_without_removing_it(home):
+    settings = home / ".claude" / "settings.json"
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    settings.write_text(json.dumps({"permissions": {"allow": ["Bash(ls:*)", "mcp__cortex__*"]}}))
+    plan = plan_uninstall(home)
+    assert any("mcp__cortex__*" in str(r.get("why", "")) for r in plan["report_only"] if isinstance(r, dict))
+    apply_uninstall(home, plan)
+    assert json.loads(settings.read_text())["permissions"]["allow"] == ["Bash(ls:*)", "mcp__cortex__*"]
