@@ -220,3 +220,20 @@ def test_bootstrap_human_output_has_a_due_section(capsys):
     assert "Due" in out and "ship the thing" in out and "3 more" in out
     _format_due_section({"due": []})
     assert capsys.readouterr().out == ""
+
+
+def test_goals_list_shows_the_due_date(tmp_path, monkeypatch):
+    """Bootstrap listed due items but goals-list did not carry the date at all."""
+    from tests.test_goals_accept_what_they_store import _run_listing
+
+    db_path = build_db(tmp_path / "list.db", "current")
+    c = sqlite3.connect(db_path)
+    c.execute(
+        "INSERT INTO goals (id, session_id, objective, scope, status, created_timestamp, is_completed, project_id, "
+        "goal_data, due_at) VALUES ('g-due', 's', 'dated goal', '{}', 'planned', 0, 0, 'p', '{}', '2026-12-01')"
+    )
+    c.commit()
+    c.close()
+    result = _run_listing(db_path, monkeypatch, status="planned", all_projects=True)
+    goals = result["goals"]
+    assert [(g["goal_id"], g["due_at"]) for g in goals] == [("g-due", "2026-12-01")]

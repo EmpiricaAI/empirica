@@ -1608,6 +1608,8 @@ def handle_goals_list_command(args):
         # schema had helpfully included the column.
         goal_cols = _goals_columns(cursor)
         reason_col = ", g.completion_reason" if "completion_reason" in goal_cols else ""
+        due_col = ", g.due_at" if "due_at" in goal_cols else ""  # migration 079
+        due_idx = 11 + (1 if reason_col else 0)
 
         # Build query based on filters
         base_query = f"""
@@ -1615,7 +1617,7 @@ def handle_goals_list_command(args):
                    g.created_timestamp, g.session_id, s.ai_id,
                    (SELECT COUNT(*) FROM subtasks WHERE goal_id = g.id) as total_subtasks,
                    (SELECT COUNT(*) FROM subtasks WHERE goal_id = g.id AND status = 'completed') as completed_subtasks,
-                   g.project_id, g.description{reason_col}
+                   g.project_id, g.description{reason_col}{due_col}
             FROM goals g
             LEFT JOIN sessions s ON g.session_id = s.session_id
             WHERE 1=1
@@ -1704,7 +1706,9 @@ def handle_goals_list_command(args):
                     # as "no reason was recorded" rather than as a field the
                     # projection forgot — the exact confusion the `description`
                     # note above documents one line up.
-                    **({"completion_reason": row[11]} if len(row) > 11 and row[11] else {}),
+                    **({"completion_reason": row[11]} if reason_col and row[11] else {}),
+                    # When the goal comes back up (due.py); null is "no date set", the column exists.
+                    **({"due_at": row[due_idx]} if due_col else {}),
                 }
             )
 
@@ -1798,8 +1802,9 @@ def _print_goals_list_human(goals, status_desc, filter_desc, total_matching, lim
         print(f"{status_emoji} {i}. {g['objective'][:65]}")
         ai_info = f" | AI: {g['ai_id']}" if g["ai_id"] else ""
         proj_info = f" | proj: {(g['project_id'] or '(null)')[:8]}" if all_projects else ""
+        due_info = f" | due: {g['due_at']}" if g.get("due_at") else ""
         print(
-            f"   ID: {g['goal_id'][:8]}... | Progress: {g['progress']} ({g['progress_pct']:.0f}%){ai_info}{proj_info}"
+            f"   ID: {g['goal_id'][:8]}... | Progress: {g['progress']} ({g['progress_pct']:.0f}%){ai_info}{proj_info}{due_info}"
         )
         print()
 
