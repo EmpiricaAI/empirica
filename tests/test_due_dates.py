@@ -285,3 +285,11 @@ def test_a_date_is_not_stamped_on_a_closed_row_and_an_existing_date_is_reported(
     _unknown(conn, "u-dated", due="2026-12-05")
     stamped = stamp_due(conn, "unknown", "u-dated", None)  # logged again without --due
     assert stamped == {"due_at": "2026-12-05"} and "due_hint" not in due_fields("unknown", stamped, hint=True)
+
+
+def test_a_log_matched_to_a_closed_row_gets_no_set_a_date_hint(conn):
+    from empirica.data.due import due_fields, stamp_due
+
+    _unknown(conn, "u-closed2", resolved=1)
+    fields = due_fields("unknown", stamp_due(conn, "unknown", "u-closed2", None), hint=True)
+    assert "due_hint" not in fields and "closed unknown" in fields["due_note"]

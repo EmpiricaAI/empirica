@@ -197,7 +197,8 @@ async def body_of(request: Request) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-_LOOPBACK_NAMES = ("127.0.0.1", "localhost", "::1", "[::1]")
+#: The names a loopback bind answers to; serve's own loopback test (entity_mint_auth) also accepts the IPv4-mapped form.
+_LOOPBACK_NAMES = ("127.0.0.1", "localhost", "::1", "[::1]", "::ffff:127.0.0.1", "[::ffff:127.0.0.1]")
 
 
 def _hostname(value: str) -> str:

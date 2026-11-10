@@ -196,11 +196,17 @@ declared at the next PREFLIGHT. `strict` refuses every change outside a transact
 open transaction the usual rules apply in every mode.
 
 In `discipline`, only a file edit may run outside a transaction: an Edit, Write, MultiEdit or NotebookEdit to a file whose
-real path (symlinks followed) is inside the practice, not a hard link to another file, not under `.git`, `.claude`,
-`.codex`, `.empirica`, `.vscode`, `.idea`, `.husky`, `.github` or `.gitlab` (compared case-folded), and not a file that runs
-code or instructs the agent when something else reads it (`.pre-commit-config.yaml`, `.envrc`, `.gitattributes`,
-`.gitmodules`, `.gitignore`, `.mcp.json`, `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.npmrc`, `.pypirc`, `Makefile`,
-`justfile`, `Taskfile.yml`). Every shell command needs a transaction: a shell allowlist checked with a Python tokenizer was
+real path (symlinks followed) is inside the practice, not a hard link to another file, not inside the running empirica
+package, not under `.git`, `.claude`, `.claude-plugin`, `.codex`, `.cursor`, `.empirica`, `.vscode`, `.idea`, `.husky`,
+`.github`, `.gitlab`, `.circleci`, `.buildkite`, `.devcontainer` or `site-packages` (compared case-folded), and not a file
+that runs code, holds secrets or instructs the agent when something else reads it: agent instructions (`CLAUDE.md`,
+`CLAUDE.local.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules` and the like, `.mcp.json`); git and hook configuration
+(`.pre-commit-config.yaml`, `.gitattributes`, `.gitmodules`, `.gitignore`, `.envrc`); build, test and package files
+(`pyproject.toml`, `setup.py`, `setup.cfg`, `tox.ini`, `noxfile.py`, `pytest.ini`, `conftest.py`, `package.json`, `.npmrc`,
+`.pypirc`, `Makefile`, `justfile`, `Taskfile.yml`, `*.pth`, `sitecustomize.py`); CI files (`.gitlab-ci.yml`, `.travis.yml`,
+`Jenkinsfile`, `azure-pipelines.yml`, `bitbucket-pipelines.yml`, `.drone.yml`); container files (`Dockerfile`,
+`Containerfile` and their `.<variant>` forms, `docker-compose*.yml`, `compose*.yaml`); and secrets (`.env`, `.env.*`,
+`*.env`). `_PROTECTED_PARTS` and `_PROTECTED_NAMES` in `empirica/core/sentinel_discipline.py` are the full list. Every shell command needs a transaction: a shell allowlist checked with a Python tokenizer was
 bypassed ten ways by what bash does and the tokenizer does not model (comments, ANSI-C quoting, brace and `$IFS`
 expansion, git pathspec magic).
 

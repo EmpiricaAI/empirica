@@ -55,7 +55,7 @@ BUDGET_MAX = 1000
 #: case-folded, since .Git is .git on a case-insensitive filesystem.
 _PROTECTED_PARTS = {
     ".git", ".claude", ".codex", ".empirica", ".vscode", ".idea", ".husky", ".github", ".gitlab", ".claude-plugin", ".cursor",
-    ".devcontainer", "site-packages",
+    ".devcontainer", "site-packages", ".circleci", ".buildkite",
 }  # fmt: skip
 #: Files anywhere in the practice that run code or change what an agent is told when something else reads them.
 _PROTECTED_NAMES = {
@@ -66,8 +66,19 @@ _PROTECTED_NAMES = {
     # Files that run code when a tool reads them, or hold secrets (1.15.0 sweep, T1): pytest imports conftest.py, a build runs
     # pyproject.toml/setup.py backends, npm runs package.json scripts, compose and Dockerfiles run images, .env holds keys.
     "conftest.py", "pytest.ini", "pyproject.toml", "setup.py", "setup.cfg", "tox.ini", "noxfile.py", "package.json",
-    "dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml", ".env",
+    "dockerfile", "containerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml", ".env",
+    ".gitlab-ci.yml", ".travis.yml", "jenkinsfile", "azure-pipelines.yml", "bitbucket-pipelines.yml", ".drone.yml",
 }  # fmt: skip
+
+
+def _protected_family(name: str) -> bool:
+    """Name families that run code or hold secrets (``name`` is case-folded): Dockerfile.dev, Containerfile.prod,
+    docker-compose.override.yml, compose.prod.yaml, .env.local, prod.env, and *.pth (second sweep pass)."""
+    if name.endswith((".pth", ".env")) or name.startswith((".env.", "dockerfile.", "containerfile.")):
+        return True
+    return name.startswith(("docker-compose.", "compose.")) and name.endswith((".yml", ".yaml"))
+
+
 #: The running empirica package: its hooks load sentinel_discipline.py and decision_record.py from here on every call, so an
 #: out-of-loop edit under it could switch the gate off from the next call (third sweep pass).
 _PACKAGE_ROOT = os.path.realpath(Path(__file__).resolve().parents[1])
@@ -123,11 +134,16 @@ def effective(project_root: str | Path | None) -> dict:
     """The mode and budget in force here, each with its source (env, practice, seat or built-in), and any value ignored."""
     result: dict = {"mode": None, "mode_source": None, "budget": None, "budget_source": None, "ignored": []}
     env_mode, env_budget = os.environ.get(ENV_MODE), os.environ.get(ENV_BUDGET)
+    if env_mode is not None and not env_mode.strip():
+        env_mode = None  # set but empty (CI templating): unset, not a mode
     if env_mode is not None:
         if _valid_mode(env_mode):
             result["mode"], result["mode_source"] = _valid_mode(env_mode), f"env {ENV_MODE}"
         else:
+            # The environment outranks every config file, so a value set there and not understood (empirica-autonomy's
+            # `controller`, meaning blocking) decides on its own: strict, whatever a config file says (second sweep pass).
             result["ignored"].append(f"{ENV_MODE}={env_mode!r} is not one of {', '.join(MODES)}")
+            result["mode"], result["mode_source"] = FAIL_CLOSED_MODE, f"fail-closed (env {ENV_MODE}={env_mode!r})"
     if env_budget is not None:
         if _valid_budget(env_budget) is not None:
             result["budget"], result["budget_source"] = _valid_budget(env_budget), f"env {ENV_BUDGET}"
@@ -260,12 +276,7 @@ def _in_practice(path: str, cwd: str | None, project_root: str | None) -> bool:
     if any(":" in part or part.rstrip(". ") != part for part in raw_parts):
         return False  # Windows aliases: CLAUDE.md. / "CLAUDE.md " / CLAUDE.md::$DATA name the protected file
     parts = [part.casefold() for part in raw_parts]
-    if (
-        any(part in _PROTECTED_PARTS for part in parts)
-        or parts[-1] in _PROTECTED_NAMES
-        or parts[-1].endswith(".pth")
-        or parts[-1].startswith(".env.")
-    ):
+    if any(part in _PROTECTED_PARTS for part in parts) or parts[-1] in _PROTECTED_NAMES or _protected_family(parts[-1]):
         return False
     try:
         if os.stat(real).st_nlink > 1:

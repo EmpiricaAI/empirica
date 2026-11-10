@@ -112,11 +112,8 @@ def stamp_due(conn: sqlite3.Connection, artifact_type: str, artifact_id: str, du
     except sqlite3.OperationalError:
         row = None
     if row is not None and not row[1]:
-        return (
-            {"due_note": f"this matches a closed {artifact_type} ({artifact_id[:8]}): no due date set"}
-            if due_at
-            else {}
-        )
+        # Closed: no date is written, and no "set a date" hint either, which would be wrong for a resolved row.
+        return {"due_note": f"this matches a closed {artifact_type} ({artifact_id[:8]}): no due date set"}
     if due_at:
         set_due(conn, artifact_type, artifact_id, due_at)
         return {"due_at": due_at}

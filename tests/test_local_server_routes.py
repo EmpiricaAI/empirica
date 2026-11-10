@@ -283,3 +283,10 @@ def test_a_wake_error_of_any_kind_is_counted_not_raised(client, monkeypatch):
     monkeypatch.setattr(wake, "build_event", lambda *a, **k: (_ for _ in ()).throw(KeyError("boom")))
     assert _send(client).status_code == 200
     assert wake.FAILURES["count"] == 1
+
+
+@pytest.mark.parametrize(
+    "host", ["127.0.0.1:8000", "localhost:8000", "LOCALHOST:8000", "[::1]:8000", "[::ffff:127.0.0.1]:8000"]
+)
+def test_every_loopback_host_form_is_accepted(client, host):
+    assert client.get("/v1/users/me", headers={"Host": host}).status_code == 200

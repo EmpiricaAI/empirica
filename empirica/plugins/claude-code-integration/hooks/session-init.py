@@ -812,8 +812,9 @@ def format_context(ctx: dict) -> str:
         try:  # the hook's interpreter can carry an older core than the `empirica` on PATH that produced ctx
             from empirica.data.due import ANSWERS, due_lines
 
+            lines = [f"  - {line}" for line in due_lines(ctx["due"])]  # built first: a raise adds no half section
             parts.append(f"**Due** ({ANSWERS}; raise these before asking what to work on):")
-            parts += [f"  - {line}" for line in due_lines(ctx["due"])]
+            parts += lines
         except Exception:
             parts.append("**Due:**")
             parts += [

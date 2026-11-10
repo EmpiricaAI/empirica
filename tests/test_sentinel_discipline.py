@@ -63,6 +63,9 @@ def test_precedence_is_env_then_practice_then_seat(home, monkeypatch):
 def test_an_unknown_mode_is_ignored_and_reported(home, monkeypatch, value):
     monkeypatch.setenv(sd.ENV_MODE, value)
     eff = sd.effective(home[1])
+    if not value.strip():
+        assert eff["mode"] == sd.DEFAULT_MODE and not eff["ignored"]  # set but empty: unset, not a mode
+        return
     if value.strip().lower() == "discipline":
         assert eff["mode"] == "discipline"  # case and spaces are not a different mode
     else:
@@ -735,3 +738,40 @@ def test_runs_with_no_instance_id_keep_a_ledger_per_practice(home, tmp_path, mon
     _decide(home, suffix="")
     assert len(sd.ledger("", home[1])) == 1 and sd.ledger("", other) == []
     assert sd.ledger_path("", home[1]) != sd.ledger_path("", other)
+
+
+# ── second sweep pass ───────────────────────────────────────────────────────────────────────────────────────────────
+
+
+def test_an_unknown_env_mode_wins_over_a_config_file(home, monkeypatch):
+    """The environment outranks the config files, so a value set there and not understood decides: strict."""
+    (home[1] / ".empirica" / "config.yaml").write_text("sentinel:\n  mode: discipline\n")
+    monkeypatch.setenv(sd.ENV_MODE, "controller")
+    eff = sd.effective(home[1])
+    assert eff["mode"] == "strict" and "controller" in eff["mode_source"]
+
+
+@pytest.mark.parametrize("value", ["", "  "])
+def test_an_empty_env_mode_is_unset_not_a_mode(home, monkeypatch, value):
+    monkeypatch.setenv(sd.ENV_MODE, value)
+    assert sd.effective(home[1])["mode"] == sd.DEFAULT_MODE
+
+
+@pytest.mark.parametrize(
+    "name",
+    [".gitlab-ci.yml", ".travis.yml", "Jenkinsfile", ".circleci/config.yml", "Dockerfile.dev", "Containerfile",
+     "docker-compose.override.yml", "compose.prod.yaml", "prod.env"],
+)  # fmt: skip
+def test_ci_files_and_container_variants_need_a_transaction(home, name):
+    proj = home[1]
+    out = sd.judge("Edit", {"file_path": str(proj / name), "old_string": "a", "new_string": "b"}, cwd=str(proj),
+                   project_root=str(proj), empirica_is_read=_is_read)  # fmt: skip
+    assert out["trivial"] is False, name
+
+
+@pytest.mark.parametrize("name", ["compose.py", "docs/compose.md", "environment.py", "dockerfiles.md"])
+def test_near_misses_of_those_families_stay_trivial(home, name):
+    proj = home[1]
+    out = sd.judge("Edit", {"file_path": str(proj / name), "old_string": "a", "new_string": "b"}, cwd=str(proj),
+                   project_root=str(proj), empirica_is_read=_is_read)  # fmt: skip
+    assert out["trivial"] is True, name
