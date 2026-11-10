@@ -274,8 +274,11 @@ PREFLIGHT → [noetic: investigate] → CHECK → [praxic: implement] → POSTFL
 - **Close before POSTFLIGHT:** Complete goals (`goals-complete`) and resolve unknowns
   (`unknown-resolve`) BEFORE `postflight-submit`. The measurement window closes at
   POSTFLIGHT — anything logged after is invisible to grounded calibration.
-- **After POSTFLIGHT, Edit/Write and any mutating Bash (a commit included) are refused** until a new PREFLIGHT; the `empirica`
-  artifact verbs still run. Open the next transaction, with `claims`, before touching files.
+- **Outside a transaction** (after POSTFLIGHT, or before the first PREFLIGHT) the default discipline mode lets a few small
+  file edits inside the practice run, each declared at your next PREFLIGHT. Any shell command that can change state (a commit
+  included), an edit to configuration or agent instructions, and anything outward still need a transaction, and so does
+  everything once the work is plan-shaped. The `empirica` artifact verbs still run. Open the next transaction, with
+  `claims`, before real work; `empirica sentinel mode` shows the mode and budget in force.
 - **The Sentinel counts a goal as in play** when it was created in this transaction, or a task was created or completed since
   PREFLIGHT (`goals-add-task` / `goals-complete-task`), or a finding was logged against it. A goal that was only activated, or
   created before PREFLIGHT, does not count; the nudge fires after 5 gated calls.
@@ -460,7 +463,7 @@ CHECK, one phase earlier.
 
 | Work | Shape |
 |---|---|
-| A one-line fix, a typo, a config value | No transaction. Just do it. |
+| A one-line fix or a typo in a practice file | No transaction: discipline mode allows it, up to the budget. A config value still needs one |
 | A contained change you are already grounded in | PREFLIGHT with `claims` → praxic → POSTFLIGHT. **No CHECK** |
 | Multi-file, or you must investigate first | Full loop, CHECK carrying the 2–3 claims the work rests on |
 | Spans 3+ files, 2+ goals, or several noetic→praxic cycles | Load `/epistemic-transaction` and plan it |
