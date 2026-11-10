@@ -1629,6 +1629,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Normalize `goals.status` 'complete' -> 'completed', the same one-word fix migration 064 made for subtasks. Measured 2026-11-04 across 36 practice databases: 6 goal rows spelled 'complete' (all on one practice, all with is_completed = 1), none anywhere else. Dead legacy data, so a one-time rewrite and not a reader contract: the qdrant goal payload, which tolerated both spellings, now names the one (and bootstrap circles stopped tolerating the singular for subtasks too, since migration 064 normalized those rows). Only the status text changes; is_completed is already the canonical flag and is not touched.",
         lambda cursor: migration_078_goal_status_vocabulary(cursor),
     ),
+    (
+        "079_due_at",
+        "Add `due_at` (an ISO date, nullable) to goals, project_unknowns and assumptions (prop_bnviyv2epvg27kgmqycwlflshm, ecodex: 32 planned goals and nothing to resurface them). An open item whose date has come is listed under Due at bootstrap and session start. Not backfilled: a date nobody set would be invented.",
+        lambda cursor: migration_079_due_at(cursor),
+    ),
 ]
 
 
@@ -3052,6 +3057,12 @@ def migration_066_normalize_text_created_timestamp(cursor: sqlite3.Cursor):
         except sqlite3.OperationalError:
             continue  # table absent on a partial/older DB — defensive skip
     logger.info(f"✅ Migration 066 complete: normalized {fixed} TEXT created_timestamp value(s) to REAL")
+
+
+def migration_079_due_at(cursor: sqlite3.Cursor):
+    """A date on which an open goal, unknown or assumption comes back up. Nullable, not backfilled."""
+    for table in ("goals", "project_unknowns", "assumptions"):
+        add_column_if_missing(cursor, table, "due_at", "TEXT", "NULL")
 
 
 def migration_078_goal_status_vocabulary(cursor: sqlite3.Cursor):
