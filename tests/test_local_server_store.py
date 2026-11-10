@@ -81,3 +81,9 @@ def test_an_ack_from_a_practice_that_is_not_a_target_is_refused(db):
     with pytest.raises(st.CompletionRefused) as e:
         db.complete(p.id, "local.me.z", result="shipped")
     assert e.value.status_code == 400
+
+
+def test_arrival_acceptance_is_recorded_as_the_system_not_a_person(db):
+    """No one reviewed it: the local edition accepts on arrival, and the wire must not say a human decided."""
+    saved, _ = db.propose(_p())
+    assert saved.to_wire()["decided_by_kind"] == "system" and saved.auto_routed is True

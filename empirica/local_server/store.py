@@ -112,10 +112,12 @@ class ProposalStore:
                     if original is not None:
                         return original, True
             proposal.status = ProposalStatus.ACCEPTED.value
+            proposal.auto_routed = True
             proposal.org_id = proposal.org_id or "local"
             proposal.updated_at = _now()
             proposal.audit_log = append_audit(
-                proposal.audit_log, AuditEntry(action="accepted", actor="local", note="local edition: no review gate")
+                proposal.audit_log,
+                AuditEntry(action="accepted", actor="system:local-auto-accept", note="local edition: no review gate"),
             )
             db.execute(
                 "INSERT INTO proposals (id, source, payload, created_at, idem_key, idem_fingerprint) VALUES (?,?,?,?,?,?)",
