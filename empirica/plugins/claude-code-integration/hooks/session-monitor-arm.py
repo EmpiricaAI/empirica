@@ -305,11 +305,61 @@ def _build_orphan_warning() -> str:
     )
 
 
+def _cwd_practice_ai_id() -> str | None:
+    """The ai_id in the nearest .empirica/project.yaml above the working directory (CLAUDE_PROJECT_DIR first). The local
+    server's wake lines carry the practice's ai_id, and a first session has no session records to resolve it from."""
+    try:
+        import yaml
+
+        start = Path(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()).resolve()
+        for d in [start, *start.parents]:
+            f = d / ".empirica" / "project.yaml"
+            if f.is_file():
+                value = (yaml.safe_load(f.read_text(encoding="utf-8")) or {}).get("ai_id")
+                return str(value) if value else None
+    except Exception:
+        return None
+    return None
+
+
+def _local_tail_payload(instance_id: str) -> dict:
+    """The Monitor for a machine with no Cortex: tail the wake lines the local server writes. No `listener arm` after it:
+    there is no listener service to record the Monitor against."""
+    command = (
+        "tail -F -n 0 ~/.empirica/loop_fires.log 2>/dev/null | "
+        f'grep -E --line-buffered \'"instance_id": "{instance_id}"\''
+    )
+    return {
+        "status": "local_server_tail_session",
+        "next_step": {
+            "tool": "Monitor",
+            "args": {
+                "description": f"Local server wake tail for {instance_id}",
+                "command": command,
+                "timeout_ms": 1800000,
+            },
+        },
+    }
+
+
+def _local_server_wake_source() -> bool:
+    """With no Cortex configured, the local server (empirica serve, local edition) writes this machine's wake lines to
+    loop_fires.log itself (1.15.1), so it is a wake source like the persistent listener service. Asked only when nothing
+    else is; never raises."""
+    try:
+        from empirica.core.mesh_endpoint import mesh_bearer
+
+        return mesh_bearer().get("edition") == "local"
+    except Exception:
+        return False
+
+
 def _build_additional_context(
     instance_id: str,
     loop_names: list[str],
     listener_running: bool = False,
     has_prior_intent: bool = False,
+    local_server: bool = False,
 ) -> str:
     # T8 (goal f718156c): switched from `tail -F loop_fires.log` to
     # `empirica loop listen` — the listener is the push-primary wake
@@ -321,8 +371,11 @@ def _build_additional_context(
     # detection + Monitor command rendering. The CLI is the single source
     # of truth; this hook just renders the JSON as markdown. `listener_running`
     # arg kept for backwards-compat with callers; CLI delegation supersedes.
-    payload = _query_listener_on(instance_id)
-    if payload is None and listener_running:
+    # The local server has no ntfy channels to subscribe to (`listener on` asks Cortex for them): tail the log it writes.
+    payload = (
+        _local_tail_payload(instance_id) if local_server and not listener_running else _query_listener_on(instance_id)
+    )
+    if payload is None and (listener_running or local_server):
         # CLI unavailable but caller already detected persistent service —
         # synthesize a tail-session payload so the renderer arms a log-tailer.
         payload = {"status": "persistent_service_tail_session"}
@@ -351,6 +404,12 @@ def _build_additional_context(
             f"loops registered. Without a session-side Monitor on "
             f"`~/.empirica/loop_fires.log`, wake events written by the "
             f"persistent service would not reach this session."
+        )
+    elif local_server:
+        wake_source = (
+            f"This instance (`{instance_id}`) has no Cortex configured: practices on this machine hand work to each "
+            f"other through the local server (`empirica serve`), which writes each wake line to "
+            f"`~/.empirica/loop_fires.log`. Proposals pass automatically; there is no review gate."
         )
     elif has_prior_intent:
         # Prior-intent-only case: a previous CC session armed a listener
@@ -496,7 +555,10 @@ def main() -> int:
 
     # Bail only when there's NO wake source at all — no loops + no
     # service + no record of prior intent.
-    if not loops and not listener_running and not has_prior_intent:
+    local_server = False if (loops or listener_running) else _local_server_wake_source()
+    if local_server:
+        instance_id = _cwd_practice_ai_id() or instance_id  # the id the local server's wake lines carry
+    if not loops and not listener_running and not has_prior_intent and not local_server:
         print(json.dumps({}))
         return 0
 
@@ -530,6 +592,7 @@ def main() -> int:
         loops,
         listener_running,
         has_prior_intent,
+        local_server=local_server,
     )
     print(
         json.dumps(

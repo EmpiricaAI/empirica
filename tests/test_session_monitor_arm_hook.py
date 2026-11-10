@@ -624,3 +624,38 @@ def test_hook_is_silent_off_claude_code_and_still_arms_on_it(monkeypatch):
     monkeypatch.delenv("EMPIRICA_HARNESS")
     default = _run_hook(monkeypatch, instance_id="cortex", active_loops=["cortex-mailbox-poll"])
     assert "Monitor(" in default["parsed"]["hookSpecificOutput"]["additionalContext"], "unset means Claude Code"
+
+
+def test_a_local_server_is_a_wake_source_and_arms_a_log_tail(monkeypatch, tmp_path):
+    """1.15.1: with no Cortex, the local server writes wake lines to loop_fires.log itself, so a session on a machine with
+    no listener service and no loops still needs its Monitor. It must not ask `listener on` (Cortex's channels)."""
+    import importlib.util as _ilu
+
+    hook_path = (
+        Path(__file__).resolve().parents[1] / "empirica/plugins/claude-code-integration/hooks/session-monitor-arm.py"
+    )
+    spec = _ilu.spec_from_file_location("session_monitor_arm_local", hook_path)
+    assert spec and spec.loader
+    mod = _ilu.module_from_spec(spec)
+    sys.modules["session_monitor_arm_local"] = mod
+    spec.loader.exec_module(mod)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(mod.InstanceResolver, "instance_id", classmethod(lambda cls: "dana-research"))
+    monkeypatch.setattr(mod.InstanceResolver, "ai_id", classmethod(lambda cls, *a, **k: "dana-research"))
+    monkeypatch.setattr(mod, "list_active_loops_for_instance", lambda iid: [])
+    monkeypatch.setattr(mod, "is_listener_running", lambda iid: False)
+    monkeypatch.setattr(mod, "_local_server_wake_source", lambda: True)
+    monkeypatch.setattr(mod, "_cwd_practice_ai_id", lambda: "dana-research")
+    asked = []
+    monkeypatch.setattr(mod, "_query_listener_on", lambda iid: asked.append(iid) or None)
+
+    from io import StringIO
+
+    captured = StringIO()
+    monkeypatch.setattr(sys, "stdout", captured)
+    assert mod.main() == 0
+    ctx = json.loads(captured.getvalue().strip())["hookSpecificOutput"]["additionalContext"]
+    assert "Monitor(" in ctx and "local server" in ctx
+    assert "tail -F" in ctx and '"instance_id": "dana-research"' in ctx  # the id the local server's wake lines carry
+    assert 'command="tail -F' in ctx and "empirica loop listen --instance" not in ctx  # listen needs Cortex's ntfy
+    assert asked == []

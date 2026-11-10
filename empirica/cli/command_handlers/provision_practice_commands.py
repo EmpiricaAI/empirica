@@ -31,6 +31,16 @@ def _narrate(line: str) -> None:
     print(line, file=sys.stderr)
 
 
+def _cortex_seat() -> bool:
+    """Whether a real Cortex is configured here (presence, no network call)."""
+    try:
+        from empirica.core.auth.cortex_oauth import cortex_configured
+
+        return bool(cortex_configured())
+    except Exception:
+        return False
+
+
 def _mesh_edition() -> str | None:
     """ "cortex", "local" or None: where this machine's practices would send their mailbox (core/mesh_endpoint.py)."""
     try:
@@ -440,6 +450,13 @@ def handle_provision_practice_command(args) -> int:
     tenant = getattr(args, "tenant", None) or inferred_tenant
     org = getattr(args, "org", None) or inferred_org
     substrate = _resolve_substrate(args)
+    if (not tenant or not org) and substrate != "local" and not _cortex_seat():
+        # A first machine with no Cortex has no tenant or org to inherit: it is the local edition, addressed
+        # local.<user>.<practice> by the local server (1.15.1). A Cortex seat still has to name or inherit them, and a
+        # --no-cortex practice (no mailbox at all) stays unaddressed, as before.
+        from empirica.core.mesh_endpoint import LOCAL_ORG, local_user
+
+        tenant, org, substrate = tenant or local_user(), org or LOCAL_ORG, "local"
 
     profile = getattr(args, "cockpit_profile", None)
     launch_flag = getattr(args, "launch", None)

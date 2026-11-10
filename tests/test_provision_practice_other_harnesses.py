@@ -112,7 +112,8 @@ def test_no_cortex_needs_no_tenant_or_org(tmp_path, capsys):
     assert payload["substrate"] == "local" and payload["tenant"] is None and payload["org"] is None
 
 
-def test_a_cortex_practice_still_needs_them(tmp_path, capsys):
+def test_a_cortex_practice_still_needs_them(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(pp, "_cortex_seat", lambda: True)  # a Cortex seat: tenant and org must be named or inherited
     rc = pp.handle_provision_practice_command(_args(tmp_path, tenant=None, org=None, dry_run=True))
     _, err = capsys.readouterr()
     assert rc == 1 and "--tenant/--org" in err
@@ -235,3 +236,14 @@ def test_an_empty_launch_is_not_a_way_around_the_profile_requirement(tmp_path, c
     rc = pp.handle_provision_practice_command(_args(tmp_path, dry_run=True, launch=""))
     _, err = capsys.readouterr()
     assert rc == 1 and "--cockpit-profile" in err
+
+
+def test_a_machine_with_no_cortex_defaults_to_the_local_edition(tmp_path, stub_run, capsys, monkeypatch):
+    """1.15.1: no Cortex seat and nothing to inherit: org `local`, tenant the local user, substrate local."""
+    monkeypatch.setattr(pp, "_cortex_seat", lambda: False)
+    monkeypatch.setenv("EMPIRICA_LOCAL_USER", "dana")
+    path = _practice(tmp_path, name="p")
+    pp.handle_provision_practice_command(_args(tmp_path, tenant=None, org=None))
+    capsys.readouterr()
+    data = yaml.safe_load(path.read_text())
+    assert (data["tenant_slug"], data["org_id"], data["substrate"]) == ("dana", "local", "local")

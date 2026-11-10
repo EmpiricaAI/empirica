@@ -40,6 +40,24 @@ def _probe_health(url: str) -> dict | None:
     return body if isinstance(body, dict) else None
 
 
+LOCAL_ORG = "local"
+
+
+def slug(text: str) -> str:
+    """A name as an address part: lowercase letters, digits and hyphens."""
+    import re
+
+    return re.sub(r"[^a-z0-9-]+", "-", text.strip().lower()).strip("-") or "user"
+
+
+def local_user() -> str:
+    """The tenant of a machine with no Cortex: EMPIRICA_LOCAL_USER, else the login name. Addresses are
+    local.<this>.<practice>; the local server and provision-practice both read it here."""
+    import getpass
+
+    return slug(os.environ.get("EMPIRICA_LOCAL_USER") or getpass.getuser())
+
+
 def local_server_url() -> str:
     return f"http://127.0.0.1:{os.environ.get('EMPIRICA_SERVE_PORT', '8000')}"
 

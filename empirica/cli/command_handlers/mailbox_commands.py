@@ -1202,16 +1202,101 @@ def handle_mailbox_archive_command(
     return 0
 
 
+def handle_mailbox_send_command(
+    args,
+    *,
+    _resolve_cortex_creds: Callable[[], tuple[str | None, str | None]] = _default_resolve_cortex_creds,
+    _resolve_ai_id: Callable[[], str | None] = _default_resolve_ai_id,
+    _http_post: Callable[..., tuple[int, dict]] = _default_http_post,
+    _http_get: Callable[[str, str, float], tuple] = _default_http_get,
+    _canonical: Callable[..., str | None] = _resolve_canonical_ai_id,
+) -> int:
+    """`empirica mailbox send`: start a conversation (1.15.1).
+
+    `mailbox reply` needs a parent, and the MCP `cortex_collab` tool talks to Cortex, so on a machine with no Cortex a
+    practice could answer a message and never begin one. This proposes to ``--to`` (canonical 3-form addresses) from the
+    caller's canonical id, through the same endpoint the other mailbox verbs use (Cortex, else the local server), with an
+    idempotency key derived from the message so a retry cannot post it twice.
+    """
+    output = getattr(args, "output", "human")
+    targets = [t.strip() for raw in (getattr(args, "to", None) or []) for t in str(raw).split(",") if t.strip()]
+    title, summary = (getattr(args, "title", None) or "").strip(), (getattr(args, "summary", None) or "").strip()
+    if not targets or not title or not summary:
+        sys.stderr.write("mailbox send: --to, --title and --summary are required\n")
+        return 1
+    bare = [t for t in targets if t.count(".") < 2]
+    if bare:
+        sys.stderr.write(
+            f"mailbox send: addresses must be the canonical 3-form org.tenant.practice, got {', '.join(bare)}\n"
+        )
+        return 1
+    cortex_url, api_key = _resolve_cortex_creds()
+    if not cortex_url or not api_key:
+        sys.stderr.write(
+            "mailbox send: no endpoint: configure Cortex (cortex.url + credentials), or run `empirica serve` so practices "
+            "on this machine use the local server.\n"
+        )
+        return 1
+    source = getattr(args, "source_claude", None) or _canonical(cortex_url, api_key, _resolve_ai_id(), _http_get)
+    if not source:
+        sys.stderr.write(
+            "mailbox send: source unresolved: set --source-claude or add ai_id to .empirica/project.yaml\n"
+        )
+        return 1
+    proposal_type = getattr(args, "type", None) or "collab_brief"
+    try:
+        payload = json.loads(getattr(args, "payload", None) or "{}")
+    except json.JSONDecodeError as e:
+        sys.stderr.write(f"mailbox send: --payload is not valid JSON: {e}\n")
+        return 1
+    import hashlib as _hl
+
+    from empirica.core.mesh_content import idempotency_key
+
+    payload["idempotency_key"] = idempotency_key(
+        proposal_type,
+        ",".join(sorted(targets)),
+        {"send_from": source, "title_digest": _hl.sha256(title.encode()).hexdigest()[:16],
+         "body_digest": _hl.sha256(summary.encode()).hexdigest()[:16]},
+    )  # fmt: skip
+    body = {"api_key": api_key, "type": proposal_type, "title": title[:200], "summary": summary,
+            "target_claudes": targets, "source_claude": source, "payload": payload}  # fmt: skip
+    url = f"{cortex_url.rstrip('/')}/v1/orchestration/propose"
+    status, resp = _http_post(url, body, api_key, 20.0)
+    for _ in range(3):  # an earlier send with this key still landing (cortex D4): wait, ask again, same key
+        if not _in_flight(status, resp):
+            break
+        time.sleep(2.0)
+        status, resp = _http_post(url, body, api_key, 20.0)
+    proposal_id = resp.get("proposal_id") if isinstance(resp, dict) else None
+    if not (200 <= status < 300) or not proposal_id:
+        reason = (resp or {}).get("error") if isinstance(resp, dict) else None
+        sys.stderr.write(f"mailbox send: not sent (HTTP {status}): {reason or resp}\n")
+        return 1
+    result = {"ok": True, "proposal_id": proposal_id, "status": resp.get("status"), "source_claude": source,
+              "target_claudes": targets, "replay_caught": bool(resp.get("replay_caught"))}  # fmt: skip
+    if output == "json":
+        print(json.dumps(result, indent=2))
+    else:
+        print(
+            f"✅ sent {proposal_id} to {', '.join(targets)}"
+            + (" (already sent: the same message)" if result["replay_caught"] else "")
+        )
+    return 0
+
+
 def handle_mailbox_group_command(args) -> int:
     """Dispatch `empirica mailbox <action>`."""
     action = getattr(args, "mailbox_action", None)
     if action == "reply":
         return handle_mailbox_reply_command(args)
+    if action == "send":
+        return handle_mailbox_send_command(args)
     if action == "poll":
         return handle_mailbox_poll_command(args)
     if action == "show":
         return handle_mailbox_show_command(args)
     if action == "archive":
         return handle_mailbox_archive_command(args)
-    sys.stderr.write("Usage: empirica mailbox <reply|poll|show|archive>\n")
+    sys.stderr.write("Usage: empirica mailbox <send|reply|poll|show|archive>\n")
     return 1

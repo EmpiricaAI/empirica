@@ -9,11 +9,9 @@ loopback-only either way.
 Capabilities served here are the package's ``IMPLEMENTED``; anything else keeps answering 501 from the catch-all.
 """
 
-import getpass
 import hmac
 import json
 import os
-import re
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -23,6 +21,8 @@ from typing import Any
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from empirica.core.mesh_endpoint import local_user  # one definition, shared with provision-practice
+from empirica.core.mesh_endpoint import slug as _slug
 from empirica.core.orchestration.schemas import RESULT_TO_STATUS, TERMINAL_STATUSES, Proposal
 from empirica.local_server import wake
 from empirica.local_server.store import CompletionRefused, IdempotencyConflict, ProposalStore, default_db_path
@@ -30,14 +30,6 @@ from empirica.local_server.store import CompletionRefused, IdempotencyConflict, 
 ORG = "local"
 _DEFAULT_LIMIT = 50
 _MAX_LIMIT = 500
-
-
-def _slug(text: str) -> str:
-    return re.sub(r"[^a-z0-9-]+", "-", text.strip().lower()).strip("-") or "user"
-
-
-def local_user() -> str:
-    return _slug(os.environ.get("EMPIRICA_LOCAL_USER") or getpass.getuser())
 
 
 def mesh_prefix() -> str:

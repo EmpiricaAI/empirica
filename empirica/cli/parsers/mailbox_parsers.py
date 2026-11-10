@@ -144,6 +144,33 @@ def add_mailbox_parsers(subparsers):
         help="Output format (default: json)",
     )
 
+    # ── send: start a conversation (reply needs a parent) ──
+    send = mailbox_subs.add_parser(
+        "send",
+        help="Start a conversation: propose to one or more practices (canonical org.tenant.practice addresses), through "
+        "Cortex or, with none configured, the local server. Use reply to answer a message",
+    )
+    send.add_argument(
+        "--to", action="append", required=True, help="Target address (org.tenant.practice); repeat or comma-separate"
+    )
+    send.add_argument("--title", required=True, help="Title, truncated to 200 characters")
+    send.add_argument("--summary", required=True, help="The message")
+    send.add_argument(
+        "--type",
+        default="collab_brief",
+        choices=[
+            "architecture_decision",
+            "collab_brief",
+            "code_change_request",
+            "investigation_request",
+            "spec_updated",
+        ],
+        help="Proposal type (default: collab_brief, a question or FYI)",
+    )
+    send.add_argument("--payload", help="Optional type-specific payload as a JSON string")
+    send.add_argument("--source-claude", help="Your canonical address (default: resolved from .empirica/project.yaml)")
+    send.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+
     # ── poll: the receive side, symmetric with reply ──
     poll = mailbox_subs.add_parser(
         "poll",
