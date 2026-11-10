@@ -442,7 +442,7 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 - **Several practices on one machine, with no Cortex and nothing to configure.** With no Cortex set up, the mailbox, project registration, heartbeats and session wake use the local server (`empirica serve`) automatically, and `provision-practice` starts it as a user service when it is not running. Practices are addressed `local.<you>.<practice>`. A configured Cortex always wins.
 
-All 10 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 12 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
