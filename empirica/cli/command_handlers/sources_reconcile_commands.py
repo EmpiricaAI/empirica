@@ -46,6 +46,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from empirica.core.cortex_capability import unavailable_from_error
+
 CATALOGUE_LOOKUP_PATH = "/v1/sources/catalogue"
 RECONCILE_PATH = "/v1/sources/reconcile"
 
@@ -72,7 +74,7 @@ def _push_source_body_to_cortex(cortex_url, api_key, cortex_uuid: str, content: 
         with urllib.request.urlopen(req, timeout=30.0) as resp:
             return {"pushed": True, "status": resp.status, "size_bytes": len(content)}
     except urllib.error.HTTPError as e:
-        return {"pushed": False, "status": e.code, "error": f"HTTP {e.code}"}
+        return {"pushed": False, "status": e.code, "error": unavailable_from_error(e) or f"HTTP {e.code}"}
     except (urllib.error.URLError, OSError, TimeoutError) as e:
         return {"pushed": False, "error": f"{type(e).__name__}: {e}"}
 
@@ -651,7 +653,7 @@ def _discover_candidates(
             )
         return candidates, "ok"
     except urllib.error.HTTPError as e:
-        return {}, f"unavailable_http_{e.code}"
+        return {}, unavailable_from_error(e) or f"unavailable_http_{e.code}"
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
         return {}, f"unavailable: {e}"
 
@@ -696,7 +698,7 @@ def _confirm_matches(
         )
         return (body.get("confirmed", []), body.get("rejected", []), "ok")
     except urllib.error.HTTPError as e:
-        return [], [], f"unavailable_http_{e.code}"
+        return [], [], unavailable_from_error(e) or f"unavailable_http_{e.code}"
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
         return [], [], f"unavailable: {e}"
 

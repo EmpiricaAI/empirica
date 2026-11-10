@@ -27,6 +27,7 @@ from typing import Any
 import yaml
 
 from empirica.cli.cli_utils import handle_cli_error
+from empirica.core.cortex_capability import annotate_unavailable
 
 logger = logging.getLogger(__name__)
 
@@ -1146,7 +1147,7 @@ def _post_project(
     except urllib.error.HTTPError as e:
         try:
             err_body = e.read().decode("utf-8")
-            return e.code, json.loads(err_body) if err_body else None
+            return e.code, annotate_unavailable(e.code, json.loads(err_body) if err_body else None)
         except (OSError, json.JSONDecodeError):
             return e.code, None
 

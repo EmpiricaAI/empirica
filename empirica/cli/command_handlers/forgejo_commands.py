@@ -29,6 +29,8 @@ from typing import Any
 
 import yaml
 
+from empirica.core.cortex_capability import annotate_unavailable
+
 FORGEJO_PUBLISH_PATH = "/v1/projects/{project_id}/forgejo-publish"
 FORGEJO_REMOTE_NAME = "forgejo"
 
@@ -90,7 +92,7 @@ def _forgejo_publish_post(
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         try:
-            return e.code, json.loads(e.read().decode("utf-8"))
+            return e.code, annotate_unavailable(e.code, json.loads(e.read().decode("utf-8")))
         except Exception:
             return e.code, {"error": str(e)}
     except Exception as e:

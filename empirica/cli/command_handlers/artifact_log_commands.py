@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from empirica.core.cortex_capability import annotate_unavailable, unavailable_from_error, unavailable_message
 from empirica.core.mistake_text import build_mistake_text
 from empirica.utils.session_resolver import InstanceResolver as R
 
@@ -2878,7 +2879,7 @@ def _fetch_source_raw(cortex_url: str, api_key: str, source_id: str, timeout: fl
             }
     except urllib.error.HTTPError as e:
         try:
-            body = json.loads(e.read().decode("utf-8"))
+            body = annotate_unavailable(e.code, json.loads(e.read().decode("utf-8")))
         except Exception:
             body = {"error": f"HTTP {e.code}"}
         return e.code, body
@@ -2940,7 +2941,7 @@ def _upsert_media_to_cortex(
     except urllib.error.HTTPError as e:
         try:
             body = json.loads(e.read().decode("utf-8"))
-            err = body.get("error", f"HTTP {e.code}")
+            err = unavailable_message(e.code, body) or body.get("error", f"HTTP {e.code}")
         except Exception:
             err = f"HTTP {e.code}"
         return {"pushed": False, "status": e.code, "error": err}
@@ -3040,7 +3041,8 @@ def _register_source_in_cortex(
             }
     except urllib.error.HTTPError as e:
         try:
-            err = json.loads(e.read().decode("utf-8")).get("error", f"HTTP {e.code}")
+            body = json.loads(e.read().decode("utf-8"))
+            err = unavailable_message(e.code, body) or body.get("error", f"HTTP {e.code}")
         except Exception:
             err = f"HTTP {e.code}"
         return {"registered": False, "status": e.code, "error": err}
@@ -3479,7 +3481,7 @@ def _push_source_archive_to_cortex(full_id: str, reason: str, target_id: str | N
         with urllib.request.urlopen(req, timeout=10.0) as resp:
             return {"synced": True, "status": resp.status}
     except urllib.error.HTTPError as e:
-        return {"synced": False, "status": e.code, "error": f"HTTP {e.code}"}
+        return {"synced": False, "status": e.code, "error": unavailable_from_error(e) or f"HTTP {e.code}"}
     except (urllib.error.URLError, OSError, TimeoutError) as e:
         return {"synced": False, "status": 0, "error": f"{type(e).__name__}: {e}"}
 

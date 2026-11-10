@@ -24,6 +24,8 @@ import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
+from empirica.core.cortex_capability import annotate_unavailable, unavailable_from_error
+
 
 def _default_resolve_cortex_creds() -> tuple[str | None, str | None]:
     """Resolve Cortex URL + api_key from credentials_loader.
@@ -106,7 +108,7 @@ def _default_http_post(url: str, body: dict, api_key: str, timeout: float = 10.0
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         try:
-            return e.code, json.loads(e.read().decode("utf-8"))
+            return e.code, annotate_unavailable(e.code, json.loads(e.read().decode("utf-8")))
         except Exception:
             return e.code, {"error": str(e)}
     except Exception as e:
@@ -177,6 +179,9 @@ def _default_fetch_parent(cortex_url: str, api_key: str, parent_id: str, timeout
             return None  # the one case that genuinely means "no such proposal"
         if e.code in (401, 403):
             raise ParentFetchError(f"cortex refused the request (HTTP {e.code}) — credentials or tenant scope") from e
+        unavailable = unavailable_from_error(e)
+        if unavailable:
+            raise ParentFetchError(unavailable) from e
         raise ParentFetchError(f"cortex returned HTTP {e.code}", retryable=e.code >= 500) from e
     except TimeoutError as e:
         # socket.timeout is an alias of TimeoutError on py3.10+; urlopen raises it
@@ -215,7 +220,7 @@ def _default_http_get(url: str, api_key: str, timeout: float = 10.0) -> tuple[in
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         try:
-            return e.code, json.loads(e.read().decode("utf-8"))
+            return e.code, annotate_unavailable(e.code, json.loads(e.read().decode("utf-8")))
         except Exception:
             return e.code, {}
     except Exception as e:
