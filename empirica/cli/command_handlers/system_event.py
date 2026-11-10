@@ -30,9 +30,9 @@ def resolve_cortex_config() -> tuple[str | None, str | None]:
     the loader honours, was invisible to a reader that only ever opened HOME.
     """
     try:
-        from empirica.core.auth import cortex_bearer
+        from empirica.core.mesh_endpoint import mesh_bearer
 
-        creds = cortex_bearer()
+        creds = mesh_bearer()
         return creds.get("url"), creds.get("bearer")
     except Exception:
         return None, None

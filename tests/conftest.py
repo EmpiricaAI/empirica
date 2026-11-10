@@ -769,3 +769,26 @@ def _cockpit_state_stays_out_of_the_real_home(tmp_path_factory):
         yield
     finally:
         mp.undo()
+
+
+@pytest.fixture(autouse=True)
+def _no_live_local_server_probe(request):
+    """The mesh resolver finds `empirica serve` on loopback when no Cortex is configured. A test must not depend on
+    whether the box it runs on has serve up (the reader audit found three that would pass on CI and fail here), so the
+    probe answers "nothing there" unless a test is marked `live_local_probe` or passes its own probe."""
+    if request.node.get_closest_marker("live_local_probe"):
+        yield
+        return
+    try:
+        from empirica.core import mesh_endpoint
+    except Exception:
+        yield
+        return
+    # Its OWN MonkeyPatch, not the fixture: see no_real_service_mutations (depending on `monkeypatch` reorders teardown and
+    # breaks test_version_drift_editable's cache_clear; it did again here).
+    mp = MonkeyPatch()
+    mp.setattr(mesh_endpoint, "_probe_health", lambda url: None)
+    try:
+        yield
+    finally:
+        mp.undo()

@@ -1105,9 +1105,9 @@ def _resolve_cortex_config(args) -> tuple[str | None, str | None]:
     # OAuth-only seat with the api_key retired still authenticates here. It
     # reads the same credentials.yaml/env the loader does, plus the OAuth token.
     try:
-        from empirica.core.auth import cortex_bearer
+        from empirica.core.mesh_endpoint import mesh_bearer
 
-        creds = cortex_bearer()
+        creds = mesh_bearer()
     except Exception:
         creds = {}
     url = arg_url or creds.get("url")

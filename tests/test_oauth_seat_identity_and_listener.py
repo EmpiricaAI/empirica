@@ -74,7 +74,7 @@ def _listener_tag(resolved: dict, canonical: str = "empirica.david.empirica"):
 
     err = io.StringIO()
     with (
-        patch("empirica.core.auth.cortex_oauth.cortex_bearer", return_value=resolved),
+        patch("empirica.core.auth.cortex_bearer", return_value=resolved),
         patch(
             "empirica.core.loop_scheduler.content_poll._resolve_canonical_ai_id",
             return_value=canonical,

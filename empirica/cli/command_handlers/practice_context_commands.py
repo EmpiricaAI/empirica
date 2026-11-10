@@ -110,9 +110,9 @@ def _resolve_cortex_config(args) -> tuple[str | None, str | None]:
     # Fall through to cortex_bearer (OAuth-first, api_key fallback) so an
     # OAuth-only seat with the api_key retired still authenticates here.
     try:
-        from empirica.core.auth import cortex_bearer
+        from empirica.core.mesh_endpoint import mesh_bearer
 
-        creds = cortex_bearer()
+        creds = mesh_bearer()
     except Exception:
         creds = {}
     url = arg_url or creds.get("url")

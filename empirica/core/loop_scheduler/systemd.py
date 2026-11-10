@@ -528,9 +528,9 @@ class SystemdLoopScheduler:
         try:
             # Either credential — an api_key-only read skipped the content poll
             # entirely on an OAuth seat, and said so at debug level only.
-            from empirica.core.auth.cortex_oauth import cortex_bearer
+            from empirica.core.mesh_endpoint import mesh_bearer
 
-            _resolved = cortex_bearer(get_credentials_loader())
+            _resolved = mesh_bearer(get_credentials_loader())
             cortex_url = _resolved.get("url")
             api_key = _resolved.get("bearer")
         except Exception as e:

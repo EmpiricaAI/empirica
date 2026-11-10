@@ -79,9 +79,9 @@ def _default_resolve_creds() -> tuple[str | None, str | None]:
     try:
         # OAuth-first with api_key fallback (empirica auth login) — the
         # resolver never returns a stale token and never raises past here.
-        from empirica.core.auth import cortex_bearer
+        from empirica.core.mesh_endpoint import mesh_bearer
 
-        creds = cortex_bearer()
+        creds = mesh_bearer()
         return creds.get("url"), creds.get("bearer")
     except Exception:
         return None, None

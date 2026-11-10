@@ -204,6 +204,7 @@ addopts = [
 ]
 markers = [
     "integration: Integration tests (deselect with '-m \"not integration\"')",
+    "live_local_probe: lets the mesh resolver probe a real local server (off by default: tests must not depend on whether serve runs on the box)",
     "integrity: Framework integrity tests (core principle validation)",
     "slow: Slow running tests",
 ]

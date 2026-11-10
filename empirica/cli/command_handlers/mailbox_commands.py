@@ -48,9 +48,10 @@ def _default_resolve_cortex_creds() -> tuple[str | None, str | None]:
     try:
         # OAuth-first with api_key fallback (empirica auth login) — the
         # resolver never returns a stale token and never raises past here.
-        from empirica.core.auth import cortex_bearer
+        # With no Cortex configured, the local server when `empirica serve` runs as the local edition (1.15.1).
+        from empirica.core.mesh_endpoint import mesh_bearer
 
-        creds = cortex_bearer()
+        creds = mesh_bearer()
         if not creds.get("bearer") and creds.get("reason"):
             # The resolver answered without raising and said WHY there is no usable bearer (a revoked key, no credential). Dropping
             # that left every verb telling the user to configure what was configured. It reaches the user beside the caller's message.

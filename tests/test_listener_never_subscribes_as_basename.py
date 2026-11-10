@@ -120,7 +120,7 @@ def _tag(resolver_results, *, cred=None, attempts=4):
         return r
 
     with (
-        patch("empirica.core.auth.cortex_oauth.cortex_bearer", return_value=cred),
+        patch("empirica.core.auth.cortex_bearer", return_value=cred),
         patch("empirica.core.loop_scheduler.content_poll._resolve_canonical_ai_id", side_effect=resolver),
         patch("empirica.config.credentials_loader.get_credentials_loader", return_value=MagicMock()),
     ):
