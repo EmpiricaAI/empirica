@@ -33,7 +33,9 @@ def _target_db(tmp_path):
 
 
 def _run(payload, **kw) -> tuple[int, dict]:
-    args = SimpleNamespace(**{"config": "-", "schema": False, "output": "json", "verbose": False, "project_id": None, **kw})
+    args = SimpleNamespace(
+        **{"config": "-", "schema": False, "output": "json", "verbose": False, "project_id": None, **kw}
+    )
     stdout, stdin = sys.stdout, sys.stdin
     sys.stdin, sys.stdout = io.StringIO(json.dumps(payload)), io.StringIO()
     try:
@@ -65,7 +67,7 @@ def test_an_unknown_project_is_refused_and_nothing_is_written(monkeypatch):
 def test_a_lesson_is_refused_with_project_id(tmp_path, monkeypatch):
     path = _target_db(tmp_path)
     monkeypatch.setattr(alc, "_get_db_for_project", lambda name: SessionDatabase(db_path=str(path)))
-    rc, out = _run(
+    _rc, out = _run(
         {"updates": [{"type": "lesson", "id": "cccccccc", "visibility": "shared"}]}, **{"project_id": "other"}
     )
     assert out["updated"] == 0 and "not with --project-id" in " ".join(out["errors"])
