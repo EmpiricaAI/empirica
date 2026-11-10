@@ -2790,7 +2790,17 @@ def handle_update_artifacts_command(args):
             print(json.dumps({"ok": False, "error": "Body must include a non-empty 'updates' array"}))
             return 1
 
-        db = SessionDatabase()
+        target = getattr(args, "project_id", None)
+        if target:
+            # Another practice's database, resolved as goals-create --project-id resolves it (1.15.0 sweep, D6).
+            from empirica.cli.command_handlers.artifact_log_commands import _get_db_for_project
+
+            db = _get_db_for_project(target)
+            if db is None:
+                print(json.dumps({"ok": False, "error": f"cannot resolve project {target!r} to a practice database"}))
+                return 1
+        else:
+            db = SessionDatabase()
         updated, errors, rejected_report = 0, [], []
         try:
             cursor = db.conn.cursor()
@@ -2800,6 +2810,9 @@ def handle_update_artifacts_command(args):
                     continue
                 atype = item.get("type")
                 aid = str(item.get("id") or "").strip()
+                if atype in FOREIGN_STORE_TYPES and target:
+                    errors.append(f"{atype} {aid[:8]}: not with --project-id (it lives outside a practice's database)")
+                    continue
                 if atype in FOREIGN_STORE_TYPES:
                     updated += _apply_foreign(atype, aid, item, errors, rejected_report)
                     continue

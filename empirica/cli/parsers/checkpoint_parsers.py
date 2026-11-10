@@ -1923,6 +1923,12 @@ Example:
     update_artifacts_parser.add_argument(
         "config", nargs="?", default="-", help="JSON file or - for stdin (default: stdin)"
     )
+    update_artifacts_parser.add_argument(
+        "--project-id",
+        default=None,
+        help="Correct artifacts in another practice (its name or UUID), e.g. snooze a goal created there with "
+        "goals-create --project-id. Lessons are refused with it: they live outside a practice's database",
+    )
     update_artifacts_parser.add_argument("--schema", action="store_true", help="Print the input JSON schema and exit")
     update_artifacts_parser.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
     update_artifacts_parser.add_argument("--verbose", action="store_true", help="Show detailed output")
