@@ -66,6 +66,7 @@ LOG_ARTIFACTS_SCHEMA = {
                 "impact": "<float 0-1, optional>",
                 "subject": "<optional>",
                 "visibility": "<public | shared | local — optional, default 'local'>",
+                "due": "<unknown and assumption only, optional: YYYY-MM-DD or +7d / +2w — when it comes back up>",
             },
         },
     ],
@@ -278,6 +279,11 @@ def _validate_graph(graph: dict) -> list[str]:
                 "an observation you ran or read is 'search'."
             )
 
+        # A due date, like the single verbs' --due (1.15.0 sweep, D7): only types that carry one, read before any write.
+        due_problem = _due_refusal(node)
+        if due_problem:
+            errors.append(f"Node '{ref}' ({ntype}): {due_problem}")
+
     for i, edge in enumerate(edges):
         from_ref = edge.get("from")
         to_ref = edge.get("to")
@@ -464,6 +470,23 @@ def _impact_refusal(node: dict) -> str | None:
     try:
         require_impact((node.get("data") or {}).get("impact"))
     except ValueError as e:
+        return str(e)
+    return None
+
+
+def _due_refusal(node: dict) -> str | None:
+    """Why this node's ``due`` cannot be set, or None. Checked before the write on every path: the CLI validates the whole
+    graph first, but the daemon's POST /api/v1/artifacts/log calls log_artifacts_graph directly (1.15.0 sweep, D7)."""
+    due = (node.get("data") or {}).get("due")
+    if due is None:
+        return None
+    if node.get("type") not in ("unknown", "assumption"):
+        return f"only unknown and assumption nodes take 'due' (this is a {node.get('type')})"
+    from empirica.data.due import DueDateError, parse_due
+
+    try:
+        parse_due(str(due))
+    except DueDateError as e:
         return str(e)
     return None
 
@@ -1011,6 +1034,41 @@ def _resolve_graph_context(graph: dict, args, db) -> dict | None:
     }
 
 
+def _create_nodes(db, sorted_nodes: list[dict], context: dict) -> tuple[dict[str, str], list[str], dict[str, dict]]:
+    """Create each node in order: ``(ref -> id, errors, ref -> due stamp)``. A node refused up front (an unresolvable goal,
+    an impact or due date that cannot be stored) is reported by ref and not written."""
+    from empirica.cli.command_handlers.artifact_log_commands import _canonical_goal_id
+
+    ref_map: dict[str, str] = {}
+    created_errors: list[str] = []
+    due_report: dict[str, dict] = {}
+    for node in sorted_nodes:
+        node_goal = (node.get("data") or {}).get("goal_id")
+        if node_goal:
+            try:
+                node["data"]["goal_id"] = _canonical_goal_id(node_goal, db)
+            except ValueError as e:
+                created_errors.append(f"Failed to create {node['type']} '{node['ref']}': {e}")
+                continue
+        refusal = _impact_refusal(node) or _due_refusal(node)
+        if refusal:
+            created_errors.append(f"Failed to create {node['type']} '{node['ref']}': {refusal}")
+            continue
+        artifact_id = _create_node(db, node, context)
+        if not artifact_id:
+            created_errors.append(f"Failed to create {node['type']} '{node['ref']}'")
+            continue
+        ref_map[node["ref"]] = artifact_id
+        due = (node.get("data") or {}).get("due")
+        if due is not None:
+            from empirica.data.due import parse_due, stamp_due
+
+            due_report[node["ref"]] = stamp_due(db.conn, node["type"], artifact_id, parse_due(str(due)))
+        _store_node_git_notes(node, artifact_id, context)
+        _auto_embed_node(node, artifact_id, context)
+    return ref_map, created_errors, due_report
+
+
 def log_artifacts_graph(
     graph: dict,
     *,
@@ -1065,29 +1123,7 @@ def log_artifacts_graph(
             key=lambda n: CREATION_ORDER.index(n.get("type", "finding")) if n.get("type") in CREATION_ORDER else 99,
         )
 
-        ref_map: dict[str, str] = {}
-        created_errors: list[str] = []
-        from empirica.cli.command_handlers.artifact_log_commands import _canonical_goal_id
-
-        for node in sorted_nodes:
-            node_goal = (node.get("data") or {}).get("goal_id")
-            if node_goal:
-                try:
-                    node["data"]["goal_id"] = _canonical_goal_id(node_goal, db)
-                except ValueError as e:
-                    created_errors.append(f"Failed to create {node['type']} '{node['ref']}': {e}")
-                    continue
-            refusal = _impact_refusal(node)
-            if refusal:
-                created_errors.append(f"Failed to create {node['type']} '{node['ref']}': {refusal}")
-                continue
-            artifact_id = _create_node(db, node, context)
-            if artifact_id:
-                ref_map[node["ref"]] = artifact_id
-                _store_node_git_notes(node, artifact_id, context)
-                _auto_embed_node(node, artifact_id, context)
-            else:
-                created_errors.append(f"Failed to create {node['type']} '{node['ref']}'")
+        ref_map, created_errors, due_report = _create_nodes(db, sorted_nodes, context)
 
         edges = graph.get("edges", [])
         edges_wired, edge_warnings = _wire_edges(db, edges, ref_map) if edges else (0, [])
@@ -1120,6 +1156,8 @@ def log_artifacts_graph(
             "edges_wired": edges_wired,
             "errors": created_errors,
         }
+        if due_report:
+            result["due"] = due_report  # per ref: {"due_at": ...} or the note stamp_due gives for a closed row
         if edge_warnings:
             # Dangling / unstoreable edges were skipped — surface them loudly so
             # "edges_wired" can't read as silent success when it wasn't.

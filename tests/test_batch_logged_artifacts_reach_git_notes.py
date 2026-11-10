@@ -74,7 +74,7 @@ def test_a_failed_note_write_warns_and_does_not_raise(repo, monkeypatch, caplog)
 def test_the_batch_loop_writes_the_note_before_it_embeds():
     import inspect
 
-    source = inspect.getsource(gc.log_artifacts_graph)
+    source = inspect.getsource(gc._create_nodes)  # the loop log_artifacts_graph runs
     assert source.index("_store_node_git_notes(node, artifact_id, context)") < source.index(
         "_auto_embed_node(node, artifact_id, context)"
     )
