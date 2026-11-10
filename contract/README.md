@@ -39,16 +39,18 @@ needs core's sign-off first. Rows are added from a core call site, never from a 
 
 ## Drift found (cortex vs what core's code expects)
 
+All six are closed: D1 on cortex (v0.4.1+, 8ed927eb), D2-D6 in core's client (core develop, shipping with core's next release). The rows keep the original measurement as the record.
+
 Findings, not fixes: nothing was changed to make them disappear. C = read in code, M = measured live.
 
 | id | where | what |
 |---|---|---|
-| D1 | `GET /v1/health` | Cortex serves only `/health`; `/v1/health`, `/cortex/health` and `/` answer 404 (M). Core's probe accepts any HTTP answer so `doctor` passes, but the capability document has no route to live on. The only contract row with no matching route in cortex. |
-| D2 | `POST /v1/projects/register` | A different project holding the slug in the tenant is a 409 `slug_taken` (body carries `existing_id`, not `project_id`). Core reads every 409 as "already registered": the single path returns ok with the LOCAL id, the bulk path returns skipped with `project_id` None. A collision reads as success. (C) |
-| D3 | `POST /v1/orchestration/{id}/archive` | A repeat archive by a recipient who already archived answers 200 `{error: already_archived, is_archived: <global flag, usually false>}`. Core's idempotency test is `is_archived is True`, so the repeat reads as "archive failed". Not exercised live. (C) |
-| D4 | `POST /v1/orchestration/propose` | An identical request mid-flight answers 409 `idempotency_key_in_flight` (`replay_caught: true`). Core special-cases only `idempotency_key_conflict`, so this reads as a rejection (exit 1) though the first attempt lands. Reachable on core's own retry path. (C) |
-| D5 | `POST /v1/system/event` | Success is 202; core's only success test is `status == 200`, so every successful emit prints "emit failed (202)". (C) |
-| D6 | `POST /v1/sync` | Core's postflight comment says cortex auto-creates an unknown project from `name`/`repo_url`. Cortex answers 400 "Unknown project_id" and ignores both; core swallows the exception, so an unregistered project's sync drops silently. (C) |
+| D1 | `GET /v1/health` | Fixed (8ed927eb, 2026-11-09): cortex now serves `/v1/health` and `/health` identically, with the capability document. It served only `/health` before (M). `/cortex/health` and `/` are not served; core does not rely on them. |
+| D2 | `POST /v1/projects/register` | A different project holding the slug in the tenant is a 409 `slug_taken` (body carries `existing_id`, not `project_id`). Core reads every 409 as "already registered": the single path returns ok with the LOCAL id, the bulk path returns skipped with `project_id` None. A collision reads as success. (C) **Fixed in core develop (656567cfd): a 409 `slug_taken` is an `ok: false` outcome `slug_taken`, not success.** |
+| D3 | `POST /v1/orchestration/{id}/archive` | A repeat archive by a recipient who already archived answers 200 `{error: already_archived, is_archived: <global flag, usually false>}`. Core's idempotency test is `is_archived is True`, so the repeat reads as "archive failed". Not exercised live. (C) **Fixed in core develop (eeba97e1b): a repeat archive answering `error: already_archived` counts as success.** |
+| D4 | `POST /v1/orchestration/propose` | An identical request mid-flight answers 409 `idempotency_key_in_flight` (`replay_caught: true`). Core special-cases only `idempotency_key_conflict`, so this reads as a rejection (exit 1) though the first attempt lands. Reachable on core's own retry path. (C) **Fixed in core develop (eeba97e1b): a 409 `idempotency_key_in_flight` on the retry means wait and re-ask with the same key, then UNKNOWN, not rejected. (Cortex v0.4.2 made this reachable on first messages too: new threads now key on sender and key.)** |
+| D5 | `POST /v1/system/event` | Success is 202; core's only success test is `status == 200`, so every successful emit prints "emit failed (202)". (C) **Fixed in core develop (656567cfd): any 2xx from `/v1/system/event` counts as emitted.** |
+| D6 | `POST /v1/sync` | Core's postflight comment says cortex auto-creates an unknown project from `name`/`repo_url`. Cortex answers 400 "Unknown project_id" and ignores both; core swallows the exception, so an unregistered project's sync drops silently. (C) **Fixed in core develop (a696dd0f3, cf30babb8): a 400 Unknown project_id is a POSTFLIGHT warning that names `project-register`; the stale auto-create comment is removed. Cortex does not auto-create.** |
 
 ## Open items for core (decisions that are core's, recorded here so they are not lost)
 

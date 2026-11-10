@@ -51,7 +51,7 @@ group_a:
     drift:
       - id: D1
         text: >
-          Cortex serves only GET /health. GET /v1/health, /cortex/health and / answer 404 (M, 2026-11-09). Core's
+          FIXED 2026-11-09 (8ed927eb): cortex now serves GET /v1/health with the capability document. It served only GET /health before; /v1/health, /cortex/health and / answered 404 (M, 2026-11-09). Core's
           probe accepts any HTTP answer, so `doctor` still passes; the capability document has no route to live on
           until one is added.
 

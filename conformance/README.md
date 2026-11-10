@@ -18,13 +18,17 @@ every test is skipped, so a plain `pytest` in a repo that vendors this directory
   every GET route core calls (required fields, with `[]` meaning "each element of this list"), the inbox and outbox
   honesty rules, and the group-B routes: `501 {capability}` on an edition that lacks the capability, "served, and
   refuses an anonymous caller" on the edition that has it.
-- **write**: propose with an idempotency key, complete, archive, register and unregister, auto-accept set. Disposable
-  servers only. Not written yet.
+- **write** (`--allow-writes`, opt-in): propose with an idempotency key (the same key twice is one proposal; a changed
+  body under a used key is refused), complete, archive, unknown ids never reported as success, the cross-tenant 501,
+  register and unregister, auto-accept set and restored. Disposable servers only: cortex runs the whole suite against a
+  disposable cortex from `tests/test_conformance_write_cortex.py`.
 
 ## What the suite never does to a server
 
-It sends no write to a server whose edition is not `cortex`, except the group-B probe, which the contract says
-answers 501 and acts on nothing. On `cortex` it sends writes only without a credential, where the answer must be 401.
+Without `--allow-writes` it sends no write to a server whose edition is not `cortex`, except the group-B probe, which
+the contract says answers 501 and acts on nothing. On `cortex` the read tier sends writes only without a credential,
+where the answer must be 401. With `--allow-writes` it creates and cleans up its own proposals, one project and the
+auto-accept setting: never point that at a server that is not disposable.
 
 ## Rules it enforces that are easy to miss
 

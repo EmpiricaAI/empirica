@@ -165,7 +165,10 @@ def test_group_b_routes_are_501_with_the_capability_on_a_server_without_it(http,
             continue
         checked += 1
         path = concrete(row["path"])
-        resp = http.request(row["method"], path, headers=auth)
+        # A local server requires application/json on every POST (the browser-origin rule below), so send what a
+        # real client sends: an unsent content type would be refused with 415 before the capability is checked.
+        resp = http.request(row["method"], path, headers={**auth, "Content-Type": "application/json"},
+                            content="{}" if row["method"] != "GET" else None)
         if row.get("local_status") != 501:
             continue                                       # the documented empty-list exception
         ok = resp.status_code == 501 and resp.json().get("capability") == row["capability"]
@@ -188,3 +191,48 @@ def test_group_b_routes_are_served_and_refuse_an_anonymous_caller_where_the_capa
         if resp.status_code not in (401, 403):
             wrong.append(f"{row['method']} {row['path']} -> {resp.status_code}")
     assert not wrong, wrong
+
+
+# ── a local server must not be drivable from a web page ───────────────────────────────────────────────────
+#
+# Core found (d0d8bbaf6) that a browser on the same machine could post into a local mailbox: a text/plain "simple"
+# request needs no CORS preflight, and DNS rebinding makes a hostile page look same-origin. Every local route must
+# therefore require a loopback Host, a loopback Origin when one is sent, and application/json on a POST. Cortex is not
+# subject to this (it authenticates with a bearer header a browser does not send on its own), so the checks run only
+# for a server whose edition is ``local``. The probe is an archive of a proposal that does not exist: it acts on nothing.
+
+_PROBE = "/v1/orchestration/prop_conformance_csrf_probe/archive"
+_REFUSED = (400, 403, 415, 421)
+
+
+@pytest.fixture
+def local_probe(http, auth, server):
+    if server["edition"] != "local":
+        pytest.skip("browser-origin refusal is required of a local server; cortex authenticates with a bearer header")
+    if "orchestration.mailbox" not in server["capabilities"]:
+        pytest.skip("server lacks orchestration.mailbox")
+
+    def post(headers=None, content=None):
+        h = {**auth, "Content-Type": "application/json", **(headers or {})}
+        return http.post(_PROBE, headers=h, content=content if content is not None else '{"reason": "probe"}')
+
+    control = post()
+    assert control.status_code not in _REFUSED, (
+        f"the control request (JSON, loopback host, no origin) was refused with {control.status_code}: the refusal checks below would prove nothing")
+    return post
+
+
+def test_a_local_server_refuses_a_text_plain_post(local_probe):
+    assert local_probe({"Content-Type": "text/plain"}).status_code in _REFUSED
+
+
+def test_a_local_server_refuses_a_foreign_origin(local_probe):
+    assert local_probe({"Origin": "http://evil.example"}).status_code in _REFUSED
+
+
+def test_a_local_server_accepts_a_loopback_origin(local_probe):
+    assert local_probe({"Origin": "http://127.0.0.1:1234"}).status_code not in _REFUSED
+
+
+def test_a_local_server_refuses_a_foreign_host(local_probe):
+    assert local_probe({"Host": "evil.example"}).status_code in _REFUSED
