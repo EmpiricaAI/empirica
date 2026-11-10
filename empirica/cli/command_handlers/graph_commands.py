@@ -2744,7 +2744,16 @@ def _apply_session_row(cursor, atype: str, aid: str, item: dict, errors: list, r
         errors.append(f"{atype} {aid[:8]}: {e}")
         return 0
     if cursor.rowcount > 0:
-        return cursor.rowcount
+        changed = cursor.rowcount
+        if "due_at" in updates:  # a snooze or a cleared date reaches the note, or a rebuild brings the old one back
+            from empirica.core.canonical.empirica_git.due_note import restamp_due
+
+            if not restamp_due(cursor.connection, atype, aid):
+                errors.append(
+                    f"{atype} {aid[:8]}: due date set, but its git note was not rewritten (a rebuild would restore the "
+                    "old date)"
+                )
+        return changed
     errors.append(f"{atype} {aid[:8]}: not found")
     return 0
 

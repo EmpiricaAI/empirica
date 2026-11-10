@@ -32,6 +32,7 @@ STATE_FIELDS: dict[str, Any] = {
     "archived": 0,
     "archived_at": None,
     "project_id": None,
+    "due_at": None,  # 1.16, D3: a snooze restamps it; a rebuild reads it back
 }
 
 #: goal_data keys the lifecycle writers set (abandon, activate, reopen, resolve-artifacts), which have no column of their own. The
@@ -42,7 +43,7 @@ LIFECYCLE_KEYS = ("abandoned_reason", "abandoned_at", "activated_at", "reopen_hi
 
 _SELECT = (
     "SELECT id, session_id, objective, scope, estimated_complexity, created_timestamp, goal_data, "
-    "status, is_completed, completed_timestamp, {reason}, COALESCE(archived, 0), archived_at, project_id "
+    "status, is_completed, completed_timestamp, {reason}, COALESCE(archived, 0), archived_at, project_id, {due} "
     "FROM goals WHERE {where}"
 )
 
@@ -60,17 +61,22 @@ def _project_root(conn) -> str | None:
     return None
 
 
-def _has_reason_column(conn) -> bool:
+def _has_column(conn, name: str) -> bool:
     try:
-        return any(r[1] == "completion_reason" for r in conn.execute("PRAGMA table_info(goals)"))
+        return any(r[1] == name for r in conn.execute("PRAGMA table_info(goals)"))
     except Exception:
         return False
 
 
+def _has_reason_column(conn) -> bool:
+    return _has_column(conn, "completion_reason")
+
+
 def _rows(conn, where: str, params: tuple = ()) -> list[dict[str, Any]]:
     reason = "completion_reason" if _has_reason_column(conn) else "NULL"
+    due = "due_at" if _has_column(conn, "due_at") else "NULL"  # a database from before migration 079
     out = []
-    for r in conn.execute(_SELECT.format(reason=reason, where=where), params).fetchall():
+    for r in conn.execute(_SELECT.format(reason=reason, due=due, where=where), params).fetchall():
         out.append(
             {
                 "id": r[0],

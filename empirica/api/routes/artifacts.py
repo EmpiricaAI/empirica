@@ -1736,12 +1736,18 @@ async def patch_artifact(
         cursor.execute(f"UPDATE {table} SET {set_clause} WHERE {id_col} = ?", params)
         db.conn.commit()
 
-        return {
+        out = {
             "ok": True,
             "type": artifact_type,
             "id": artifact_id,
             "updated_fields": sorted(updates.keys()),
         }
+        if "due_at" in updates and cursor.rowcount > 0:
+            # The note carries the date too (1.16, D3c): say whether it was rewritten, so a failure is visible.
+            from empirica.core.canonical.empirica_git.due_note import restamp_due
+
+            out["note_updated"] = restamp_due(db.conn, artifact_type, artifact_id)
+        return out
     finally:
         db.close()
 

@@ -71,21 +71,26 @@ class GitAssumptionStore:
         domain: str | None = None,
         goal_id: str | None = None,
         due_at: str | None = None,
+        status: str = "unverified",
+        created_at: str | None = None,
+        extra: dict | None = None,
     ) -> bool:
         if not self._git_available or not self._has_commits():
             return False
 
         try:
+            # ``extra``: keys a re-store loaded and must keep; the named fields below win over it.
             payload = {
+                **(extra or {}),
                 "assumption_id": assumption_id,
                 "project_id": project_id,
                 "session_id": session_id,
                 "ai_id": ai_id,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": created_at or datetime.now(timezone.utc).isoformat(),
                 "assumption": assumption,
                 "confidence": confidence,
                 "domain": domain,
-                "status": "unverified",
+                "status": status,
                 "goal_id": goal_id,
             }
             if due_at:
