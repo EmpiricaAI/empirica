@@ -414,6 +414,15 @@ def create_serve_app() -> FastAPI:
 
     app.include_router(practice_router)
 
+    # empirica-local (spec phase 1): the Cortex contract for one person on one machine, mounted ONLY on a loopback bind.
+    # serve can bind elsewhere with tokens; the local server must never be reachable from another machine (spec 5b).
+    from empirica.api.entity_mint_auth import is_loopback_host
+
+    if is_loopback_host(os.environ.get("EMPIRICA_SERVE_HOST", "127.0.0.1")):
+        from empirica.local_server import router as local_contract_router
+
+        app.include_router(local_contract_router())
+
     @app.get("/api/v1/health", response_model=HealthResponse)
     async def health():  # pyright: ignore[reportUnusedFunction]
         """Health check — reports integrations, active project info, and

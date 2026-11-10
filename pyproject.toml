@@ -182,6 +182,7 @@ empirica = [
     "docs/**/*",
     "config/mco/**/*.yaml",
     "core/cockpit/guide/*.md",
+    "local_server/routes.yaml",
     "plugins/claude-code-integration/**/*",
 ]
 

@@ -4,6 +4,7 @@ Serve command handler — starts FastAPI daemon for Chrome extension.
 
 import json
 import logging
+import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,8 @@ def handle_serve_command(args):
     print(f"  Sync:    POST http://{host}:{port}/api/v1/profile/sync")
     print()
 
+    # The app factory cannot see the bind address; it mounts empirica-local's contract routes only on a loopback bind.
+    os.environ["EMPIRICA_SERVE_HOST"] = str(host)
     uvicorn.run(
         "empirica.api.serve_app:create_serve_app",
         host=host,

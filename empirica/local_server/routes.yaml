@@ -1,0 +1,506 @@
+# The empirica-local / Cortex REST contract, as DATA.
+#
+# Core's client call sites define this file, not cortex's responses: a field cortex returns that core never reads
+# is not contract. Every row names the call sites it was read from (paths relative to empirica/ in core's repo).
+# `drift:` entries are places where cortex's real behaviour differs from what core's code expects. They are
+# findings, not fixes: nothing here was changed to make them go away.
+#
+# Evidence labels: M = measured against the live server, C = read in code. A field marked `unknown` could not be
+# determined from code.
+contract: "1.0"
+source:
+  core_commit: d1e628e96            # the commit core's measurement (prop_5d7dy5ysebb4thvroqcjkldtiq) was made at
+  core_message: prop_5d7dy5ysebb4thvroqcjkldtiq
+  verified_at_core_head: 4a9379044  # the checkout the call sites below were re-read at; line numbers are that tree's
+  cortex_checked: bb7fde4b          # cortex tree and live server the drift entries were checked against
+
+# ── capabilities ───────────────────────────────────────────────────────────────────────────────────────────
+# A server lists the capabilities it implements in GET /v1/health. A route whose capability is not listed answers
+# 501 {"capability": "<name>"}, never 404. `health` is always available and has no capability.
+capabilities:
+  identity.session: "GET /v1/users/me: who the bearer is (org, tenant slug, mesh prefix)"
+  roster: "GET /v1/users/me/roster: every practice the caller can address, with its canonical ai_id_mesh"
+  projects.registry: "register, unregister, list and look up the caller's projects"
+  orchestration.auto_accept: "the per-user toggle that lets proposals land accepted"
+  notifications.channels: "the topic(s) a listener subscribes to for wake-up"
+  orchestration.mailbox: "inbox, outbox, one proposal, propose, complete, archive"
+  orchestration.heartbeat: "listener and practitioner liveness posts"
+  system.event: "informational event channel (compliance reports)"
+  sync.artifacts: "delta/graph artifact sync at session boundaries"
+  # identity-crossing: a one-person, one-machine server does not list these
+  admin.projects: "create a project on behalf of another user"
+  admin.ntfy: "apply ntfy ACL grants for a second user or module"
+  forgejo.publish: "mint or rotate a Forgejo token for a project (credentials minted by the org)"
+  sources.shared: "shared and public sources catalogue, bodies and reconcile"
+  orgs.agreements: "cross-org mesh sharing agreements"
+  orchestration.cross_tenant: "propose with a target outside the caller's tenant"
+
+# ── group A: one user, one org. A local server answers these. 22 method+path pairs. ─────────────────────────
+group_a:
+  - id: health
+    method: GET
+    path: /v1/health            # core tries /v1/health, then /cortex/health, then the root; any HTTP answer = reachable
+    capability: null
+    auth: none
+    core_call_sites: [cli/command_handlers/doctor.py:2448]
+    request: {}
+    response:
+      required: []              # core reads no field: only that some HTTP response came back
+      optional: [edition, contract, capabilities]   # the capability document the spec adds
+    notes: "Unauthenticated reachability probe. The spec (section 4) puts the capability document here."
+    drift:
+      - id: D1
+        text: >
+          Cortex serves only GET /health. GET /v1/health, /cortex/health and / answer 404 (M, 2026-11-09). Core's
+          probe accepts any HTTP answer, so `doctor` still passes; the capability document has no route to live on
+          until one is added.
+
+  - id: users_me
+    method: GET
+    path: /v1/users/me
+    capability: identity.session
+    auth: bearer
+    core_call_sites:
+      - cli/command_handlers/auth_commands.py:73          # token verification: 2xx or not
+      - cli/command_handlers/doctor.py:1990               # reads org_id, tenant_slug, mesh_id_prefix; WARN if any is empty
+      - cli/command_handlers/setup_claude_code.py:1940    # reads the same three into project.yaml
+      - api/entity_mint_auth.py:205                       # the local daemon forwards a caller's bearer; 401/403 reject, other failures are 503 (fail closed)
+    request: {}
+    response:
+      required: [org_id, tenant_slug, mesh_id_prefix]
+      optional: []
+    special_status: {"401": "rejects the credential", "403": "rejects (entity_mint_auth only)", "5xx/timeout": "check failed; entity_mint_auth answers 503, never allows"}
+    notes: >
+      Cortex also returns user_id, user_name, is_service_account, role, org_name, plan, project_ids, domains,
+      assumable_org_ids, notification_wire_mode. Core reads none of them; the spec's "must return is_service_account"
+      is crm-mcp's need, not core's, so it is not contract for empirica-local.
+    drift: []
+
+  - id: users_me_roster
+    method: GET
+    path: /v1/users/me/roster
+    capability: roster
+    auth: bearer
+    core_call_sites:
+      - cli/command_handlers/practice_context_commands.py:134    # flattens to an address book
+      - cli/command_handlers/mailbox_commands.py:235             # canonical id of the caller's own practice
+      - core/loop_scheduler/content_poll.py:261                  # basename -> canonical for the listener; cached per (url, key, basename)
+      - core/loop_scheduler/liveness_probe.py:69                 # status code only
+      - cli/command_handlers/_mesh_diagnose_cortex.py:132
+    request: {}
+    response:
+      required:
+        - self.tenant_slug
+        - org.slug
+        - "org.tenants[].tenant_slug"
+        - "org.tenants[].projects[].slug"
+        - "org.tenants[].projects[].ai_id_short"
+        - "org.tenants[].projects[].ai_id_mesh"      # every send resolves its address from this; empty = not synced yet
+      optional:
+        - self.user_id
+        - self.ai_ids
+        - org.id
+        - org.name
+        - "org.tenants[].user_name"
+        - "org.tenants[].is_admin"
+        - "org.tenants[].governance_mode"
+        - "org.tenants[].projects[].id"
+        - "org.tenants[].projects[].display_name"
+        - "org.tenants[].projects[].ai_id_tenant"
+        - "org.tenants[].projects[].substrate"        # default "cortex" when absent
+        - version
+        - etag
+    special_status: {"non-2xx": "no canonical id; callers fall back to the basename and warn"}
+    notes: >
+      Core matches on tenant_slug == self.tenant_slug, then ai_id_short == the practice basename. Core never sends
+      If-None-Match, so ETag/304 (which cortex implements) is not contract; `etag` and `version` are read by nobody.
+    drift: []
+
+  - id: users_me_projects_get
+    method: GET
+    path: /v1/users/me/projects
+    capability: projects.registry
+    auth: bearer
+    core_call_sites:
+      - cli/command_handlers/doctor.py:2694
+      - core/loop_scheduler/practitioner_heartbeat.py:124
+    request: {}
+    response:
+      required: ["projects[].id", "projects[].slug", "projects[].ai_id_canonical"]
+      optional: ["projects[].project_id", "projects[].pinned", "projects[].name"]
+    notes: "Core accepts `id` or `project_id` for the key. ai_id_canonical is the strict 3-form, composed server-side."
+    drift: []
+
+  - id: users_me_projects_post
+    method: POST
+    path: /v1/users/me/projects
+    capability: projects.registry
+    auth: bearer
+    core_call_sites: [cli/command_handlers/projects_commands.py:1179]
+    request: {project_id: string}
+    response: {required: [], optional: [ok, linked, project_id, already_linked]}
+    special_status: {"200/201/204": linked, "409": "already linked, treated as success", "other": "non-fatal failure"}
+    drift: []
+
+  - id: projects_register
+    method: POST
+    path: /v1/projects/register
+    capability: projects.registry
+    auth: bearer
+    core_call_sites:
+      - cli/command_handlers/projects_commands.py:1229    # bulk register: no project_id in the body
+      - cli/command_handlers/projects_commands.py:2045    # project-register: sends the local project_id and asks the server to adopt it
+    request:
+      name: string (required)
+      project_id: "string, optional; the local UUID the server is asked to adopt"
+      display_name: string
+      repo_url: "string, optional"
+      force_metadata_update: "bool, optional"
+    response:
+      required: ["project_id or id (either)"]
+      optional: []
+    special_status:
+      "200/201": registered
+      "400 + message containing 'different owner'": "project_id belongs to another user: owner conflict (a hard error)"
+      "404/405": "bulk register falls back to POST /v1/admin/projects"
+      "409": "core reads this as 'already registered' (success) and reads project_id/id from the body"
+    notes: "A returned id different from the local one is reported as `diverged`, not an error."
+    drift:
+      - id: D2
+        text: >
+          Cortex answers 409 {code: slug_taken, existing_id, suggested} when a DIFFERENT project in the same tenant
+          already holds the slug (C, transport_handlers_projects.py:130-141). Core treats every 409 as "already
+          registered": the single-project path returns ok=true outcome=already_registered with the LOCAL id, and the
+          bulk path returns skipped/already_exists with project_id=None (the body carries existing_id, not
+          project_id). A slug collision therefore reads as success.
+
+  - id: projects_unregister
+    method: POST
+    path: /v1/projects/unregister
+    capability: projects.registry
+    auth: bearer
+    core_call_sites: [cli/command_handlers/projects_commands.py:1668]
+    request: {project_id: "string or null", slug: "string or null", purge: bool}
+    response: {required: [], optional: [reason]}
+    special_status: {"200/201/204": "archived (purged when purge=true)", "404": not_found, "409": "already archived, idempotent success", "other": error}
+    drift: []
+
+  - id: projects_by_slug
+    method: GET
+    path: /v1/projects/by-slug/{slug}
+    capability: projects.registry
+    auth: bearer
+    core_call_sites: [core/identity_migration.py:425]
+    request: {slug: "path, URL-quoted"}
+    response: {required: [ok, project.id], optional: []}
+    special_status: {"404": "ok=false error=not_found: the migration routes to project-register"}
+    notes: "Caller-scope: the bearer's own org and user. Archived projects are excluded."
+    drift: []
+
+  - id: auto_accept_get
+    method: GET
+    path: /v1/users/me/auto-accept
+    capability: orchestration.auto_accept
+    auth: bearer
+    core_call_sites: [core/cockpit/auto_accept.py:128]
+    request: {}
+    response: {required: [enabled], optional: [user_id]}   # `enabled` must be a JSON bool or core treats the state as unknown
+    special_status: {"404": "treated as 'not shipped': state unknown, UI chip hidden"}
+    drift: []
+
+  - id: auto_accept_post
+    method: POST
+    path: /v1/users/me/auto-accept
+    capability: orchestration.auto_accept
+    auth: bearer
+    core_call_sites: [core/cockpit/auto_accept.py:148]
+    request: {enabled: bool}
+    response: {required: [enabled], optional: [ok, user_id]}
+    drift: []
+
+  - id: notification_channels
+    method: GET
+    path: /v1/users/me/notification-channels
+    capability: notifications.channels
+    auth: bearer
+    core_call_sites:
+      - core/cockpit/notification_channels.py:141
+      - cli/command_handlers/_mesh_diagnose_cortex.py:175
+    request: {}
+    response:
+      required: ["channels[].topic"]
+      optional:
+        - "channels[].category"
+        - "channels[].kind"              # older shape: core accepts `kind` or `category`
+        - "retired_channels[].name"
+        - system_topic.topic           # also eco_topic, collab_topic, roster_changed_topic (objects with .topic)
+    special_status: {"404/any error": "None: `listener on` refuses to subscribe (never falls back to the bare topic)"}
+    notes: >
+      Core does not read the orchestration-events topic from the reply: it derives `<org>-orchestration-events` from
+      the common prefix of the sibling topics (needs at least two distinct ones). A local server has no ntfy; what
+      `listener on` reads from it is core's decision (see README, open items).
+    drift: []
+
+  - id: orchestration_inbox
+    method: GET
+    path: /v1/orchestration/inbox
+    capability: orchestration.mailbox
+    auth: bearer
+    core_call_sites:
+      - core/loop_scheduler/content_poll.py:388
+      - cli/command_handlers/mailbox_commands.py:~980       # `mailbox poll` through the same fetch
+    request:
+      query: {ai_id: "canonical 3-form (required)", status: "comma list; omitted = no filter", since: ISO-8601, limit: int, related: "true|false"}
+    response:
+      required: ["proposals[].id", "proposals[].status"]
+      optional:
+        - "proposals[].type"
+        - "proposals[].title"
+        - "proposals[].source_claude"
+        - "proposals[].target_claudes"
+        - "proposals[].action_category"
+        - "proposals[].trust_required"
+        - "proposals[].eco_decision.actor"
+        - "proposals[].audit_log[]"           # 'completed' entry details.commit_sha
+        - returned
+        - matched
+        - has_more
+    notes: >
+      Core reads `matched`, `has_more`, `returned` when present and treats absence as "no claim", never "complete".
+      Wake filter (listener): statuses accepted, changed, declined. A bare basename in ai_id returns 0 proposals:
+      the canonical 3-form is required.
+    drift: []
+
+  - id: orchestration_outbox
+    method: GET
+    path: /v1/orchestration/outbox
+    capability: orchestration.mailbox
+    auth: bearer
+    core_call_sites: [core/loop_scheduler/content_poll.py:420]
+    request:
+      query: {ai_id: "canonical 3-form (required)", status: "comma list", since: ISO-8601, limit: int, related: "true|false"}
+    response:
+      required: ["proposals[].id", "proposals[].status"]
+      optional: ["proposals[].title", "proposals[].audit_log[]", returned, matched, has_more]
+    notes: "Listener wake filter: changed, declined, completed, accepted_pending_dispatch."
+    drift: []
+
+  - id: orchestration_get
+    method: GET
+    path: /v1/orchestration/{id}
+    capability: orchestration.mailbox
+    auth: bearer
+    core_call_sites:
+      - cli/command_handlers/mailbox_commands.py:166
+      - cli/command_handlers/mailbox_commands.py:1018      # `mailbox show`
+    request: {}
+    response:
+      required: ["id or title (the body is the proposal object itself)"]
+      optional: [source_claude, target_claudes, status]   # target_claudes decides whether a reply must name its own ai_id (multi-target)
+    special_status: {"404": "the only answer that means 'no such proposal'", "401/403": "credentials or tenant scope", "5xx/timeout": "retryable"}
+    notes: "A body wrapped as {proposal: {...}} is also accepted."
+    drift: []
+
+  - id: orchestration_propose
+    method: POST
+    path: /v1/orchestration/propose
+    capability: orchestration.mailbox
+    auth: "bearer; api_key is ALSO sent in the JSON body"
+    core_call_sites: [cli/command_handlers/mailbox_commands.py:390]   # sent once, and once more on a transport failure
+    request:
+      api_key: string
+      type: string
+      title: string
+      summary: string
+      target_claudes: [string]
+      source_claude: string
+      parent_id: string
+      payload: {idempotency_key: "string; sha256-derived from type, sorted targets, parent and a body digest"}
+    response:
+      required: [proposal_id]
+      optional: [status, replay_caught]    # status=idempotent_replay or replay_caught=true means the first attempt landed
+    special_status:
+      "-1 (no answer)": "retried once with the same key at 20 s; still no answer: exit 2, UNKNOWN not failed"
+      "409 body containing idempotency_key_conflict": "client key-derivation collision: nothing sent, exit 3"
+      "other non-2xx": "REJECTED, exit 1"
+    drift:
+      - id: D4
+        text: >
+          Cortex answers 409 {error: idempotency_key_in_flight, replay_caught: true} when an identical request is
+          mid-flight (C, orchestration/endpoints.py:~258-290). Core special-cases only idempotency_key_conflict, so
+          this 409 reads as a rejection and exits 1, although the first attempt will land. It is reachable exactly on
+          core's own retry path (first call times out, retry arrives while the first is still being processed).
+
+  - id: orchestration_complete
+    method: POST
+    path: /v1/orchestration/{id}/complete
+    capability: orchestration.mailbox
+    auth: "bearer; api_key ALSO in the JSON body"
+    core_call_sites: [cli/command_handlers/mailbox_commands.py:539]
+    request:
+      api_key: string
+      result: "shipped | failed | wont_fix"
+      note: string
+      commit_sha: "string, optional"
+      ai_id: "canonical 3-form of the acking seat; sent only for a multi-target parent when resolvable"
+    response:
+      required: []
+      optional: [ok, error, target_acks, pending_targets, note]
+    special_status:
+      "2xx with ok=false or error set": failure
+      "2xx whose target_acks lacks the sent ai_id": "this seat's ack is NOT counted; parent stays in the inbox"
+      "note=acked_waiting_for_other_targets or non-empty pending_targets": "parent not terminal"
+      "note=already_acked": "terminal only if pending_targets == []"
+    drift: []
+
+  - id: orchestration_archive
+    method: POST
+    path: /v1/orchestration/{id}/archive
+    capability: orchestration.mailbox
+    auth: "bearer; api_key ALSO in the JSON body"
+    core_call_sites:
+      - cli/command_handlers/mailbox_commands.py:608     # after a reply
+      - cli/command_handlers/mailbox_commands.py:1114    # `mailbox archive`
+    request:
+      api_key: string
+      reason: "string (cortex refuses an empty reason)"
+      ai_id: "canonical 3-form, optional: whose mailbox to clear"
+    response:
+      required: []
+      optional: [ok, error, no_op, reason, is_archived, proposal_id]
+    special_status:
+      "2xx + no_op=true": "id unknown or expired: NOT archived (exit 2); ok=true is not success here"
+      "2xx + is_archived=true": "already archived: idempotent success, even when `error` is set"
+    drift:
+      - id: D3
+        text: >
+          Archive is per recipient (archived_by[]); `is_archived` on the proposal is the GLOBAL flag only. A repeat
+          archive by a recipient who already archived answers 200 {error: already_archived, is_archived: <global,
+          usually false>} (C, orchestration/endpoints.py:~1497-1510). Core's idempotency test is `is_archived is
+          True`, so that repeat reads as a failure ("archive failed"). Not exercised live.
+
+  - id: listeners_heartbeat
+    method: POST
+    path: /v1/listeners/heartbeat
+    capability: orchestration.heartbeat
+    auth: bearer
+    core_call_sites: [core/loop_scheduler/heartbeat.py:50]
+    request: {ai_id: string, instance_id: "string (hostname)", capabilities: "[string] (the LISTENER's, not the server's)"}
+    response: {required: [], optional: [ok, ai_id, instance_id, mode, last_seen, ttl_seconds]}
+    special_status: {"any": "never raised; a missed beat is harmless (server TTL about two minutes)"}
+    notes: "Every 45 s, 12 s timeout. Core reads only the status code."
+    drift: []
+
+  - id: practitioners_heartbeat
+    method: POST
+    path: /v1/practitioners/heartbeat
+    capability: orchestration.heartbeat
+    auth: bearer
+    core_call_sites: [core/loop_scheduler/practitioner_heartbeat.py:60]
+    request:
+      machine: "string (required)"
+      session_id: "string (required)"
+      status: "active | idle | paused | blocked"
+      location: string
+      active_transaction_id: string
+      practitioner_id: string
+      pending_question: string
+      ai_id: "canonical 3-form; omitted when the roster cannot resolve it"
+      build: object
+      emitter_build: object
+      emitter_id: string
+      blocked_reason: string
+    response: {required: [], optional: [ok, presence]}
+    special_status: {"any": "returns the status; a record with no session_id is skipped locally (0)"}
+    notes: "Every 60 s. Core reads only the status code."
+    drift: []
+
+  - id: system_event
+    method: POST
+    path: /v1/system/event
+    capability: system.event
+    auth: bearer
+    core_call_sites: [cli/command_handlers/system_event.py:129]
+    request:
+      category: string
+      event_type: string
+      severity: string
+      title: string
+      summary: string
+      deduplicate_key: string
+      details: object
+      org_id: "string, optional"
+    response: {required: [], optional: [error]}
+    special_status: {"200": "the only status core's compliance-report prints as emitted (compliance_report_commands.py:1682)"}
+    drift:
+      - id: D5
+        text: >
+          Cortex answers 202 {ok, event_id, stored, ntfy_sent, deduplicated} on success (C,
+          transport_handlers_misc.py). Core's only success test is status == 200, so every successful emit prints
+          "emit failed (202)".
+
+  - id: sync
+    method: POST
+    path: /v1/sync
+    capability: sync.artifacts
+    auth: bearer
+    core_call_sites:
+      - cli/command_handlers/_workflow_postflight.py:1998     # reply ignored, 5 s, exceptions swallowed
+      - plugins/claude-code-integration/hooks/session-end-postflight.py:598   # reply ignored, 5 s
+      - plugins/claude-code-integration/hooks/session-init.py:347             # reply read and cached, 10 s
+    request:
+      project_id: string
+      delta: object
+      user_profile_summary: "object (session-init)"
+      task_context: "string (postflight)"
+      calibration_summary: "object (postflight)"
+      graph: "{nodes, edges} (postflight, optional)"
+      name: "string, optional (postflight, for 'auto-create')"
+      repo_url: "string, optional"
+    response:
+      required: [ok]
+      optional: [synced_artifacts, cross_domain_context]    # session-init caches these two; defaults 0 and []
+    notes: "session-init only caches the reply when ok is true."
+    drift:
+      - id: D6
+        text: >
+          Core's postflight comment says cortex's auto-create path populates a project from name and repo_url on an
+          unknown project_id. Cortex refuses instead: 400 "Unknown project_id ... cannot sync" (C,
+          transport_sync.py, _sync_resolve_project_id) and ignores name and repo_url. The postflight call swallows
+          the exception, so an unregistered project's sync drops silently.
+
+# ── group B: crosses an identity boundary. A one-person server answers 501 {capability}. ───────────────────
+group_b:
+  - {id: admin_projects, method: POST, path: /v1/admin/projects, capability: admin.projects, why_identity_crossing: "creates a project for another user; core uses it only when register answers 404 or 405", core_call_sites: [cli/command_handlers/projects_commands.py:1229], local_status: 501}
+  - {id: admin_ntfy_grants, method: POST, path: /v1/admin/ntfy/grants, capability: admin.ntfy, why_identity_crossing: "ACL grants for a second user or a module's subscriber", core_call_sites: [core/modules/executors.py:419], local_status: 501, notes: "core treats 207 with per-grant failures as partial"}
+  - {id: forgejo_publish, method: POST, path: "/v1/projects/{project_id}/forgejo-publish", capability: forgejo.publish, why_identity_crossing: "credentials minted by the org", core_call_sites: [cli/command_handlers/forgejo_commands.py:75], local_status: 501}
+  - {id: sources_register, method: POST, path: /v1/sources/register, capability: sources.shared, why_identity_crossing: "shared and public sources", core_call_sites: [cli/command_handlers/artifact_log_commands.py:3025], local_status: 501}
+  - {id: sources_body_upload, method: POST, path: "/v1/sources/{id}/body", capability: sources.shared, why_identity_crossing: "shared and public sources", core_call_sites: [cli/command_handlers/artifact_log_commands.py:2926, cli/command_handlers/sources_reconcile_commands.py:61], local_status: 501}
+  - {id: sources_raw, method: GET, path: "/v1/sources/{id}/raw", capability: sources.shared, why_identity_crossing: "shared and public sources", core_call_sites: [cli/command_handlers/artifact_log_commands.py:2854], local_status: 501}
+  - {id: sources_delete, method: DELETE, path: "/v1/sources/{id}", capability: sources.shared, why_identity_crossing: "shared and public sources; the DELETE carries a JSON body", core_call_sites: [cli/command_handlers/artifact_log_commands.py:3469], local_status: 501}
+  - {id: sources_catalogue, method: POST, path: /v1/sources/catalogue, capability: sources.shared, why_identity_crossing: "a lookup sent as POST (the docstring says GET)", core_call_sites: [cli/command_handlers/sources_reconcile_commands.py:642], local_status: 501}
+  - {id: sources_reconcile, method: POST, path: /v1/sources/reconcile, capability: sources.shared, why_identity_crossing: "read or write cannot be told from the client", core_call_sites: [cli/command_handlers/sources_reconcile_commands.py:690], local_status: 501}
+  - id: orgs_mesh_sharing_agreements
+    method: GET
+    path: /v1/orgs/me/mesh_sharing_agreements
+    capability: orgs.agreements
+    why_identity_crossing: "second org"
+    core_call_sites: [core/mesh_sharing.py:236, cli/command_handlers/_mesh_diagnose_cortex.py:369]
+    local_status: 200_empty_list     # the exception: one reader runs at every project-bootstrap, so an empty list serves better than 501
+    response: "a JSON list, or an object whose `agreements` (or `items`) is a list; core reads rows and mirrors them into workspace.db"
+  - {id: orchestration_cross_tenant, method: POST, path: /v1/orchestration/propose, capability: orchestration.cross_tenant, why_identity_crossing: "the boundary is in the target, not the route: a target outside the caller's tenant", core_call_sites: [cli/command_handlers/mailbox_commands.py:390], local_status: "501 with {capability: orchestration.cross_tenant} for such a target"}
+
+# ── group C: identity itself ───────────────────────────────────────────────────────────────────────────────
+discovery:
+  method: GET
+  path: /.well-known/oauth-authorization-server
+  auth: none
+  core_call_sites: [core/auth/cortex_oauth.py:77]
+  response:
+    required: [authorization_endpoint, token_endpoint, registration_endpoint]   # cortex also serves revocation_endpoint, which `auth logout` reads
+    optional: [revocation_endpoint, issuer, scopes_supported, grant_types_supported, code_challenge_methods_supported]
+  notes: >
+    Core names no registration, token or revocation URL: all come from this document, so a local server that wants
+    `empirica auth login` needs it. Whether a local server instead runs with a static key and no `auth login` is
+    core's decision (open item). Core registers as a PUBLIC client (token_endpoint_auth_method none, PKCE S256).
+  drift: []
