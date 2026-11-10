@@ -99,6 +99,8 @@ class GitUnknownStore:
         resolved_by: str | None = None,
         created_at: str | None = None,
         resolved_at: str | None = None,
+        due_at: str | None = None,
+        extra: dict | None = None,
     ) -> bool:
         """
         Store unknown in git notes
@@ -126,7 +128,9 @@ class GitUnknownStore:
             return False
 
         try:
+            # ``extra``: keys a re-store loaded and must keep (edges, due_at); the named fields below win over it.
             payload = {
+                **(extra or {}),
                 "unknown_id": unknown_id,
                 "project_id": project_id,
                 "session_id": session_id,
@@ -142,6 +146,8 @@ class GitUnknownStore:
                 "resolved_by": resolved_by,
                 "resolved_at": (resolved_at or datetime.now(timezone.utc).isoformat()) if resolved else None,
             }
+            if due_at:
+                payload["due_at"] = due_at  # 1.16, D3: rebuild and profile import read it back
 
             payload_json = json.dumps(payload, indent=2)
 
@@ -226,7 +232,8 @@ class GitUnknownStore:
         unknown_data["resolved_by"] = resolved_by
         unknown_data["resolved_at"] = datetime.now(timezone.utc).isoformat()
 
-        # Re-store with updated status
+        # Re-store with updated status. Every key the note held is kept (edges, due_at, the creation time): the named
+        # arguments alone rebuilt the note without them and dated the unknown to its resolution (1.16, D3).
         return self.store_unknown(
             unknown_id=unknown_id,
             project_id=unknown_data["project_id"],
@@ -237,6 +244,10 @@ class GitUnknownStore:
             subtask_id=unknown_data.get("subtask_id"),
             resolved=True,
             resolved_by=resolved_by,
+            created_at=unknown_data.get("created_at"),
+            resolved_at=unknown_data["resolved_at"],
+            due_at=unknown_data.get("due_at"),
+            extra=unknown_data,
         )
 
     def discover_unknowns(

@@ -325,7 +325,7 @@ def _session_ai_id(db, session_id: str | None) -> str | None:
         return None
 
 
-def _store_node_git_notes(node: dict, artifact_id: str, context: dict) -> bool:
+def _store_node_git_notes(node: dict, artifact_id: str, context: dict, *, due_at: str | None = None) -> bool:
     """Write a NEW node to its git-notes store, exactly as the single verb does.
 
     Git notes are the canonical log: a from-notes rebuild imports them back and
@@ -369,6 +369,7 @@ def _store_node_git_notes(node: dict, artifact_id: str, context: dict) -> bool:
                     unknown=data["unknown"],
                     goal_id=goal_id,
                     subtask_id=data.get("subtask_id"),
+                    due_at=due_at,
                     **common,
                 )
             )
@@ -410,6 +411,7 @@ def _store_node_git_notes(node: dict, artifact_id: str, context: dict) -> bool:
                     confidence=data.get("confidence", 0.5),
                     domain=data.get("domain"),
                     goal_id=goal_id,
+                    due_at=due_at,
                     **common,
                 )
             )
@@ -1064,7 +1066,7 @@ def _create_nodes(db, sorted_nodes: list[dict], context: dict) -> tuple[dict[str
             from empirica.data.due import parse_due, stamp_due
 
             due_report[node["ref"]] = stamp_due(db.conn, node["type"], artifact_id, parse_due(str(due)))
-        _store_node_git_notes(node, artifact_id, context)
+        _store_node_git_notes(node, artifact_id, context, due_at=due_report.get(node["ref"], {}).get("due_at"))
         _auto_embed_node(node, artifact_id, context)
     return ref_map, created_errors, due_report
 

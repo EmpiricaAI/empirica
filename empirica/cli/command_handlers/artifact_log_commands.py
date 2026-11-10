@@ -1550,6 +1550,7 @@ def handle_unknown_log_command(args):
                 unknown=unknown,
                 goal_id=goal_id,
                 subtask_id=subtask_id,
+                due_at=stamped_due.get("due_at"),  # what the row carries, not the argument (a closed row takes none)
             )
             if git_stored:
                 logger.info(f"✓ Unknown {unknown_id[:8]} stored in git notes")
@@ -2239,6 +2240,7 @@ def handle_assumption_log_command(args):
                 confidence=confidence,
                 domain=domain,
                 goal_id=ctx["goal_id"],
+                due_at=stamped_due.get("due_at"),
             )
         except Exception as e:
             logger.debug(f"Git notes storage failed (non-fatal): {e}")

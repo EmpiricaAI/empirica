@@ -586,8 +586,10 @@ def _goal_post_create_integrations(
     config_data,
     output_format,
     result,
+    due_at=None,
 ):
-    """Run post-creation integrations: BEADS, git notes, Qdrant. Mutates result dict."""
+    """Run post-creation integrations: BEADS, git notes, Qdrant. Mutates result dict. ``due_at`` is the date the row carries,
+    written into the note so a rebuild restores it (1.16, D3)."""
     # BEADS
     beads_issue_id = _link_goal_to_beads(
         args, config_data, goal, objective, scope_breadth, scope_duration, output_format
@@ -622,6 +624,8 @@ def _goal_post_create_integrations(
             "constraints": constraints,
             "metadata": metadata,
         }
+        if due_at:
+            goal_data["due_at"] = due_at
         goal_store.store_goal(goal_id=goal.id, session_id=session_id, ai_id=ai_id, goal_data=goal_data)
         logger.debug(f"Goal {goal.id[:8]} stored in git notes for cross-AI discovery")
     except Exception as e:
@@ -836,6 +840,7 @@ def handle_goals_create_command(args):
                 config_data,
                 output_format,
                 result,
+                due_at=stamped_due.get("due_at"),
             )
         else:
             result = {

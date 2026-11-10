@@ -334,6 +334,7 @@ def main() -> int:
             resolved_by=r["resolved_by"],
             created_at=_iso(r["created_timestamp"]),
             resolved_at=_iso(r["resolved_timestamp"]) if r["is_resolved"] else None,
+            due_at=r["due_at"] if "due_at" in r.keys() else None,  # a pre-079 database has no column
         )
         (written if ok else failed)["unknowns"] += 1
         if not ok:

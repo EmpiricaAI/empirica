@@ -70,6 +70,7 @@ class GitAssumptionStore:
         confidence: float = 0.5,
         domain: str | None = None,
         goal_id: str | None = None,
+        due_at: str | None = None,
     ) -> bool:
         if not self._git_available or not self._has_commits():
             return False
@@ -87,6 +88,8 @@ class GitAssumptionStore:
                 "status": "unverified",
                 "goal_id": goal_id,
             }
+            if due_at:
+                payload["due_at"] = due_at  # 1.16, D3: profile import reads it back
 
             result = subprocess.run(
                 ["git", "rev-parse", "HEAD"], cwd=self.workspace_root, capture_output=True, text=True, check=True
