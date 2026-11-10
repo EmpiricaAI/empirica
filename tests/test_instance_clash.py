@@ -225,3 +225,36 @@ def test_post_compact_still_takes_over_a_dead_owners_pointer(world):
     hook._write_active_work_for_new_conversation("newcomer", str(world.nle), "e2", "shared-id")
 
     assert world.read()["project_path"] == str(world.nle)
+
+
+# ── a headless run does not take the pane's pointer (1.14.23 sweep, item 4) ────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("entrypoint", ["sdk-cli", "sdk-ts", "sdk-py"])
+def test_a_headless_run_in_the_pane_leaves_the_pointer(world, monkeypatch, entrypoint):
+    """`claude -p` started inside a cockpit pane inherits its instance id; taking the pointer made `refresh` resume the
+    headless run instead of the pane's conversation. Its own session-keyed record is still written."""
+    world.pointer(world.nle, "interactive-session")
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", entrypoint)
+    hook = _load(f"si_headless_{entrypoint}", "session-init.py")
+
+    hook._write_instance_projects(str(world.nle), "headless-run", "e2")
+
+    assert world.read()["claude_session_id"] == "interactive-session"
+    mine = json.loads((world.home / ".empirica" / "active_work_headless-run.json").read_text())
+    assert mine["project_path"] == str(world.nle)
+
+
+@pytest.mark.parametrize("entrypoint", ["cli", None])
+def test_an_interactive_session_still_takes_a_stale_pointer(world, monkeypatch, entrypoint):
+    """CONTROL: the interactive entrypoint, and no entrypoint at all, behave as before."""
+    world.pointer(world.nle, "old-session")
+    if entrypoint is None:
+        monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
+    else:
+        monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", entrypoint)
+    hook = _load(f"si_interactive_{entrypoint}", "session-init.py")
+
+    hook._write_instance_projects(str(world.nle), "new-session", "e2")
+
+    assert world.read()["claude_session_id"] == "new-session"

@@ -876,6 +876,17 @@ def _foreign_owner_holds_pointer(
         return False
 
 
+def _headless_run() -> bool:
+    """Whether this session is a headless run (`claude -p`, an SDK call) rather than the pane's interactive conversation.
+
+    A headless run started inside a cockpit pane inherits the pane's instance id, and taking the instance pointer made
+    `refresh` resume the headless run instead of the pane's conversation (1.14.23 sweep). Claude Code names its entrypoint
+    in CLAUDE_CODE_ENTRYPOINT: `cli` for the interactive app, `sdk-*` for print mode and the SDKs. Any other value, or none,
+    reads as interactive, which is the behaviour before this check.
+    """
+    return os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").startswith("sdk")
+
+
 def _write_instance_projects(project_path: str, claude_session_id: str, empirica_session_id: str) -> bool:
     """
     Write instance isolation files. Establishes linkage between Claude's
@@ -895,7 +906,9 @@ def _write_instance_projects(project_path: str, claude_session_id: str, empirica
         # directory, where the owner's transaction cannot be, so it never fired (nle took core's
         # pointer on 2026-09-29, 10-01 and 10-02). Our own session-keyed active_work is still
         # written below; only the shared instance pointer is left alone.
-        keep_owner_pointer = _foreign_owner_holds_pointer(instance_file, instance_id, claude_session_id, project_path)
+        keep_owner_pointer = (
+            _foreign_owner_holds_pointer(instance_file, instance_id, claude_session_id, project_path) or _headless_run()
+        )
 
         # Get TTY key if available
         tty_key = None
