@@ -275,3 +275,27 @@ def test_the_project_uninstall_reports_the_mesh_allow_entry_and_leaves_it(repo):
     apply_uninstall(the_plan=plan)
     allow = json.loads((repo / ".claude" / "settings.local.json").read_text())["permissions"]["allow"]
     assert "mcp__cortex__*" in allow
+
+
+def test_a_crlf_claude_md_keeps_its_line_endings(repo):
+    """Adding one import line must not rewrite every line ending of a Windows-style file (1.14.23 sweep, item 2)."""
+    claude_md = repo / "CLAUDE.md"
+    claude_md.write_bytes(b"# Team notes\r\n\r\nUse tabs.\r\n")
+    scc.setup_project_scope(_args(), repo)
+    raw = claude_md.read_bytes()
+    assert raw.startswith(b"@.empirica/empirica-system-prompt.md\r\n\r\n# Team notes\r\n")
+    assert b"\n" not in raw.replace(b"\r\n", b"")
+
+
+def test_an_lf_claude_md_stays_lf(repo):
+    claude_md = repo / "CLAUDE.md"
+    claude_md.write_bytes(b"# Notes\n")
+    scc.setup_project_scope(_args(), repo)
+    assert claude_md.read_bytes() == b"@.empirica/empirica-system-prompt.md\n\n# Notes\n"
+
+
+def test_setup_says_the_committed_claude_md_imports_an_ignored_file(repo, capsys):
+    (repo / "CLAUDE.md").write_text("# Notes\n")
+    scc.setup_project_scope(_args(), repo)
+    out = json.loads(capsys.readouterr().out)
+    assert "not committed" in out["claude_md_note"] and "CLAUDE.md" in out["claude_md_note"]

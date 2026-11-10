@@ -72,6 +72,10 @@ repository has one). `.gitignore` gains `.empirica/` (except `project.yaml`) and
 under `~/.claude` changes, so Claude Code sessions in other directories run
 without Empirica.
 
+`CLAUDE.md` is usually committed while the prompt it imports is not: commit the
+import line only if everyone working in the repository runs Empirica, or keep it
+out of your commits. The line is added with the file's own line endings.
+
 Re-running setup is safe in both scopes: Empirica's hooks are registered once,
 and your own hooks and status line are left in place. `--force` clears
 Empirica's own hook entries and registers them fresh, which is useful after an

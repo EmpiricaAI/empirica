@@ -1680,10 +1680,13 @@ def setup_project_scope(args, repo_root) -> int:
     _render_versioned_template(plugin_dir / "templates" / "empirica-system-prompt-lean.md", prompt_dst)
     include_line = "@.empirica/empirica-system-prompt.md"
     claude_md = repo_root / "CLAUDE.md"
-    existing = claude_md.read_text() if claude_md.exists() else ""
+    # Read and write without newline translation: read_text turned every CRLF into LF, so adding one line rewrote every
+    # line ending of a Windows-style file. The new line uses the file's own ending.
+    existing = claude_md.read_bytes().decode("utf-8", errors="surrogateescape") if claude_md.exists() else ""
     if include_line not in existing:
         if existing:
-            claude_md.write_text(f"{include_line}\n\n{existing}")
+            nl = "\r\n" if "\r\n" in existing else "\n"
+            claude_md.write_bytes(f"{include_line}{nl}{nl}{existing}".encode("utf-8", errors="surrogateescape"))
         else:
             # A new CLAUDE.md: keep AGENTS.md loaded explicitly, since whether Claude Code still reads it beside a CLAUDE.md
             # is not documented.
@@ -1698,6 +1701,10 @@ def setup_project_scope(args, repo_root) -> int:
         "hooks_from": str(plugin_dir),
         "prompt": str(prompt_dst),
         "claude_md": str(claude_md),
+        "claude_md_note": (
+            "CLAUDE.md is usually committed, and the prompt it now imports (.empirica/empirica-system-prompt.md) is not "
+            "committed: commit the import line only if everyone working here runs Empirica, or keep it out of your commits."
+        ),
         "user_claude_dir_changed": False,
     }
     if output_format == "json":
@@ -1706,6 +1713,7 @@ def setup_project_scope(args, repo_root) -> int:
         print("✅ Empirica set up for this repository only (nothing under ~/.claude changed)")
         print(f"   hooks:  {settings_file}  (per user, not committed)")
         print(f"   prompt: {prompt_dst}, imported from {claude_md}")
+        print(f"   note:   {result['claude_md_note']}")
     return 0
 
 
