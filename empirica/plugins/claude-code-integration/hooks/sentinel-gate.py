@@ -5685,6 +5685,16 @@ def _check_prior_investigate(
     prev_decision, prev_tx_id = prev_check
     if prev_decision != "investigate" or prev_tx_id == current_transaction_id:
         return None
+    # A transaction that ended in POSTFLIGHT closed its own investigation: what it found is recorded there. Without this the
+    # ask carried into every later transaction until a finding was logged, and asked on every praxic call (David,
+    # 2026-11-10: "Why am I being asked to confirm every run").
+    if (
+        prev_tx_id
+        and cursor.execute(
+            "SELECT 1 FROM reflexes WHERE transaction_id = ? AND phase = 'POSTFLIGHT' LIMIT 1", (prev_tx_id,)
+        ).fetchone()
+    ):
+        return None
 
     # If findings have been logged, INVESTIGATE is satisfied — allow everything
     cursor.execute(
@@ -5704,7 +5714,19 @@ def _check_prior_investigate(
     if tool_name == "Bash" and is_safe_bash_command(tool_input):
         return None  # Safe Bash is noetic
 
-    # Only genuinely praxic tools (Edit, Write, destructive Bash) get ask
+    # Only genuinely praxic tools (Edit, Write, destructive Bash) get ask, and once per transaction, as the docstring says:
+    # an "ask" is a permission prompt the person answers, so asking on every call made them confirm every run.
+    marker = Path.home() / ".empirica" / f"investigate_asked{_instance_suffix()}"
+    try:
+        if marker.read_text(encoding="utf-8").strip() == str(current_transaction_id):
+            return None
+    except OSError:
+        pass
+    try:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(str(current_transaction_id), encoding="utf-8")
+    except OSError:
+        pass
     return ("ask", "Previous CHECK returned INVESTIGATE. Consider running CHECK with proceed before praxic actions.")
 
 
