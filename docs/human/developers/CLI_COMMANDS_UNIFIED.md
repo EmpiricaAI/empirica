@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.15.0
-**Generated:** 2026-11-10 11:02:11 UTC
+**Generated:** 2026-11-10 12:50:19 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1763,6 +1763,8 @@ Create + register a new local practice/practitioner in one command
   What `cockpit refresh` runs to bring a dead pane back with its conversation. Needs --cockpit-profile. Default: the launch with --continue for claude, `<prog> resume --last` for codex and ecodex (flag-only launches; give --resume for a launch that ends in a prompt or is wrapped in a shell)
 - `--second-pane` — optional
   Also run CMD (for example ecodex) as a second pane in this practice's window: the same directory, its own identity (<name>-<program>) and its own conversation. Needs --cockpit-profile. For a person who runs two harnesses
+- `--no-local-server` — optional · flag
+  With no Cortex configured, do not install and start the local server (empirica serve-service) that lets practices on this machine hand work to each other
 - `--dry-run` — optional · flag
   Print planned actions (to stderr) without executing
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -3724,6 +3726,28 @@ Atomic propose + complete in one call — fixes the AI ack-discipline gap (skip 
   Close the parent but do NOT archive it. Default behaviour archives the parent after close to keep your inbox view focused on un-actioned work. Use --no-archive when you want the parent to stay visible in audit / status=accepted polls.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format (default: json)
+
+
+##### `empirica mailbox send`
+
+Start a conversation: propose to one or more practices (canonical org.tenant.practice addresses), through Cortex or, with none configured, the local server. Use reply to answer a message
+
+**Arguments:**
+
+- `--to` — **required**
+  Target address (org.tenant.practice); repeat or comma-separate
+- `--title` — **required**
+  Title, truncated to 200 characters
+- `--summary` — **required**
+  The message
+- `--type` — optional · type=`choice` · choices={architecture_decision, collab_brief, code_change_request, investigation_request, spec_updated} · default=`collab_brief`
+  Proposal type (default: collab_brief, a question or FYI)
+- `--payload` — optional
+  Optional type-specific payload as a JSON string
+- `--source-claude` — optional
+  Your canonical address (default: resolved from .empirica/project.yaml)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
 
 
 ##### `empirica mailbox poll`

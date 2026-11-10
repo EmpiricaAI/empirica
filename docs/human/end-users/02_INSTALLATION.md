@@ -102,6 +102,41 @@ next step. Especially useful if the statusline isn't showing up in Claude Code.
 
 ---
 
+## Several practices on one machine (no Cortex)
+
+Practices can hand work to each other on your own machine with nothing to
+configure. Install with the API extra, then create practices with
+`provision-practice` (or run the `/ewm-interview` skill, which offers a default
+set: a coordinator, a support practice that looks after your machine, and
+research, plus one practice per codebase you work on):
+
+```bash
+pip install "empirica[api]"
+empirica provision-practice my-coordinator --cockpit-profile mine
+empirica provision-practice my-research --cockpit-profile mine
+```
+
+With no Cortex configured, the first `provision-practice` installs and starts
+the local server (`empirica serve-service install`, loopback only) and each
+practice registers with it as `local.<you>.<practice>`. `--no-local-server`
+skips that step. From inside a practice:
+
+```bash
+empirica mailbox send --to local.<you>.my-research --title "Question" --summary "..."
+empirica mailbox poll                 # in my-research: the message is there
+empirica mailbox reply --parent-id <id> --summary "..." --result shipped
+```
+
+Each message wakes the receiving session (its SessionStart arms a tail of
+`~/.empirica/loop_fires.log`). Proposals pass automatically: the local server
+has no review gate. A gate, people beyond you and organisations come with
+Cortex, used with the ntfy app and the browser extension; set `cortex.url`
+and the same commands use it instead. Anything that crosses a user or
+organisation boundary answers "not available on this server".
+
+Knowledge and goals are already shared between practices on one machine:
+`empirica project-search --global` and `empirica goals-list --all-projects`.
+
 ## Installation Options
 
 ### Option 1: PyPI (Recommended)
