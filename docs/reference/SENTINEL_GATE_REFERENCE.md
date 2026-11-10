@@ -8,7 +8,8 @@
 
 ## What it is
 
-The Sentinel Gate is a `PreToolUse` hook. It sorts every tool call it sees into **noetic** (reads, searches, planning: cannot change state) or **praxic** (can change state) and lets praxic calls through only when the current transaction certifies them. Design principle: default deny for anything that might write, explicit allow for what is known to read.
+The Sentinel Gate is a `PreToolUse` hook. It sorts every tool call it sees into **noetic** (reads, searches, planning: cannot change state) or **praxic** (can change state) and lets praxic calls through only when the current transaction certifies them, or, outside a transaction, when
+[discipline mode](#modes-strict-discipline-off) (the default) allows a small edit within its budget. Design principle: default deny for anything that might write, explicit allow for what is known to read.
 
 `empirica setup` registers it twice, with a 10 second timeout, for the matchers `Edit|Write` and `Bash` (`_register_all_hooks` in `empirica/cli/command_handlers/setup_claude_code.py`). A second PreToolUse hook, `ruling-shape.py`, matches `AskUserQuestion` and never blocks. Consequences worth knowing:
 
@@ -238,7 +239,7 @@ record a local decision model can learn from, and the audit trail of discipline 
 
 | Field | Meaning |
 |---|---|
-| `ts`, `vocabulary`, `mode` | When; the vocabulary version (bumped when a field's meaning changes); `mode` is always `strict` in this version, and a decision made by discipline mode carries `rule: discipline-budget` |
+| `ts`, `vocabulary`, `mode` | When; the vocabulary version (bumped when a field's meaning changes); `mode` is always `strict`: it names the transaction rules, which every mode applies inside a transaction. A decision discipline mode made outside one carries `rule: discipline-budget` |
 | `harness`, `permission_mode` | The harness, and its own permission mode as its hook input carries it (null when it does not) |
 | `claude_session_id`, `transaction_id`, `tx_status`, `tool_use_id`, `turn_id` | Which session, transaction, call and turn |
 | `tool`, `command_class` | The tool, and for a shell call the program it runs (`unparsed` when the text does not name one) |
@@ -290,7 +291,7 @@ Bash and failed calls, so an approved WebFetch or MCP call is read as `denied_or
 | `EMPIRICA_INSTANCE_ID`, `CLAUDE_INSTANCE_ID` | unset | Explicit instance id |
 | `EMPIRICA_HARNESS` | `claude-code` | Selects the repair text when the hook cannot import `empirica` |
 | `EMPIRICA_DECISION_RECORD` | on | `0`/`false`/`no`/`off`: stop writing the decision record |
-| `EMPIRICA_SENTINEL_MODE` | `strict` | `strict`, `discipline` or `off` (see [Modes](#modes-strict-discipline-off)); overrides the config files |
+| `EMPIRICA_SENTINEL_MODE` | `discipline` | `strict`, `discipline` or `off` (see [Modes](#modes-strict-discipline-off)); overrides the config files. A value it does not know (empirica-autonomy's `controller` or `observer`, say) resolves to `strict` |
 | `EMPIRICA_MAX_ACT_WITHOUT_GATE` | `3` | Changes allowed outside a transaction in `discipline` mode before PREFLIGHT is required |
 
 The full list is in [Environment Variables](ENVIRONMENT_VARIABLES.md).

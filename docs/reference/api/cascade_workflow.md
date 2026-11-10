@@ -450,8 +450,9 @@ echo "true" > ~/.empirica/sentinel_enabled    # Re-enable sentinel
 
 Environment variables (fallback — requires session restart):
 ```bash
-EMPIRICA_SENTINEL_MODE=controller   # Active blocking (default)
-EMPIRICA_SENTINEL_MODE=observer     # Log-only (no blocking)
+EMPIRICA_SENTINEL_MODE=strict       # Every change outside a transaction is refused
+EMPIRICA_SENTINEL_MODE=discipline   # Default: a few small edits outside a transaction, declared at PREFLIGHT
+EMPIRICA_SENTINEL_MODE=off          # Allow and record (the older controller/observer values now resolve to strict)
 EMPIRICA_SENTINEL_LOOPING=false     # Disable investigate loops
 ```
 

@@ -276,7 +276,8 @@ PREFLIGHT → [noetic: investigate] → CHECK → [praxic: implement] → POSTFL
   POSTFLIGHT — anything logged after is invisible to grounded calibration.
 - **Outside a transaction** (after POSTFLIGHT, or before the first PREFLIGHT) the default discipline mode lets a few small
   file edits inside the practice run, each declared at your next PREFLIGHT. Any shell command that can change state (a commit
-  included), an edit to configuration or agent instructions, and anything outward still need a transaction, and so does
+  included), an edit to agent instructions or to files that run code or hold secrets (pyproject.toml, package.json, conftest.py, .env, Makefile, CI and git config),
+  and anything outward still need a transaction, and so does
   everything once the work is plan-shaped. The `empirica` artifact verbs still run. Open the next transaction, with
   `claims`, before real work; `empirica sentinel mode` shows the mode and budget in force.
 - **The Sentinel counts a goal as in play** when it was created in this transaction, or a task was created or completed since
@@ -297,7 +298,8 @@ observations, which signals a discipline gap to address in future transactions.
 
 **The principle.** *Noetic* work gathers information and mutates nothing — it is
 provably inert, so it flows free (no PREFLIGHT/CHECK). *Praxic* work can change
-state (write a file, run code, mutate a remote), so it requires PREFLIGHT → CHECK.
+state (write a file, run code, mutate a remote), so it requires PREFLIGHT → CHECK (outside a transaction, discipline
+mode's small-edit budget is the one exception: see TRANSACTION DISCIPLINE).
 The discriminator is not a tool's NAME but its EFFECT: **can this invocation, as
 written, change state?** No → noetic. Yes (or "maybe") → praxic. The Sentinel
 enforces this via PreToolUse hooks and, when unsure, errs toward gating. Use this
@@ -463,7 +465,7 @@ CHECK, one phase earlier.
 
 | Work | Shape |
 |---|---|
-| A one-line fix or a typo in a practice file | No transaction: discipline mode allows it, up to the budget. A config value still needs one |
+| A one-line fix or a typo in a practice file | No transaction: discipline mode allows it, up to the budget. Not in a file that runs code or holds secrets |
 | A contained change you are already grounded in | PREFLIGHT with `claims` → praxic → POSTFLIGHT. **No CHECK** |
 | Multi-file, or you must investigate first | Full loop, CHECK carrying the 2–3 claims the work rests on |
 | Spans 3+ files, 2+ goals, or several noetic→praxic cycles | Load `/epistemic-transaction` and plan it |

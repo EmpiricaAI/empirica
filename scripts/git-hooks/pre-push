@@ -45,7 +45,9 @@ PY_FILES=$(printf '%s\n' "$PUSH_REFS" | while read -r _lref lsha _rref rsha; do
     if [ "$rsha" = "$ZERO" ]; then base=$(git merge-base "$lsha" origin/develop 2>/dev/null || true); else base=$rsha; fi
     [ -n "$base" ] || continue
     git diff --name-only --diff-filter=ACMR "$base" "$lsha" -- '*.py' 2>/dev/null
-done | sort -u | while read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done)
+done | sort -u | while read -r f; do if [ -f "$f" ]; then printf '%s\n' "$f"; fi; done)
+# (`[ -f ] && printf` as the loop's last command made the whole substitution fail under set -e whenever the last listed
+# file was missing from the working tree, and the push aborted with no message: 1.15.0 sweep, S1.)
 if [ -n "$PY_FILES" ] && command -v pyright >/dev/null 2>&1; then
     echo "pre-push: pyright on $(printf '%s\n' "$PY_FILES" | wc -l | tr -d ' ') changed file(s)…" >&2
     # One path per word, as git printed them.

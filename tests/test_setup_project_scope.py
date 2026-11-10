@@ -299,3 +299,14 @@ def test_setup_says_the_committed_claude_md_imports_an_ignored_file(repo, capsys
     scc.setup_project_scope(_args(), repo)
     out = json.loads(capsys.readouterr().out)
     assert "not committed" in out["claude_md_note"] and "CLAUDE.md" in out["claude_md_note"]
+
+
+def test_a_utf16_claude_md_is_refused_not_corrupted(repo, capsys):
+    """Windows editors save UTF-16; prepending a UTF-8 line would make the file unreadable (1.15.0 sweep, S7)."""
+    claude_md = repo / "CLAUDE.md"
+    original = "# Team notes\r\n".encode("utf-16")
+    claude_md.write_bytes(original)
+    rc = scc.setup_project_scope(_args(), repo)
+    assert rc == 1 and claude_md.read_bytes() == original
+    assert "UTF-16" in capsys.readouterr().out
+    assert not (repo / ".claude" / "settings.local.json").exists()  # refused before anything was written

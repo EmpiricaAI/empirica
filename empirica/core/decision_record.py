@@ -32,8 +32,8 @@ from pathlib import Path
 # Bumped when a field's meaning or a value's vocabulary changes, so a reader can tell records made under different rules apart.
 VOCABULARY_VERSION = "1"
 
-# The gate as it behaves today: everything that is not a recognised read needs a transaction. The 1.15 discipline layer adds
-# other modes; until then every record is made in this one.
+# The transaction rules, which every Sentinel mode applies inside a transaction. A decision discipline mode makes outside one
+# (the default since 1.15.0) carries rule "discipline-budget"; the field keeps its meaning, so the vocabulary is unchanged.
 MODE = "strict"
 
 MAX_BYTES = 10 * 1024 * 1024

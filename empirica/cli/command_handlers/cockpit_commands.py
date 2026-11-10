@@ -1888,7 +1888,7 @@ def handle_sentinel_mode_command(args) -> int:
             return _emit(args, {"ok": False, "error": str(e)}, f"❌ {e}")
         written = str(target)
     eff = sd.effective(practice)
-    pending = len(sd.ledger(_get_instance_suffix()))
+    pending = len(sd.ledger(_get_instance_suffix(), practice))
     payload = {
         "ok": True,
         "mode": eff["mode"],

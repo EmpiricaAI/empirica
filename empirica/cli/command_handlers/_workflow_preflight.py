@@ -519,7 +519,7 @@ def _preflight_take_out_of_loop(resolved_project_path) -> list[dict]:
     try:
         from empirica.core import sentinel_discipline as sd
 
-        entries = sd.ledger(R.instance_suffix())
+        entries = sd.ledger(R.instance_suffix(), resolved_project_path)
     except Exception:
         return []
     if not entries or not resolved_project_path:
@@ -534,7 +534,9 @@ def _preflight_take_out_of_loop(resolved_project_path) -> list[dict]:
     except Exception as e:
         logger.warning("prior_untracked not written to the transaction file, ledger kept: %s", e)
         return entries
-    sd.take_ledger(R.instance_suffix())  # only once they are safely in the transaction
+    sd.take_ledger(
+        R.instance_suffix(), resolved_project_path, count=len(entries)
+    )  # only once they are in the transaction
     return entries
 
 

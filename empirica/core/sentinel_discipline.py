@@ -5,7 +5,8 @@ In ``discipline`` mode a write or an effectful command outside a transaction is 
 the practice's own files (or its own Empirica state, or makes a local commit), its effect is readable from its text, and fewer
 than ``max_act_without_gate`` such acts have happened since the last transaction. Each one is written to an out-of-loop ledger
 that the next PREFLIGHT reads. Anything outward or irreversible (a push, a tag, a publish, an install, a recursive delete, a
-remote command, a network send, a change to configuration or outside the practice) always needs a transaction.
+remote command, a network send, an edit to a file that runs code or holds secrets, or outside the practice) always
+needs a transaction.
 
 ``discipline`` is the built-in default since 1.15.0 (David's ruling, 2026-11-10). ``strict`` keeps the gate as it was before:
 this module has no opinion and every change outside a transaction is refused.
@@ -35,10 +36,13 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 MODES = ("strict", "discipline", "off")
-#: Until the pilot (3-4 practices, two weeks) decides the flip for 1.15.0.
+#: The built-in mode since 1.15.0 (David's ruling, 2026-11-10). A mode value that is set but not understood resolves to
+#: strict, not to this: EMPIRICA_SENTINEL_MODE is also read by empirica-autonomy with its own values (controller, observer),
+#: and a seat that exported `controller` meant blocking (1.15.0 sweep, S2).
 DEFAULT_MODE = "discipline"
-#: Predicted, pending David's ruling: an edit, a local commit and one more act (the lean prompt's "a one-line fix, a typo, a
-#: config value" sized as acts). Autonomous seats are meant to run at 0; that is set per seat, not detected.
+FAIL_CLOSED_MODE = "strict"
+#: Three small edits before a PREFLIGHT is required. Autonomous seats are meant to run at 0; that is set per seat, not
+#: detected.
 DEFAULT_BUDGET = 3
 ENV_MODE = "EMPIRICA_SENTINEL_MODE"
 ENV_BUDGET = "EMPIRICA_MAX_ACT_WITHOUT_GATE"
@@ -59,6 +63,10 @@ _PROTECTED_NAMES = {
     "claude.local.md", "agents.md", ".npmrc", ".pypirc", "makefile", "justfile", "taskfile.yml", "gemini.md", ".cursorrules",
     ".windsurfrules", ".clinerules", ".aider.conf.yml", "mise.toml", ".mise.toml", ".nvim.lua", ".exrc", "hooks.json",
     "sitecustomize.py", "usercustomize.py",
+    # Files that run code when a tool reads them, or hold secrets (1.15.0 sweep, T1): pytest imports conftest.py, a build runs
+    # pyproject.toml/setup.py backends, npm runs package.json scripts, compose and Dockerfiles run images, .env holds keys.
+    "conftest.py", "pytest.ini", "pyproject.toml", "setup.py", "setup.cfg", "tox.ini", "noxfile.py", "package.json",
+    "dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml", ".env",
 }  # fmt: skip
 #: The running empirica package: its hooks load sentinel_discipline.py and decision_record.py from here on every call, so an
 #: out-of-loop edit under it could switch the gate off from the next call (third sweep pass).
@@ -141,6 +149,9 @@ def effective(project_root: str | Path | None) -> dict:
                     result["ignored"].append(
                         f"sentinel.max_act_without_gate {block['max_act_without_gate']!r} in {path}"
                     )
+    if result["mode"] is None and any(i.startswith((f"{ENV_MODE}=", "sentinel.mode ")) for i in result["ignored"]):
+        # Someone set a mode this module does not know: fail closed rather than fall through to the permissive default.
+        result["mode"], result["mode_source"] = FAIL_CLOSED_MODE, "fail-closed (an unrecognised mode was set)"
     if result["mode"] is None:
         result["mode"], result["mode_source"] = DEFAULT_MODE, "built-in"
     if result["budget"] is None:
@@ -249,7 +260,12 @@ def _in_practice(path: str, cwd: str | None, project_root: str | None) -> bool:
     if any(":" in part or part.rstrip(". ") != part for part in raw_parts):
         return False  # Windows aliases: CLAUDE.md. / "CLAUDE.md " / CLAUDE.md::$DATA name the protected file
     parts = [part.casefold() for part in raw_parts]
-    if any(part in _PROTECTED_PARTS for part in parts) or parts[-1] in _PROTECTED_NAMES or parts[-1].endswith(".pth"):
+    if (
+        any(part in _PROTECTED_PARTS for part in parts)
+        or parts[-1] in _PROTECTED_NAMES
+        or parts[-1].endswith(".pth")
+        or parts[-1].startswith(".env.")
+    ):
         return False
     try:
         if os.stat(real).st_nlink > 1:
@@ -378,14 +394,22 @@ def plan_shaped(suffix: str, transcript_path: str | None) -> str | None:
 # ── the out-of-loop ledger ──────────────────────────────────────────────────────────────────────────────────────────────
 
 
-def ledger_path(suffix: str) -> Path:
-    """One ledger per instance (the suffix the gate's counters use), so two panes do not spend one budget."""
+def ledger_path(suffix: str, project_root: str | Path | None = None) -> Path:
+    """One ledger per instance (the suffix the gate's counters use), so two panes do not spend one budget.
+
+    With no instance id (headless runs, CI) every run had the same empty suffix, so all of them shared one budget across
+    practices and one practice's PREFLIGHT took another's acts (1.15.0 sweep, S6); such runs are keyed by practice instead.
+    """
+    if not suffix and project_root:
+        import zlib
+
+        suffix = f"_p{zlib.crc32(os.path.realpath(str(project_root)).encode()):08x}"
     safe = re.sub(r"[^A-Za-z0-9_.-]", "_", suffix or "")
     return Path.home() / ".empirica" / f"out_of_loop{safe}.jsonl"
 
 
 @contextlib.contextmanager
-def _ledger_lock(suffix: str):
+def _ledger_lock(suffix: str, project_root: str | Path | None = None):
     """Serialize the ledger's read-count-append (decide) and read-remove (take_ledger) across processes.
 
     Without it, parallel tool calls each read the same count and all pass the budget (12 of 12 allowed against 3 in the
@@ -397,7 +421,7 @@ def _ledger_lock(suffix: str):
     except ImportError:
         yield
         return
-    path = ledger_path(suffix).with_suffix(".lock")
+    path = ledger_path(suffix, project_root).with_suffix(".lock")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         fh = open(path, "a")  # noqa: SIM115 - held for the with-block
@@ -415,9 +439,9 @@ def _ledger_lock(suffix: str):
         fh.close()  # closing releases the lock
 
 
-def ledger(suffix: str) -> list[dict]:
+def ledger(suffix: str, project_root: str | Path | None = None) -> list[dict]:
     try:
-        lines = ledger_path(suffix).read_text(encoding="utf-8").splitlines()
+        lines = ledger_path(suffix, project_root).read_text(encoding="utf-8").splitlines()
     except OSError:
         return []
     out = []
@@ -431,15 +455,27 @@ def ledger(suffix: str) -> list[dict]:
     return out
 
 
-def take_ledger(suffix: str) -> list[dict]:
-    """The ledger's acts, removed: what PREFLIGHT declares as already changed."""
-    with _ledger_lock(suffix):
-        entries = ledger(suffix)
+def take_ledger(suffix: str, project_root: str | Path | None = None, *, count: int | None = None) -> list[dict]:
+    """The ledger's acts, removed: what PREFLIGHT declares as already changed.
+
+    ``count`` removes only the first ``count`` acts: PREFLIGHT reads the ledger, writes the acts into the transaction
+    file, then takes them, and an act a parallel hook appended in between used to be deleted unrecorded (1.15.0 sweep,
+    S3). It is kept for the next PREFLIGHT instead.
+    """
+    path = ledger_path(suffix, project_root)
+    with _ledger_lock(suffix, project_root):
+        entries = ledger(suffix, project_root)
+        taken, kept = (entries, []) if count is None else (entries[:count], entries[count:])
         try:
-            ledger_path(suffix).unlink()
+            if kept:
+                tmp = path.with_suffix(".jsonl.tmp")
+                tmp.write_text("".join(json.dumps(e) + "\n" for e in kept), encoding="utf-8")
+                tmp.replace(path)
+            else:
+                path.unlink()
         except OSError:
             pass
-    return entries
+    return taken
 
 
 def _entry(dr, tool_name: str, tool_input: dict, classes: list[str], cwd: str | None) -> dict:
@@ -485,8 +521,8 @@ def decide(
             f"Outside a transaction, and not trivial: {verdict['why']}. Open one with PREFLIGHT (discipline mode lets only "
             "project-local changes whose effect is readable from the call run without one).",
         )
-    with _ledger_lock(suffix):
-        done = ledger(suffix)
+    with _ledger_lock(suffix, project_root):
+        done = ledger(suffix, project_root)
         if len(done) >= budget:
             return (
                 "deny",
@@ -496,7 +532,7 @@ def decide(
         dr = _decision_record()
         entry = _entry(dr, tool_name, tool_input if isinstance(tool_input, dict) else {}, verdict["classes"], cwd)
         try:
-            path = ledger_path(suffix)
+            path = ledger_path(suffix, project_root)
             path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry) + "\n")

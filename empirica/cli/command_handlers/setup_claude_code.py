@@ -1632,6 +1632,13 @@ def setup_project_scope(args, repo_root) -> int:
         msg = "could not find the bundled plugin files in the installed empirica package"
         print(json.dumps({"ok": False, "error": msg}) if output_format == "json" else f"❌ {msg}")
         return 1
+    claude_md_head = (repo_root / "CLAUDE.md").read_bytes()[:4096] if (repo_root / "CLAUDE.md").is_file() else b""
+    if claude_md_head[:2] in (b"\xff\xfe", b"\xfe\xff") or b"\x00" in claude_md_head:
+        # Checked before anything is written. surrogateescape round-trips stray bytes, but a UTF-8 line in front of UTF-16
+        # text makes the file unreadable (1.15.0 sweep, S7).
+        msg = f"{repo_root / 'CLAUDE.md'} is UTF-16, not UTF-8: save it as UTF-8 and run setup again (nothing was written)"
+        print(json.dumps({"ok": False, "error": msg}) if output_format == "json" else f"❌ {msg}")
+        return 1
     user_settings = Path.home() / ".claude" / "settings.json"
     try:
         user_hooks = json.loads(user_settings.read_text()).get("hooks") or {}
@@ -1682,7 +1689,8 @@ def setup_project_scope(args, repo_root) -> int:
     claude_md = repo_root / "CLAUDE.md"
     # Read and write without newline translation: read_text turned every CRLF into LF, so adding one line rewrote every
     # line ending of a Windows-style file. The new line uses the file's own ending.
-    existing = claude_md.read_bytes().decode("utf-8", errors="surrogateescape") if claude_md.exists() else ""
+    raw = claude_md.read_bytes() if claude_md.exists() else b""
+    existing = raw.decode("utf-8", errors="surrogateescape")
     if include_line not in existing:
         if existing:
             nl = "\r\n" if "\r\n" in existing else "\n"

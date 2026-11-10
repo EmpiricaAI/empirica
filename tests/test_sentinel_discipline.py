@@ -66,7 +66,7 @@ def test_an_unknown_mode_is_ignored_and_reported(home, monkeypatch, value):
     if value.strip().lower() == "discipline":
         assert eff["mode"] == "discipline"  # case and spaces are not a different mode
     else:
-        assert eff["mode"] == sd.DEFAULT_MODE and eff["ignored"]
+        assert eff["mode"] == "strict" and eff["ignored"]  # fails closed (1.15.0 sweep)
 
 
 @pytest.mark.parametrize("value", ["-1", "three", "1001", "true", "2.5"])
@@ -679,3 +679,59 @@ def test_parallel_calls_cannot_spend_more_than_the_budget(home, monkeypatch):
     budget = sd.effective(str(home[1]))["budget"]
     assert answers.count("allow") == budget
     assert len(sd.ledger("_t1")) == budget
+
+
+# ── 1.15.0 sweep: fail closed, protected configs, partial take, per-practice ledger ─────────────────────────────────
+
+
+@pytest.mark.parametrize("value", ["controller", "observer", "advisory", "autonomous", "lenient"])
+def test_a_mode_this_module_does_not_know_fails_closed_to_strict(home, monkeypatch, value):
+    """empirica-autonomy reads the same variable with its own values: `controller` meant blocking, not a budget."""
+    monkeypatch.setenv(sd.ENV_MODE, value)
+    eff = sd.effective(home[1])
+    assert eff["mode"] == "strict" and eff["mode_source"].startswith("fail-closed") and eff["ignored"]
+
+
+def test_an_unknown_mode_in_a_config_file_also_fails_closed(home):
+    (home[1] / ".empirica" / "config.yaml").write_text("sentinel:\n  mode: observer\n")
+    assert sd.effective(home[1])["mode"] == "strict"
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["conftest.py", "pyproject.toml", "setup.py", "setup.cfg", "tox.ini", "noxfile.py", "pytest.ini", "package.json",
+     "Dockerfile", "docker-compose.yml", "compose.yaml", ".env", ".env.local", "sub/conftest.py"],
+)  # fmt: skip
+def test_files_that_run_code_or_hold_secrets_need_a_transaction(home, name):
+    proj = home[1]
+    out = sd.judge("Edit", {"file_path": str(proj / name), "old_string": "a", "new_string": "b"}, cwd=str(proj),
+                   project_root=str(proj), empirica_is_read=_is_read)  # fmt: skip
+    assert out["trivial"] is False, name
+
+
+@pytest.mark.parametrize("name", ["notes.md", "src/app.py", "config/app.yaml", "envelope.py", "my.env.txt"])
+def test_ordinary_files_near_those_names_stay_trivial(home, name):
+    proj = home[1]
+    out = sd.judge("Edit", {"file_path": str(proj / name), "old_string": "a", "new_string": "b"}, cwd=str(proj),
+                   project_root=str(proj), empirica_is_read=_is_read)  # fmt: skip
+    assert out["trivial"] is True, name
+
+
+def test_taking_part_of_the_ledger_keeps_acts_appended_since(home, monkeypatch):
+    monkeypatch.setenv(sd.ENV_MODE, "discipline")
+    _decide(home, suffix="_tk")
+    _decide(home, suffix="_tk")
+    read = sd.ledger("_tk")
+    _decide(home, suffix="_tk")  # a parallel hook appends between PREFLIGHT's read and its take
+    taken = sd.take_ledger("_tk", count=len(read))
+    assert len(taken) == 2 and len(sd.ledger("_tk")) == 1
+
+
+def test_runs_with_no_instance_id_keep_a_ledger_per_practice(home, tmp_path, monkeypatch):
+    monkeypatch.setenv(sd.ENV_MODE, "discipline")
+    other = tmp_path / "other"
+    (other / ".empirica").mkdir(parents=True)
+    (other / ".empirica" / "project.yaml").write_text("project_id: q\nname: other\nai_id: other\n")
+    _decide(home, suffix="")
+    assert len(sd.ledger("", home[1])) == 1 and sd.ledger("", other) == []
+    assert sd.ledger_path("", home[1]) != sd.ledger_path("", other)
