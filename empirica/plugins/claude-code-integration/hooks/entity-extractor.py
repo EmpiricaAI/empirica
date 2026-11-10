@@ -243,11 +243,12 @@ def _record_outcome(hook_input, outcome: str) -> None:
         record.record_outcome(hook_input, outcome)
 
 
-def _clear_pane_waiting() -> None:
+def _clear_pane_waiting(payload: dict | None = None) -> None:
     """Clear this cockpit pane's waiting mark, if one is set (pane_waiting.py beside this hook). One stat when none is.
 
     Claude Code has no hook for a permission dialog or a question being answered, so whatever the pane does next clears it. The
-    same function is copied into each hook that clears; tests/test_cockpit_pane_waiting.py keeps the copies identical."""
+    same function is copied into each hook that clears; tests/test_cockpit_pane_waiting.py keeps the copies identical. A tool
+    hook passes its payload, so a parallel call finishing does not clear another call's dialog."""
     import os
     from pathlib import Path
 
@@ -265,17 +266,17 @@ def _clear_pane_waiting() -> None:
         if spec is not None and spec.loader is not None:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            module.clear_if_waiting(pane)
+            module.clear_if_waiting(pane, payload)
     except Exception:
         pass
 
 
 def main():
-    _clear_pane_waiting()
     try:
         hook_input = json.loads(sys.stdin.read())
     except (json.JSONDecodeError, EOFError):
         hook_input = {}
+    _clear_pane_waiting(hook_input if isinstance(hook_input, dict) else None)
 
     # On codex this hook runs after every tool and truncation-legibility after Bash: Bash's post line is that hook's.
     if hook_input.get("tool_name") != "Bash":

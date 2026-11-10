@@ -53,26 +53,65 @@ def label_for(tool_name: str | None) -> str:
     return f"approve {name}" if name else "approve"
 
 
-def set_waiting(pane: str | None, label: str) -> bool:
-    """Mark ``pane`` waiting with ``label``. True when the pane option was set."""
+_TOOL_EVENTS = ("PostToolUse", "PostToolUseFailure")
+
+
+def owner_of(payload: dict | None) -> dict | None:
+    """Which tool call a dialog belongs to: its ``tool_use_id`` when the hook carries one, and always the tool name and a
+    digest of its input, which PermissionRequest and PostToolUse both carry. None when the payload names no tool."""
+    if not isinstance(payload, dict) or not payload.get("tool_name"):
+        return None
+    import hashlib
+
+    body = json.dumps(payload.get("tool_input") or {}, sort_keys=True, default=str)
+    owner = {"tool": str(payload["tool_name"]), "input": hashlib.sha256(body.encode()).hexdigest()[:16]}
+    if payload.get("tool_use_id"):
+        owner["tool_use_id"] = str(payload["tool_use_id"])
+    return owner
+
+
+def _same_call(owner: dict, payload: dict) -> bool:
+    other = owner_of(payload) or {}
+    if owner.get("tool_use_id") and other.get("tool_use_id"):
+        return owner["tool_use_id"] == other["tool_use_id"]
+    return owner.get("tool") == other.get("tool") and owner.get("input") == other.get("input")
+
+
+def set_waiting(pane: str | None, label: str, owner: dict | None = None) -> bool:
+    """Mark ``pane`` waiting with ``label``, for the tool call ``owner`` names. True when the pane option was set."""
     if not pane or not _PANE.match(pane):
         return False
     label = re.sub(r"[#{}]", "", label)[:LABEL_MAX]
+    record: dict = {"label": label, "ts": time.time()}
+    if owner:
+        record["owner"] = owner
     try:
         _flag_dir().mkdir(parents=True, exist_ok=True)
-        flag_path(pane).write_text(json.dumps({"label": label, "ts": time.time()}), encoding="utf-8")
+        flag_path(pane).write_text(json.dumps(record), encoding="utf-8")
     except OSError:
         return False
     return _tmux("set-option", "-p", "-t", pane, OPTION, label)
 
 
-def clear_if_waiting(pane: str | None) -> bool:
-    """Clear ``pane``'s waiting mark. One stat when it is not set; True when a mark was cleared."""
+def clear_if_waiting(pane: str | None, payload: dict | None = None) -> bool:
+    """Clear ``pane``'s waiting mark. One stat when it is not set; True when a mark was cleared.
+
+    A tool finishing or failing clears only the dialog its own call opened: with parallel calls, another call finishing
+    while the dialog is still open used to clear it early. A prompt, the turn ending, or no payload clears whatever is set,
+    and so does a mark recorded without an owner (written before owners were kept, or for a question).
+    """
     if not pane or not _PANE.match(pane):
         return False
     flag = flag_path(pane)
     if not flag.exists():
         return False
+    if isinstance(payload, dict) and payload.get("hook_event_name") in _TOOL_EVENTS:
+        try:
+            owner = json.loads(flag.read_text(encoding="utf-8")).get("owner")
+        except (OSError, ValueError, AttributeError):
+            owner = None
+        if isinstance(owner, dict) and not _same_call(owner, payload):
+            return False
     try:
         flag.unlink()
     except OSError:

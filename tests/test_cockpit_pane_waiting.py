@@ -179,14 +179,22 @@ def _function_source(path: Path, name: str) -> str:
     return ast.get_source_segment(path.read_text(), fn) or ""
 
 
-def test_every_clearing_hook_carries_the_same_function_and_calls_it_first():
+TOOL_HOOKS = ("entity-extractor", "truncation-legibility", "tool-failure")
+
+
+def test_every_clearing_hook_carries_the_same_function_and_calls_it_before_its_work():
+    """A prompt or the turn ending clears first, with no payload; a tool hook clears right after reading its payload and
+    passes it, so only the dialog's own call clears the mark."""
     sources = {name: _function_source(HOOKS / f"{name}.py", "_clear_pane_waiting") for name in CLEARING_HOOKS}
     assert len(set(sources.values())) == 1, "the copies differ"
     for name in CLEARING_HOOKS:
         tree = ast.parse((HOOKS / f"{name}.py").read_text())
         main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main")
-        first = main.body[0]
-        assert ast.unparse(first) == "_clear_pane_waiting()", name
+        if name in TOOL_HOOKS:
+            assert ast.unparse(main.body[1]).startswith("_clear_pane_waiting("), name
+            assert ast.unparse(main.body[1]) != "_clear_pane_waiting()", name
+        else:
+            assert ast.unparse(main.body[0]) == "_clear_pane_waiting()", name
 
 
 def test_a_real_hook_process_clears_a_mark(tmp_path):
@@ -254,3 +262,63 @@ def test_a_permission_dialog_is_written_to_the_decision_record_in_or_out_of_a_co
     lines = [json.loads(x) for x in (practice / ".empirica" / "decisions.jsonl").read_text().splitlines()]
     assert [(r["event"], r["tool"]) for r in lines] == [("permission_request", "Bash")]
     assert "git push" not in json.dumps(lines), "the input is kept only as a hash"
+
+
+# ── a parallel call does not clear another call's dialog (1.14.23 sweep, item 6) ─────────────────────────────────────────
+
+DIALOG = {"hook_event_name": "PermissionRequest", "tool_name": "Bash", "tool_input": {"command": "git push"}}
+
+
+def _post(tool_name, tool_input, event="PostToolUse", **extra):
+    return {"hook_event_name": event, "tool_name": tool_name, "tool_input": tool_input, **extra}
+
+
+def test_a_parallel_call_finishing_leaves_the_dialog_s_mark(hook, pw, monkeypatch):
+    monkeypatch.setenv("TMUX_PANE", "%3")
+    hook.handle(DIALOG, pw)
+    assert pw.clear_if_waiting("%3", _post("Read", {"file_path": "/x"})) is False
+    assert pw.clear_if_waiting("%3", _post("Bash", {"command": "ls"})) is False
+    assert pw.waiting_label("%3") == "approve Bash"
+
+
+@pytest.mark.parametrize("event", ["PostToolUse", "PostToolUseFailure"])
+def test_the_dialog_s_own_call_finishing_or_failing_clears_it(hook, pw, monkeypatch, event):
+    monkeypatch.setenv("TMUX_PANE", "%3")
+    hook.handle(DIALOG, pw)
+    assert pw.clear_if_waiting("%3", _post("Bash", {"command": "git push"}, event)) is True
+
+
+def test_a_matching_tool_use_id_clears_and_a_different_one_does_not(hook, pw, monkeypatch):
+    monkeypatch.setenv("TMUX_PANE", "%3")
+    hook.handle({**DIALOG, "tool_use_id": "toolu_1"}, pw)
+    assert pw.clear_if_waiting("%3", _post("Bash", {"command": "git push"}, tool_use_id="toolu_2")) is False
+    assert pw.clear_if_waiting("%3", _post("Bash", {"command": "other"}, tool_use_id="toolu_1")) is True
+
+
+@pytest.mark.parametrize("payload", [None, {"hook_event_name": "UserPromptSubmit"}, {"hook_event_name": "Stop"}])
+def test_a_prompt_or_the_turn_ending_clears_whatever_set_it(hook, pw, monkeypatch, payload):
+    monkeypatch.setenv("TMUX_PANE", "%3")
+    hook.handle(DIALOG, pw)
+    assert pw.clear_if_waiting("%3", payload) is True
+
+
+def test_a_mark_written_before_owners_were_recorded_still_clears_on_any_call(pw):
+    pw.flag_path("%3").parent.mkdir(parents=True, exist_ok=True)
+    pw.flag_path("%3").write_text('{"label": "question", "ts": 1}')
+    assert pw.clear_if_waiting("%3", _post("Read", {"file_path": "/x"})) is True
+
+
+def test_a_real_hook_process_for_another_call_leaves_the_mark(tmp_path):
+    flags = tmp_path / ".empirica" / "pane_waiting"
+    flags.mkdir(parents=True)
+    (flags / "4243").write_text(json.dumps({"label": "approve Bash", "owner": {"tool": "Bash", "input": "0" * 16}}))
+    env = {**os.environ, "HOME": str(tmp_path), "TMUX_PANE": "%4243"}
+    subprocess.run(
+        [sys.executable, str(HOOKS / "entity-extractor.py")],
+        input=json.dumps({"hook_event_name": "PostToolUse", "tool_name": "Read", "tool_input": {"file_path": "/x"}}),
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=20,
+    )
+    assert (flags / "4243").exists()
