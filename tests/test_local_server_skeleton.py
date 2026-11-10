@@ -9,6 +9,8 @@ import pytest
 
 pytest.importorskip("fastapi")
 
+from empirica.local_server import IMPLEMENTED
+
 REPO = Path(__file__).resolve().parents[1]
 
 
@@ -39,16 +41,16 @@ def test_on_loopback_the_capability_document_is_served(client_for):
             doc["status"] == "healthy"
             and doc["edition"] == "local"
             and doc["contract"] == "1.0"
-            and doc["capabilities"] == []
+            and doc["capabilities"] == sorted(IMPLEMENTED)
         )
 
 
 @pytest.mark.parametrize(
     "method, path, capability",
     [
-        ("GET", "/v1/users/me", "identity.session"),
-        ("POST", "/v1/orchestration/propose", "orchestration.mailbox"),
-        ("GET", "/v1/projects/by-slug/demo", "projects.registry"),
+        ("POST", "/v1/sync", "sync.artifacts"),
+        ("GET", "/v1/users/me/auto-accept", "orchestration.auto_accept"),
+        ("GET", "/v1/users/me/notification-channels", "notifications.channels"),
         ("POST", "/v1/admin/projects", "admin.projects"),
     ],
 )

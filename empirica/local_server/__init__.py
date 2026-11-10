@@ -15,7 +15,16 @@ from pathlib import Path
 
 EDITION = "local"
 #: Capabilities this server implements so far. Each is added with its routes and only when the conformance suite passes.
-IMPLEMENTED: frozenset[str] = frozenset()
+IMPLEMENTED: frozenset[str] = frozenset(
+    {
+        "identity.session",
+        "roster",
+        "projects.registry",
+        "orchestration.mailbox",
+        "orchestration.heartbeat",
+        "system.event",
+    }
+)
 
 
 @lru_cache(maxsize=1)
@@ -60,7 +69,10 @@ def router():
     from fastapi import APIRouter, Request
     from fastapi.responses import JSONResponse
 
+    from empirica.local_server import api
+
     r = APIRouter()
+    api.register(r)
 
     @r.get("/v1/health")
     @r.get("/health")
