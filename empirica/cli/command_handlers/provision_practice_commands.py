@@ -31,6 +31,61 @@ def _narrate(line: str) -> None:
     print(line, file=sys.stderr)
 
 
+def _mesh_edition() -> str | None:
+    """ "cortex", "local" or None: where this machine's practices would send their mailbox (core/mesh_endpoint.py)."""
+    try:
+        from empirica.core.mesh_endpoint import mesh_bearer
+
+        return mesh_bearer().get("edition")
+    except Exception:
+        return None
+
+
+def _wait_for_local_server(seconds: float = 8.0) -> bool:
+    """Whether the local server answers within ``seconds`` of the service starting."""
+    import time
+
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if _mesh_edition() == "local":
+            return True
+        time.sleep(0.4)
+    return False
+
+
+def _local_server_step(args, proj_dir: Path, dry_run: bool) -> dict:
+    """The ``local-server`` step: with no Cortex configured and no local server running, install and start the serve service,
+    so practices on this machine can hand work to each other (David's ruling 2026-11-10: nothing to configure).
+
+    Onboarding is where it happens, and it says so. ``--no-local-server`` and ``--no-cortex`` skip it; plain ``setup`` never
+    installs a background service."""
+    step: dict = {"step": "local-server", "changed": False}
+    if getattr(args, "no_local_server", False) or getattr(args, "no_cortex", False):
+        return {**step, "note": "skipped (--no-local-server or --no-cortex)"}
+    edition = _mesh_edition()
+    if edition == "cortex":
+        return {**step, "note": "Cortex is configured: practices use it, no local server needed"}
+    if edition == "local":
+        return {**step, "note": "the local server is already running"}
+    ok, err = _run(["empirica", "serve-service", "install"], proj_dir, dry_run)
+    if not ok:
+        return {
+            **step,
+            "error": err,
+            "hint": "start it by hand with `empirica serve` (or `empirica serve-service install`), then run this again",
+        }
+    if dry_run:
+        return {**step, "changed": True, "note": "dry-run: would install and start the serve service"}
+    up = _wait_for_local_server()
+    return {
+        **step,
+        "changed": True,
+        "note": "installed and started the serve service: practices on this machine hand work to each other through it"
+        if up
+        else "installed the serve service, but the local server did not answer yet: check `empirica serve-service status`",
+    }
+
+
 def _run(cmd: list[str], cwd: Path, dry_run: bool) -> tuple[bool, str]:
     """Run a subprocess in ``cwd``. Returns (ok, stdout_or_error)."""
     display = " ".join(shlex.quote(c) for c in cmd)
@@ -443,6 +498,8 @@ def handle_provision_practice_command(args) -> int:
         steps.append({"step": "patch-project-yaml", "changed": changed})
 
     steps.append(_gitignore_step(proj_dir, dry_run))
+
+    steps.append(_local_server_step(args, proj_dir, dry_run))  # before registering, so registration reaches it
 
     register_cmd = ["empirica", "project-register", ".", "--output", "json"]
     if getattr(args, "no_cortex", False):

@@ -111,5 +111,11 @@ Falls back to erroring with a clear message if neither is available.
         help="Also run CMD (for example ecodex) as a second pane in this practice's window: the same directory, its own "
         "identity (<name>-<program>) and its own conversation. Needs --cockpit-profile. For a person who runs two harnesses",
     )
+    p.add_argument(
+        "--no-local-server",
+        action="store_true",
+        help="With no Cortex configured, do not install and start the local server (empirica serve-service) that lets "
+        "practices on this machine hand work to each other",
+    )
     p.add_argument("--dry-run", action="store_true", help="Print planned actions (to stderr) without executing")
     p.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
