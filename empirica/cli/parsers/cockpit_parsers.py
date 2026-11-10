@@ -223,7 +223,7 @@ def _add_sentinel_group(subparsers):
         "mode",
         help="Show or set the Sentinel mode and the out-of-loop budget",
         description=(
-            "strict (the default) refuses every change outside a transaction. discipline lets small file edits inside the "
+            "strict refuses every change outside a transaction. discipline (the default) lets small file edits inside the "
             "practice run without one, up to --max-act-without-gate since the last PREFLIGHT, and records each for the next "
             "PREFLIGHT; every shell command, and edits to tool configuration or agent instructions, still need a transaction. "
             "off allows every call outside a transaction. Precedence: "

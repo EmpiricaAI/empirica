@@ -1,6 +1,6 @@
 """The Sentinel's discipline mode (goal 543fd1c6): settings with their source, what counts as a trivial act, and the budget.
 
-strict stays the built-in default until the pilot, so nothing here changes the gate for anyone who has not opted in. In
+discipline is the built-in default since 1.15.0; strict, set explicitly, keeps the gate as it was before. In
 discipline mode only project-local changes whose effect is readable from the call run outside a transaction, up to the budget;
 outward or irreversible acts always need one. Each check below sits beside its near miss.
 """
@@ -38,7 +38,7 @@ def _is_read(cmd: str) -> bool:
 
 def test_the_built_in_values_apply_when_nothing_is_set(home):
     eff = sd.effective(home[1])
-    assert (eff["mode"], eff["mode_source"]) == ("strict", "built-in")
+    assert (eff["mode"], eff["mode_source"]) == ("discipline", "built-in")
     assert (eff["budget"], eff["budget_source"]) == (sd.DEFAULT_BUDGET, "built-in")
 
 
@@ -66,7 +66,7 @@ def test_an_unknown_mode_is_ignored_and_reported(home, monkeypatch, value):
     if value.strip().lower() == "discipline":
         assert eff["mode"] == "discipline"  # case and spaces are not a different mode
     else:
-        assert eff["mode"] == "strict" and eff["ignored"]
+        assert eff["mode"] == sd.DEFAULT_MODE and eff["ignored"]
 
 
 @pytest.mark.parametrize("value", ["-1", "three", "1001", "true", "2.5"])
@@ -237,7 +237,8 @@ def _answer(home, command=None, suffix="_t1") -> tuple[str, str]:
     return result
 
 
-def test_strict_has_no_opinion(home):
+def test_strict_has_no_opinion(home, monkeypatch):
+    monkeypatch.setenv(sd.ENV_MODE, "strict")
     assert _decide(home) is None
     assert sd.ledger("_t1") == []
 
@@ -314,7 +315,8 @@ def _edit(proj):
     return {"file_path": str(proj / "a.py"), "old_string": "a", "new_string": "b"}
 
 
-def test_strict_keeps_the_no_preflight_refusal(gate, home):
+def test_strict_keeps_the_no_preflight_refusal(gate, home, monkeypatch):
+    monkeypatch.setenv(sd.ENV_MODE, "strict")
     decision, message = gate._handle_no_preflight("Edit", _edit(home[1]), "s-1", "")
     assert decision == "deny" and "No open transaction" in message
 
@@ -389,7 +391,7 @@ def in_practice(home, monkeypatch):
 def test_the_command_shows_what_is_in_force_and_where_it_came_from(in_practice, capsys):
     rc, out = _run_cli(capsys)
     assert rc == 0
-    assert (out["mode"], out["mode_source"]) == ("strict", "built-in")
+    assert (out["mode"], out["mode_source"]) == ("discipline", "built-in")
     assert out["max_act_without_gate"] == sd.DEFAULT_BUDGET and out["written"] is None
 
 
@@ -461,7 +463,7 @@ def test_doctor_names_the_mode_and_warns_on_an_ignored_setting(home, monkeypatch
     from empirica.cli.command_handlers.doctor import check_sentinel_mode
 
     ok = check_sentinel_mode(home[1])
-    assert ok.status == "PASS" and "strict (built-in)" in ok.detail
+    assert ok.status == "PASS" and "discipline (built-in)" in ok.detail
 
     (home[1] / ".empirica" / "config.yaml").write_text("sentinel:\n  max_act_without_gate: lots\n")
     bad = check_sentinel_mode(home[1])

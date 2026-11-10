@@ -5826,7 +5826,7 @@ def _check_project_context(cursor, db, session_id: str, preflight_project_id) ->
 def _discipline_answer(tool_name: str, tool_input) -> tuple | None:
     """Discipline mode's answer for a praxic call outside a transaction (empirica/core/sentinel_discipline.py), or None.
 
-    None keeps the refusal the caller was about to give: strict mode (the built-in default until the pilot, goal 543fd1c6), a
+    None keeps the refusal the caller was about to give: strict mode (chosen by setting; discipline is the default since 1.15.0), a
     module that cannot be loaded, or any error. Settings are read only here, on the out-of-transaction branch, so a call inside
     a transaction pays nothing for them.
     """

@@ -190,8 +190,8 @@ The project root comes from the shared project resolver: `instance_projects/{ins
 
 ## Modes: strict, discipline, off
 
-`strict` is the default: every change outside a transaction is refused, as described above. `discipline` lets small,
-project-local work run without a transaction, up to a budget; `off` allows every call outside a transaction. Inside an
+`discipline` is the default since 1.15.0: small, project-local work runs without a transaction, up to a budget, and is
+declared at the next PREFLIGHT. `strict` refuses every change outside a transaction, as described above; `off` allows every call outside a transaction. Inside an
 open transaction the usual rules apply in every mode.
 
 In `discipline`, only a file edit may run outside a transaction: an Edit, Write, MultiEdit or NotebookEdit to a file whose
@@ -214,7 +214,7 @@ of two or more items, a change outside a transaction is refused.
 
 | Setting | Values | Default |
 |---|---|---|
-| mode | `strict`, `discipline`, `off` | `strict`, until a pilot on a few practices decides the default |
+| mode | `strict`, `discipline`, `off` | `discipline` (since 1.15.0) |
 | `max-act-without-gate` | 0 to 1000 | 3 |
 
 Each setting resolves on its own, highest first: `EMPIRICA_SENTINEL_MODE` / `EMPIRICA_MAX_ACT_WITHOUT_GATE`, the practice's

@@ -7,7 +7,8 @@ than ``max_act_without_gate`` such acts have happened since the last transaction
 that the next PREFLIGHT reads. Anything outward or irreversible (a push, a tag, a publish, an install, a recursive delete, a
 remote command, a network send, a change to configuration or outside the practice) always needs a transaction.
 
-``strict`` (the built-in default until the pilot decides the flip) keeps the gate as it was: this module has no opinion.
+``discipline`` is the built-in default since 1.15.0 (David's ruling, 2026-11-10). ``strict`` keeps the gate as it was before:
+this module has no opinion and every change outside a transaction is refused.
 ``off`` allows every call and records it, like a paused Sentinel.
 
 Settings, highest first: the environment (``EMPIRICA_SENTINEL_MODE``, ``EMPIRICA_MAX_ACT_WITHOUT_GATE``), the practice's
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 MODES = ("strict", "discipline", "off")
 #: Until the pilot (3-4 practices, two weeks) decides the flip for 1.15.0.
-DEFAULT_MODE = "strict"
+DEFAULT_MODE = "discipline"
 #: Predicted, pending David's ruling: an edit, a local commit and one more act (the lean prompt's "a one-line fix, a typo, a
 #: config value" sized as acts). Autonomous seats are meant to run at 0; that is set per seat, not detected.
 DEFAULT_BUDGET = 3
