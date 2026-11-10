@@ -33,8 +33,22 @@ def current_pane() -> str | None:
     return pane if _PANE.match(pane) else None
 
 
-def flag_path(pane: str) -> Path:
-    return _flag_dir() / pane.lstrip("%")
+def flag_name(pane: str, socket: str | None = None) -> str:
+    """The flag's file name: the pane number, prefixed by a digest of the tmux server's socket when there is one.
+
+    Pane ids are unique within one tmux server only, so two servers (``tmux -L``) both have a ``%3``; keyed by the number
+    alone, one server's hooks cleared or read the other's mark. ``socket`` defaults to the server in ``$TMUX``. The hooks'
+    copied clearing function and the cockpit launcher derive the same name; a test keeps the three equal.
+    """
+    import hashlib
+
+    sock = os.environ.get("TMUX", "").split(",")[0] if socket is None else socket
+    number = pane.lstrip("%")
+    return f"{hashlib.sha1(sock.encode()).hexdigest()[:8]}_{number}" if sock else number
+
+
+def flag_path(pane: str, socket: str | None = None) -> Path:
+    return _flag_dir() / flag_name(pane, socket)
 
 
 def _tmux(*args: str) -> bool:

@@ -322,3 +322,38 @@ def test_a_real_hook_process_for_another_call_leaves_the_mark(tmp_path):
         timeout=20,
     )
     assert (flags / "4243").exists()
+
+
+# ── flags are per tmux server, not per pane number (1.14.23 sweep, item 5) ───────────────────────────────────────────────
+
+SOCK_A = "/tmp/tmux-1001/default,100,0"
+SOCK_B = "/tmp/tmux-1001/other,200,0"
+
+
+def test_the_same_pane_number_on_two_tmux_servers_gets_two_flags(pw, monkeypatch):
+    monkeypatch.setenv("TMUX", SOCK_A)
+    a = pw.flag_path("%3")
+    monkeypatch.setenv("TMUX", SOCK_B)
+    b = pw.flag_path("%3")
+    assert a != b and a.name.endswith("_3") and b.name.endswith("_3")
+    monkeypatch.delenv("TMUX")
+    assert pw.flag_path("%3").name == "3"  # outside tmux: the pane number alone, as before
+
+
+def test_a_hook_in_one_tmux_server_leaves_another_server_s_mark(pw, tmp_path, monkeypatch):
+    monkeypatch.setenv("TMUX", SOCK_A)
+    pw.set_waiting("%3", "approve Bash")
+    flag = pw.flag_path("%3")
+    env = {**os.environ, "HOME": str(tmp_path), "TMUX_PANE": "%3", "TMUX": SOCK_B}
+    run = {"input": json.dumps({"hook_event_name": "Stop"}), "capture_output": True, "text": True, "timeout": 20}
+    subprocess.run([sys.executable, str(HOOKS / "transaction-enforcer.py")], env=env, **run)
+    assert flag.exists()
+    subprocess.run([sys.executable, str(HOOKS / "transaction-enforcer.py")], env={**env, "TMUX": SOCK_A}, **run)
+    assert not flag.exists()
+
+
+def test_the_launcher_names_the_flag_the_way_the_hooks_do(pw, monkeypatch):
+    from empirica.core.cockpit.launcher import tmux as launcher
+
+    monkeypatch.setenv("TMUX", SOCK_A)
+    assert launcher._waiting_flag("%3", SOCK_A.split(",")[0]) == pw.flag_path("%3")

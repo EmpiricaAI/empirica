@@ -256,7 +256,11 @@ def _clear_pane_waiting(payload: dict | None = None) -> None:
     if not pane.startswith("%"):
         return
     try:
-        if not (Path.home() / ".empirica" / "pane_waiting" / pane[1:]).exists():  # inside the try: a stat can raise
+        import hashlib
+
+        sock = os.environ.get("TMUX", "").split(",")[0]  # per tmux server: pane numbers repeat across servers
+        name = f"{hashlib.sha1(sock.encode()).hexdigest()[:8]}_{pane[1:]}" if sock else pane[1:]
+        if not (Path.home() / ".empirica" / "pane_waiting" / name).exists():  # inside the try: a stat can raise
             return
         import importlib.util
 

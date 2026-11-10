@@ -1021,12 +1021,23 @@ def _only_pane_error(
     return None
 
 
+def _waiting_flag(pane_id: str, socket: str) -> Path:
+    """The pane's waiting-mark flag, named as hooks/pane_waiting.py's flag_name names it (a test keeps them equal)."""
+    import hashlib
+
+    number = pane_id[1:]
+    name = f"{hashlib.sha1(socket.encode()).hexdigest()[:8]}_{number}" if socket else number
+    return Path.home() / ".empirica" / "pane_waiting" / name
+
+
 def _clear_waiting_mark(pane_id: str) -> None:
     """A respawned pane is not waiting on anyone: drop its bar mark and flag (hooks/pane_waiting.py), never raising."""
     if not re.fullmatch(r"%\d{1,6}", pane_id or ""):
         return
+    shown = _tmux("display-message", "-p", "-t", pane_id, "#{socket_path}")
+    socket = (shown.stdout or "").strip() if shown.returncode == 0 else ""
     try:
-        (Path.home() / ".empirica" / "pane_waiting" / pane_id[1:]).unlink(missing_ok=True)
+        _waiting_flag(pane_id, socket).unlink(missing_ok=True)
     except OSError:
         pass
     _tmux("set-option", "-p", "-u", "-t", pane_id, "@empirica_waiting")
