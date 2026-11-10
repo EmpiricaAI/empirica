@@ -64,3 +64,32 @@ def last_session_id(instance_id: str | None, project_path: str) -> str | None:
         if cwd and _same_dir(cwd, project_path):
             return sid
     return None
+
+
+# ── codex panes: ecodex's own record, keyed by pane (prop_yv6d62yl5jgkbkayjmb47wel3e) ─────────────────────────────────────
+#
+# Codex panes get no cockpit-bound identity, so ecodex's SessionStart writes ~/.empirica/pane_sessions/<pane number>.json:
+# {harness: "codex", session_id, project_path, started, tmux_server_start}. tmux reuses pane numbers after a server restart,
+# so the record is trusted only for the same harness, the pane's own project, and the live server's start time.
+
+_CODEX_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$")
+
+
+def codex_session_id(pane_id: str | None, project_path: str, tmux_server_start: int | str | None) -> str | None:
+    """The codex session this pane last ran, or None when the record cannot be trusted."""
+    if not pane_id or not re.fullmatch(r"%\d{1,6}", pane_id) or tmux_server_start in (None, ""):
+        return None
+    try:
+        data = json.loads(
+            (Path.home() / ".empirica" / "pane_sessions" / f"{pane_id[1:]}.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get("harness") != "codex":
+        return None
+    sid, recorded = data.get("session_id"), data.get("project_path")
+    if not isinstance(sid, str) or not _CODEX_ID.match(sid) or not isinstance(recorded, str):
+        return None
+    if str(data.get("tmux_server_start")) != str(tmux_server_start) or not _same_dir(recorded, project_path):
+        return None
+    return sid

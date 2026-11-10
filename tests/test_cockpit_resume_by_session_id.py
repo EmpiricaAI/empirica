@@ -114,7 +114,7 @@ def _proj(launch: str, resume: str | None = None) -> ProjectSpec:
         ("claude -c --model opus", f"claude --model opus --resume {SID}"),
         ("claude --resume", f"claude --resume {SID}"),  # a bare --resume would open the picker
         ("claude --resume aaaa-explicit", "claude --resume aaaa-explicit"),  # the launch names a session: kept
-        ("codex", "codex resume --last"),  # not claude: the id is claude's, so it is not used
+        ("codex", f"codex resume {SID}"),  # refresh passes codex only the id from ecodex's own pane record
     ],
 )
 def test_a_session_id_resumes_that_session(launch, expected):
@@ -212,3 +212,48 @@ def test_refresh_clears_a_respawned_pane_s_waiting_mark(home, monkeypatch):
     _refresh(monkeypatch, proj, "core")
 
     assert not (flags / "1").exists()
+
+
+# ── codex panes: ecodex's pane_sessions record (prop_yv6d62yl5jgkbkayjmb47wel3e) ─────────────────────────────────────────
+
+
+def _pane_record(h, pane="7", **over):
+    import json
+
+    data = {
+        "harness": "codex",
+        "session_id": "thread-abc12345",
+        "project_path": "",
+        "started": "x",
+        "tmux_server_start": 1700,
+    }
+    data.update(over)
+    d = h / ".empirica" / "pane_sessions"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{pane}.json").write_text(json.dumps(data))
+
+
+def test_a_codex_pane_record_is_trusted_when_harness_project_and_server_match(home):
+    h, proj = home
+    _pane_record(h, project_path=str(proj))
+    assert resume_ids.codex_session_id("%7", str(proj), 1700) == "thread-abc12345"
+
+
+@pytest.mark.parametrize(
+    "why, over, server",
+    [
+        ("a restarted tmux server reuses pane numbers", {}, 1800),
+        ("another harness wrote it", {"harness": "claude"}, 1700),
+        ("another project", {"project_path": "/elsewhere"}, 1700),
+        ("an id that is not a plain token", {"session_id": "x; rm -rf ~"}, 1700),
+    ],
+)
+def test_a_codex_pane_record_that_fails_a_guard_is_ignored(home, why, over, server):
+    h, proj = home
+    _pane_record(h, **{"project_path": str(proj), **over})
+    assert resume_ids.codex_session_id("%7", str(proj), server) is None, why
+
+
+def test_no_record_or_no_server_start_gives_no_codex_id(home):
+    assert resume_ids.codex_session_id("%7", str(home[1]), 1700) is None
+    assert resume_ids.codex_session_id("%7", str(home[1]), None) is None

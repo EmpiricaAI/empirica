@@ -30,7 +30,7 @@ from empirica.core.cockpit.launcher.config import (
     LauncherConfig,
     PaneSpec,
 )
-from empirica.core.cockpit.launcher.resume_ids import last_session_id
+from empirica.core.cockpit.launcher.resume_ids import codex_session_id, last_session_id
 from empirica.core.cockpit.launcher.state import (
     write_clean_shutdown,
     write_lock,
@@ -918,7 +918,10 @@ def resume_command(proj, session_id: str | None = None) -> str:
             tokens = shlex.split(proj.launch)
         except ValueError:
             return proj.launch
-        return proj.launch if "resume" in tokens else f"{proj.launch} resume --last"
+        if "resume" in tokens:
+            return proj.launch
+        # ecodex's own record names the pane's session (resume_ids.codex_session_id); without it, the latest.
+        return f"{proj.launch} resume {session_id}" if session_id else f"{proj.launch} resume --last"
     if program != "claude":
         return proj.launch
     try:
@@ -1029,6 +1032,19 @@ def _clear_waiting_mark(pane_id: str) -> None:
     _tmux("set-option", "-p", "-u", "-t", pane_id, "@empirica_waiting")
 
 
+def _pane_session(proj, iid: str | None, pane_id: str, server_start: str | None) -> str | None:
+    """The session a pane's program should resume, confirmed from its own record, or None for the program's own fallback.
+    An explicit ``resume:`` line wins; claude reads instance_projects, codex/ecodex read ecodex's pane_sessions record."""
+    if proj.resume:
+        return None
+    program = _launch_program(proj.launch)
+    if program == "claude":
+        return last_session_id(iid, proj.path)
+    if program in _RESUME_LAST_PROGRAMS:
+        return codex_session_id(pane_id, proj.path, server_start)
+    return None
+
+
 def refresh_cockpit(
     config: LauncherConfig, only_pane: str | None = None, restart_running: bool = False
 ) -> RefreshResult:
@@ -1070,6 +1086,7 @@ def refresh_cockpit(
         out.error = f"tmux list-panes failed: {listing.stderr.strip()}"
         return out
     names = ("pane_id", "dead", "current", "key", "iid", "window", "path")
+    server_start = _tmux("display", "-p", "#{start_time}").stdout.strip() or None  # guards ecodex's pane records
     rows = [dict(zip(names, line.split("\t"), strict=False)) for line in listing.stdout.splitlines() if line]
     rows = [r for r in rows if len(r) == len(names)]
 
@@ -1117,9 +1134,7 @@ def refresh_cockpit(
             )
             continue
         iid = row["iid"] or None
-        session_id = (
-            last_session_id(iid, proj.path) if _launch_program(proj.launch) == "claude" and not proj.resume else None
-        )
+        session_id = _pane_session(proj, iid, row["pane_id"], server_start)
         command = resume_command(proj, session_id)
         args = ["respawn-pane", "-k", "-t", row["pane_id"], "-c", proj.path, *_identity_args(iid), command]
         result = _tmux(*args)
