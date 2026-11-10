@@ -38,7 +38,14 @@ class _Qdrant(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         _Qdrant.seen.append((self.path, body))
-        if "missing" in self.path:
+        if "old_qdrant" in self.path and self.path.endswith("/points/search"):
+            points = [{"id": 8, "score": 0.8, "payload": {"artifact_id": "a2"}}]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"result": points, "status": "ok"}).encode())  # search returns a bare list
+            return
+        if "missing" in self.path or "old_qdrant" in self.path:
             self.send_response(404)
             self.end_headers()
             self.wfile.write(b'{"status":{"error":"Not found: Collection missing"}}')
@@ -86,3 +93,21 @@ def test_the_suggester_searches_over_rest(qdrant_url, monkeypatch):
     monkeypatch.setattr(connection, "_get_embedding_safe", lambda text: [0.1] * 4)
     out = suggest_links_for_artifact("proj-1", "some text", "self-id")
     assert [h["id"] for h in out] == ["a1"] and len(_Qdrant.seen) == 3  # memory, assumptions, decisions
+
+
+def test_a_qdrant_without_the_query_api_is_searched_instead(qdrant_url):
+    """Qdrant before 1.10 has no /points/query: every call raised and link suggestions were silently empty (H5b)."""
+    response = RestQdrant(qdrant_url).query_points(
+        collection_name="old_qdrant", query=[0.1, 0.2], limit=5, score_threshold=0.5, with_payload=True
+    )
+    paths = [p for p, _ in _Qdrant.seen]
+    assert paths == ["/collections/old_qdrant/points/query", "/collections/old_qdrant/points/search"]
+    assert _Qdrant.seen[1][1] == {"vector": [0.1, 0.2], "limit": 5, "with_payload": True, "score_threshold": 0.5}
+    (point,) = response.points
+    assert (point.id, point.payload["artifact_id"]) == (8, "a2")
+
+
+def test_a_missing_collection_still_raises_after_the_search_fallback(qdrant_url):
+    with pytest.raises(OSError):
+        RestQdrant(qdrant_url).query_points(collection_name="missing", query=[0.1], limit=5)
+    assert [p.rsplit("/", 1)[-1] for p, _ in _Qdrant.seen] == ["query", "search"]
