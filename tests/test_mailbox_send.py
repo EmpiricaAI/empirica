@@ -126,3 +126,18 @@ def test_a_practice_name_with_capitals_finds_its_slugged_roster_row():
         "http://127.0.0.1:8000", "local", "David_Research", lambda url, key, t: (200, roster)
     )
     assert got == "local.dana.david-research"
+
+
+def test_an_exact_roster_match_wins_over_a_slug_only_one():
+    from empirica.cli.command_handlers.mailbox_commands import _resolve_canonical_ai_id
+
+    roster = {
+        "self": {"tenant_slug": "dana"},
+        "org": {"tenants": [{"tenant_slug": "dana", "projects": [
+            {"slug": "research", "ai_id_mesh": "local.dana.research"},
+            {"slug": "Research", "ai_id_mesh": "local.dana.Research"},
+        ]}]},
+    }  # fmt: skip
+    get = lambda url, key, t: (200, roster)  # noqa: E731
+    assert _resolve_canonical_ai_id("u", "k", "Research", get) == "local.dana.Research"
+    assert _resolve_canonical_ai_id("u", "k", "research", get) == "local.dana.research"

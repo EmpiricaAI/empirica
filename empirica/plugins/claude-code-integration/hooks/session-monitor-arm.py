@@ -255,6 +255,17 @@ def _build_monitor_block_from_cli(payload: dict | None, instance_id: str) -> str
             '("epistemic email for the AI age" — David, 2026-05-15).'
         )
 
+    # The local server writes the log itself and has no `listener arm` step (1.15.1 second pass): say so here too.
+    if status == "local_server_tail_session":
+        rearm_tail = ""
+        gap_where = "the local server writes them to `~/.empirica/loop_fires.log`, and the mailbox keeps them"
+    else:
+        rearm_tail = ", then the arm command again"
+        gap_where = (
+            "with the OS listener service up they are in `~/.empirica/loop_fires.log`, "
+            "without it they are not recorded at all"
+        )
+
     # Monitor and TaskStop are DEFERRED tools on current Claude Code: they are
     # named in the session's deferred-tools list but have no schema until
     # ToolSearch loads them. Without the load step the instruction below cannot
@@ -275,12 +286,11 @@ def _build_monitor_block_from_cli(payload: dict | None, instance_id: str) -> str
         f"```\n\n"
         f"Claude Code 2.1.271 replaced the no-timeout `persistent` option with a "
         f"deadline of at most 30 min (10 in `-p` runs): the watch expires, you are "
-        f"notified, and you RE-ARM it — same Monitor call, then the arm command again. "
+        f"notified, and you RE-ARM it — same Monitor call{rearm_tail}. "
         f"Passing `persistent=True` is accepted and silently ignored, so do not rely "
         f"on it. The tail starts at the END of the log, so events written while no Monitor "
-        f"was running (the gap before an arm or re-arm) are not delivered to you; with the OS "
-        f"listener service up they are in `~/.empirica/loop_fires.log`, without it they are not "
-        f"recorded at all. After every (re)arm, run `empirica mailbox poll` — it is the one "
+        f"was running (the gap before an arm or re-arm) are not delivered to you; {gap_where}. "
+        f"After every (re)arm, run `empirica mailbox poll` — it is the one "
         f"check that does not depend on the stream.\n\n"
         f"{mode_explainer}{after_arm_hint}"
     )
@@ -333,7 +343,8 @@ def _cwd_practice_ai_id() -> str | None:
             f = d / ".empirica" / "project.yaml"
             if f.is_file():
                 value = (yaml.safe_load(f.read_text(encoding="utf-8")) or {}).get("ai_id")
-                return _address_slug(str(value)) if value else None
+                # No ai_id: project-register sends the directory's name, so that is what the server knows it by.
+                return _address_slug(str(value) if value else d.name)
     except Exception:
         return None
     return None

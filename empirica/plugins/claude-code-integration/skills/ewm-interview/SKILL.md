@@ -153,7 +153,7 @@ Only on an affirmative:
 ```bash
 empirica provision-practice <name> \
   [--tenant <tenant> --org <org>] \
-  --cockpit-profile <tenant> \
+  --cockpit-profile <name> \
   [--forgejo-owner <owner> --forgejo-host <ssh-url>] \
   [--no-cortex | --no-local-server]
 ```
@@ -163,7 +163,7 @@ the `local-server` step reports an error and installs nothing: relay its `hint`,
 
 `--cockpit-profile` adds each practice to one cockpit layout (`~/.empirica/cockpit/config-<name>.yaml`,
 created on the first call with a TUI window, then one window per practice). Pass the SAME name on
-every call. The tenant slug is a sensible default; use another if they already have a profile.
+every call. Their first name or the tenant slug is a sensible default; use another if they already have a profile.
 
 Where the flags come from Phase 3:
 

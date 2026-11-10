@@ -715,3 +715,22 @@ def test_outside_a_practice_no_local_tail_is_armed(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "stdout", captured)
     assert mod.main() == 0
     assert json.loads(captured.getvalue().strip()) == {}
+
+
+def test_a_practice_without_ai_id_is_known_by_its_directory_name(monkeypatch, tmp_path):
+    """Second pass D3: project-register sends the directory's name, so a project.yaml with no ai_id is still a practice."""
+    mod = _load_local_hook()
+    practice = tmp_path / "My_Notes"
+    (practice / ".empirica").mkdir(parents=True)
+    (practice / ".empirica" / "project.yaml").write_text("project_id: x\n")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(practice))
+    assert mod._cwd_practice_ai_id() == "my-notes"
+
+
+def test_the_local_block_has_no_arm_command_and_says_the_log_keeps_the_gap():
+    block = _load_local_hook()._build_monitor_block_from_cli(
+        {"status": "local_server_tail_session", "next_step": {"args": {"command": "tail -F x"}}}, "p"
+    )
+    assert "then the arm command again" not in block and "not recorded at all" not in block
+    control = _load_local_hook()._build_monitor_block_from_cli({"status": "persistent_service_tail_session"}, "p")
+    assert "then the arm command again" in control  # the listener path keeps its wording

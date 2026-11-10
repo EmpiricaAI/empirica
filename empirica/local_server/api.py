@@ -346,12 +346,30 @@ def address_problem(body: dict) -> JSONResponse | None:
     return None
 
 
+def canonical_addresses(body: dict) -> dict:
+    """The body with each address's practice part slugged, as this server registers practices: a message typed to
+    `local.dana.David_Research` reaches `david-research`'s inbox and wakes its session (1.15.1 second pass, S2)."""
+
+    def canon(address):
+        if not isinstance(address, str) or address.count(".") < 2:
+            return address
+        head, practice = address.rsplit(".", 1)
+        return f"{head}.{_slug(practice)}"
+
+    out = dict(body)
+    if out.get("source_claude"):
+        out["source_claude"] = canon(out["source_claude"])
+    out["target_claudes"] = [canon(t) for t in out.get("target_claudes") or []]
+    return out
+
+
 def _mailbox_write_routes(r, ctx: _Ctx, auth) -> None:
     @r.post("/v1/orchestration/propose", dependencies=auth)
     async def propose(request: Request):  # pyright: ignore[reportUnusedFunction]
         body = await body_of(request)
         if (problem := address_problem(body)) is not None:
             return problem
+        body = canonical_addresses(body)
         proposal = Proposal.from_request(body, org_id=ORG)
         if invalid := proposal.validate():
             return refuse(invalid, 400)

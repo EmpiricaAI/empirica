@@ -98,3 +98,21 @@ def test_an_explicit_other_host_never_gets_the_local_bearer(monkeypatch):
     )
     url, key = pc._resolve_cortex_config(SimpleNamespace(cortex_url="https://other.example", api_key=None))
     assert url == "https://other.example" and key is None
+
+
+def test_localhost_and_loopback_are_one_local_server():
+    assert me.same_local_url("http://localhost:8000/", "http://127.0.0.1:8000")
+    assert not me.same_local_url("https://other.example", "http://127.0.0.1:8000")
+    assert not me.same_local_url(None, "http://127.0.0.1:8000")
+
+
+def test_a_malformed_credentials_file_means_no_token_not_a_crash(monkeypatch, tmp_path):
+    """yaml.YAMLError is not a ValueError: a broken credentials.yaml raised out of mesh_bearer() (second pass P4)."""
+    monkeypatch.delenv("EMPIRICA_LOCAL_TOKEN", raising=False)
+    monkeypatch.setattr(me.os.path, "expanduser", lambda p: p)
+    from pathlib import Path
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / "credentials.yaml").write_text("a: [unclosed\n")
+    assert me.configured_local_token() is None

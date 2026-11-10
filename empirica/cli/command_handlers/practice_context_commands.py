@@ -111,11 +111,12 @@ def _resolve_cortex_config(args) -> tuple[str | None, str | None]:
     # OAuth-only seat with the api_key retired still authenticates here.
     try:
         from empirica.core.mesh_endpoint import mesh_bearer
+        from empirica.core.mesh_endpoint import same_local_url as _same_local_url
 
         creds = mesh_bearer()
     except Exception:
         creds = {}
-    if arg_url and creds.get("edition") == "local" and arg_url.rstrip("/") != str(creds.get("url") or "").rstrip("/"):
+    if arg_url and creds.get("edition") == "local" and not _same_local_url(arg_url, creds.get("url")):
         creds = {}  # an explicit other host never gets the local server's bearer (1.15.1 sweep, R1)
     url = arg_url or creds.get("url")
     key = arg_key or creds.get("bearer")

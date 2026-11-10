@@ -121,17 +121,20 @@ the local server as a user service (`empirica serve-service install`: systemd-us
 on Linux and WSL2, launchd on macOS; it binds 127.0.0.1 only). Elsewhere, or with
 `--no-local-server`, start it yourself with `empirica serve`. Each practice
 registers with it as `local.<you>.<practice>`, where `<you>` is
-`EMPIRICA_LOCAL_USER` or your login name (a practice created from inside another
-practice inherits that one's tenant instead). If the `[api]` extra is missing,
+`EMPIRICA_LOCAL_USER` or your login name, and `<practice>` is the practice's
+name in lowercase with anything other than letters, digits and hyphens turned
+into hyphens (`My_Research` is `my-research`). If the `[api]` extra is missing,
 provisioning says so and installs nothing; if a serve service is already
 installed but does not answer (an older version still running, or another
 program on the port), it reports that rather than rewriting it.
 
 The server listens on port 8000 unless `EMPIRICA_SERVE_PORT` is set when it is
 installed, and every session finds it on the same variable. If you change the
-port, or set `EMPIRICA_LOCAL_USER`, set them in your login environment (for
-example `~/.config/environment.d/empirica.conf` on systemd) so the service and
-every terminal, desktop app or cockpit agree. From inside a practice:
+port, or set `EMPIRICA_LOCAL_USER`, the service and every place a session starts
+must agree: on Linux, `~/.config/environment.d/empirica.conf` reaches the
+service once you log in again, and your shell profile reaches terminals; on
+macOS, `launchctl setenv` reaches apps and services started after it, and your
+shell profile reaches terminals. From inside a practice:
 
 ```bash
 empirica mailbox send --to local.<you>.my-research --title "Question" --summary "..."

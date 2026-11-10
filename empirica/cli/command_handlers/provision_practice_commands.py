@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -52,7 +53,7 @@ def _mesh_edition() -> str | None:
         return None
 
 
-def _wait_for_local_server(seconds: float = 8.0) -> bool:
+def _wait_for_local_server(seconds: float = 20.0) -> bool:
     """Whether the local server answers within ``seconds`` of the service starting."""
     import time
 
@@ -64,30 +65,51 @@ def _wait_for_local_server(seconds: float = 8.0) -> bool:
     return False
 
 
+_SH_TRICK = re.compile(r"^'''exec' \"([^\"]+)\"")
+
+
+def _launcher_python(exe: str) -> str | None:
+    """The Python a console-script launcher runs, or None when it cannot be told.
+
+    Three shapes: ``#!/path/python`` (and ``#!/usr/bin/env python3``); pip's and uv's ``#!/bin/sh`` trick for an interpreter
+    path with a space or over 127 characters, whose second line is three single quotes, ``exec' "/path/python" "$0" "$@"``;
+    and anything else (a pyenv or asdf bash shim, a compiled launcher, ``env -S``), which is None. Running a non-Python
+    program with ``-c "import fastapi, uvicorn"`` reported working installs as missing the extra (1.15.1 second pass, D1)."""
+    try:
+        with open(exe, "rb") as fh:
+            head = fh.read(4096).decode("utf-8", "replace").splitlines()
+    except OSError:
+        return None
+    if not head or not head[0].startswith("#!"):
+        return None
+    parts = head[0][2:].split()
+    if parts and os.path.basename(parts[0]) == "env":
+        parts = parts[1:]
+    if parts and os.path.basename(parts[0]).startswith("python"):
+        return parts[0]
+    if parts and os.path.basename(parts[0]) == "sh" and len(head) > 1:
+        m = _SH_TRICK.match(head[1])
+        if m and os.path.basename(m.group(1)).startswith("python"):
+            return m.group(1)
+    return None
+
+
 def _api_extra_missing() -> str | None:
-    """Why the binary the serve unit will run cannot start the server (no fastapi/uvicorn), or None when it can.
+    """Why the binary the serve unit will run cannot start the server (no fastapi/uvicorn); None when it can, or when that
+    cannot be told.
 
     The unit runs ``shutil.which("empirica")`` (persistent_serve.py), which may belong to another venv than this
-    interpreter (pipx), so the check runs in that binary's interpreter, read from its shebang. Without the extra the unit's
-    `empirica serve` exits 1 and restarts until systemd gives up, while provisioning reported ok (1.15.1 sweep, P1)."""
-    interpreter = sys.executable
+    interpreter (pipx), so the check runs in that launcher's Python. An unrecognised launcher skips the check rather than
+    block a working install. Without the extra the unit's `empirica serve` exits 1 and restarts until systemd gives up,
+    while provisioning reported ok (1.15.1 sweep, P1)."""
     exe = shutil.which("empirica")
-    if exe:
-        try:
-            with open(exe, "rb") as fh:
-                first = fh.readline().decode("utf-8", "replace").strip()
-        except OSError:
-            first = ""
-        if first.startswith("#!"):
-            parts = first[2:].split()
-            if parts and os.path.basename(parts[0]) == "env" and len(parts) > 1:
-                parts = parts[1:]
-            if parts:
-                interpreter = parts[0]
+    interpreter = _launcher_python(exe) if exe else sys.executable
+    if not interpreter:
+        return None
     try:
         r = subprocess.run([interpreter, "-c", "import fastapi, uvicorn"], capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.SubprocessError) as e:
-        return f"could not run {interpreter}: {e}"
+    except (OSError, subprocess.SubprocessError):
+        return None  # could not ask: do not block on it
     if r.returncode == 0:
         return None
     lines = (r.stderr or "").strip().splitlines()
@@ -132,8 +154,8 @@ def _local_server_step(args, proj_dir: Path, dry_run: bool) -> dict:
         return {
             **step,
             "error": f"the serve service is installed but nothing answers as the local server at {_local_url()}",
-            "hint": "check `empirica serve-service status`; an older serve may still be running (`systemctl --user "
-            "restart empirica-serve`), or another process holds the port",
+            "hint": "check `empirica serve-service status`: an older serve may still be running (`empirica serve-service "
+            "uninstall`, then provision again), or another program holds the port. `--no-local-server` skips this step",
         }
     missing = _api_extra_missing()
     if missing:

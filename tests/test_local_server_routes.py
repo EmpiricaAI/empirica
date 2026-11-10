@@ -290,3 +290,15 @@ def test_a_wake_error_of_any_kind_is_counted_not_raised(client, monkeypatch):
 )
 def test_every_loopback_host_form_is_accepted(client, host):
     assert client.get("/v1/users/me", headers={"Host": host}).status_code == 200
+
+
+def test_a_message_typed_to_the_unslugged_name_reaches_the_practice_and_wakes_it(client, tmp_path):
+    """1.15.1 second pass S2: the server registers `David_Research` as `david-research`, but stored a target typed as
+    `local.tester.David_Research` raw: the recipient's inbox never matched it and its wake line carried the raw name."""
+    resp = _send(client, targets=(f"{ME}.David_Research",), source=f"{ME}.My_Coordinator")
+    assert resp.status_code == 200, resp.text
+    inbox = client.get("/v1/orchestration/inbox", params={"ai_id": f"{ME}.david-research"}).json()
+    assert len(inbox["proposals"]) == 1
+    assert inbox["proposals"][0]["source_claude"] == f"{ME}.my-coordinator"
+    fires = (tmp_path / ".empirica" / "loop_fires.log").read_text()
+    assert '"instance_id": "david-research"' in fires and "David_Research" not in fires

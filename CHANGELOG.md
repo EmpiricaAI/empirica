@@ -23,8 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **The local-server step fails visibly.** It refuses without the `[api]` extra (checked in the environment the service will run), reports an installed service that does not answer instead of rewriting it, and reports a server that never starts as an error, not a note under `ok`.
-- **A practice name with capitals or underscores** (`My_Research`) is matched as the local server writes it (`my-research`), both in the session's wake tail and in mailbox address lookup.
+- **The local-server step fails visibly.** It refuses without the `[api]` extra (checked with the Python the service will run, and skipped when that cannot be told), reports an installed service that does not answer instead of rewriting it, and reports a server that never starts as an error, not a note under `ok`.
+- **A practice name with capitals or underscores** (`My_Research`) is handled as the local server registers it (`my-research`): in the session's wake tail, in mailbox address lookup, and in a message addressed to the name as typed.
 - **An explicit `--cortex-url` for another host** never receives the local server's token.
 - **`mailbox send`** refuses a `--payload` that is not a JSON object, and keeps your own `idempotency_key` or `"idempotent": false`.
 - **No duplicate wake lines** when the content poll runs beside the local server.

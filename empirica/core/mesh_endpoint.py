@@ -58,6 +58,16 @@ def local_user() -> str:
     return slug(os.environ.get("EMPIRICA_LOCAL_USER") or getpass.getuser())
 
 
+def same_local_url(a: str | None, b: str | None) -> bool:
+    """Whether two URLs name the same local server: `localhost` and `127.0.0.1` are one host, a trailing slash is not
+    part of the address."""
+
+    def norm(u: str | None) -> str:
+        return str(u or "").rstrip("/").replace("://localhost", "://127.0.0.1")
+
+    return bool(a) and norm(a) == norm(b)
+
+
 def local_server_url() -> str:
     return f"http://127.0.0.1:{os.environ.get('EMPIRICA_SERVE_PORT', '8000')}"
 
@@ -75,7 +85,7 @@ def configured_local_token() -> str | None:
         import yaml
 
         data = yaml.safe_load((Path.home() / ".empirica" / "credentials.yaml").read_text(encoding="utf-8")) or {}
-    except (OSError, ValueError, ImportError):
+    except Exception:  # unreadable, not YAML (yaml.YAMLError is not a ValueError), or no yaml: no token configured
         return None
     value = data.get("local_server_token") if isinstance(data, dict) else None
     return str(value) if value else None

@@ -130,3 +130,41 @@ def test_the_api_check_reads_the_interpreter_of_the_binary_the_unit_runs(monkeyp
     )
     assert "uvicorn" in (_REAL_API_CHECK() or "")
     assert seen and seen[0][0] == str(py)
+
+
+# ── 1.15.1 second pass ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+def _launcher(tmp_path, name, text):
+    f = tmp_path / name
+    f.write_text(text)
+    return str(f)
+
+
+def test_the_launcher_python_is_read_from_each_shape_and_unknown_ones_are_none(tmp_path):
+    """D1: a `#!/bin/sh` launcher ran `/bin/sh -c "import fastapi, uvicorn"` (ImageMagick's `import` on one box, a 30 s
+    hang), a bash shim ran bash, `env -S` ran `-S`: each reported a working install as missing the extra."""
+    py = "/opt/my venv/bin/python3.12"
+    assert pp._launcher_python(_launcher(tmp_path, "a", "#!/usr/bin/python3\n")) == "/usr/bin/python3"
+    assert pp._launcher_python(_launcher(tmp_path, "b", "#!/usr/bin/env python3\n")) == "python3"
+    sh = f"#!/bin/sh\n'''exec' \"{py}\" \"$0\" \"$@\"\n' '''\n"
+    assert pp._launcher_python(_launcher(tmp_path, "c", sh)) == py
+    assert pp._launcher_python(_launcher(tmp_path, "d", "#!/usr/bin/env bash\nexec pyenv ...\n")) is None
+    assert pp._launcher_python(_launcher(tmp_path, "e", "#!/usr/bin/env -S python3 -X utf8\n")) is None
+    assert pp._launcher_python(_launcher(tmp_path, "f", "MZ\x90\x00binary")) is None
+
+
+def test_an_unrecognised_launcher_skips_the_check_instead_of_blocking(monkeypatch, tmp_path):
+    exe = _launcher(tmp_path, "empirica", "#!/usr/bin/env bash\n")
+    ran = []
+    monkeypatch.setattr(pp.shutil, "which", lambda name: exe)
+    monkeypatch.setattr(pp.subprocess, "run", lambda cmd, **kw: ran.append(cmd))
+    assert _REAL_API_CHECK() is None and ran == []
+
+
+def test_the_installed_but_silent_hint_names_no_platform_tool(ran, monkeypatch, tmp_path):
+    """D2: the hint said `systemctl --user restart`, which a macOS launchd install has no use for."""
+    monkeypatch.setattr(pp, "_mesh_edition", lambda: None)
+    monkeypatch.setattr(pp, "_serve_unit_installed", lambda: True)
+    step = pp._local_server_step(_args(), tmp_path, dry_run=False)
+    assert "systemctl" not in step["hint"] and "--no-local-server" in step["hint"]

@@ -250,17 +250,17 @@ def _resolve_canonical_ai_id(cortex_url: str, api_key: str, local_ai_id: str | N
     # The local server registers `David_Research` as `david-research`; try the name as written, then as an address part.
     from empirica.core.mesh_endpoint import slug
 
-    names = {local_ai_id, slug(local_ai_id)}
+    exact_then_slug = [local_ai_id, slug(local_ai_id)]
+    rows = []
     for tenant in (body.get("org") or {}).get("tenants") or []:
         if not isinstance(tenant, dict) or (own_tenant and tenant.get("tenant_slug") != own_tenant):
             continue
-        for proj in tenant.get("projects") or []:
-            # Project rows key the practice as `slug` / `ai_id_short`; there is no
-            # `ai_id` field. Matching the wrong key is how the first version of this
-            # resolver silently returned None for a practice that was right there.
-            if not isinstance(proj, dict):
-                continue
-            if {proj.get("slug"), proj.get("ai_id_short")} & names:
+        # Project rows key the practice as `slug` / `ai_id_short`; there is no `ai_id` field. Matching the wrong key is
+        # how the first version of this resolver silently returned None for a practice that was right there.
+        rows.extend(p for p in tenant.get("projects") or [] if isinstance(p, dict))
+    for name in exact_then_slug:  # an exact match wins over one that only matches once slugged
+        for proj in rows:
+            if name in (proj.get("slug"), proj.get("ai_id_short")):
                 mesh = proj.get("ai_id_mesh")
                 if isinstance(mesh, str) and mesh:
                     return mesh
