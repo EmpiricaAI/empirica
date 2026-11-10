@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Profile import imports goals.** It had skipped every goal silently: its insert left out a required column, and `INSERT OR IGNORE` turned the failure into a skip.
 - **Resolving an unknown keeps its note intact.** The rewrite dropped the note's edges and dated the unknown to its resolution.
 - **`empirica mesh off` stops the listener on macOS.** It acted only on systemd and printed "listener stopped" on every backend, so on macOS launchd kept the listener running and started it again at boot. It now boots out and disables the launchd label (systemd: stops and disables the unit), reads the state back, and says plainly, with the command to run, when the listener is still running. `mesh on` starts it on launchd as well.
+- **The local server closes its database connections.** Each call left the database and its WAL files open until garbage collection; a test that forked processes while one was open committed two messages for one idempotency key.
 - **Link suggestions work on Qdrant older than 1.10,** which has no `/points/query`: every query failed there and suggestions came back empty. A 404 or 405 is retried on `/points/search`.
 
 ## [1.15.1] - 2026-11-10

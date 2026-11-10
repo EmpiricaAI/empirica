@@ -114,3 +114,42 @@ def test_two_processes_racing_one_key_get_one_proposal_and_a_replay(tmp_path):
     results = [out.get(timeout=5) for _ in range(6)]
     assert all(r[0] != "error" for r in results), results
     assert len({r[0] for r in results}) == 1 and sum(1 for r in results if not r[1]) == 1
+
+
+def test_no_connection_is_left_open_after_a_store_call(tmp_path):
+    """`with sqlite3.connect(...)` commits but does not close: every call left the database, its WAL and its shared-memory
+    file open until garbage collection, and a forked race test then committed two proposals for one key (CI, 3.13)."""
+    import os
+
+    def handles():
+        out = []
+        for fd in os.listdir("/proc/self/fd"):
+            try:
+                out.append(os.readlink(f"/proc/self/fd/{fd}"))
+            except OSError:
+                pass
+        return [h for h in out if str(tmp_path) in h]
+
+    store = st.ProposalStore(tmp_path / "s.db")
+    assert handles() == []
+    saved, _ = store.propose(_p(), idempotency_key="k")
+    store.get(saved.id)
+    store.inbox(saved.distinct_targets()[0])
+    assert handles() == []
+
+
+def test_the_registry_leaves_no_connection_open(tmp_path):
+    import os
+
+    from empirica.local_server.api import ProjectRegistry
+
+    reg = ProjectRegistry(tmp_path / "r.db")
+    reg.register("alpha", None, None, None)
+    reg.unregister(None, "alpha")
+    left = []
+    for fd in os.listdir("/proc/self/fd"):
+        try:
+            left.append(os.readlink(f"/proc/self/fd/{fd}"))
+        except OSError:
+            pass
+    assert [h for h in left if str(tmp_path) in h] == []

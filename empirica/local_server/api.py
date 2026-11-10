@@ -24,7 +24,7 @@ from empirica.core.mesh_endpoint import local_user  # one definition, shared wit
 from empirica.core.mesh_endpoint import slug as _slug
 from empirica.core.orchestration.schemas import RESULT_TO_STATUS, TERMINAL_STATUSES, Proposal
 from empirica.local_server import wake
-from empirica.local_server.store import CompletionRefused, IdempotencyConflict, ProposalStore, default_db_path
+from empirica.local_server.store import CompletionRefused, IdempotencyConflict, ProposalStore, connect, default_db_path
 
 ORG = "local"
 _DEFAULT_LIMIT = 50
@@ -54,7 +54,7 @@ class ProjectRegistry:
 
     def __init__(self, path: Path):
         self.path = path
-        with sqlite3.connect(path) as db:
+        with connect(path) as db:
             db.execute(
                 "CREATE TABLE IF NOT EXISTS local_projects (id TEXT PRIMARY KEY, slug TEXT UNIQUE NOT NULL, "
                 "display_name TEXT, repo_url TEXT, created_at TEXT NOT NULL)"
@@ -62,7 +62,7 @@ class ProjectRegistry:
 
     def register(self, name: str, project_id: str | None, display_name: str | None, repo_url: str | None) -> dict:
         slug = _slug(name)
-        with sqlite3.connect(self.path) as db:
+        with connect(self.path) as db:
             row = db.execute("SELECT id FROM local_projects WHERE slug = ?", (slug,)).fetchone()
             if row:
                 return {"project_id": row[0], "id": row[0], "slug": slug, "already_registered": True}
@@ -74,14 +74,14 @@ class ProjectRegistry:
         return {"project_id": pid, "id": pid, "slug": slug}
 
     def unregister(self, project_id: str | None, slug: str | None) -> bool:
-        with sqlite3.connect(self.path) as db:
+        with connect(self.path) as db:
             cur = db.execute(
                 "DELETE FROM local_projects WHERE id = ? OR slug = ?", (project_id or "", _slug(slug or ""))
             )
             return cur.rowcount > 0
 
     def _registered(self) -> list[dict]:
-        with sqlite3.connect(self.path) as db:
+        with connect(self.path) as db:
             rows = db.execute("SELECT id, slug, display_name FROM local_projects ORDER BY slug").fetchall()
         return [{"id": r[0], "slug": r[1], "display_name": r[2]} for r in rows]
 
@@ -92,7 +92,7 @@ class ProjectRegistry:
         if not ws.is_file():
             return []
         try:
-            with sqlite3.connect(f"file:{ws}?mode=ro", uri=True) as db:
+            with connect(f"file:{ws}?mode=ro", uri=True) as db:
                 rows = db.execute(
                     "SELECT id, name, trajectory_path FROM global_projects WHERE COALESCE(status, 'active') = 'active'"
                 ).fetchall()

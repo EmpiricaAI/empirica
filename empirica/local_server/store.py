@@ -18,6 +18,8 @@ import json
 import os
 import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -58,6 +60,20 @@ def default_db_path() -> Path:
     return Path(override) if override else Path.home() / ".empirica" / "local_server.db"
 
 
+@contextmanager
+def connect(path, **kwargs) -> Iterator[sqlite3.Connection]:
+    """A connection that commits (or rolls back) and then CLOSES. ``with sqlite3.connect(...) as db`` only commits: every
+    call left its connection, and the WAL and shared-memory files, open until garbage collection. A test that forked six
+    processes while the parent still held one saw two proposals committed for one idempotency key despite the unique
+    index, because the children inherited SQLite's lock state (CI, Python 3.13, 2026-11-10)."""
+    db = sqlite3.connect(path, **kwargs)
+    try:
+        with db:
+            yield db
+    finally:
+        db.close()
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -89,10 +105,11 @@ class ProposalStore:
         with self._connect() as db:
             db.executescript(_SCHEMA)
 
-    def _connect(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self.path, timeout=10)
-        db.execute("PRAGMA journal_mode=WAL")
-        return db
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        with connect(self.path, timeout=10) as db:
+            db.execute("PRAGMA journal_mode=WAL")
+            yield db
 
     # ── writes ───────────────────────────────────────────────────────────────────────────────────────────────
 
