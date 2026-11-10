@@ -161,7 +161,7 @@ Knowledge and goals are already shared between practices on one machine:
 pip install empirica
 
 # Specific version
-pip install empirica==1.15.0
+pip install empirica==1.15.1
 
 # Upgrade to latest
 pip install --upgrade empirica
@@ -176,13 +176,13 @@ brew install empirica
 ### Option 3: Docker
 ```bash
 # Standard image
-docker pull nubaeon/empirica:1.15.0
+docker pull nubaeon/empirica:1.15.1
 
 # Security-hardened Alpine (recommended)
-docker pull nubaeon/empirica:1.15.0-alpine
+docker pull nubaeon/empirica:1.15.1-alpine
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.15.0 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.15.1 /bin/bash
 ```
 
 ### Option 4: From Source
