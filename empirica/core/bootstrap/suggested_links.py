@@ -42,7 +42,7 @@ _ARTIFACT_TABLES: list[tuple[str, str, list[str], str]] = [
 ]
 
 
-def suggest_links_for_artifact(  # noqa: C901 — multi-step lookup, reads linearly
+def suggest_links_for_artifact(
     project_id: str,
     artifact_text: str,
     exclude_id: str,
@@ -82,12 +82,12 @@ def suggest_links_for_artifact(  # noqa: C901 — multi-step lookup, reads linea
         )
         from empirica.core.qdrant.connection import (
             _get_embedding_safe,
-            _get_qdrant_client,
+            qdrant_search_client,
         )
     except ImportError:
         return []
 
-    client = _get_qdrant_client()
+    client = qdrant_search_client()
     if client is None:
         return []
 
@@ -112,24 +112,13 @@ def suggest_links_for_artifact(  # noqa: C901 — multi-step lookup, reads linea
 
     for collection in collections:
         try:
-            try:
-                response = client.query_points(
-                    collection_name=collection,
-                    query=vector,
-                    limit=per_collection_limit,
-                    score_threshold=similarity_threshold,
-                    with_payload=True,
-                )
-                results = response.points
-            except Exception:
-                # Fallback to legacy .search() API
-                results = client.search(  # type: ignore[attr-defined]
-                    collection_name=collection,
-                    query_vector=vector,
-                    limit=per_collection_limit,
-                    score_threshold=similarity_threshold,
-                    with_payload=True,
-                )
+            results = client.query_points(
+                collection_name=collection,
+                query=vector,
+                limit=per_collection_limit,
+                score_threshold=similarity_threshold,
+                with_payload=True,
+            ).points
         except Exception as e:
             logger.debug(f"suggest_links: search failed on {collection}: {e}")
             continue

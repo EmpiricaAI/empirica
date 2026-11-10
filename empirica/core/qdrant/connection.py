@@ -350,6 +350,29 @@ def _get_embeddings_batch_for_collection(
     return vectors
 
 
+def qdrant_search_client():
+    """A read-only similarity client over REST (``empirica.core.qdrant.rest``), or None when no server answers.
+
+    Same server resolution as :func:`_get_qdrant_client` without a project id (``EMPIRICA_QDRANT_URL``, else a local
+    server on 6333), without importing ``qdrant_client``: for hot paths that only query.
+    """
+    from empirica.core.qdrant.rest import RestQdrant
+
+    url = os.getenv("EMPIRICA_QDRANT_URL")
+    if url:
+        return RestQdrant(url)
+    default_url = "http://localhost:6333"
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen(urllib.request.Request(f"{default_url}/collections", method="GET"), timeout=1) as r:
+            if r.status == 200:
+                return RestQdrant(default_url)
+    except Exception:
+        pass  # no local server: the caller skips its search
+    return None
+
+
 def _get_qdrant_client(
     qdrant_url: str | None = None,
     *,

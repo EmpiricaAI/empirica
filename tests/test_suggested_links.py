@@ -90,7 +90,7 @@ def test_returns_empty_for_blank_text():
 def test_returns_empty_when_qdrant_client_unavailable():
     """No Qdrant client → graceful empty list, no exception."""
     with patch(
-        "empirica.core.qdrant.connection._get_qdrant_client",
+        "empirica.core.qdrant.connection.qdrant_search_client",
         return_value=None,
     ):
         out = suggest_links_for_artifact("proj-1", "some text", "self-id")
@@ -101,7 +101,7 @@ def test_returns_empty_when_embedding_fails():
     """Embedding returns None → empty list."""
     fake_client = MagicMock()
     with (
-        patch("empirica.core.qdrant.connection._get_qdrant_client", return_value=fake_client),
+        patch("empirica.core.qdrant.connection.qdrant_search_client", return_value=fake_client),
         patch("empirica.core.qdrant.connection._get_embedding_safe", return_value=None),
     ):
         out = suggest_links_for_artifact("proj-1", "some text", "self-id")
@@ -128,7 +128,7 @@ def test_returns_modern_hit_with_artifact_id():
     fake_client.query_points.return_value = response
 
     with (
-        patch("empirica.core.qdrant.connection._get_qdrant_client", return_value=fake_client),
+        patch("empirica.core.qdrant.connection.qdrant_search_client", return_value=fake_client),
         patch("empirica.core.qdrant.connection._get_embedding_safe", return_value=[0.1] * 384),
     ):
         out = suggest_links_for_artifact("proj-1", "embedding stuff", "self-id")
@@ -150,7 +150,7 @@ def test_excludes_self_id_from_results():
     fake_client.query_points.return_value = response
 
     with (
-        patch("empirica.core.qdrant.connection._get_qdrant_client", return_value=fake_client),
+        patch("empirica.core.qdrant.connection.qdrant_search_client", return_value=fake_client),
         patch("empirica.core.qdrant.connection._get_embedding_safe", return_value=[0.1] * 384),
     ):
         out = suggest_links_for_artifact("proj-1", "text", "self-id")
@@ -172,7 +172,7 @@ def test_drops_hits_below_similarity_threshold():
     fake_client.query_points.return_value = response
 
     with (
-        patch("empirica.core.qdrant.connection._get_qdrant_client", return_value=fake_client),
+        patch("empirica.core.qdrant.connection.qdrant_search_client", return_value=fake_client),
         patch("empirica.core.qdrant.connection._get_embedding_safe", return_value=[0.1] * 384),
     ):
         out = suggest_links_for_artifact(
@@ -197,7 +197,7 @@ def test_respects_top_k_limit():
     fake_client.query_points.return_value = response
 
     with (
-        patch("empirica.core.qdrant.connection._get_qdrant_client", return_value=fake_client),
+        patch("empirica.core.qdrant.connection.qdrant_search_client", return_value=fake_client),
         patch("empirica.core.qdrant.connection._get_embedding_safe", return_value=[0.1] * 384),
     ):
         out = suggest_links_for_artifact(
@@ -233,7 +233,7 @@ def test_dedupes_same_artifact_id_across_collections():
     ]
 
     with (
-        patch("empirica.core.qdrant.connection._get_qdrant_client", return_value=fake_client),
+        patch("empirica.core.qdrant.connection.qdrant_search_client", return_value=fake_client),
         patch("empirica.core.qdrant.connection._get_embedding_safe", return_value=[0.1] * 384),
     ):
         out = suggest_links_for_artifact("proj-1", "text", "self-id")
@@ -270,7 +270,7 @@ def test_legacy_payload_resolved_via_sqlite_reverse_hash(empty_project_db: Path)
     fake_client.query_points.return_value = response
 
     with (
-        patch("empirica.core.qdrant.connection._get_qdrant_client", return_value=fake_client),
+        patch("empirica.core.qdrant.connection.qdrant_search_client", return_value=fake_client),
         patch("empirica.core.qdrant.connection._get_embedding_safe", return_value=[0.1] * 384),
     ):
         out = suggest_links_for_artifact(
@@ -308,7 +308,7 @@ def test_legacy_fallback_excludes_self_id(empty_project_db: Path):
     fake_client.query_points.return_value = response
 
     with (
-        patch("empirica.core.qdrant.connection._get_qdrant_client", return_value=fake_client),
+        patch("empirica.core.qdrant.connection.qdrant_search_client", return_value=fake_client),
         patch("empirica.core.qdrant.connection._get_embedding_safe", return_value=[0.1] * 384),
     ):
         out = suggest_links_for_artifact(
