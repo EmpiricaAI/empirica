@@ -1246,6 +1246,16 @@ def _register_one_project(
                 "project_id": project_id,
             }
             break
+        if status == 409 and "slug_taken" in str(body or ""):
+            # Another project holds the slug: a collision, not this project already registered. The single register
+            # path learned this (cortex D2); bulk and sync still reported it as skipped/already_exists (1.15.0 sweep, T4).
+            register_result = {
+                "name": project["name"],
+                "outcome": "failed",
+                "status": 409,
+                "reason": "slug_taken: another project already holds this name on cortex; rename the practice, then register",
+            }
+            break
         if status == 409:
             if isinstance(body, dict):
                 project_id = body.get("project_id") or body.get("id")

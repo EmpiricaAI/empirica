@@ -2104,6 +2104,9 @@ def _postflight_format_human_output(
             print(f"\n⚠️  Trajectory issues detected: {len(trajectory_issues)}")
             for issue in trajectory_issues:
                 print(f"   • {issue['pattern']}: {issue['description']}")
+        # Soft failures (a refused Cortex sync among them) were in the JSON only: the human view dropped them (1.15.0 sweep).
+        for warning in result.get("warnings") or []:
+            print(f"⚠️  {warning if isinstance(warning, str) else json.dumps(warning, default=str)}")
     else:
         print(f"❌ {result.get('message', 'Failed to submit POSTFLIGHT assessment')}")
 

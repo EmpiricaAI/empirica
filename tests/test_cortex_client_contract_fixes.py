@@ -106,3 +106,27 @@ def test_doctor_passes_on_the_capability_document_and_warns_without_it(monkeypat
     assert doctor.check_cortex_reachability().status == "WARN"
     monkeypatch.setattr(doctor, "_http_get", lambda url, *a, **k: (200, "<html>hello</html>"))
     assert doctor.check_cortex_reachability().status == "WARN"
+
+
+def test_bulk_and_sync_registration_also_report_a_slug_collision_as_failed(monkeypatch):
+    """The single register path learned D2; the per-project loop used by bulk-register and sync still said skipped
+    (1.15.0 sweep, T4)."""
+    monkeypatch.setattr(pc, "_post_project", lambda *a, **k: (409, {"error": "slug_taken", "slug": "demo"}))
+    out = pc._register_one_project({"name": "demo"}, "http://x", "k", 1.0)
+    assert out["outcome"] == "failed" and "slug_taken" in out["reason"]
+
+
+def test_bulk_registration_still_skips_a_project_already_registered(monkeypatch):
+    monkeypatch.setattr(pc, "_post_project", lambda *a, **k: (409, {"project_id": UUID}))
+    monkeypatch.setattr(pc, "_link_user_to_project", lambda *a, **k: None, raising=False)
+    out = pc._register_one_project({"name": "demo"}, "http://x", "k", 1.0)
+    assert out["outcome"] == "skipped" and out["reason"] == "already_exists"
+
+
+def test_the_human_postflight_output_shows_its_warnings(monkeypatch, capsys):
+    from empirica.cli.command_handlers import _workflow_postflight as wp
+
+    monkeypatch.setattr(wp, "_postflight_print_project_context", lambda *_a: None)
+    result = {"ok": True, "warnings": ["cortex sync dropped: cortex does not know this practice"]}
+    wp._postflight_format_human_output(result, "s" * 36, {}, "", {}, [], None)
+    assert "cortex sync dropped" in capsys.readouterr().out

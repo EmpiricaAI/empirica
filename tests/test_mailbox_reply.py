@@ -692,3 +692,26 @@ def test_naming_the_peer_explicitly_still_threads_under_your_own_ask(capsys):
     propose = next(c for c in calls if "/propose" in c["url"])
     assert propose["body"]["target_claudes"] == ["empirica.david.empirica-cortex"]
     assert propose["body"]["parent_id"] == "prop_parent"
+
+
+def test_a_manual_rerun_while_the_first_propose_is_in_flight_waits_for_it(capsys, monkeypatch):
+    """The exit-2 message says re-running is safe; a re-run that lands while the first propose is still being processed gets
+    409 idempotency_key_in_flight, and used to report REJECTED (1.15.0 sweep, T5)."""
+    from empirica.cli.command_handlers import mailbox_commands as mc
+
+    monkeypatch.setattr(mc.time, "sleep", lambda _s: None)
+    answers = iter([(409, {"error": "idempotency_key_in_flight"}), (200, {"proposal_id": "prop_new_xyz"})])
+
+    def post(url, body, key, timeout=10.0):
+        if "/propose" in url:
+            return next(answers)
+        return 200, {"ok": True}
+
+    rc = handle_mailbox_reply_command(
+        _make_args(),
+        _resolve_cortex_creds=_creds(),
+        _resolve_ai_id=_ai_id(),
+        _http_post=post,
+        _fetch_parent=_fetch_parent(),
+    )
+    assert rc == 0 and json.loads(capsys.readouterr().out)["proposal_id"] == "prop_new_xyz"

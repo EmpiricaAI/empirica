@@ -474,16 +474,17 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
             "propose committed, this returns that same proposal rather than a second one.\n"
         )
         status, propose_resp = _http_post(propose_url, propose_body, api_key, 20.0)
-        # The retry can arrive while the first propose is still being processed: cortex answers 409
-        # idempotency_key_in_flight, meaning the first one is landing, not that this was refused (cortex D4,
-        # prop_ezqtrzl7hvag5j25rrh6wwxdhq). Wait for it to finish and ask again with the same key, which then returns it.
-        for _ in range(3):
-            if not _in_flight(status, propose_resp):
-                break
-            time.sleep(2.0)
-            status, propose_resp = _http_post(propose_url, propose_body, api_key, 20.0)
-        if _in_flight(status, propose_resp):
-            status, propose_resp = -1, {"error": "the first propose is still in flight on cortex"}
+    # A propose can arrive while an earlier one with the same key is still being processed: cortex answers 409
+    # idempotency_key_in_flight, meaning that one is landing, not that this was refused (cortex D4). That happens on the
+    # retry above and equally on a manual re-run, which the exit-2 message below says is safe; it reported REJECTED until
+    # the 1.15.0 sweep (T5). Wait for it to finish and ask again with the same key, which then returns it.
+    for _ in range(3):
+        if not _in_flight(status, propose_resp):
+            break
+        time.sleep(2.0)
+        status, propose_resp = _http_post(propose_url, propose_body, api_key, 20.0)
+    if _in_flight(status, propose_resp):
+        status, propose_resp = -1, {"error": "an earlier propose with this key is still in flight on cortex"}
 
     new_proposal_id = propose_resp.get("proposal_id") if isinstance(propose_resp, dict) else None
     propose_ok = (200 <= status < 300) and new_proposal_id is not None
@@ -493,7 +494,7 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
             # reconcile step — rather than claiming a rejection that may not have
             # happened. Exit 2 so a caller can tell it from a real refusal.
             sys.stderr.write(
-                f"mailbox reply: cortex did not respond, twice ({propose_resp.get('error')}). "
+                f"mailbox reply: no final answer from cortex ({propose_resp.get('error')}). "
                 "The reply MAY have been delivered — this is UNKNOWN, not rejected.\n"
                 "  Check whether it landed:  empirica mailbox poll --outbox\n"
                 f"  If it did, close the parent with cortex_complete_proposal on {parent_id}.\n"
