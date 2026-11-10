@@ -147,3 +147,17 @@ def test_no_file_is_no_token_in_strict_mode_too(monkeypatch, tmp_path):
     monkeypatch.delenv("EMPIRICA_LOCAL_TOKEN", raising=False)
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     assert me.configured_local_token(strict=True) is None
+
+
+@pytest.mark.parametrize("text", ["- a\n- b\n", "local_server_token=s3cret\n"])
+def test_a_token_file_that_is_not_a_mapping_is_refused_in_strict_mode(monkeypatch, tmp_path, text):
+    """Fifth pass: a list or a `key=value` typo parsed fine and read as "no token required" on the server."""
+    from pathlib import Path
+
+    monkeypatch.delenv("EMPIRICA_LOCAL_TOKEN", raising=False)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / "credentials.yaml").write_text(text)
+    assert me.configured_local_token() is None
+    with pytest.raises(me.LocalTokenUnreadable):
+        me.configured_local_token(strict=True)

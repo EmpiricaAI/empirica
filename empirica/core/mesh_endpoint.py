@@ -73,7 +73,8 @@ def local_server_url() -> str:
 
 
 class LocalTokenUnreadable(Exception):
-    """credentials.yaml exists but cannot be read as YAML, so whether a token is required cannot be told."""
+    """credentials.yaml exists but cannot be read (permissions, a directory, not UTF-8, not YAML, not a mapping), so
+    whether a token is required cannot be told."""
 
 
 def configured_local_token(*, strict: bool = False) -> str | None:
@@ -81,7 +82,7 @@ def configured_local_token(*, strict: bool = False) -> str | None:
     ~/.empirica/credentials.yaml, else None. Defined here, without FastAPI, so a client whose interpreter lacks the [api]
     extra reads the same token the server checks (serve may run from another venv; 1.15.1 sweep, R4).
 
-    A file that exists and does not parse means "no token" for a client (it sends "local" and the server decides), but
+    A file that exists and cannot be read as a mapping means "no token" for a client (it sends "local" and the server decides), but
     ``strict=True`` raises ``LocalTokenUnreadable``: the server must not read a broken file as "no token required", which
     switched authentication off without a word (1.15.1 third pass, D2)."""
     token = os.environ.get("EMPIRICA_LOCAL_TOKEN")
@@ -100,7 +101,11 @@ def configured_local_token(*, strict: bool = False) -> str | None:
         if strict:
             raise LocalTokenUnreadable(f"{path}: {type(e).__name__}") from e
         return None
-    value = data.get("local_server_token") if isinstance(data, dict) else None
+    if not isinstance(data, dict):  # a list, or a typo like `local_server_token=s3cret` (a bare string)
+        if strict:
+            raise LocalTokenUnreadable(f"{path}: not a mapping")
+        return None
+    value = data.get("local_server_token")
     return str(value) if value else None
 
 

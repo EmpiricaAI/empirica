@@ -135,8 +135,9 @@ The server listens on port 8000, or on `EMPIRICA_SERVE_PORT` if it was set
 when the service was installed; the port is fixed then, so to change it,
 uninstall the service (`empirica serve-service uninstall`) and provision again
 with the variable set, and set it wherever sessions start too. Leave
-`EMPIRICA_LOCAL_USER` unset with the local server: the service does not receive
-it, so the addresses sessions use would not be the server's. From inside a practice:
+`EMPIRICA_LOCAL_USER` unset with the local server: the service's unit does not
+set it, so the service may run without it and the addresses sessions use would
+not be the server's. From inside a practice:
 
 ```bash
 empirica mailbox send --to local.<you>.my-research --title "Question" --summary "..."

@@ -340,3 +340,10 @@ def test_a_practice_part_with_no_letters_or_digits_is_refused_and_matches_nothin
     assert (
         len(client.get("/v1/orchestration/inbox", params={"ai_id": f"{ME}.user"}).json()["proposals"]) == 1
     )  # control
+
+
+def test_the_practice_check_agrees_with_slug_for_case_folding_characters():
+    """Fifth pass: the Kelvin sign lowercases to `k`, which slug() keeps; the ASCII check refused it."""
+    from empirica.local_server.api import _has_practice
+
+    assert _has_practice("K") and _has_practice("Café") and not _has_practice("___") and not _has_practice("日本")

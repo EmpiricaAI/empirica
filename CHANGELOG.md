@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **An explicit `--cortex-url` for another host** never receives the local server's token.
 - **`mailbox send`** refuses a `--payload` that is not a JSON object, and keeps your own `idempotency_key` or `"idempotent": false`.
 - **No duplicate wake lines** when the content poll runs beside the local server.
-- **A `credentials.yaml` the local server cannot read** (not YAML, not UTF-8, no permission) no longer switches its token check off: the server answers 503 until it is fixed, and clients treat it as no token.
+- **A `credentials.yaml` the local server cannot read** (not YAML, not a mapping, not UTF-8, no permission) no longer switches its token check off: the server answers 503 until it is fixed, and clients treat it as no token.
 
 ### Upgrading
 

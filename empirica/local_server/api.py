@@ -218,7 +218,7 @@ def require_local_caller(request: Request) -> None:
 
 def require_token(request: Request) -> None:
     """401 unless no token is configured or the bearer matches it (compared in constant time). A credentials.yaml that
-    does not parse is 503, never "no token required": fail closed."""
+    exists but cannot be read as a mapping is 503, never "no token required": fail closed."""
     from empirica.core.mesh_endpoint import LocalTokenUnreadable
 
     try:
@@ -366,7 +366,10 @@ def canon_address(address):
 
 
 def _has_practice(part: str) -> bool:
-    return any(c.isascii() and c.isalnum() for c in part)
+    """Whether slug() keeps anything of ``part`` (its `user` fallback is for nothing kept), computed as slug() computes."""
+    import re
+
+    return bool(re.sub(r"[^a-z0-9-]+", "-", part.strip().lower()).strip("-"))
 
 
 def canonical_addresses(body: dict) -> dict:
