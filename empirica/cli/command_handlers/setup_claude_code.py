@@ -158,7 +158,9 @@ def _render_versioned_template(
 
     Placeholders:
       {{ empirica_version }}  → installed empirica version (e.g. "1.9.8")
-      {{ generated_date }}    → today's UTC date (e.g. "2026-05-05")
+
+    No date: a render depends on the template and the version only, so the prompt does not change from one day to the next
+    (the old ``{{ generated_date }}`` placeholder did; no template used it).
 
     Conditional blocks (cortex-specific guidance):
       {% if cortex %}…{% endif %} — kept when cortex configured, dropped
@@ -171,9 +173,7 @@ def _render_versioned_template(
     """
     text = src.read_text(encoding="utf-8")
     version = _resolve_empirica_version()
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     text = text.replace("{{ empirica_version }}", version)
-    text = text.replace("{{ generated_date }}", today)
 
     if cortex_enabled is None:
         cortex_enabled = _is_cortex_configured()
@@ -1564,7 +1564,7 @@ def _install_claude_md(plugin_dir, claude_dir, output_format):
 
     if claude_md_src.exists():
         # Always write Empirica prompt to separate file (safe to overwrite).
-        # Render the {{ empirica_version }} + {{ generated_date }} placeholders
+        # Render the {{ empirica_version }} placeholder
         # at write-time so the prompt always reflects the installed package
         # version (closes Philipp's #100 — hardcoded version drifts every release).
         _render_versioned_template(claude_md_src, empirica_prompt_dst)

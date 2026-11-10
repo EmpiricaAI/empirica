@@ -2,7 +2,7 @@
 
 Closes Philipp's #100 — system-prompt template hardcoded v1.7.0, drifted
 8 minor versions before being caught. Fix: parameterize via
-{{ empirica_version }} and {{ generated_date }} placeholders, substitute
+the {{ empirica_version }} placeholder, substituted
 at write-time from the installed package.
 
 These tests lock in the substitution so the bug can't recur.
@@ -77,16 +77,30 @@ def test_render_substitutes_empirica_version_placeholder(tmp_path):
     assert out.count("v9.9.9") == 2  # both placeholders replaced
 
 
-def test_render_substitutes_generated_date_placeholder(tmp_path):
-    src = tmp_path / "src.md"
-    src.write_text("Generated: {{ generated_date }}\n", encoding="utf-8")
-    dst = tmp_path / "dst.md"
+def test_the_rendered_prompt_does_not_change_from_one_day_to_the_next(tmp_path, monkeypatch):
+    """A render depends on the template and the version only: a date in it would change the prompt every day, and the
+    `{{ generated_date }}` placeholder that did so is gone (no template used it; 1.14.23 sweep)."""
+    import empirica.cli.command_handlers.setup_claude_code as scc
 
-    _render_versioned_template(src, dst)
-    out = dst.read_text(encoding="utf-8")
-    assert "{{ generated_date }}" not in out
-    # Date format YYYY-MM-DD
-    assert re.search(r"Generated: \d{4}-\d{2}-\d{2}", out)
+    src = tmp_path / "src.md"
+    src.write_text("v{{ empirica_version }} {{ generated_date }}\n", encoding="utf-8")
+
+    class _Day:
+        def __init__(self, day):
+            self.day = day
+
+        def now(self, tz=None):
+            from datetime import datetime
+
+            return datetime(2026, 1, self.day, tzinfo=tz)
+
+    outs = []
+    for day in (1, 2):
+        monkeypatch.setattr(scc, "datetime", _Day(day), raising=False)
+        dst = tmp_path / f"dst{day}.md"
+        _render_versioned_template(src, dst)
+        outs.append(dst.read_text(encoding="utf-8"))
+    assert outs[0] == outs[1]
 
 
 def test_render_passes_through_text_with_no_placeholders(tmp_path):
