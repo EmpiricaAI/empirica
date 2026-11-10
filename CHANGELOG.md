@@ -28,7 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **An explicit `--cortex-url` for another host** never receives the local server's token.
 - **`mailbox send`** refuses a `--payload` that is not a JSON object, and keeps your own `idempotency_key` or `"idempotent": false`.
 - **No duplicate wake lines** when the content poll runs beside the local server.
-- **A `credentials.yaml` that does not parse** no longer switches the local server's token check off: the server answers 503 until it is fixed, and clients treat it as no token.
+- **A `credentials.yaml` the local server cannot read** (not YAML, not UTF-8, no permission) no longer switches its token check off: the server answers 503 until it is fixed, and clients treat it as no token.
+
+### Upgrading
+
+- A 1.15.0 local server stored addresses as typed. A message it stored for a practice name typed with capitals or other characters (`My_Research`) is not found under the practice's address (`my-research`) now: send it again.
 
 ### Docs
 

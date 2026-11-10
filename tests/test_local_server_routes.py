@@ -330,3 +330,13 @@ def test_a_broken_credentials_file_fails_closed(client, tmp_path):
     assert resp.status_code == 503 and "token" in resp.text
     (tmp_path / ".empirica" / "credentials.yaml").write_text("local_server_token: s3cret\n")
     assert client.get("/v1/orchestration/inbox", params={"ai_id": f"{ME}.b"}).status_code == 401  # control
+
+
+def test_a_practice_part_with_no_letters_or_digits_is_refused_and_matches_nothing(client):
+    """Fourth pass: `local.tester.___` slugged to `user` and was delivered there; a read of it returned `user`'s inbox."""
+    assert _send(client, targets=(f"{ME}.___",)).status_code == 400
+    _send(client, targets=(f"{ME}.user",))
+    assert client.get("/v1/orchestration/inbox", params={"ai_id": f"{ME}.___"}).json()["proposals"] == []
+    assert (
+        len(client.get("/v1/orchestration/inbox", params={"ai_id": f"{ME}.user"}).json()["proposals"]) == 1
+    )  # control

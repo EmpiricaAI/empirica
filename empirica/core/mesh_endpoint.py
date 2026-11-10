@@ -91,14 +91,12 @@ def configured_local_token(*, strict: bool = False) -> str | None:
 
     path = Path.home() / ".empirica" / "credentials.yaml"
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return None  # no file: no token
-    try:
         import yaml
 
-        data = yaml.safe_load(text) or {}
-    except Exception as e:  # yaml.YAMLError is not a ValueError
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return None  # no file: no token
+    except Exception as e:  # unreadable (permissions, a directory), not UTF-8, not YAML (YAMLError is not a ValueError)
         if strict:
             raise LocalTokenUnreadable(f"{path}: {type(e).__name__}") from e
         return None

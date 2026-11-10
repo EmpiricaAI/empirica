@@ -123,20 +123,20 @@ on Linux and WSL2, launchd on macOS; it binds 127.0.0.1 only). Elsewhere, or wit
 registers with it as `local.<you>.<practice>`, where `<you>` is
 `EMPIRICA_LOCAL_USER` or your login name, and `<practice>` is the practice's
 name lowercased, each run of characters other than `a-z`, `0-9` and `-` turned
-into one hyphen (`My_Research` is `my-research`). If the `[api]` extra is
+into one hyphen, and hyphens trimmed from both ends (`My_Research` is
+`my-research`). If the `[api]` extra is
 missing, provisioning says so and installs nothing (when it can read which
 Python the service will run; otherwise the error names the extra once the
 server fails to start); if a serve service is already
 installed but does not answer (an older version still running, or another
 program on the port), it reports that rather than rewriting it.
 
-The server listens on port 8000. `EMPIRICA_SERVE_PORT` and
-`EMPIRICA_LOCAL_USER` change the port and your part of the address; leave them
-unset unless you need them. The service does not read a terminal's
-environment, so a value set only in your shell makes the two disagree (sessions
-cannot find the server, or their addresses are refused as outside its
-namespace). If you do set them, give the service the same values and restart
-it. From inside a practice:
+The server listens on port 8000, or on `EMPIRICA_SERVE_PORT` if it was set
+when the service was installed; the port is fixed then, so to change it,
+uninstall the service (`empirica serve-service uninstall`) and provision again
+with the variable set, and set it wherever sessions start too. Leave
+`EMPIRICA_LOCAL_USER` unset with the local server: the service does not receive
+it, so the addresses sessions use would not be the server's. From inside a practice:
 
 ```bash
 empirica mailbox send --to local.<you>.my-research --title "Question" --summary "..."

@@ -343,7 +343,7 @@ def address_problem(body: dict) -> JSONResponse | None:
     prefix = mesh_prefix() + "."
     source = str(body.get("source_claude") or "")
     targets = [str(t) for t in body.get("target_claudes") or []]
-    bare = [a for a in [source, *targets] if a and (a.count(".") < 2 or not a.rsplit(".", 1)[-1].strip())]
+    bare = [a for a in [source, *targets] if a and (a.count(".") < 2 or not _has_practice(a.rsplit(".", 1)[-1]))]
     if bare:
         return refuse("addresses must be the canonical 3-form org.tenant.practice", 400, addresses=bare)
     if source and not source.startswith(prefix):
@@ -360,7 +360,13 @@ def canon_address(address):
     if not isinstance(address, str) or address.count(".") < 2:
         return address
     head, practice = address.rsplit(".", 1)
+    if not _has_practice(practice):
+        return address  # no letters or digits: left as typed, so it matches nothing (slug() would say `user`)
     return f"{head}.{_slug(practice)}"
+
+
+def _has_practice(part: str) -> bool:
+    return any(c.isascii() and c.isalnum() for c in part)
 
 
 def canonical_addresses(body: dict) -> dict:

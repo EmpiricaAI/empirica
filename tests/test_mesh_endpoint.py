@@ -116,3 +116,34 @@ def test_a_malformed_credentials_file_means_no_token_not_a_crash(monkeypatch, tm
     (tmp_path / ".empirica").mkdir()
     (tmp_path / ".empirica" / "credentials.yaml").write_text("a: [unclosed\n")
     assert me.configured_local_token() is None
+
+
+@pytest.mark.parametrize("make", ["not_utf8", "directory", "not_yaml"])
+def test_an_unreadable_credentials_file_is_no_token_for_a_client_and_refused_in_strict_mode(
+    monkeypatch, tmp_path, make
+):
+    """Fourth pass: a non-UTF-8 file raised out of every client; a directory (or no permission) read as no token even
+    strictly, so the server let every request in."""
+    from pathlib import Path
+
+    monkeypatch.delenv("EMPIRICA_LOCAL_TOKEN", raising=False)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    f = tmp_path / ".empirica" / "credentials.yaml"
+    f.parent.mkdir()
+    if make == "not_utf8":
+        f.write_bytes(b"local_server_token: \xff\n")
+    elif make == "directory":
+        f.mkdir()
+    else:
+        f.write_text("a: [unclosed\n")
+    assert me.configured_local_token() is None
+    with pytest.raises(me.LocalTokenUnreadable):
+        me.configured_local_token(strict=True)
+
+
+def test_no_file_is_no_token_in_strict_mode_too(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    monkeypatch.delenv("EMPIRICA_LOCAL_TOKEN", raising=False)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    assert me.configured_local_token(strict=True) is None

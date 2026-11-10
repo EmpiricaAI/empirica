@@ -157,10 +157,10 @@ def _local_server_step(args, proj_dir: Path, dry_run: bool) -> dict:
             **step,
             "error": f"the serve service is installed but nothing answers as the local server at {_local_url()}",
             "hint": "check `empirica serve-service status` and its log. An older serve may still be running: "
-            "`empirica serve-service uninstall`, then provision again. If another program uses the port, stop it or "
-            "pick another port with EMPIRICA_SERVE_PORT first (the service stops whatever holds its port when it "
-            "starts). If the log says uvicorn or fastapi is missing, install `empirica[api]`. `--no-local-server` "
-            "skips this step",
+            "`empirica serve-service uninstall`, then provision again. If another program uses the port, stop it, or "
+            "uninstall and provision again with EMPIRICA_SERVE_PORT set (the port is fixed when the service is "
+            "installed; on Linux the service stops whatever holds its port when it starts). If the log says uvicorn or "
+            "fastapi is missing, install `empirica[api]`. `--no-local-server` skips this step",
         }
     missing = _api_extra_missing()
     if missing:
