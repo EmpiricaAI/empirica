@@ -73,31 +73,33 @@ class ProjectRegistry:
         self.path = path
         with sqlite3.connect(path) as db:
             db.execute(
-                "CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, slug TEXT UNIQUE NOT NULL, "
+                "CREATE TABLE IF NOT EXISTS local_projects (id TEXT PRIMARY KEY, slug TEXT UNIQUE NOT NULL, "
                 "display_name TEXT, repo_url TEXT, created_at TEXT NOT NULL)"
             )
 
     def register(self, name: str, project_id: str | None, display_name: str | None, repo_url: str | None) -> dict:
         slug = _slug(name)
         with sqlite3.connect(self.path) as db:
-            row = db.execute("SELECT id FROM projects WHERE slug = ?", (slug,)).fetchone()
+            row = db.execute("SELECT id FROM local_projects WHERE slug = ?", (slug,)).fetchone()
             if row:
                 return {"project_id": row[0], "id": row[0], "slug": slug, "already_registered": True}
             pid = project_id or str(uuid.uuid4())
             db.execute(
-                "INSERT INTO projects (id, slug, display_name, repo_url, created_at) VALUES (?,?,?,?,?)",
+                "INSERT INTO local_projects (id, slug, display_name, repo_url, created_at) VALUES (?,?,?,?,?)",
                 (pid, slug, display_name or name, repo_url, _now()),
             )
         return {"project_id": pid, "id": pid, "slug": slug}
 
     def unregister(self, project_id: str | None, slug: str | None) -> bool:
         with sqlite3.connect(self.path) as db:
-            cur = db.execute("DELETE FROM projects WHERE id = ? OR slug = ?", (project_id or "", _slug(slug or "")))
+            cur = db.execute(
+                "DELETE FROM local_projects WHERE id = ? OR slug = ?", (project_id or "", _slug(slug or ""))
+            )
             return cur.rowcount > 0
 
     def _registered(self) -> list[dict]:
         with sqlite3.connect(self.path) as db:
-            rows = db.execute("SELECT id, slug, display_name FROM projects ORDER BY slug").fetchall()
+            rows = db.execute("SELECT id, slug, display_name FROM local_projects ORDER BY slug").fetchall()
         return [{"id": r[0], "slug": r[1], "display_name": r[2]} for r in rows]
 
     @staticmethod

@@ -201,7 +201,7 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - *indexes:* `idx_artifact_edges_from`, `idx_artifact_edges_to`
 
 #### `assumptions`
-**20 columns**
+**21 columns**
 - `id` TEXT PRIMARY KEY
 - `assumption` TEXT NOT NULL
 - `description` TEXT
@@ -222,6 +222,7 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `last_retrieved_at` REAL DEFAULT NULL
 - `retrieval_count` INTEGER DEFAULT 0
 - `retrieval_count_at_resolution` INTEGER DEFAULT NULL
+- `due_at` TEXT DEFAULT NULL
 - *indexes:* `idx_assumptions_entity`, `idx_assumptions_epistemic_source`, `idx_assumptions_status`, `idx_assumptions_visibility`
 
 #### `attention_budgets`
@@ -629,7 +630,7 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `description` TEXT
 
 #### `goals`
-**21 columns**
+**22 columns**
 - `id` TEXT PRIMARY KEY
 - `session_id` TEXT NOT NULL (FK: sessions.session_id)
 - `objective` TEXT NOT NULL
@@ -651,6 +652,7 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `archived` BOOLEAN DEFAULT 0
 - `archived_at` REAL DEFAULT NULL
 - `completion_reason` TEXT DEFAULT NULL
+- `due_at` TEXT DEFAULT NULL
 - *indexes:* `idx_goals_archived`, `idx_goals_engagement_id`, `idx_goals_transaction`, `idx_goals_transaction_id`, `idx_goals_visibility`
 
 #### `grounded_beliefs`
@@ -1020,7 +1022,7 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - *indexes:* `idx_proj_rel_source`, `idx_proj_rel_target`, `idx_proj_rel_type`
 
 #### `project_unknowns`
-**22 columns**
+**23 columns**
 - `id` TEXT PRIMARY KEY
 - `project_id` TEXT NOT NULL (FK: projects.id)
 - `session_id` TEXT NOT NULL (FK: sessions.session_id)
@@ -1043,6 +1045,7 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `last_retrieved_at` REAL DEFAULT NULL
 - `retrieval_count` INTEGER DEFAULT 0
 - `retrieval_count_at_resolution` INTEGER DEFAULT NULL
+- `due_at` TEXT DEFAULT NULL
 - *indexes:* `idx_project_unknowns_epistemic_source`, `idx_project_unknowns_project`, `idx_project_unknowns_resolved`, `idx_project_unknowns_visibility`, `idx_unknowns_transaction`
 
 #### `projects`
