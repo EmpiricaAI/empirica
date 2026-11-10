@@ -2761,6 +2761,25 @@ def _apply_foreign(atype: str, aid: str, item: dict, errors: list, rejected_repo
     return n
 
 
+def _update_target_db(target: str):
+    """Another practice's database, resolved as goals-create --project-id resolves it (1.15.0 sweep, D6), or None after
+    printing the shared refusal. Never falls back to this practice: the refusal names what exists."""
+    from empirica.cli.command_handlers.artifact_log_commands import (
+        UnresolvableProjectError,
+        _get_db_for_project,
+        project_refusal,
+    )
+
+    try:
+        db = _get_db_for_project(target)
+        if db is None:
+            raise UnresolvableProjectError(target)
+    except UnresolvableProjectError:
+        print(json.dumps(project_refusal(target)))
+        return None
+    return db
+
+
 def handle_update_artifacts_command(args):
     """Correct FIELDS on existing artifacts — the gardening verb that was missing.
 
@@ -2791,16 +2810,9 @@ def handle_update_artifacts_command(args):
             return 1
 
         target = getattr(args, "project_id", None)
-        if target:
-            # Another practice's database, resolved as goals-create --project-id resolves it (1.15.0 sweep, D6).
-            from empirica.cli.command_handlers.artifact_log_commands import _get_db_for_project
-
-            db = _get_db_for_project(target)
-            if db is None:
-                print(json.dumps({"ok": False, "error": f"cannot resolve project {target!r} to a practice database"}))
-                return 1
-        else:
-            db = SessionDatabase()
+        db = _update_target_db(target) if target else SessionDatabase()
+        if db is None:
+            return 1
         updated, errors, rejected_report = 0, [], []
         try:
             cursor = db.conn.cursor()

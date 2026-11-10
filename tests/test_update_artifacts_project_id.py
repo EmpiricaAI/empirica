@@ -61,7 +61,7 @@ def test_a_goal_in_another_practice_is_snoozed_there(tmp_path, monkeypatch):
 def test_an_unknown_project_is_refused_and_nothing_is_written(monkeypatch):
     monkeypatch.setattr(alc, "_get_db_for_project", lambda name: None)
     rc, out = _run({"updates": [{"type": "goal", "id": GOAL, "due_at": "+7d"}]}, **{"project_id": "nope"})
-    assert rc == 1 and "cannot resolve project 'nope'" in out["error"]
+    assert rc == 1 and out["ok"] is False and out["requested"] == "nope" and "REFUSING" in out["error"]
 
 
 def test_a_lesson_is_refused_with_project_id(tmp_path, monkeypatch):
