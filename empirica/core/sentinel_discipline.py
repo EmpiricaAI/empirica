@@ -82,7 +82,10 @@ def _protected_family(name: str) -> bool:
 #: The running empirica package: its hooks load sentinel_discipline.py and decision_record.py from here on every call, so an
 #: out-of-loop edit under it could switch the gate off from the next call (third sweep pass).
 _PACKAGE_ROOT = os.path.realpath(Path(__file__).resolve().parents[1])
-_FILE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+_FILE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch")  # apply_patch: codex's file-edit tool
+
+#: Patch headers that remove a file: a delete, or the source side of a move. Always a transaction (ecodex, 2026-11-10).
+_PATCH_REMOVES = ("*** Delete File:", "*** Move to:")
 
 
 # ── settings ────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -291,11 +294,20 @@ def _in_practice(path: str, cwd: str | None, project_root: str | None) -> bool:
 def judge(tool_name: str, tool_input, *, cwd: str | None, project_root: str | None, empirica_is_read=None) -> dict:
     """Whether this call may run as an out-of-loop act: {"trivial": bool, "classes": [...], "why": str}.
 
-    Only a file edit (Edit, Write, MultiEdit, NotebookEdit) whose real path is inside the practice, outside its protected
+    Only a file edit (Edit, Write, MultiEdit, NotebookEdit, or codex's apply_patch for every path it names, with no delete
+    or move) whose real path is inside the practice, outside its protected
     directories and files, and not a hard link. Every shell command needs a transaction: an allowlist checked with a Python
     tokenizer was bypassed ten ways by what bash does and shlex does not model (comments, ANSI-C quoting, brace and IFS
     expansion, pathspec magic; 1.14.23 sweep, second pass). ``empirica_is_read`` is accepted for the caller's signature."""
     tool_input = tool_input if isinstance(tool_input, dict) else {}
+    if tool_name == "apply_patch" and any(
+        line.startswith(_PATCH_REMOVES) for line in str(tool_input.get("command") or "").splitlines()
+    ):
+        return {
+            "trivial": False,
+            "classes": ["delete"],
+            "why": "a patch that deletes or moves a file needs a transaction",
+        }
     if tool_name in _FILE_TOOLS:
         paths = _file_paths(_decision_record(), tool_name, tool_input, cwd)
         if not paths:

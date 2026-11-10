@@ -775,3 +775,61 @@ def test_near_misses_of_those_families_stay_trivial(home, name):
     out = sd.judge("Edit", {"file_path": str(proj / name), "old_string": "a", "new_string": "b"}, cwd=str(proj),
                    project_root=str(proj), empirica_is_read=_is_read)  # fmt: skip
     assert out["trivial"] is True, name
+
+
+# ── codex's apply_patch (goal 5eee8205; ecodex prop_z5cyoen7qbf4rf7ys4ydo7tzhu) ───────────────────────────────────────
+# On a codex seat apply_patch IS the file-edit tool, so without it the small-edit budget was unreachable there. Same checks
+# as Edit/Write for every path the patch names; a delete, or the source side of a move, always needs a transaction.
+
+
+def _patch(*body):
+    return {"command": "\n".join(["*** Begin Patch", *body, "*** End Patch"])}
+
+
+def test_a_patch_that_adds_and_updates_files_inside_the_practice_is_trivial(home):
+    verdict = _judge(
+        home,
+        "apply_patch",
+        _patch("*** Add File: notes/new.md", "+hello", "*** Update File: src/app.py", "@@", "-a", "+b"),
+    )
+    assert verdict["trivial"] is True, verdict
+
+
+@pytest.mark.parametrize(
+    "body, cls",
+    [
+        (("*** Delete File: src/old.py",), "delete"),
+        (("*** Update File: src/a.py", "*** Move to: src/b.py", "@@", "-a", "+b"), "delete"),
+        (("*** Update File: ../outside.py", "@@", "-a", "+b"), "outside_write"),
+        (("*** Add File: pyproject.toml", "+x"), "outside_write"),
+        (("*** Add File: notes/ok.md", "+x", "*** Update File: /etc/hosts", "@@", "-a", "+b"), "outside_write"),
+        (("not a header",), "unknown"),
+    ],
+)
+def test_a_patch_that_deletes_moves_reaches_outside_or_names_nothing_needs_a_transaction(home, body, cls):
+    verdict = _judge(home, "apply_patch", _patch(*body))
+    assert verdict["trivial"] is False and verdict["classes"] == [cls], verdict
+
+
+def test_text_that_is_not_a_patch_names_nothing_and_needs_a_transaction(home):
+    verdict = _judge(home, "apply_patch", {"command": "rm -rf /"})
+    assert verdict["trivial"] is False and verdict["classes"] == ["unknown"], verdict
+
+
+def test_the_shell_form_of_apply_patch_stays_a_gated_command(home):
+    """ecodex: `apply_patch <<EOF` through the shell arrives as Bash with the heredoc in command; it is not special-cased."""
+    verdict = _judge(
+        home, "Bash", {"command": "apply_patch <<'EOF'\n*** Begin Patch\n*** Add File: a.md\n+x\n*** End Patch\nEOF"}
+    )
+    assert verdict["trivial"] is False, verdict
+
+
+def test_the_gate_spends_the_budget_on_an_apply_patch_and_refuses_a_delete(gate, home, monkeypatch):
+    """Through the real gate, as an ecodex seat calls it: a patch inside the practice is an act of the budget; a delete is not."""
+    monkeypatch.setenv(sd.ENV_MODE, "discipline")
+    monkeypatch.setenv(sd.ENV_BUDGET, "2")
+    add = _patch("*** Add File: notes/new.md", "+hello")
+    first = gate._handle_no_preflight("apply_patch", add, "s-1", "")
+    delete = gate._handle_no_preflight("apply_patch", _patch("*** Delete File: notes/new.md"), "s-1", "")
+    assert first[0] == "allow" and "act 1 of 2" in first[1], first
+    assert delete[0] == "deny" and "deletes or moves" in delete[1], delete

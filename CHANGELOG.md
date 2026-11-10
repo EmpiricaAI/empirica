@@ -5,6 +5,20 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Discipline mode budgets codex's `apply_patch`.** On a codex seat `apply_patch` is the file-edit tool, so the small-edit allowance outside a transaction was unreachable there. A patch whose every path is inside the practice and not protected now counts as one act. A patch that deletes or moves a file, reaches outside the practice, or names no file still needs a transaction. `apply_patch` run through the shell stays a gated command.
+- **`log-artifacts` takes a due date** on unknown and assumption nodes (`"due": "2026-12-01"`, `"+7d"`), as the single verbs take `--due`. A due on another type, or one that cannot be read, is refused before anything is written.
+- **`update-artifacts --project-id`** corrects artifacts in another practice, for example to snooze a goal created there with `goals-create --project-id`.
+
+### Fixed
+
+- **Due dates survive a rebuild.** They lived only in SQLite, so `sync-pull --rebuild` and profile import dropped every one. Goals, unknowns and assumptions now carry `due_at` in their git notes; a snooze or a cleared date rewrites the note, and the rebuild and import read it back. `doctor --reconcile-notes` backfills goal notes written before this.
+- **Profile import imports goals.** It had skipped every goal silently: its insert left out a required column, and `INSERT OR IGNORE` turned the failure into a skip.
+- **Resolving an unknown keeps its note intact.** The rewrite dropped the note's edges and dated the unknown to its resolution.
+
 ## [1.15.1] - 2026-11-10
 
 ### Highlights
