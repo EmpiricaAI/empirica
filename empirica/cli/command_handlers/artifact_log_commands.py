@@ -1509,7 +1509,7 @@ def handle_unknown_log_command(args):
             description=description,
             source_ids=source_ids,
         )
-        stamp_due(db.conn, "unknown", unknown_id, due_at)
+        stamped_due = stamp_due(db.conn, "unknown", unknown_id, due_at)
 
         # Entity cross-link
         if ctx["via"] and ctx["entity_type"] != "project" and ctx["entity_id"]:
@@ -1602,7 +1602,7 @@ def handle_unknown_log_command(args):
             "suggested_links": suggested_links,
             "message": "Unknown logged to project scope",
         }
-        result.update(due_fields("unknown", due_at, hint=True))
+        result.update(due_fields("unknown", stamped_due, hint=True))
 
         if output_format == "json":
             print(json.dumps(result, indent=2))
@@ -2223,7 +2223,7 @@ def handle_assumption_log_command(args):
             description=description,
             source_ids=source_ids,
         )
-        stamp_due(db.conn, "assumption", assumption_id, due_at)
+        stamped_due = stamp_due(db.conn, "assumption", assumption_id, due_at)
 
         # GIT NOTES: Store in git notes for sync
         git_stored = False
@@ -2298,7 +2298,7 @@ def handle_assumption_log_command(args):
             "suggested_links": suggested_links,
             "message": "Assumption logged",
         }
-        result.update(due_fields("assumption", due_at, hint=False))
+        result.update(due_fields("assumption", stamped_due, hint=False))
 
         if ctx["output_format"] == "json":
             print(json.dumps(result, indent=2))

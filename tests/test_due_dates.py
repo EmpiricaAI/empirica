@@ -239,3 +239,49 @@ def test_goals_list_shows_the_due_date(tmp_path, monkeypatch):
     goals = result["goals"]
     assert isinstance(goals, list)
     assert [(g["goal_id"], g["due_at"]) for g in goals] == [("g-due", "2026-12-01")]
+
+
+def test_the_daemon_patch_stores_the_date_an_offset_names(tmp_path, monkeypatch):
+    """PATCH /api/v1/artifacts/<id> took due_at through the field map but skipped the normalising step, so '+7d' was
+    stored as typed and, sorting before any digit, made the item due forever (1.15.0 sweep, D1)."""
+    import sqlite3 as _sqlite3
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    import empirica.api.daemon_project as dp
+    from empirica.api.serve_app import create_serve_app
+    from tests.test_data_layer_sweep_fixes import _api_project
+
+    dp._cached, dp._cached_project = False, None
+    pid = "33333333-3333-3333-3333-333333333333"
+    proj, db_path = _api_project(tmp_path, pid)
+    c = _sqlite3.connect(db_path)
+    c.execute(
+        "CREATE TABLE project_unknowns (id TEXT PRIMARY KEY, project_id TEXT, session_id TEXT, unknown TEXT, "
+        "is_resolved INTEGER DEFAULT 0, created_timestamp REAL, unknown_data TEXT, subject TEXT, impact REAL, "
+        "epistemic_source TEXT, visibility TEXT, due_at TEXT)"
+    )
+    c.execute("INSERT INTO project_unknowns (id, project_id, session_id, unknown, created_timestamp) VALUES "
+              "('44444444-4444-4444-4444-444444444444', ?, 's', 'u', 1.0)", (pid,))  # fmt: skip
+    c.commit()
+    c.close()
+    with patch("empirica.utils.session_resolver.InstanceResolver.project_path", return_value=str(proj)):
+        monkeypatch.chdir(proj)
+        client = TestClient(create_serve_app(), raise_server_exceptions=False)
+        resp = client.patch("/api/v1/artifacts/44444444-4444-4444-4444-444444444444", json={"due_at": "+7d"})
+    dp._cached, dp._cached_project = False, None
+    assert resp.status_code == 200, resp.text
+    stored = _sqlite3.connect(db_path).execute("SELECT due_at FROM project_unknowns").fetchone()[0]
+    assert stored == parse_due("+7d")
+
+
+def test_a_date_is_not_stamped_on_a_closed_row_and_an_existing_date_is_reported(conn):
+    from empirica.data.due import due_fields, stamp_due
+
+    _unknown(conn, "u-closed", resolved=1)
+    assert "closed unknown" in stamp_due(conn, "unknown", "u-closed", "2026-12-01")["due_note"]
+    assert conn.execute("SELECT due_at FROM project_unknowns WHERE id='u-closed'").fetchone()[0] is None
+    _unknown(conn, "u-dated", due="2026-12-05")
+    stamped = stamp_due(conn, "unknown", "u-dated", None)  # logged again without --due
+    assert stamped == {"due_at": "2026-12-05"} and "due_hint" not in due_fields("unknown", stamped, hint=True)

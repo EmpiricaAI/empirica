@@ -809,10 +809,18 @@ def format_context(ctx: dict) -> str:
     parts = []
 
     if ctx.get("due"):
-        from empirica.data.due import ANSWERS, due_lines
+        try:  # the hook's interpreter can carry an older core than the `empirica` on PATH that produced ctx
+            from empirica.data.due import ANSWERS, due_lines
 
-        parts.append(f"**Due** ({ANSWERS}; raise these before asking what to work on):")
-        parts += [f"  - {line}" for line in due_lines(ctx["due"])]
+            parts.append(f"**Due** ({ANSWERS}; raise these before asking what to work on):")
+            parts += [f"  - {line}" for line in due_lines(ctx["due"])]
+        except Exception:
+            parts.append("**Due:**")
+            parts += [
+                f"  - {i.get('type')} {str(i.get('id'))[:8]} ({i.get('due_at')})"
+                for i in ctx["due"]
+                if isinstance(i, dict)
+            ]
         parts.append("")
 
     if ctx.get("goals"):

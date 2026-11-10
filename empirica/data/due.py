@@ -9,6 +9,7 @@ A condition trigger ("after release X") is not here yet: a date is the part that
 
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 from datetime import date, timedelta
@@ -25,6 +26,7 @@ DUE_TABLES: dict[str, tuple[str, str]] = {
 _TEXT_COLUMN = {"goal": "objective", "unknown": "unknown", "assumption": "assumption"}
 _OFFSET = re.compile(r"^\+(\d{1,4})([dw])$")
 FORMAT_HELP = "a date YYYY-MM-DD, or an offset from today: +7d, +2w"
+logger = logging.getLogger(__name__)
 
 
 class DueDateError(ValueError):
@@ -68,7 +70,9 @@ def due_items(conn: sqlite3.Connection, project_id: str, *, today: date | None =
                 f"WHERE project_id = ? AND due_at IS NOT NULL AND due_at <= ? AND {still_open}",
                 (project_id, cutoff),
             ).fetchall()
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as e:
+            if "no such column" not in str(e) and "no such table" not in str(e):
+                logger.warning("due items not read from %s: %s", table, e)  # locked or damaged: not "nothing due"
             continue  # a database older than the column: nothing can be due there yet
         rows += [{"type": kind, "id": r[0], "text": r[1], "due_at": r[2]} for r in found]
     rows.sort(key=lambda r: (r["due_at"], r["type"], r["id"]))
@@ -95,16 +99,38 @@ def due_option(config_data: object, args: object) -> str | None:
     return parse_due(str(raw)) if raw else None
 
 
-def stamp_due(conn: sqlite3.Connection, artifact_type: str, artifact_id: str, due_at: str | None) -> None:
-    """Write ``due_at`` when one was given; nothing otherwise."""
+def stamp_due(conn: sqlite3.Connection, artifact_type: str, artifact_id: str, due_at: str | None) -> dict:
+    """Write ``due_at`` when one was given, and say what the row now carries.
+
+    A log call can return an existing row (an unknown logged twice is matched to the first, resolved or not): a date is not
+    written onto a closed row, and a row that already has a date reports it instead of a hint that it has none (1.15.0
+    sweep, D2). Returns ``{"due_at": ...}``, ``{"due_note": ...}`` or ``{}``.
+    """
+    table, still_open = DUE_TABLES[artifact_type]
+    try:
+        row = conn.execute(f"SELECT due_at, ({still_open}) FROM {table} WHERE id = ?", (artifact_id,)).fetchone()
+    except sqlite3.OperationalError:
+        row = None
+    if row is not None and not row[1]:
+        return (
+            {"due_note": f"this matches a closed {artifact_type} ({artifact_id[:8]}): no due date set"}
+            if due_at
+            else {}
+        )
     if due_at:
         set_due(conn, artifact_type, artifact_id, due_at)
-
-
-def due_fields(artifact_type: str, due_at: str | None, *, hint: bool) -> dict:
-    """What a create/log response says about the date: the date it set, or (when ``hint``) how to set one."""
-    if due_at:
         return {"due_at": due_at}
+    return {"due_at": row[0]} if row is not None and row[0] else {}
+
+
+def due_fields(artifact_type: str, stamped: dict | str | None, *, hint: bool) -> dict:
+    """What a create/log response says about the date: what stamp_due reported, or (when ``hint`` and the row has no date)
+    how to set one. A plain date string is accepted for callers that wrote the date themselves."""
+    if isinstance(stamped, str):
+        stamped = {"due_at": stamped}
+    stamped = stamped or {}
+    if stamped:
+        return stamped
     return {"due_hint": missing_due_hint(artifact_type)} if hint else {}
 
 

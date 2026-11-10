@@ -1719,7 +1719,7 @@ async def patch_artifact(
                 detail=(f"No whitelisted fields in body. Allowed for {artifact_type}: {sorted(whitelist)}"),
             )
         # The same value checks `update-artifacts` makes: the whitelist says which columns may change, not what is legal in them.
-        from empirica.data.artifact_fields import sibling_updates, value_problems
+        from empirica.data.artifact_fields import normalized_values, sibling_updates, value_problems
 
         problems = value_problems(artifact_type, updates)
         if problems:
@@ -1727,6 +1727,7 @@ async def patch_artifact(
                 status_code=422,
                 detail="Refused, nothing changed: " + "; ".join(f"{field} {why}" for field, why in problems.items()),
             )
+        updates = normalized_values(updates)
         updates = {**updates, **sibling_updates(artifact_type, updates, time.time())}
 
         set_clause = ", ".join(f"{k} = ?" for k in updates)

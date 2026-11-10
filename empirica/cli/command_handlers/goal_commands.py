@@ -817,9 +817,9 @@ def handle_goals_create_command(args):
                 "scope": scope.to_dict(),
                 "timestamp": goal.created_timestamp,
             }
-            stamp_due(goal_repo.db.conn, "goal", goal.id, due_at)
+            stamped_due = stamp_due(goal_repo.db.conn, "goal", goal.id, due_at)
             row = goal_repo.db.conn.execute("SELECT status FROM goals WHERE id = ?", (goal.id,)).fetchone()
-            result.update(due_fields("goal", due_at, hint=bool(row and row[0] == "planned")))
+            result.update(due_fields("goal", stamped_due, hint=bool(row and row[0] == "planned")))
             beads_issue_id = _goal_post_create_integrations(
                 goal,
                 session_id,

@@ -228,6 +228,16 @@ def sibling_updates(artifact_type: str, updates: dict, now: float) -> dict:
     return {}
 
 
+def normalized_values(updates: dict) -> dict:
+    """Values as stored: an offset due date (``+7d``) becomes the date it names. Every writer of correctable fields calls
+    this after ``value_problems``; the daemon's PATCH skipped the step and stored "+7d" as typed (1.15.0 sweep, D1)."""
+    if updates.get("due_at") is not None:
+        from empirica.data.due import parse_due
+
+        return {**updates, "due_at": parse_due(str(updates["due_at"]))}
+    return updates
+
+
 def filter_updates(artifact_type: str, body: dict) -> tuple[dict, list[str]]:
     """Split a request into (allowed updates, rejected field names).
 
@@ -239,10 +249,6 @@ def filter_updates(artifact_type: str, body: dict) -> tuple[dict, list[str]]:
     """
     allowed = updatable_fields(artifact_type)
     problems = value_problems(artifact_type, body)
-    updates = {k: v for k, v in body.items() if k in allowed and k not in problems}
-    if updates.get("due_at") is not None:
-        from empirica.data.due import parse_due
-
-        updates["due_at"] = parse_due(str(updates["due_at"]))  # store the date an offset names, not "+7d"
+    updates = normalized_values({k: v for k, v in body.items() if k in allowed and k not in problems})
     rejected = [k for k in body if k not in allowed or k in problems]
     return updates, rejected
