@@ -161,6 +161,7 @@ def _run_bootstrap(session_id: str, env: dict) -> tuple:
             "goals": (source.get("goals") or [])[:3],
             "findings": (source.get("findings") or [])[:5],
             "unknowns": (source.get("unknowns") or [])[:5],
+            "due": source.get("due") or [],
         }
         return bootstrap_data, project_context
     except json.JSONDecodeError:
@@ -806,6 +807,13 @@ def format_context(ctx: dict) -> str:
         return "  (No context available)"
 
     parts = []
+
+    if ctx.get("due"):
+        from empirica.data.due import ANSWERS, due_lines
+
+        parts.append(f"**Due** ({ANSWERS}; raise these before asking what to work on):")
+        parts += [f"  - {line}" for line in due_lines(ctx["due"])]
+        parts.append("")
 
     if ctx.get("goals"):
         parts.append("**Active Goals:**")

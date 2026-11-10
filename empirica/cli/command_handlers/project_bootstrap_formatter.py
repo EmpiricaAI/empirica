@@ -687,6 +687,18 @@ def _format_workspace_context_section(project_id, breadcrumbs):
         logger.debug("Workspace context hook failed: %s", ws_err)
 
 
+def _format_due_section(breadcrumbs: dict) -> None:
+    """Items whose due date has come, before the rest: each wants an answer."""
+    from empirica.data.due import ANSWERS, due_lines
+
+    items = breadcrumbs.get("due") or []
+    if not items:
+        return
+    print(f"\n⏰ Due ({ANSWERS}):")
+    for line in due_lines(items):
+        print(f"   - {line}")
+
+
 def _format_human_output(project_id, breadcrumbs, db, mco_config, workflow_suggestions):
     """Format and print the human-readable bootstrap output sections."""
     if mco_config:
@@ -707,6 +719,7 @@ def _format_human_output(project_id, breadcrumbs, db, mco_config, workflow_sugge
     if breadcrumbs.get("health_score"):
         _format_health_section(breadcrumbs["health_score"])
 
+    _format_due_section(breadcrumbs)
     _format_findings_section(breadcrumbs)
     _format_active_work_section(breadcrumbs)
 

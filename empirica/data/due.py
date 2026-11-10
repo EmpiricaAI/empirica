@@ -106,3 +106,15 @@ def due_fields(artifact_type: str, due_at: str | None, *, hint: bool) -> dict:
     if due_at:
         return {"due_at": due_at}
     return {"due_hint": missing_due_hint(artifact_type)} if hint else {}
+
+
+ANSWERS = "answer each: do it, snooze it (update-artifacts with a new due_at), or drop it (complete or resolve it)"
+
+
+def due_lines(items: list[dict]) -> list[str]:
+    """One line per due item, plus a count of what the cap left out. Shared by bootstrap and the SessionStart context."""
+    lines = [f"{i['type']} {str(i['id'])[:8]} ({i['due_at']}): {str(i['text'])[:100]}" for i in items]
+    more = items[-1].get("more") if items else None
+    if more:
+        lines.append(f"... and {more} more due")
+    return lines

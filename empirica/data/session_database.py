@@ -2306,6 +2306,14 @@ class SessionDatabase:
 
         # 6. Build and enrich project metadata
         breadcrumbs["project"] = self._enrich_project_from_yaml(self._build_project_metadata(project))
+        # Items whose due date has come (prop_bnviyv2epvg27kgmqycwlflshm): listed before anything else is asked.
+        try:
+            from empirica.data.due import due_items
+
+            breadcrumbs["due"] = due_items(self.conn, resolved_id)
+        except Exception as e:  # a bootstrap must not fail on its newest section; the warning says it was skipped
+            logger.warning(f"due items not read: {e}")
+            breadcrumbs["due"] = []
 
         if latest_handoff:
             breadcrumbs["latest_handoff"] = latest_handoff

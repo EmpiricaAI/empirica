@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -160,3 +161,62 @@ def test_an_unreadable_snooze_is_rejected_and_other_types_cannot_carry_a_date():
     assert filter_updates("goal", {"due_at": "later"}) == ({}, ["due_at"])
     assert "due_at" in value_problems("goal", {"due_at": "later"})
     assert filter_updates("finding", {"due_at": "2026-12-24"}) == ({}, ["due_at"])
+
+
+# ── the Due section: bootstrap JSON, the human bootstrap, and the SessionStart context ──────────────────────
+
+_HOOKS = Path(__file__).resolve().parents[1] / "empirica/plugins/claude-code-integration/hooks"
+
+
+@pytest.fixture(scope="module")
+def session_init():
+    import importlib.util
+    import sys
+
+    sys.path.insert(0, str(_HOOKS.parent / "lib"))
+    sys.path.insert(0, str(_HOOKS))
+    spec = importlib.util.spec_from_file_location("session_init_due", _HOOKS / "session-init.py")
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+    except SystemExit:
+        pass
+    return mod
+
+
+DUE = [
+    {"type": "goal", "id": "g1234567890", "text": "ship the thing", "due_at": "2026-11-01"},
+    {"type": "unknown", "id": "u1234567890", "text": "does X hold", "due_at": "2026-11-09", "more": 3},
+]
+
+
+def test_session_start_lists_due_items_first_with_the_three_answers(session_init):
+    text = session_init.format_context({"due": DUE, "goals": [{"objective": "other goal"}]})
+    assert text.index("**Due") < text.index("**Active Goals")
+    assert "goal g1234567 (2026-11-01): ship the thing" in text and "3 more" in text
+    assert "snooze" in text and "update-artifacts" in text and "drop" in text
+
+
+def test_session_start_says_nothing_about_due_when_nothing_is(session_init):
+    assert "Due" not in session_init.format_context({"due": [], "goals": [{"objective": "g"}]})
+
+
+def test_session_start_reads_due_from_the_bootstrap_breadcrumbs(session_init, monkeypatch):
+    import json as _json
+    import subprocess
+
+    payload = {"breadcrumbs": {"goals": [], "findings": [], "unknowns": [], "due": DUE}}
+    done = subprocess.CompletedProcess([], 0, stdout=_json.dumps(payload), stderr="")
+    monkeypatch.setattr(session_init.subprocess, "run", lambda *a, **k: done)
+    _, ctx = session_init._run_bootstrap("sid", {})
+    assert ctx["due"] == DUE
+
+
+def test_bootstrap_human_output_has_a_due_section(capsys):
+    from empirica.cli.command_handlers.project_bootstrap_formatter import _format_due_section
+
+    _format_due_section({"due": DUE})
+    out = capsys.readouterr().out
+    assert "Due" in out and "ship the thing" in out and "3 more" in out
+    _format_due_section({"due": []})
+    assert capsys.readouterr().out == ""
