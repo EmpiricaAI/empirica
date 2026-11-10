@@ -235,5 +235,7 @@ def test_goals_list_shows_the_due_date(tmp_path, monkeypatch):
     c.commit()
     c.close()
     result = _run_listing(db_path, monkeypatch, status="planned", all_projects=True)
+    assert isinstance(result, dict)
     goals = result["goals"]
+    assert isinstance(goals, list)
     assert [(g["goal_id"], g["due_at"]) for g in goals] == [("g-due", "2026-12-01")]
