@@ -122,19 +122,21 @@ on Linux and WSL2, launchd on macOS; it binds 127.0.0.1 only). Elsewhere, or wit
 `--no-local-server`, start it yourself with `empirica serve`. Each practice
 registers with it as `local.<you>.<practice>`, where `<you>` is
 `EMPIRICA_LOCAL_USER` or your login name, and `<practice>` is the practice's
-name in lowercase with anything other than letters, digits and hyphens turned
-into hyphens (`My_Research` is `my-research`). If the `[api]` extra is missing,
-provisioning says so and installs nothing; if a serve service is already
+name lowercased, each run of characters other than `a-z`, `0-9` and `-` turned
+into one hyphen (`My_Research` is `my-research`). If the `[api]` extra is
+missing, provisioning says so and installs nothing (when it can read which
+Python the service will run; otherwise the error names the extra once the
+server fails to start); if a serve service is already
 installed but does not answer (an older version still running, or another
 program on the port), it reports that rather than rewriting it.
 
-The server listens on port 8000 unless `EMPIRICA_SERVE_PORT` is set when it is
-installed, and every session finds it on the same variable. If you change the
-port, or set `EMPIRICA_LOCAL_USER`, the service and every place a session starts
-must agree: on Linux, `~/.config/environment.d/empirica.conf` reaches the
-service once you log in again, and your shell profile reaches terminals; on
-macOS, `launchctl setenv` reaches apps and services started after it, and your
-shell profile reaches terminals. From inside a practice:
+The server listens on port 8000. `EMPIRICA_SERVE_PORT` and
+`EMPIRICA_LOCAL_USER` change the port and your part of the address; leave them
+unset unless you need them. The service does not read a terminal's
+environment, so a value set only in your shell makes the two disagree (sessions
+cannot find the server, or their addresses are refused as outside its
+namespace). If you do set them, give the service the same values and restart
+it. From inside a practice:
 
 ```bash
 empirica mailbox send --to local.<you>.my-research --title "Question" --summary "..."

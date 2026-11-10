@@ -342,9 +342,10 @@ def _cwd_practice_ai_id() -> str | None:
         for d in [start, *start.parents]:
             f = d / ".empirica" / "project.yaml"
             if f.is_file():
-                value = (yaml.safe_load(f.read_text(encoding="utf-8")) or {}).get("ai_id")
-                # No ai_id: project-register sends the directory's name, so that is what the server knows it by.
-                return _address_slug(str(value) if value else d.name)
+                data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+                # No ai_id: the name project-register sends (display_name, else name, else the directory's).
+                value = data.get("ai_id") or data.get("display_name") or data.get("name") or d.name
+                return _address_slug(str(value))
     except Exception:
         return None
     return None

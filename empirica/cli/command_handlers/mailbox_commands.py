@@ -248,9 +248,11 @@ def _resolve_canonical_ai_id(cortex_url: str, api_key: str, local_ai_id: str | N
     # could return a canonical id belonging to someone else's seat.
     own_tenant = ((body.get("self") or {}).get("tenant_slug")) or ""
     # The local server registers `David_Research` as `david-research`; try the name as written, then as an address part.
-    from empirica.core.mesh_endpoint import slug
+    from empirica.core.mesh_endpoint import LOCAL_ORG, slug
 
-    exact_then_slug = [local_ai_id, slug(local_ai_id)]
+    # Only on the local server, which registers by slug; on Cortex a slug-only match could be another practice.
+    on_local = ((body.get("org") or {}).get("slug")) == LOCAL_ORG
+    exact_then_slug = [local_ai_id, slug(local_ai_id)] if on_local else [local_ai_id]
     rows = []
     for tenant in (body.get("org") or {}).get("tenants") or []:
         if not isinstance(tenant, dict) or (own_tenant and tenant.get("tenant_slug") != own_tenant):

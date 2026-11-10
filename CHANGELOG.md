@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **A first practice on a machine with no Cortex is addressed automatically:** org `local`, tenant `EMPIRICA_LOCAL_USER` or your login name, substrate `local`. This applies only when no tenant, org or substrate is given and none is inherited from the current practice.
+- **A first practice on a machine with no Cortex is addressed automatically:** org `local`, tenant `EMPIRICA_LOCAL_USER` or your login name, substrate `local`. This applies only when no tenant, org or substrate is given and none is inherited from the current practice; an address given by halves (`--org` alone) is asked for both.
 
 ### Fixed
 
@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **An explicit `--cortex-url` for another host** never receives the local server's token.
 - **`mailbox send`** refuses a `--payload` that is not a JSON object, and keeps your own `idempotency_key` or `"idempotent": false`.
 - **No duplicate wake lines** when the content poll runs beside the local server.
+- **A `credentials.yaml` that does not parse** no longer switches the local server's token check off: the server answers 503 until it is fixed, and clients treat it as no token.
 
 ### Docs
 

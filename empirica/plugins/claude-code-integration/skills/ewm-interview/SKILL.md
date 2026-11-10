@@ -153,7 +153,7 @@ Only on an affirmative:
 ```bash
 empirica provision-practice <name> \
   [--tenant <tenant> --org <org>] \
-  --cockpit-profile <name> \
+  --cockpit-profile <profile> \
   [--forgejo-owner <owner> --forgejo-host <ssh-url>] \
   [--no-cortex | --no-local-server]
 ```

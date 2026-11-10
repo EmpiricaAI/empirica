@@ -39,7 +39,7 @@ def configured_token() -> str | None:
     """The token this server requires (one definition, shared with the client: core/mesh_endpoint.py)."""
     from empirica.core.mesh_endpoint import configured_local_token
 
-    return configured_local_token()
+    return configured_local_token(strict=True)
 
 
 def _now() -> str:
@@ -217,8 +217,14 @@ def require_local_caller(request: Request) -> None:
 
 
 def require_token(request: Request) -> None:
-    """401 unless no token is configured or the bearer matches it (compared in constant time)."""
-    token = configured_token()
+    """401 unless no token is configured or the bearer matches it (compared in constant time). A credentials.yaml that
+    does not parse is 503, never "no token required": fail closed."""
+    from empirica.core.mesh_endpoint import LocalTokenUnreadable
+
+    try:
+        token = configured_token()
+    except LocalTokenUnreadable as e:
+        raise HTTPException(status_code=503, detail=f"cannot tell whether a token is required: {e}") from e
     if not token:
         return
     given = request.headers.get("authorization", "")
@@ -310,6 +316,7 @@ def _project_routes(r, ctx: _Ctx, auth) -> None:
 def _mailbox_read_routes(r, ctx: _Ctx, auth) -> None:
     def listing(kind: str, ai_id: str, status: str | None, since: str | None, limit: int | None) -> dict:
         # A bare name is not an address: the contract says it returns nothing, not a guess.
+        ai_id = canon_address(ai_id)
         rows = getattr(ctx.store(), kind)(ai_id) if ai_id.count(".") >= 2 else []
         return _page(_filter(rows, status, since), limit)
 
@@ -336,7 +343,7 @@ def address_problem(body: dict) -> JSONResponse | None:
     prefix = mesh_prefix() + "."
     source = str(body.get("source_claude") or "")
     targets = [str(t) for t in body.get("target_claudes") or []]
-    bare = [a for a in [source, *targets] if a and a.count(".") < 2]
+    bare = [a for a in [source, *targets] if a and (a.count(".") < 2 or not a.rsplit(".", 1)[-1].strip())]
     if bare:
         return refuse("addresses must be the canonical 3-form org.tenant.practice", 400, addresses=bare)
     if source and not source.startswith(prefix):
@@ -346,20 +353,23 @@ def address_problem(body: dict) -> JSONResponse | None:
     return None
 
 
+def canon_address(address):
+    """An address with its practice part slugged, as this server registers practices. One rule for every address the
+    server reads (propose, inbox and outbox, complete, archive): slugging only at propose left a raw-typed address unable
+    to poll, ack or archive what it sent or received (1.15.1, second and third passes)."""
+    if not isinstance(address, str) or address.count(".") < 2:
+        return address
+    head, practice = address.rsplit(".", 1)
+    return f"{head}.{_slug(practice)}"
+
+
 def canonical_addresses(body: dict) -> dict:
-    """The body with each address's practice part slugged, as this server registers practices: a message typed to
-    `local.dana.David_Research` reaches `david-research`'s inbox and wakes its session (1.15.1 second pass, S2)."""
-
-    def canon(address):
-        if not isinstance(address, str) or address.count(".") < 2:
-            return address
-        head, practice = address.rsplit(".", 1)
-        return f"{head}.{_slug(practice)}"
-
+    """The body with source and targets canonical: a message typed to `local.dana.David_Research` reaches
+    `david-research`'s inbox and wakes its session."""
     out = dict(body)
     if out.get("source_claude"):
-        out["source_claude"] = canon(out["source_claude"])
-    out["target_claudes"] = [canon(t) for t in out.get("target_claudes") or []]
+        out["source_claude"] = canon_address(out["source_claude"])
+    out["target_claudes"] = [canon_address(t) for t in out.get("target_claudes") or []]
     return out
 
 
@@ -391,7 +401,7 @@ def _mailbox_write_routes(r, ctx: _Ctx, auth) -> None:
         current = ctx.store().get(proposal_id)
         if current is None:
             return refuse("not found", 404)
-        acker = body.get("ai_id") or (current.distinct_targets() or [""])[0]
+        acker = canon_address(body.get("ai_id")) or (current.distinct_targets() or [""])[0]
         if acker not in current.distinct_targets():
             return refuse("only a target of this proposal can complete it", 403, targets=current.distinct_targets())
         if current.status in TERMINAL_STATUSES:
@@ -427,7 +437,7 @@ def _mailbox_archive_route(r, ctx: _Ctx, auth) -> None:
         current = ctx.store().get(proposal_id)
         if current is None:
             return refuse("not found", 404)
-        ai_id = body.get("ai_id") or (current.distinct_targets() or [""])[0]
+        ai_id = canon_address(body.get("ai_id")) or (current.distinct_targets() or [""])[0]
         if ai_id not in (*current.distinct_targets(), current.source_claude):
             return refuse("only a target or the source can archive its copy", 403)
         _, already = ctx.store().archive(proposal_id, ai_id)

@@ -118,7 +118,7 @@ def test_a_practice_name_with_capitals_finds_its_slugged_roster_row():
 
     roster = {
         "self": {"tenant_slug": "dana"},
-        "org": {"tenants": [{"tenant_slug": "dana", "projects": [
+        "org": {"slug": "local", "tenants": [{"tenant_slug": "dana", "projects": [
             {"slug": "david-research", "ai_id_short": "david-research", "ai_id_mesh": "local.dana.david-research"}
         ]}]},
     }  # fmt: skip
@@ -141,3 +141,12 @@ def test_an_exact_roster_match_wins_over_a_slug_only_one():
     get = lambda url, key, t: (200, roster)  # noqa: E731
     assert _resolve_canonical_ai_id("u", "k", "Research", get) == "local.dana.Research"
     assert _resolve_canonical_ai_id("u", "k", "research", get) == "local.dana.research"
+
+
+def test_on_cortex_a_slug_only_match_is_not_taken():
+    """Third pass: on Cortex, `my_project` falling back to a distinct `my-project` would send and poll as the wrong one."""
+    from empirica.cli.command_handlers.mailbox_commands import _resolve_canonical_ai_id
+
+    roster = {"self": {"tenant_slug": "david"}, "org": {"slug": "empirica", "tenants": [{"tenant_slug": "david",
+              "projects": [{"slug": "my-project", "ai_id_mesh": "empirica.david.my-project"}]}]}}  # fmt: skip
+    assert _resolve_canonical_ai_id("u", "k", "my_project", lambda url, key, t: (200, roster)) is None

@@ -168,3 +168,12 @@ def test_the_installed_but_silent_hint_names_no_platform_tool(ran, monkeypatch, 
     monkeypatch.setattr(pp, "_serve_unit_installed", lambda: True)
     step = pp._local_server_step(_args(), tmp_path, dry_run=False)
     assert "systemctl" not in step["hint"] and "--no-local-server" in step["hint"]
+
+
+def test_uv_and_long_path_pip_launchers_are_read(tmp_path):
+    """Third pass D3: uv single-quotes the path in the sh trick; pip leaves a long path without a space unquoted."""
+    q3 = "'" * 3
+    uv = "#!/bin/sh\n" + q3 + 'exec\' \'/opt/a b/python3\' "$0" "$@"\n'
+    pip_long = "#!/bin/sh\n" + q3 + 'exec\' /very/long/bin/python3.14 "$0" "$@"\n'
+    assert pp._launcher_python(_launcher(tmp_path, "uv", uv)) == "/opt/a b/python3"
+    assert pp._launcher_python(_launcher(tmp_path, "pip", pip_long)) == "/very/long/bin/python3.14"

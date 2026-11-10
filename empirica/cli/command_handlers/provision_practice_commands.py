@@ -65,14 +65,15 @@ def _wait_for_local_server(seconds: float = 20.0) -> bool:
     return False
 
 
-_SH_TRICK = re.compile(r"^'''exec' \"([^\"]+)\"")
+_SH_TRICK = re.compile(r"""^'{3}exec' (?:"([^"]+)"|'([^']+)'|(\S+))""")  # pip: "path" or bare; uv: single quotes
 
 
 def _launcher_python(exe: str) -> str | None:
     """The Python a console-script launcher runs, or None when it cannot be told.
 
     Three shapes: ``#!/path/python`` (and ``#!/usr/bin/env python3``); pip's and uv's ``#!/bin/sh`` trick for an interpreter
-    path with a space or over 127 characters, whose second line is three single quotes, ``exec' "/path/python" "$0" "$@"``;
+    path with a space or over 127 characters, whose second line is three single quotes, ``exec'`` and the path (double-quoted
+    or bare from pip, single-quoted from uv);
     and anything else (a pyenv or asdf bash shim, a compiled launcher, ``env -S``), which is None. Running a non-Python
     program with ``-c "import fastapi, uvicorn"`` reported working installs as missing the extra (1.15.1 second pass, D1)."""
     try:
@@ -89,8 +90,9 @@ def _launcher_python(exe: str) -> str | None:
         return parts[0]
     if parts and os.path.basename(parts[0]) == "sh" and len(head) > 1:
         m = _SH_TRICK.match(head[1])
-        if m and os.path.basename(m.group(1)).startswith("python"):
-            return m.group(1)
+        path = next((g for g in m.groups() if g), None) if m else None
+        if path and os.path.basename(path).startswith("python"):
+            return path
     return None
 
 
@@ -154,8 +156,11 @@ def _local_server_step(args, proj_dir: Path, dry_run: bool) -> dict:
         return {
             **step,
             "error": f"the serve service is installed but nothing answers as the local server at {_local_url()}",
-            "hint": "check `empirica serve-service status`: an older serve may still be running (`empirica serve-service "
-            "uninstall`, then provision again), or another program holds the port. `--no-local-server` skips this step",
+            "hint": "check `empirica serve-service status` and its log. An older serve may still be running: "
+            "`empirica serve-service uninstall`, then provision again. If another program uses the port, stop it or "
+            "pick another port with EMPIRICA_SERVE_PORT first (the service stops whatever holds its port when it "
+            "starts). If the log says uvicorn or fastapi is missing, install `empirica[api]`. `--no-local-server` "
+            "skips this step",
         }
     missing = _api_extra_missing()
     if missing:
@@ -184,7 +189,8 @@ def _local_server_step(args, proj_dir: Path, dry_run: bool) -> dict:
         **step,
         "changed": True,
         "error": "installed the serve service, but the local server did not answer",
-        "hint": "check `empirica serve-service status` and its log",
+        "hint": "check `empirica serve-service status` and its log; if it says uvicorn or fastapi is missing, install "
+        "`empirica[api]`",
     }
 
 

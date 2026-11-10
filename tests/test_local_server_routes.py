@@ -302,3 +302,31 @@ def test_a_message_typed_to_the_unslugged_name_reaches_the_practice_and_wakes_it
     assert inbox["proposals"][0]["source_claude"] == f"{ME}.my-coordinator"
     fires = (tmp_path / ".empirica" / "loop_fires.log").read_text()
     assert '"instance_id": "david-research"' in fires and "David_Research" not in fires
+
+
+def test_a_raw_typed_address_can_poll_ack_and_archive(client):
+    """Third pass D1: slugging only at propose left `My_Coord` unable to see its outbox and `David_Research` unable to
+    see, complete or archive its inbox. One rule for every address the server reads."""
+    pid = _send(client, targets=(f"{ME}.David_Research", f"{ME}.other"), source=f"{ME}.My_Coord").json()["proposal_id"]
+    assert len(client.get("/v1/orchestration/outbox", params={"ai_id": f"{ME}.My_Coord"}).json()["proposals"]) == 1
+    assert len(client.get("/v1/orchestration/inbox", params={"ai_id": f"{ME}.David_Research"}).json()["proposals"]) == 1
+    done = client.post(f"/v1/orchestration/{pid}/complete", json={"ai_id": f"{ME}.David_Research", "result": "shipped"})
+    assert done.status_code == 200, done.text
+    arch = client.post(f"/v1/orchestration/{pid}/archive", json={"ai_id": f"{ME}.My_Coord", "reason": "done"})
+    assert arch.status_code == 200, arch.text
+
+
+def test_an_address_with_no_practice_part_is_refused_not_delivered_to_user(client):
+    resp = _send(client, targets=(f"{ME}.",))
+    assert resp.status_code == 400
+    assert client.get("/v1/orchestration/inbox", params={"ai_id": f"{ME}.user"}).json()["proposals"] == []
+
+
+def test_a_broken_credentials_file_fails_closed(client, tmp_path):
+    """Third pass D2: a YAML error anywhere in credentials.yaml read as "no token required" and let every request in."""
+    (tmp_path / ".empirica").mkdir(exist_ok=True)
+    (tmp_path / ".empirica" / "credentials.yaml").write_text("local_server_token: s3cret\ncortex: [unclosed\n")
+    resp = client.get("/v1/orchestration/inbox", params={"ai_id": f"{ME}.b"})
+    assert resp.status_code == 503 and "token" in resp.text
+    (tmp_path / ".empirica" / "credentials.yaml").write_text("local_server_token: s3cret\n")
+    assert client.get("/v1/orchestration/inbox", params={"ai_id": f"{ME}.b"}).status_code == 401  # control

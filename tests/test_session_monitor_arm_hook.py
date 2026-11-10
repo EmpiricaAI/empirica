@@ -734,3 +734,13 @@ def test_the_local_block_has_no_arm_command_and_says_the_log_keeps_the_gap():
     assert "then the arm command again" not in block and "not recorded at all" not in block
     control = _load_local_hook()._build_monitor_block_from_cli({"status": "persistent_service_tail_session"}, "p")
     assert "then the arm command again" in control  # the listener path keeps its wording
+
+
+def test_without_ai_id_the_registered_name_is_used(monkeypatch, tmp_path):
+    """Third pass: project-register sends display_name, else name, else the directory's name."""
+    mod = _load_local_hook()
+    practice = tmp_path / "dir_name"
+    (practice / ".empirica").mkdir(parents=True)
+    (practice / ".empirica" / "project.yaml").write_text("name: My Research\n")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(practice))
+    assert mod._cwd_practice_ai_id() == "my-research"
