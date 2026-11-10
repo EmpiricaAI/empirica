@@ -63,8 +63,7 @@ def handle(payload: dict, pw) -> str:
     if pane is None:
         return ""
     if event == "PermissionRequest":
-        owner = pw.owner_of(payload)
-        return "marked" if pw.set_waiting(pane, pw.label_for(payload.get("tool_name")), owner) else ""
+        return "marked" if pw.set_waiting(pane, pw.label_for(payload.get("tool_name"))) else ""
     if event == "Notification" and payload.get("notification_type") in NOTIFY_TYPES:
         label = pw.waiting_label(pane)
         if label is None:

@@ -1023,10 +1023,10 @@ def _only_pane_error(
 
 def _waiting_flag(pane_id: str, socket: str) -> Path:
     """The pane's waiting-mark flag, named as hooks/pane_waiting.py's flag_name names it (a test keeps them equal)."""
-    import hashlib
+    import zlib
 
     number = pane_id[1:]
-    name = f"{hashlib.sha1(socket.encode()).hexdigest()[:8]}_{number}" if socket else number
+    name = f"{zlib.crc32(socket.encode()):08x}_{number}" if socket else number
     return Path.home() / ".empirica" / "pane_waiting" / name
 
 

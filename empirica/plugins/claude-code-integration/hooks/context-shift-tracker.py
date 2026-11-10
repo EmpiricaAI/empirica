@@ -358,12 +358,11 @@ def _refresh_presence(claude_session_id):
         pass
 
 
-def _clear_pane_waiting(payload: dict | None = None) -> None:
+def _clear_pane_waiting() -> None:
     """Clear this cockpit pane's waiting mark, if one is set (pane_waiting.py beside this hook). One stat when none is.
 
     Claude Code has no hook for a permission dialog or a question being answered, so whatever the pane does next clears it. The
-    same function is copied into each hook that clears; tests/test_cockpit_pane_waiting.py keeps the copies identical. A tool
-    hook passes its payload, so a parallel call finishing does not clear another call's dialog."""
+    same function is copied into each hook that clears; tests/test_cockpit_pane_waiting.py keeps the copies identical."""
     import os
     from pathlib import Path
 
@@ -371,10 +370,10 @@ def _clear_pane_waiting(payload: dict | None = None) -> None:
     if not pane.startswith("%"):
         return
     try:
-        import hashlib
+        import zlib  # not hashlib: 1.8 ms to import on every hook call, against 0.05 ms
 
         sock = os.environ.get("TMUX", "").split(",")[0]  # per tmux server: pane numbers repeat across servers
-        name = f"{hashlib.sha1(sock.encode()).hexdigest()[:8]}_{pane[1:]}" if sock else pane[1:]
+        name = f"{zlib.crc32(sock.encode()):08x}_{pane[1:]}" if sock else pane[1:]
         if not (Path.home() / ".empirica" / "pane_waiting" / name).exists():  # inside the try: a stat can raise
             return
         import importlib.util
@@ -385,7 +384,7 @@ def _clear_pane_waiting(payload: dict | None = None) -> None:
         if spec is not None and spec.loader is not None:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            module.clear_if_waiting(pane, payload)
+            module.clear_if_waiting(pane)
     except Exception:
         pass
 
