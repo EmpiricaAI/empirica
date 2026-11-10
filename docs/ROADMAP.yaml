@@ -125,13 +125,18 @@ items:
   - id: wake-default
     title: Wake service on by default
     prediction: The wake service stops being opt-in once a few weeks of live use show no wake into a busy pane.
-    confidence: 0.35
+    confidence: 0.3
     evidence: measured
     basis: It passed a live trial on two seats and refuses busy panes, drafts and dialogs. Open edge cases are an image-only prompt that can read as blank and a spinner scrolled out of view that reads as idle.
     falsifier: A report of a wake that interrupted a running turn or submitted a half-typed draft.
-    horizon: "1.15.0"
+    horizon: "1.16.0"
     steered: false
     status: predicted
+    revisions:
+      - "on": "2026-11-10"
+        from: 0.35
+        to: 0.3
+        reason: Not worked on by its 1.15.0 horizon. The release went to the local server, due dates, the Sentinel default and two review sweeps, and the wake service is still opt-in. The horizon moves to 1.16.0 and the confidence drops, because a prediction that misses its horizon was over-confident about when.
 
   - id: multi-runner-test-evidence
     title: Two test runners keep both reports
@@ -168,7 +173,8 @@ items:
     falsifier: On the release that claims it, a fresh session's first file edit outside a transaction is refused, or the act budget cannot be set from the config file, an environment variable and a command-line flag.
     horizon: "1.15.0"
     steered: true
-    status: predicted
+    status: shipped
+    resolved_in: "1.15.0"
 
   - id: empirica-local
     title: A local single-user server
@@ -179,4 +185,5 @@ items:
     falsifier: On the release that claims it, a local server is not installable with core alone, or a request that needs a second user or organisation is answered with anything other than a not-supported error.
     horizon: "1.15.0"
     steered: true
-    status: predicted
+    status: shipped
+    resolved_in: "1.15.0"

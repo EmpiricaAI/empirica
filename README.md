@@ -438,20 +438,19 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.14.23
+## What's New in 1.15.0
 
-- **Empirica can be installed into one repository only.** `empirica setup --scope project` writes nothing under `~/.claude`; the machine-wide install stays the default, and both are removed with `--uninstall`, then `--apply`.
-- **Every practice has instructions of its own** from its first session: a generated facts file, and a `CLAUDE.md` started for a new practice and grown by approved changes.
-- **The cockpit shows which practice is waiting on you,** with a desktop notification, and `refresh` resumes each pane's own conversation by id.
-- **The Sentinel has an opt-in discipline mode:** small file edits inside a practice may run without a transaction, up to a budget you set; everything else still needs one.
-- **Keyword matchers stop firing on look-alike text,** in the uninstall, the Sentinel, the decision record, the failure filter and the prompt hints, each with tests of what it must not match.
+- **Discipline is the Sentinel's default mode.** Outside a transaction, a few small file edits inside the practice run without one and are declared at the next PREFLIGHT; everything else still needs one. `empirica sentinel mode strict` keeps the old behaviour.
+- **empirica-local: the Cortex API from your own machine.** On a loopback bind, `empirica serve` answers the Cortex routes one person needs, from your practice registry, and says plainly that anything crossing a user or organisation boundary is not available. Cortex's conformance suite passes against it.
+- **Due dates on goals, unknowns and assumptions.** `--due 2026-12-01`, `+7d` or `+2w`; due items open the bootstrap and the session-start context, each answered by doing, snoozing or dropping it.
+- **The prompt router is four times faster:** about 940 ms to about 230 ms per prompt, with the same results.
 
-All 13 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 11 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.14.23** — Empirica can be installed into one repository only. `empirica setup --scope project` writes nothing under `~/.claude`; the machine-wide install stays the d…
 - **1.14.22** — The cockpit has bars. Practices and their health are on top; under each pane is a line of commands, red when something is broken and orange when something…
-- **1.14.21** — `empirica-mcp` is removed, and the CLI is the one integration surface. All 79 of its tools ran the `empirica` CLI as a subprocess (69 distinct verbs), the…
 
 ## What's Coming
 
@@ -460,12 +459,10 @@ Empirica's own forecast, made in 1.14.14 from its open work, the demand it has m
 | Direction | Confidence | Why we expect it | What would change our mind |
 |---|---|---|---|
 | **Listener memory stays flat**: Within three releases a listener's memory stops growing with uptime, and a dead notification stream is restarted. | 50% (reported, planned) | Operators of long-running listeners report about 30 MB an hour in one case and over 1 GB at 29 hours in another, with a stream process that was not respawned after a drop. We have not yet reproduced it on a fresh unit. From 1.14.20 the listener logs its memory next to its activity, so the growth can be attributed, and a quiet stream that drops no longer waits five minutes with no stream process. | On a release that claims the fix, a listener's memory grows by more than 50 MB between hour 4 and hour 24 of uptime. |
-| **The Sentinel becomes a discipline layer**: By 1.15.0 the Sentinel's default mode lets trivial work run without a loop up to a budget you set, and records it, while plan-shaped work and outward acts always need one. | 50% (reviewed, planned) | The design is accepted. A bash allowlist of about 900 entries keeps refusing honest reads, and CHECK confidence predicts later trouble only weakly (AUROC 0.587 over 4,508 CHECKs on 12 practices). Hooks before and after a command already exist, but read tracking was retired in September, so read-before-write is new work, and nothing added to the hot path has been timed yet. | On the release that claims it, a fresh session's first file edit outside a transaction is refused, or the act budget cannot be set from the config file, an environment variable and a command-line flag. |
 | **Restarted cockpit panes rejoin the mesh unprompted**: After a cockpit restart by launch or by refresh, resumed sessions re-arm their listener and catch up on mail without anyone typing, using the wake and inbox poll added in 1.14.14. | 40% (reported, planned) | Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. As of 1.14.19 cockpit refresh wakes each resumed claude pane once it is idle, which gives it the turn that arms the listener; that is tested with fakes and has not been measured on a live cockpit. The one live restart measured since (0 of 6 resumed panes armed before a human prompt) was a kill-server then launch, so the refresh wake never ran, and the listener wake service was off on every unit, so it grades neither. Launch gets the same wake as refresh in 1.14.22, tested with fakes, not yet measured on a live cockpit. | After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later. |
-| **A local single-user server**: By 1.15.0 a single-user local server answers the Cortex API from your own practice registry, and says plainly that anything crossing a user or organisation boundary is not supported. | 40% (reported, planned) | Specified in the Cortex repository, not built. Core's part is one definition of the practice registry (today two code paths define it and the live table carries a legacy default) and a list of every capability that crosses an identity boundary. Neither is done. | On the release that claims it, a local server is not installable with core alone, or a request that needs a second user or organisation is answered with anything other than a not-supported error. |
-| **Wake service on by default**: The wake service stops being opt-in once a few weeks of live use show no wake into a busy pane. | 35% (measured) | It passed a live trial on two seats and refuses busy panes, drafts and dialogs. Open edge cases are an image-only prompt that can read as blank and a spinner scrolled out of view that reads as idle. | A report of a wake that interrupted a running turn or submitted a half-typed draft. |
+| **Wake service on by default**: The wake service stops being opt-in once a few weeks of live use show no wake into a busy pane. | 30% (measured) | It passed a live trial on two seats and refuses busy panes, drafts and dialogs. Open edge cases are an image-only prompt that can read as blank and a spinner scrolled out of view that reads as idle. | A report of a wake that interrupted a running turn or submitted a half-typed draft. |
 
-Forecast record: 5 shipped (0 of them not on the plan when predicted), 0 dropped, 0 retracted, 0 superseded so far.
+Forecast record: 7 shipped (0 of them not on the plan when predicted), 0 dropped, 0 retracted, 0 superseded so far.
 
 ## Privacy & Data
 
