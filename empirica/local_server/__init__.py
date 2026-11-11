@@ -68,9 +68,12 @@ def health_document() -> dict:
 
 def _services() -> dict:
     """The local semantic layer this server holds, for clients choosing where to send vectors (goal db2cf3fa)."""
-    from empirica.local_server import vectors
+    from empirica.local_server import embedder, vectors
 
-    return {"vectors": "/qdrant" if vectors.available() else None}
+    return {
+        "vectors": "/qdrant" if vectors.available() else None,
+        "embeddings": "/ollama" if embedder.available() else None,
+    }
 
 
 def _wake_health() -> dict:
@@ -95,6 +98,12 @@ def router():
         from fastapi import Depends
 
         vectors.register(r, [Depends(api.require_local_caller)])
+    from empirica.local_server import embedder
+
+    if embedder.available():  # the semantic layer's model (goal db2cf3fa); absent without fastembed
+        from fastapi import Depends
+
+        embedder.register(r, [Depends(api.require_local_caller)])
 
     @r.get("/v1/health")
     @r.get("/health")

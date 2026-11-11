@@ -130,6 +130,7 @@ MODEL_DIMENSIONS = {
     "voyage-code-3": 1024,  # Code-optimized
     "voyage-finance-2": 1024,  # Finance domain
     "voyage-multilingual-2": 1024,  # Multilingual
+    "multilingual-e5-small": 384,  # served by empirica serve on a machine with no Ollama (db2cf3fa)
     # Local
     "hash-1536": 1536,
 }
