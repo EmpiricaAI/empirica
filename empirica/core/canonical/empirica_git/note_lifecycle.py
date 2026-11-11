@@ -60,6 +60,26 @@ def _git(args: list[str], project_path: str | None, input: str | None = None) ->
         return None
 
 
+def note_target(note_ref: str, workspace_root: str | None) -> str:
+    """The commit to write ``note_ref``'s note on: the commit its current note is attached to, else HEAD.
+
+    ``git notes add -f <commit>`` replaces only the note on that commit. A rewrite at HEAD after HEAD has moved left a second
+    note under the ref, and readers take whichever ``git notes list`` prints first, so a rebuild could restore the old state
+    (1.16.0 sweep; goal_store._note_commit fixed it for goals). Raises CalledProcessError when there is no HEAD, as the
+    callers' own ``rev-parse HEAD`` did."""
+    listed = subprocess.run(
+        ["git", "notes", f"--ref={note_ref}", "list"], cwd=workspace_root, capture_output=True, text=True, timeout=10
+    )
+    if listed.returncode == 0 and listed.stdout.strip():
+        parts = listed.stdout.strip().splitlines()[0].split()
+        if len(parts) >= 2:
+            return parts[1]
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=workspace_root, capture_output=True, text=True, check=True, timeout=10
+    )
+    return head.stdout.strip()
+
+
 def active_ref(artifact_type: str, artifact_id: str) -> str:
     return f"{ACTIVE_PREFIX}/{artifact_type}/{artifact_id}"
 

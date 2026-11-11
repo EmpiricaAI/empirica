@@ -151,12 +151,11 @@ class GitUnknownStore:
 
             payload_json = json.dumps(payload, indent=2)
 
-            result = subprocess.run(
-                ["git", "rev-parse", "HEAD"], cwd=self.workspace_root, capture_output=True, text=True, check=True
-            )
-            commit_hash = result.stdout.strip()
-
             note_ref = f"empirica/unknowns/{unknown_id}"
+            # Rewrite where the current note lives, not at HEAD: a second note on a newer commit forks the ref (1.16.0 sweep).
+            from empirica.core.canonical.empirica_git.note_lifecycle import note_target
+
+            commit_hash = note_target(note_ref, self.workspace_root)
             subprocess.run(
                 ["git", "notes", f"--ref={note_ref}", "add", "-f", "-F", "-", commit_hash],
                 input=payload_json,

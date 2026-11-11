@@ -187,6 +187,10 @@ def updatable_fields(artifact_type: str) -> set[str]:
 GOAL_STATUSES: tuple[str, ...] = ("planned", "in_progress", "blocked", "completed", "abandoned")
 
 
+ASSUMPTION_STATUSES = ("unverified", "verified", "falsified")
+DECISION_OUTCOMES = ("upheld", "reversed", "mixed")
+
+
 def value_problems(artifact_type: str, body: dict) -> dict[str, str]:
     """Why a correctable field's VALUE is not legal, per field (empty when every value is fine).
 
@@ -210,6 +214,19 @@ def value_problems(artifact_type: str, body: dict) -> dict[str, str]:
             problems[field] = f"{value!r} is not a number from 0 to 1"
         elif artifact_type == "goal" and field == "status" and value not in GOAL_STATUSES:
             problems[field] = f"{value!r} is not one of {', '.join(GOAL_STATUSES)}"
+        elif artifact_type == "assumption" and field == "status" and value not in ASSUMPTION_STATUSES:
+            problems[field] = f"{value!r} is not one of {', '.join(ASSUMPTION_STATUSES)}"
+        elif (
+            artifact_type == "decision" and field == "outcome" and value is not None and value not in DECISION_OUTCOMES
+        ):
+            # A rebuild reads only these back, so any other word was stored, restamped, then lost (1.16.0 sweep).
+            problems[field] = f"{value!r} is not one of {', '.join(DECISION_OUTCOMES)}"
+        elif (
+            field == "regret_score"
+            and value is not None
+            and (isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1)
+        ):
+            problems[field] = f"{value!r} is not a number from 0 to 1"
         elif field == "due_at" and value is not None:
             from empirica.data.due import DueDateError, parse_due
 
@@ -225,6 +242,9 @@ def sibling_updates(artifact_type: str, updates: dict, now: float) -> dict:
     if artifact_type == "goal" and "status" in updates:
         done = updates["status"] == "completed"
         return {"is_completed": 1 if done else 0, "completed_timestamp": now if done else None}
+    if artifact_type == "decision" and "outcome" in updates:
+        # The assessment and when it was made are one fact, as resolve-artifacts writes them.
+        return {"outcome_assessed_at": now if updates["outcome"] is not None else None}
     return {}
 
 

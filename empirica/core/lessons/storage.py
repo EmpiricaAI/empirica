@@ -1556,8 +1556,9 @@ _storage: LessonStorageManager | None = None
 def _try_get_qdrant_client():
     """The Qdrant client every empirica writer resolves, or None when no store answers.
 
-    It used to read only ``EMPIRICA_QDRANT_URL`` and a server on 6333, so lessons missed the per-org resolver a Cortex
-    seat installs and the local server's store on a machine with no Cortex (goal 6f1e9bb6).
+    It used to read only ``EMPIRICA_QDRANT_URL`` and a server on 6333, so lessons missed the local server's store on a
+    machine with no Cortex (goal 6f1e9bb6). Lessons span practices, so no project id is passed and the per-org resolver
+    is not asked: a Cortex seat that routes Qdrant per organisation needs ``EMPIRICA_QDRANT_URL`` for lessons.
     """
     try:
         from empirica.core.qdrant import connection

@@ -78,3 +78,19 @@ def test_without_a_local_model_auto_still_falls_back_to_hashed(monkeypatch, no_6
     monkeypatch.setattr(emb, "_check_ollama_available", lambda url: False)
     monkeypatch.setattr(emb, "_load_config_file", lambda: {})
     assert emb.EmbeddingsProvider().provider == "local"
+
+
+def test_ollama_down_with_a_configured_store_does_not_switch_to_the_local_model(monkeypatch, no_6333):
+    # The local model's 384-d vectors belong in the local store only. With a configured Qdrant (here the env; a server on
+    # 6333 or Cortex's resolver alike) holding 1024-d collections, a short Ollama outage at process start switched to the
+    # local model: searches failed and create-first writers made 384-d collections there (1.16.0 sweep).
+    import empirica.core.qdrant.embeddings as emb
+
+    _health(monkeypatch, HEALTH)
+    monkeypatch.setenv("EMPIRICA_QDRANT_URL", "http://cortex-qdrant.example:6333")
+    monkeypatch.delenv("EMPIRICA_EMBEDDINGS_PROVIDER", raising=False)
+    monkeypatch.delenv("EMPIRICA_EMBEDDINGS_MODEL", raising=False)
+    monkeypatch.setattr(emb, "_check_ollama_available", lambda url: False)
+    monkeypatch.setattr(emb, "_load_config_file", lambda: {})
+    p = emb.EmbeddingsProvider()
+    assert p.model != "multilingual-e5-small" and p.provider == "local", (p.provider, p.model)

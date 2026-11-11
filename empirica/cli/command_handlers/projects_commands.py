@@ -1194,6 +1194,37 @@ def _link_user_to_project(
     return {"linked": False, "status": status, "reason": f"http {status}"}
 
 
+def _manifest_project_id(path) -> str | None:
+    """``project_id`` from ``<path>/.empirica/project.yaml``, or None when there is no readable one."""
+    if not path:
+        return None
+    try:
+        import yaml
+
+        data = yaml.safe_load((Path(path) / ".empirica" / "project.yaml").read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return None
+    pid = data.get("project_id") if isinstance(data, dict) else None
+    return str(pid) if pid else None
+
+
+def _register_payload(project: dict[str, Any], force_metadata_update: bool) -> dict[str, Any]:
+    """The register body for one practice from the bulk manifest."""
+    payload: dict[str, Any] = {"name": project["name"]}
+    own_id = project.get("project_id") or _manifest_project_id(project.get("path"))
+    if own_id:
+        # Register under the id the practice already uses, as the single path does: without it the server minted one, and
+        # a later single register of the same practice met its own minted id as a 409 slug_taken (1.16.0 sweep).
+        payload["project_id"] = own_id
+    if project.get("repo_url"):
+        payload["repo_url"] = project["repo_url"]
+    if project.get("name"):
+        payload["display_name"] = project["name"]
+    if force_metadata_update:
+        payload["force_metadata_update"] = True
+    return payload
+
+
 def _register_one_project(
     project: dict[str, Any],
     cortex_url: str,
@@ -1217,13 +1248,7 @@ def _register_one_project(
     `_link_user_to_project` docstring). The link is best-effort; failure
     there does not flip the register outcome.
     """
-    payload: dict[str, Any] = {"name": project["name"]}
-    if project.get("repo_url"):
-        payload["repo_url"] = project["repo_url"]
-    if project.get("name"):
-        payload["display_name"] = project["name"]
-    if force_metadata_update:
-        payload["force_metadata_update"] = True
+    payload = _register_payload(project, force_metadata_update)
 
     # Try the public register path first; fall back to admin on 404/405
     register_result: dict[str, Any] | None = None

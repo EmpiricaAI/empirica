@@ -146,3 +146,19 @@ def test_bulk_register_reports_the_suggested_name(monkeypatch):
     )
     out = pc._register_one_project({"name": "demo"}, "http://x", "k", 1.0)
     assert out["outcome"] == "failed" and out.get("existing_id") == "x" and out.get("suggested") == "demo-2"
+
+
+def test_bulk_register_sends_the_practice_id_from_its_manifest(monkeypatch, tmp_path):
+    # Without it the server minted an id, and a later single register of the same practice met that id as a 409 (1.16.0 sweep).
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / "project.yaml").write_text(f"name: demo\nproject_id: {UUID}\n")
+    sent = {}
+
+    def post(url, path, payload, *a, **k):
+        sent.update(payload)
+        return 201, {"project_id": UUID}
+
+    monkeypatch.setattr(pc, "_post_project", post)
+    monkeypatch.setattr(pc, "_link_user_to_project", lambda *a, **k: {"ok": True}, raising=False)
+    pc._register_one_project({"name": "demo", "path": str(tmp_path)}, "http://x", "k", 1.0)
+    assert sent.get("project_id") == UUID

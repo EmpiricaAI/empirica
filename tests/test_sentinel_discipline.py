@@ -804,6 +804,17 @@ def test_a_patch_that_adds_and_updates_files_inside_the_practice_is_trivial(home
         (("*** Add File: pyproject.toml", "+x"), "outside_write"),
         (("*** Add File: notes/ok.md", "+x", "*** Update File: /etc/hosts", "@@", "-a", "+b"), "outside_write"),
         (("not a header",), "unknown"),
+        # Codex trims each line before matching a header (streaming_parser.rs, process_line), so an indented header is a
+        # header (1.16.0 sweep): a delete or an outside write hidden behind a leading space or tab.
+        (("*** Add File: notes/a.md", "+hi", " *** Delete File: src/x.py"), "delete"),
+        (("*** Add File: notes/a.md", "+hi", "\t*** Add File: /etc/evil", "+x"), "outside_write"),
+        (("*** Add File: notes/a.md", "+hi", "  *** Update File: ../outside.py", "@@", "-a", "+b"), "outside_write"),
+        # Codex splits lines only on \n; str.splitlines also splits on \x1c, \x85, \u2028 and others, which cut the
+        # path short and hid the '..' that follows.
+        (("*** Add File: a\x1c/../../outside.txt", "+x"), "outside_write"),
+        (("*** Add File: a\u2028/../../.git/hooks/pre-commit", "+x"), "outside_write"),
+        # An Environment ID applies the patch somewhere else, so local paths say nothing about where it lands.
+        (("*** Environment ID: remote", "*** Add File: notes/a.md", "+x"), "remote"),
     ],
 )
 def test_a_patch_that_deletes_moves_reaches_outside_or_names_nothing_needs_a_transaction(home, body, cls):

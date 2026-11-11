@@ -166,8 +166,10 @@ multilingual embedding model, downloaded once (about 135 MB), so a note
 written in one language is found by a question in another. A Qdrant server,
 Ollama or Cortex, when configured, is used instead. `empirica doctor` has a
 semantic-search check, and `project-search` says when search is off and why.
-After moving to Cortex, `empirica project-embed` in each practice re-embeds it
-into the store in use.
+After moving to Cortex, Cortex embeds what it receives with its own model;
+`empirica project-embed` is for filling a Qdrant server you run yourself.
+Upgrading from an earlier release: the model comes with the `api` extra, so
+upgrade with `pip install --upgrade "empirica[api]"`.
 Which embedding model suits which hardware, and how to change it:
 [Embedding models](../../reference/EMBEDDING_MODELS.md).
 

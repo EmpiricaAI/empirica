@@ -16,6 +16,8 @@ has an embedding model, then the local server's model on a machine with no Corte
 | **Cortex** | whatever your Cortex seat is configured with | Automatic once `cortex.url` is set | as configured | none locally | n/a |
 
 "Measured" means measured on one machine (a Ryzen AI MAX+ 395, CPU only for the local model), not a guarantee for yours.
+The int8 file is built for CPUs with AVX-512 VNNI, which that machine has; speed on Apple silicon, ARM or older x86 was
+not measured.
 Rows marked "not measured here" give the model's published dimensions, which Empirica's own table uses; their speed and
 size depend on your hardware and were not checked.
 

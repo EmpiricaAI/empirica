@@ -5716,17 +5716,20 @@ def _check_prior_investigate(
 
     # Only genuinely praxic tools (Edit, Write, destructive Bash) get ask, and once per transaction, as the docstring says:
     # an "ask" is a permission prompt the person answers, so asking on every call made them confirm every run.
+    # With no transaction id there is nothing to key the answer to: "None" would let one answer cover every later
+    # transaction without an id (1.16.0 sweep), so those are asked each time, as before.
     marker = Path.home() / ".empirica" / f"investigate_asked{_instance_suffix()}"
-    try:
-        if marker.read_text(encoding="utf-8").strip() == str(current_transaction_id):
-            return None
-    except OSError:
-        pass
-    try:
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text(str(current_transaction_id), encoding="utf-8")
-    except OSError:
-        pass
+    if current_transaction_id:
+        try:
+            if marker.read_text(encoding="utf-8").strip() == str(current_transaction_id):
+                return None
+        except OSError:
+            pass
+        try:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(str(current_transaction_id), encoding="utf-8")
+        except OSError:
+            pass
     return ("ask", "Previous CHECK returned INVESTIGATE. Consider running CHECK with proceed before praxic actions.")
 
 

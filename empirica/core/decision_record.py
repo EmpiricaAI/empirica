@@ -232,18 +232,28 @@ def project_path_for(claude_session_id: str | None, cwd: str | None) -> str | No
 _PATCH_HEADERS = ("*** Add File: ", "*** Delete File: ", "*** Update File: ", "*** Move to: ")
 
 
+def patch_lines(patch: str) -> list[str]:
+    """A patch's lines as codex reads them: split on newline only, a trailing carriage return dropped, then trimmed.
+
+    Codex trims every line before matching a header and splits only on \\n (codex-rs/apply-patch/src/streaming_parser.rs,
+    push_delta and process_line). ``str.splitlines`` also splits on \\x1c, \\x85, \\u2028 and others, and matching untrimmed
+    lines missed an indented header: both let a delete or a write outside the practice pass as a small edit (1.16.0
+    sweep). Trimming can over-match a content line that looks like a header, which only makes the check stricter."""
+    return [line.removesuffix("\r").strip() for line in (patch or "").split("\n")]
+
+
 def patch_paths(patch: str) -> list[str]:
     """Every path a codex ``apply_patch`` names, in order: added, deleted, updated, and the destination of a move.
 
     The grammar is codex's own (codex-rs/apply-patch/src/parser.rs, as ecodex cited it): file headers between
     ``*** Begin Patch`` and ``*** End Patch``. Text that does not begin a patch names nothing.
     """
-    lines = (patch or "").splitlines()
-    if not lines or lines[0].strip() != "*** Begin Patch":
+    lines = patch_lines(patch)
+    if not lines or lines[0] != "*** Begin Patch":
         return []
     paths: list[str] = []
     for line in lines[1:]:
-        if line.strip() == "*** End Patch":
+        if line == "*** End Patch":
             break
         for header in _PATCH_HEADERS:
             if line.startswith(header):

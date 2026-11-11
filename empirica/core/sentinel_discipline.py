@@ -86,6 +86,8 @@ _FILE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch")  # a
 
 #: Patch headers that remove a file: a delete, or the source side of a move. Always a transaction (ecodex, 2026-11-10).
 _PATCH_REMOVES = ("*** Delete File:", "*** Move to:")
+#: A patch applied in another environment: its paths say nothing about this practice (codex streaming_parser.rs).
+_PATCH_ELSEWHERE = "*** Environment ID:"
 
 
 # ── settings ────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -300,14 +302,20 @@ def judge(tool_name: str, tool_input, *, cwd: str | None, project_root: str | No
     tokenizer was bypassed ten ways by what bash does and shlex does not model (comments, ANSI-C quoting, brace and IFS
     expansion, pathspec magic; 1.14.23 sweep, second pass). ``empirica_is_read`` is accepted for the caller's signature."""
     tool_input = tool_input if isinstance(tool_input, dict) else {}
-    if tool_name == "apply_patch" and any(
-        line.startswith(_PATCH_REMOVES) for line in str(tool_input.get("command") or "").splitlines()
-    ):
-        return {
-            "trivial": False,
-            "classes": ["delete"],
-            "why": "a patch that deletes or moves a file needs a transaction",
-        }
+    if tool_name == "apply_patch":
+        lines = _decision_record().patch_lines(str(tool_input.get("command") or ""))
+        if any(line.startswith(_PATCH_REMOVES) for line in lines):
+            return {
+                "trivial": False,
+                "classes": ["delete"],
+                "why": "a patch that deletes or moves a file needs a transaction",
+            }
+        if any(line.startswith(_PATCH_ELSEWHERE) for line in lines):
+            return {
+                "trivial": False,
+                "classes": ["remote"],
+                "why": "a patch applied in another environment needs a transaction",
+            }
     if tool_name in _FILE_TOOLS:
         paths = _file_paths(_decision_record(), tool_name, tool_input, cwd)
         if not paths:

@@ -20,6 +20,7 @@ _TABLES = {"goal": "goals", "unknown": "project_unknowns", "assumption": "assump
 #: Row fields whose change must reach the artifact's git note, or a rebuild restores the old value (goals 1e885685,
 #: 25f4ab9a). ``due_at`` applies to every type in ``_TABLES``.
 NOTE_STATE_FIELDS = {
+    "goal": frozenset({"status", "is_completed", "completed_timestamp"}),
     "assumption": frozenset({"status", "due_at"}),
     "decision": frozenset({"outcome", "outcome_assessed_at", "regret_score"}),
 }

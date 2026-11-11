@@ -268,10 +268,15 @@ class EmbeddingsProvider:
         if provider_env == "auto":
             self.provider = _resolve_auto_provider(self.ollama_url)
             if self.provider == "local":
-                # Before hashed vectors: the local server's model, on a machine with no Ollama (goal db2cf3fa).
-                from empirica.core.qdrant.connection import local_server_service
+                # Before hashed vectors: the local server's model, on a machine with no Ollama (goal db2cf3fa). Only when
+                # the vectors also go to the local server's store: its 384-d vectors in a configured Qdrant (a server on
+                # 6333, the env, Cortex's resolver) broke that store's collections whenever Ollama was briefly down when the
+                # process started (1.16.0 sweep).
+                from empirica.core.qdrant.connection import local_server_service, store_url
 
                 local = local_server_service("embeddings")
+                if local and store_url() != local_server_service("vectors"):
+                    local = None
                 if local:
                     self.provider, self.ollama_url, served_locally = "ollama", local, True
                 else:
