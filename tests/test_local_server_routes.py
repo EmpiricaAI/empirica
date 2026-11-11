@@ -412,3 +412,19 @@ def test_adoption_refuses_an_id_already_registered_under_another_name(client, mo
     )
     resp = client.post("/v1/projects/register", json={"name": "epsilon", "project_id": "eps-id"})
     assert resp.status_code == 409, resp.text  # was a 500: the id already holds another row
+
+
+def test_adoption_takes_only_an_id_the_server_minted(client, monkeypatch):
+    # A caller that sent its own id (not in this machine's workspace registry) keeps its name: only rows the server minted
+    # are placeholders (1.16.0 sweep, pass 4).
+    from empirica.local_server import api
+
+    client.post("/v1/projects/register", json={"name": "zeta", "project_id": "zeta-own-id"})
+    monkeypatch.setattr(
+        api.ProjectRegistry,
+        "_workspace",
+        staticmethod(lambda: [{"id": "zeta-other", "slug": "zeta", "display_name": "z"}]),
+    )
+    monkeypatch.setattr(api.ProjectRegistry, "_workspace_ids", staticmethod(lambda: {"zeta-other"}))
+    resp = client.post("/v1/projects/register", json={"name": "zeta", "project_id": "zeta-other"})
+    assert resp.status_code == 409, resp.text

@@ -59,16 +59,20 @@ class ProjectRegistry:
                 "CREATE TABLE IF NOT EXISTS local_projects (id TEXT PRIMARY KEY, slug TEXT UNIQUE NOT NULL, "
                 "display_name TEXT, repo_url TEXT, created_at TEXT NOT NULL)"
             )
+            # Whether this server made the id up (the caller sent none): 1 minted, 0 the caller's, NULL a row from before
+            # the column, judged by the older rule. Only a minted id is a placeholder to adopt (1.16.0 sweep, pass 4).
+            if "minted" not in {r[1] for r in db.execute("PRAGMA table_info(local_projects)")}:
+                db.execute("ALTER TABLE local_projects ADD COLUMN minted INTEGER")
 
     def register(self, name: str, project_id: str | None, display_name: str | None, repo_url: str | None) -> dict:
         slug = _slug(name)
         with connect(self.path) as db:
-            row = db.execute("SELECT id FROM local_projects WHERE slug = ?", (slug,)).fetchone()
-            if row and project_id and row[0] != project_id and self._minted_placeholder(slug, row[0], project_id):
+            row = db.execute("SELECT id, minted FROM local_projects WHERE slug = ?", (slug,)).fetchone()
+            if row and project_id and row[0] != project_id and self._minted_placeholder(db, slug, row, project_id):
                 # Registered before ids were sent (bulk register on 1.15.x): the held id is one this server minted and no
                 # practice here uses, and the caller is the practice at that name. Adopt its id instead of refusing the
                 # practice its own name (1.16.0 sweep, pass 2).
-                db.execute("UPDATE local_projects SET id = ? WHERE slug = ?", (project_id, slug))
+                db.execute("UPDATE local_projects SET id = ?, minted = 0 WHERE slug = ?", (project_id, slug))
                 return {"project_id": project_id, "id": project_id, "slug": slug, "adopted_from": row[0]}
             if row and project_id and row[0] != project_id:
                 # Another project holds the name: Cortex's answer is 409 slug_taken, never a silent rename and never the
@@ -82,19 +86,23 @@ class ProjectRegistry:
                 return {"project_id": row[0], "id": row[0], "slug": slug, "already_registered": True}
             pid = project_id or str(uuid.uuid4())
             db.execute(
-                "INSERT INTO local_projects (id, slug, display_name, repo_url, created_at) VALUES (?,?,?,?,?)",
-                (pid, slug, display_name or name, repo_url, _now()),
+                "INSERT INTO local_projects (id, slug, display_name, repo_url, created_at, minted) VALUES (?,?,?,?,?,?)",
+                (pid, slug, display_name or name, repo_url, _now(), 0 if project_id else 1),
             )
         return {"project_id": pid, "id": pid, "slug": slug}
 
-    def _minted_placeholder(self, slug: str, held_id: str, caller_id: str) -> bool:
-        """Whether ``held_id`` is a placeholder for the practice ``caller_id``: no practice on this machine has ``held_id``,
-        and the practice named ``slug`` in core's workspace registry is ``caller_id``."""
-        if held_id in self._workspace_ids():  # any status: an archived practice's id is still its own
+    def _minted_placeholder(self, db, slug: str, held: tuple, caller_id: str) -> bool:
+        """Whether the row ``held`` (id, minted) is a placeholder this server made up for the practice ``caller_id``: minted
+        here (or, for a row from before the flag, an id no practice on this machine has, archived ones included), the
+        caller holds no other row, and the practice named ``slug`` in core's workspace registry is ``caller_id``. Checked
+        on the caller's connection, so the UPDATE that follows sees the same rows."""
+        held_id, minted = held
+        if minted == 0:
             return False
-        with connect(self.path) as db:
-            if db.execute("SELECT 1 FROM local_projects WHERE id = ?", (caller_id,)).fetchone():
-                return False  # the caller already holds another name here: adopting would collide on the id
+        if minted is None and held_id in self._workspace_ids():
+            return False
+        if db.execute("SELECT 1 FROM local_projects WHERE id = ?", (caller_id,)).fetchone():
+            return False  # the caller already holds another name here: adopting would collide on the id
         return any(p["id"] == caller_id and p["slug"] == slug for p in self._workspace())
 
     def unregister(self, project_id: str | None, slug: str | None) -> bool:

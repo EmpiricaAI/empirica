@@ -535,8 +535,8 @@ def _embed_landing(
     """(ok, items read but not embedded, error). A failed embed writes nothing (no hashed stand-in since 1.16.0), so a run
     that read N items and wrote fewer did not refresh retrieval, and the run says so. With no store at all (embeddings
     disabled, or nothing answers), retrieval is skipped by design: a skip, not a failure (1.16.0 sweep, pass 3)."""
-    if not store_available:
-        return True, 0, None
+    if not store_available and not (docs_written or memory_written):
+        return True, 0, None  # nothing answered and nothing landed: retrieval is off, not failing
     missing = max(0, docs_read - docs_written) + max(0, memory_read - memory_written)
     if not missing:
         return True, 0, None
@@ -606,6 +606,8 @@ def handle_project_embed_command(args):
         docs_cfg = idx.get("index", {})
         docs_to_upsert, did = _prepare_docs_from_semantic_index(root, docs_cfg)
         _append_reference_docs(db, project_id, docs_to_upsert, did)
+        # Probed before the writes: a store that dies mid-run must not read as "semantic search is off" (pass 4).
+        store_available = _semantic_store_available(project_id)
         docs_written = upsert_docs(project_id, docs_to_upsert)
 
         findings, unknowns, mistakes, dead_ends, lessons, snapshots = _query_memory_artifacts(db, project_id)
@@ -664,7 +666,6 @@ def handle_project_embed_command(args):
                 project_id, apply=bool(getattr(args, "purge_global", False))
             )
 
-        store_available = _semantic_store_available(project_id)
         landed_ok, not_embedded, landing_error = _embed_landing(
             len(docs_to_upsert), docs_written, len(mem_items), memory_written, store_available=store_available
         )

@@ -786,6 +786,23 @@ def _patch(*body):
     return {"command": "\n".join(["*** Begin Patch", *body, "*** End Patch"])}
 
 
+@pytest.mark.parametrize("lead", ["\t", " ", "\xa0"])
+def test_whitespace_before_an_absolute_path_is_part_of_the_path_to_codex(home, tmp_path, lead):
+    # Codex keeps it, finds the path relative and joins it to the working directory; Python stripped it and checked the
+    # absolute path inside the practice. With the session's working directory elsewhere, codex wrote outside (pass 4).
+    proj = home[1]
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    verdict = sd.judge(
+        "apply_patch",
+        _patch(f"*** Add File: {lead}{proj}/g.txt", "+x"),
+        cwd=str(elsewhere),
+        project_root=str(proj),
+        empirica_is_read=_is_read,
+    )
+    assert verdict["trivial"] is False, verdict
+
+
 def test_an_ordinary_patch_path_with_spaces_and_dashes_is_still_trivial(home):
     verdict = _judge(home, "apply_patch", _patch("*** Add File: notes/my notes-2026_11.v2.md", "+x"))
     assert verdict["trivial"] is True, verdict
