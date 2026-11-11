@@ -1746,11 +1746,11 @@ async def patch_artifact(
             "id": artifact_id,
             "updated_fields": sorted(updates.keys()),
         }
-        if ("due_at" in updates or (artifact_type == "assumption" and "status" in updates)) and cursor.rowcount > 0:
-            # The note carries the date too (1.16, D3c): say whether it was rewritten, so a failure is visible.
-            from empirica.core.canonical.empirica_git.due_note import restamp_due
+        from empirica.core.canonical.empirica_git.due_note import note_needs_restamp, restamp_note
 
-            out["note_updated"] = restamp_due(db.conn, artifact_type, artifact_id)
+        if note_needs_restamp(artifact_type, updates) and cursor.rowcount > 0:
+            # The note carries the date and the outcome too (1.16, D3c, 25f4ab9a): say whether it was rewritten.
+            out["note_updated"] = restamp_note(db.conn, artifact_type, artifact_id)
         return out
     finally:
         db.close()

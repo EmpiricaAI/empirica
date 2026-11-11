@@ -137,6 +137,7 @@ class GoalDataRepository(BaseRepository):
         )
 
         self.commit()
+        self._restamp_note(goal_id, "task_added")  # the goal note carries its tasks (goal 25f4ab9a)
         return subtask_id
 
     def update_subtask_findings(self, subtask_id: str, findings: list[str]):
@@ -233,6 +234,9 @@ class GoalDataRepository(BaseRepository):
         )
 
         self.commit()
+        row = self._execute("SELECT goal_id FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
+        if row:
+            self._restamp_note(row[0], "task_completed")  # the goal note carries its tasks (goal 25f4ab9a)
 
     def get_goal_tree(self, session_id: str) -> list[dict]:
         """Get complete goal tree for a session

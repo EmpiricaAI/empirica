@@ -72,17 +72,22 @@ class GitDecisionStore:
         confidence: float = 0.7,
         reversibility: str = "exploratory",
         goal_id: str | None = None,
+        created_at: str | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> bool:
+        """Write the decision's note. ``extra`` carries the assessment (outcome, outcome_assessed_at, regret_score) when
+        the note is rewritten after one, and ``created_at`` keeps the original date (goal 25f4ab9a)."""
         if not self._git_available or not self._has_commits():
             return False
 
         try:
             payload = {
+                **(extra or {}),
                 "decision_id": decision_id,
                 "project_id": project_id,
                 "session_id": session_id,
                 "ai_id": ai_id,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": created_at or datetime.now(timezone.utc).isoformat(),
                 "choice": choice,
                 "rationale": rationale,
                 "alternatives": alternatives,

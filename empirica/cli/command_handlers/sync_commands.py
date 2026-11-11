@@ -1339,6 +1339,7 @@ def _rebuild_ensure_goals(db, now, rebuilt, all_items_lists=()):
             gid = g.get("goal_id")
             gsid = g.get("session_id", "")
             gdata = dict(g.get("goal_data", {}))
+            tasks = gdata.pop("tasks", None)  # carried by the note (25f4ab9a); rows of their own, not goal_data
             status_known = bool(gdata.get("status"))
             if not status_known:
                 gdata["status_unknown"] = True
@@ -1371,6 +1372,7 @@ def _rebuild_ensure_goals(db, now, rebuilt, all_items_lists=()):
             )
             db.adapter.commit()
             rebuilt["goals"] += 1
+            _rebuild_tasks(db, gid, tasks, rebuilt)
             if not status_known:
                 rebuilt["goals_status_unknown"] = rebuilt.get("goals_status_unknown", 0) + 1
         except Exception:
@@ -1380,6 +1382,41 @@ def _rebuild_ensure_goals(db, now, rebuilt, all_items_lists=()):
                 pass
 
     return goals, {g.get("goal_id") for g in goals}
+
+
+def _rebuild_tasks(db, goal_id, tasks, rebuilt) -> None:
+    """A goal's tasks from the list its note carries (goal 25f4ab9a). Best-effort per task."""
+    import json as _json
+
+    rebuilt.setdefault("tasks", 0)
+    for t in tasks if isinstance(tasks, list) else []:
+        if not isinstance(t, dict) or not t.get("id") or not t.get("description"):
+            continue
+        status = (
+            t.get("status")
+            if t.get("status") in ("pending", "in_progress", "completed", "blocked", "skipped")
+            else "pending"
+        )
+        try:
+            cur = db.adapter.conn.execute(
+                "INSERT OR IGNORE INTO subtasks (id, goal_id, description, status, epistemic_importance, "
+                "completion_evidence, created_timestamp, completed_timestamp, subtask_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    t["id"],
+                    goal_id,
+                    t["description"],
+                    status,
+                    t.get("epistemic_importance") or "medium",
+                    t.get("completion_evidence"),
+                    t.get("created_timestamp"),
+                    t.get("completed_timestamp"),
+                    _json.dumps({"findings": [], "unknowns": [], "dead_ends": []}),
+                ),
+            )
+            db.adapter.conn.commit()
+            rebuilt["tasks"] += cur.rowcount
+        except Exception as e:
+            logger.debug(f"rebuild task skip ({str(t.get('id'))[:8]}): {e}")
 
 
 def _rebuild_ensure_orphan_goals(db, orphan_goal_ids, all_items_lists, now, rebuilt):
@@ -1670,6 +1707,96 @@ def _rebuild_assumptions(db, rebuilt) -> None:
             logger.debug(f"rebuild assumption skip ({str(aid)[:8]}): {e}")
 
 
+def _rebuild_decisions(db, rebuilt) -> None:
+    """Decisions from their notes, with their assessment (goal 25f4ab9a, the same gap 1e885685 closed for assumptions).
+    The rebuild had no branch for them, so it lost every decision; their notes now carry the outcome, when it was assessed
+    and the regret, stamped by due_note.restamp_decision after each assessment. Best-effort per note."""
+    import time
+
+    from empirica.core.canonical.empirica_git.decision_store import GitDecisionStore
+
+    rebuilt.setdefault("decisions", 0)
+    for note in GitDecisionStore().discover_decisions():
+        did, choice = note.get("decision_id"), note.get("choice")
+        if not did or not choice:
+            continue
+        outcome = note.get("outcome") if note.get("outcome") in ("upheld", "reversed", "mixed") else None
+        regret = note.get("regret_score")
+        regret = regret if isinstance(regret, (int, float)) and not isinstance(regret, bool) else None
+        conf = note.get("confidence_at_decision")
+        conf = conf if isinstance(conf, (int, float)) and not isinstance(conf, bool) and 0.0 <= conf <= 1.0 else None
+        try:
+            cur = db.adapter.conn.execute(
+                "INSERT OR IGNORE INTO decisions (id, choice, alternatives, rationale, confidence_at_decision, "
+                "reversibility, project_id, session_id, goal_id, outcome, outcome_assessed_at, regret_score, "
+                "created_by_ai, created_timestamp, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local')",
+                (
+                    did,
+                    choice,
+                    note.get("alternatives"),
+                    note.get("rationale") or "",
+                    conf,
+                    note.get("reversibility") or "exploratory",
+                    note.get("project_id"),
+                    note.get("session_id"),
+                    note.get("goal_id"),
+                    outcome,
+                    note.get("outcome_assessed_at") if outcome else None,
+                    regret,
+                    note.get("ai_id"),
+                    _note_time(note.get("created_at")) or time.time(),
+                ),
+            )
+            db.adapter.conn.commit()
+            rebuilt["decisions"] += cur.rowcount
+        except Exception as e:
+            logger.debug(f"rebuild decision skip ({str(did)[:8]}): {e}")
+
+
+def _rebuild_sources(db, rebuilt) -> None:
+    """Sources from their notes, archived ones as archived (goal 25f4ab9a). Source notes had no reader, so the rebuild
+    lost every source; their notes now carry the archive state, stamped by due_note.restamp_source. Best-effort per note."""
+    import time
+
+    from empirica.core.canonical.empirica_git.source_store import GitSourceStore
+
+    rebuilt.setdefault("sources", 0)
+    for note in GitSourceStore().discover_sources():
+        sid, title = note.get("source_id"), note.get("title")
+        if not sid or not title or not note.get("project_id"):
+            continue
+        conf = note.get("confidence")
+        conf = conf if isinstance(conf, (int, float)) and not isinstance(conf, bool) and 0.0 <= conf <= 1.0 else None
+        archived = note.get("archived") is True
+        try:
+            cur = db.adapter.conn.execute(
+                "INSERT OR IGNORE INTO epistemic_sources (id, project_id, session_id, source_type, source_url, title, "
+                "description, confidence, epistemic_layer, discovered_by_ai, discovered_at, archived, archive_reason, "
+                "archive_target_id, archived_at, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local')",
+                (
+                    sid,
+                    note.get("project_id"),
+                    note.get("session_id"),
+                    note.get("source_type") or "document",
+                    note.get("source_url") or note.get("doc_path"),
+                    title,
+                    note.get("description"),
+                    conf,
+                    note.get("direction") or "noetic",
+                    note.get("ai_id"),
+                    _note_time(note.get("created_at")) or time.time(),
+                    1 if archived else 0,
+                    note.get("archive_reason") if archived else None,
+                    note.get("archive_target_id") if archived else None,
+                    note.get("archived_at") if archived else None,
+                ),
+            )
+            db.adapter.conn.commit()
+            rebuilt["sources"] += cur.rowcount
+        except Exception as e:
+            logger.debug(f"rebuild source skip ({str(sid)[:8]}): {e}")
+
+
 def _rebuild_from_notes() -> dict[str, Any]:
     """
     Rebuild database from git notes.
@@ -1722,6 +1849,8 @@ def _rebuild_from_notes() -> dict[str, Any]:
         inserted_all_goal_ids = inserted_goal_ids | set(orphan_goal_ids)
         _rebuild_insert_breadcrumbs(db, findings, unknowns, dead_ends, mistakes, inserted_all_goal_ids, rebuilt)
         _rebuild_assumptions(db, rebuilt)
+        _rebuild_decisions(db, rebuilt)
+        _rebuild_sources(db, rebuilt)
 
         db.close()
 

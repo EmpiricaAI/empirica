@@ -90,7 +90,35 @@ def _rows(conn, where: str, params: tuple = ()) -> list[dict[str, Any]]:
                 "details": _lifecycle_details(r[6]),
             }
         )
+        tasks = _tasks(conn, r[0])
+        if tasks:  # a goal with none keeps a note without the key, so it does not read as drifted
+            out[-1]["details"]["tasks"] = tasks
     return out
+
+
+#: The task fields a goal note carries (goal 25f4ab9a). Task completion notes are written once per goal per commit and
+#: never for an open task, so they cannot restore tasks; the goal note's list can.
+TASK_FIELDS = (
+    "id",
+    "description",
+    "status",
+    "epistemic_importance",
+    "completion_evidence",
+    "created_timestamp",
+    "completed_timestamp",
+)
+
+
+def _tasks(conn, goal_id: str) -> list[dict[str, Any]]:
+    """The goal's tasks as its note records them, oldest first; [] when the table is absent."""
+    try:
+        rows = conn.execute(
+            f"SELECT {', '.join(TASK_FIELDS)} FROM subtasks WHERE goal_id = ? ORDER BY created_timestamp, id",
+            (goal_id,),
+        ).fetchall()
+    except Exception:
+        return []
+    return [dict(zip(TASK_FIELDS, r, strict=True)) for r in rows]
 
 
 def _lifecycle_details(raw) -> dict[str, Any]:

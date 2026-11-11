@@ -3652,6 +3652,10 @@ def handle_source_archive_command(args):
             (reason, target_id, now, json.dumps(existing_log), full_id),
         )
         db.conn.commit()
+        # The note records the archive too, or a rebuild brings the source back live (goal 25f4ab9a).
+        from empirica.core.canonical.empirica_git.due_note import restamp_source
+
+        note_updated = restamp_source(db.conn, full_id)
 
         # Hard-delete chunks (best-effort; non-fatal)
         chunks_deleted = _hard_delete_source_chunks(project_id, full_id)
@@ -3672,6 +3676,7 @@ def handle_source_archive_command(args):
             "archived_at": now,
             "chunks_deleted": chunks_deleted,
             "memory_embed_deleted": memory_deleted,
+            "note_updated": note_updated,
             "audit_log": existing_log,
             "message": "Source archived (soft-delete; edges + citing artifacts preserved)",
         }

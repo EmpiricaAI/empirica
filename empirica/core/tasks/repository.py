@@ -131,6 +131,13 @@ class TaskRepository:
             logger.error(f"Error creating task tables: {e}")
             raise
 
+    def _restamp_goal(self, goal_id: str, action: str) -> None:
+        """Rewrite the goal's note so it carries its tasks, or a rebuild from the notes loses them (goal 25f4ab9a).
+        Best-effort: restamp_goal_note logs and never raises."""
+        from empirica.core.canonical.empirica_git.goal_note_state import restamp_goal_note
+
+        restamp_goal_note(self.db.conn, goal_id, action)
+
     def save_subtask(self, subtask: SubTask) -> bool:
         """
         Save subtask to database
@@ -184,6 +191,7 @@ class TaskRepository:
 
             self.db.conn.commit()
             logger.info(f"Saved subtask {subtask.id}: {subtask.description[:50]}...")
+            self._restamp_goal(subtask.goal_id, "task_added")
             return True
 
         except Exception as e:
@@ -293,6 +301,8 @@ class TaskRepository:
 
             self.db.conn.commit()
             logger.info(f"Updated subtask {resolved_id} status: {status.value}")
+            if subtask:
+                self._restamp_goal(subtask.goal_id, f"task_{status.value}")
             return True
 
         except Exception as e:

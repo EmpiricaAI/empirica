@@ -163,6 +163,12 @@ def handle_source_update_command(args):
                 (new_hash, new_size, mime, json.dumps(audit), full_id),
             )
         db.conn.commit()
+        if (
+            repointed_from is not None
+        ):  # the note carries the new location, or a rebuild restores the old one (25f4ab9a)
+            from empirica.core.canonical.empirica_git.due_note import restamp_source
+
+            restamp_source(db.conn, full_id)
 
         result = {
             "ok": True,

@@ -1788,6 +1788,10 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                         )
                         if cursor.rowcount > 0:
                             resolved_count += 1
+                            # The note records the assessment too, or a rebuild cannot tell it from an open one (25f4ab9a).
+                            from empirica.core.canonical.empirica_git.due_note import restamp_decision
+
+                            restamp_decision(db.conn, artifact_id)
                             _record_source_outcomes(
                                 db,
                                 artifact_id,
@@ -2749,14 +2753,15 @@ def _apply_session_row(cursor, atype: str, aid: str, item: dict, errors: list, r
         return 0
     if cursor.rowcount > 0:
         changed = cursor.rowcount
-        if "due_at" in updates or (atype == "assumption" and "status" in updates):
-            # A snooze, a cleared date or an assumption's outcome reaches the note, or a rebuild brings back the old one.
-            from empirica.core.canonical.empirica_git.due_note import restamp_due
+        from empirica.core.canonical.empirica_git.due_note import note_needs_restamp, restamp_note
 
-            if not restamp_due(cursor.connection, atype, aid):
+        if note_needs_restamp(atype, updates):
+            # A snooze, a cleared date, an assumption's outcome or a decision's assessment reaches the note, or a
+            # rebuild brings back the old value.
+            if not restamp_note(cursor.connection, atype, aid):
                 errors.append(
-                    f"{atype} {aid[:8]}: due date set, but its git note was not rewritten (a rebuild would restore the "
-                    "old date)"
+                    f"{atype} {aid[:8]}: {', '.join(sorted(updates))} set, but its git note was not rewritten (a rebuild "
+                    "would restore the old value)"
                 )
         return changed
     errors.append(f"{atype} {aid[:8]}: not found")

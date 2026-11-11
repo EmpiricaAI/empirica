@@ -72,17 +72,22 @@ class GitSourceStore:
         confidence: float = 0.7,
         direction: str = "noetic",
         ai_id: str = "",  # canonical: caller passes ai_id from InstanceResolver.ai_id()
+        created_at: str | None = None,
+        extra: dict | None = None,
     ) -> bool:
+        """Write the source's note. ``extra`` carries the lifecycle (archived, reason, target, time) when the note is
+        rewritten after one, and ``created_at`` keeps the original date (goal 25f4ab9a)."""
         if not self._git_available or not self._has_commits():
             return False
 
         try:
             payload = {
+                **(extra or {}),
                 "source_id": source_id,
                 "project_id": project_id,
                 "session_id": session_id,
                 "ai_id": ai_id,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": created_at or datetime.now(timezone.utc).isoformat(),
                 "title": title,
                 "source_type": source_type,
                 "source_url": source_url,
@@ -113,3 +118,53 @@ class GitSourceStore:
         except Exception as e:
             logger.warning(f"Failed to store source in git: {e}")
             return False
+
+    def load_source(self, source_id: str) -> dict | None:
+        """The source's note, or None (no git, no note, unreadable)."""
+        if not self._git_available:
+            return None
+        ref = f"empirica/sources/{source_id}"
+        try:
+            listed = subprocess.run(
+                ["git", "notes", f"--ref={ref}", "list"],
+                cwd=self.workspace_root,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            parts = listed.stdout.split()
+            if listed.returncode != 0 or len(parts) < 2:
+                return None
+            shown = subprocess.run(
+                ["git", "notes", f"--ref={ref}", "show", parts[1]],
+                cwd=self.workspace_root,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            return json.loads(shown.stdout) if shown.returncode == 0 else None
+        except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError) as exc:
+            logger.warning("source note %s not readable: %s", source_id[:8], exc)
+            return None
+
+    def discover_sources(self) -> list[dict]:
+        """Every source note in this repository (the rebuild reads these, goal 25f4ab9a)."""
+        if not self._git_available:
+            return []
+        try:
+            refs = subprocess.run(
+                ["git", "for-each-ref", "--format=%(refname)", "refs/notes/empirica/sources/"],
+                cwd=self.workspace_root,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+            logger.warning("source notes not listed: %s", exc)
+            return []
+        out = []
+        for ref in refs.stdout.split():
+            note = self.load_source(ref.rsplit("/", 1)[-1])
+            if note:
+                out.append(note)
+        return out
