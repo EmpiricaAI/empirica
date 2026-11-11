@@ -1612,6 +1612,38 @@ def deploy_gap_checks(cwd: Path | None = None) -> list[Check]:
     ]
 
 
+def check_semantic_layer(status_fn=None) -> Check:
+    """Can semantic search work here? Asks the Qdrant server and names the embedding provider.
+
+    There was no such check: on a fresh machine with no Qdrant, search returned nothing and doctor said nothing about it
+    (fresh-machine probe, 2026-11-11, goal db2cf3fa). Not installed or disabled is a SKIP (a choice); no server answering,
+    or hashed vectors instead of a semantic model, is a WARN with what to do.
+    """
+    name = "Semantic search (Qdrant + embeddings)"
+    try:
+        if status_fn is None:
+            from empirica.core.qdrant.connection import semantic_layer_status as status_fn
+        status = status_fn()
+    except Exception as exc:
+        return Check(name, WARN, f"could not check: {exc}")
+    data = {k: status.get(k) for k in ("qdrant", "qdrant_url", "embeddings")}
+    if status.get("semantic"):
+        return Check(
+            name,
+            PASS,
+            f"Qdrant {status.get('qdrant')} at {status.get('qdrant_url')}; {status.get('embeddings')}",
+            data=data,
+        )
+    if status.get("qdrant") == "off":
+        return Check(name, SKIP, status.get("reason") or "off", data=data)
+    hint = (
+        f"start Qdrant at {status.get('qdrant_url')} (or set EMPIRICA_QDRANT_URL), then `empirica project-embed`"
+        if status.get("qdrant") != "reachable"
+        else "install Ollama and `ollama pull qwen3-embedding`, then `empirica project-embed`"
+    )
+    return Check(name, WARN, status.get("reason") or "degraded", hint, data)
+
+
 def check_project_embed_outcome(cwd: Path | None = None) -> Check:
     """Did the last `project-embed` work?
 
@@ -2983,6 +3015,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_stale_open_transactions(cwd),
         check_unreleased_commits(cwd),
         check_retrieval_telemetry(cwd),
+        check_semantic_layer(),
         check_project_embed_outcome(cwd),
         check_security_corpus(),
         check_precompact_health(cwd),

@@ -187,6 +187,14 @@ def handle_project_search_command(args):
             if cross_results:
                 results["cross_project"] = cross_results
 
+        # Empty results from an unreachable Qdrant read as "nothing relevant": say when semantic search is off or degraded.
+        try:
+            from empirica.core.qdrant.connection import semantic_layer_status
+
+            layer = semantic_layer_status(project_id)
+        except Exception:
+            layer = {"semantic": True}
+
         if getattr(args, "output", "default") == "json":
             # `matched` is the set-level answer to *did anything here match?* — the
             # question the JSON shape previously had no field for, so a programmatic
@@ -197,6 +205,13 @@ def handle_project_search_command(args):
             # The filter is said in the response, so an absent row reads as
             # "excluded by default" and not as "nothing was ever logged".
             payload["resolved_artifacts"] = "included" if include_resolved else "excluded (pass --include-resolved)"
+            if not layer.get("semantic"):
+                payload["semantic_search"] = {
+                    "available": False,
+                    "reason": layer.get("reason"),
+                    "qdrant": layer.get("qdrant"),
+                    "embeddings": layer.get("embeddings"),
+                }
             banner = _unconfirmed_banner(results)
             if banner is not None:
                 payload["matched"] = False
@@ -209,6 +224,8 @@ def handle_project_search_command(args):
                 payload["matched"] = True
             print(json.dumps(payload, indent=2))
         else:
+            if not layer.get("semantic"):
+                print(f"⚠ {layer.get('reason')} — results below may be empty for that reason, not for lack of matches")
             _print_search_results_human(task, results, use_global)
 
         return None

@@ -350,6 +350,49 @@ def _get_embeddings_batch_for_collection(
     return vectors
 
 
+def semantic_layer_status(project_id: str | None = None) -> dict:
+    """Whether semantic search can work here, and why not: ``{semantic, qdrant, qdrant_url, embeddings, reason}``.
+
+    ``_check_qdrant_available`` only says the library is installed and not disabled; it never asks a server. On a fresh
+    machine with no Qdrant running, a logged artifact warned "Qdrant is available; embedding failed" and project-search
+    answered ok with nothing, which reads as "nothing relevant" (fresh-machine probe, 2026-11-11, goal db2cf3fa). This
+    asks the server and names the embedding provider: ``local`` is hashed vectors, which are not semantic. It makes a
+    network call, so it is for the surfaces that report (search, the embed warning, doctor), never the per-call hot path.
+    """
+    out: dict = {"semantic": False, "qdrant": "off", "qdrant_url": None, "embeddings": None, "reason": ""}
+    if not _check_qdrant_available():
+        out["reason"] = "semantic search is off: qdrant-client is not installed, or embeddings are disabled"
+        return out
+    url = _service_url(project_id=project_id) or "http://localhost:6333"
+    out["qdrant_url"] = url
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen(urllib.request.Request(f"{url}/collections", method="GET"), timeout=1.5) as r:
+            out["qdrant"] = "reachable" if r.status == 200 else f"answered {r.status}"
+    except Exception as e:
+        out["qdrant"] = f"unreachable ({type(e).__name__})"
+    try:
+        from .embeddings import get_provider_info
+
+        info = get_provider_info()
+        out["embeddings"] = f"{info.get('provider')}/{info.get('model')}"
+        hashed = info.get("provider") == "local"
+    except Exception as e:
+        out["embeddings"] = f"unavailable ({type(e).__name__})"
+        hashed = True
+    if out["qdrant"] != "reachable":
+        out["reason"] = f"semantic search is off: no Qdrant answers at {url}"
+    elif hashed:
+        out["reason"] = (
+            "semantic search is degraded: embeddings are hashed vectors (provider 'local'), not a semantic model; "
+            "configure Ollama with an embedding model"
+        )
+    else:
+        out["semantic"] = True
+    return out
+
+
 def qdrant_search_client():
     """A read-only similarity client over REST (``empirica.core.qdrant.rest``), or None when no server answers.
 

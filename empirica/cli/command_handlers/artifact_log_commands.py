@@ -1202,13 +1202,19 @@ def _embed_warning(embedded: bool, kind: str) -> str | None:
     if embedded:
         return None
     try:
-        from empirica.core.qdrant.connection import _check_qdrant_available
+        from empirica.core.qdrant.connection import _check_qdrant_available, semantic_layer_status
 
         if not _check_qdrant_available():
             return None
+        status = semantic_layer_status()  # only on this failure path: it asks the server
     except Exception:
         return None
-    return f"{kind} stored but not embedded in the search index (Qdrant is available; embedding failed): `empirica project-embed` repairs it"
+    if status.get("qdrant") != "reachable":
+        # It said "Qdrant is available" here when no server answered: the library was installed, nothing more.
+        return (
+            f"{kind} stored but not embedded: {status.get('reason')}. `empirica project-embed` adds it once Qdrant runs"
+        )
+    return f"{kind} stored but not embedded in the search index (Qdrant answered; embedding failed): `empirica project-embed` repairs it"
 
 
 def _ingest_finding_eidetic(project_id, finding_id, finding, subject, impact, session_id):
