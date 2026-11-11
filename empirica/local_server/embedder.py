@@ -6,7 +6,7 @@ multilingual; David, 2026-11-11) through fastembed, answering ``/ollama/api/tags
 so empirica's existing ``ollama`` provider uses it with only a base URL.
 
 fastembed 0.9 does not list this model, so it is registered as a custom ONNX model (mean pooling, normalized). Measured
-here: about 490 MB on disk, 5 ms per embed warm. e5 expects a ``query: `` or ``passage: `` prefix; the Ollama API carries
+here with the int8 file: about 135 MB on disk, under 3 ms per embed warm. e5 expects a ``query: `` or ``passage: `` prefix; the Ollama API carries
 no query/passage flag, so every text gets ``query: ``, the form the model's authors give for symmetric use.
 """
 
@@ -24,6 +24,9 @@ MODEL = "intfloat/multilingual-e5-small"
 NAME = "multilingual-e5-small"  # what /api/tags advertises; MODEL_DIMENSIONS knows it as 384
 DIM = 384
 PREFIX = "query: "
+#: The int8 ONNX in the model repository (David, 2026-11-11): 135 MB against 487 MB fp32, 2.6 ms against 7.2 ms per embed,
+#: the same top result on a fixed EN/DE/ES/NL check (lower ranks reorder). Same model name and 384 dimensions.
+MODEL_FILE = "onnx/model_qint8_avx512_vnni.onnx"
 
 
 def available() -> bool:
@@ -46,7 +49,7 @@ def _load_fastembed():
             normalization=True,
             sources=ModelSource(hf=MODEL),
             dim=DIM,
-            model_file="onnx/model.onnx",
+            model_file=MODEL_FILE,
         )
     except ValueError:
         pass  # already registered in this process

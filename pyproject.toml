@@ -106,7 +106,7 @@ api = [
                                   # (transitive via fastapi; 1.0.0 vulnerable, fixed in 1.0.1)
     "uvicorn>=0.24",
     # The local semantic layer (docs/architecture/LOCAL_SEMANTIC_LAYER.md): with no Cortex, serve holds the vector store
-    # (qdrant-client's embedded mode) and the embedding model (fastembed, multilingual-e5-small, ~490 MB on first use).
+    # (qdrant-client's embedded mode) and the embedding model (fastembed, multilingual-e5-small, ~135 MB int8, downloaded once).
     "qdrant-client>=1.10",
     "fastembed>=0.9.1",
 ]

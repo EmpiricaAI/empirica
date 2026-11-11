@@ -162,7 +162,7 @@ Goals are shared between practices on one machine with
 Semantic search (`project-search`, and the related artifacts surfaced as you
 work) needs a vector store and an embedding model. With no Cortex, the local
 server provides both: it holds the vectors in `~/.empirica/vectors` and a
-multilingual embedding model, downloaded on first use (about 490 MB), so a note
+multilingual embedding model, downloaded once (about 135 MB), so a note
 written in one language is found by a question in another. A Qdrant server,
 Ollama or Cortex, when configured, is used instead. `empirica doctor` has a
 semantic-search check, and `project-search` says when search is off and why.

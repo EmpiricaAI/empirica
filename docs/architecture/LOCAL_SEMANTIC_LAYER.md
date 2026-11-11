@@ -102,7 +102,9 @@ Cortex machines, Windows-native serve (unsupported), and multi-user machines: on
 ## Decided (David, 2026-11-11)
 
 1. **Model:** `intfloat/multilingual-e5-small` (384 dimensions, multilingual), through fastembed. Practices hold Dutch,
-   German and Spanish text as well as English. The download size goes into onboarding's message once measured.
+   German and Spanish text as well as English. fastembed does not list it, so it is registered as a custom ONNX model,
+   using the repository's int8 file: 135 MB against 487 MB fp32, 2.6 ms against 7.2 ms per embed, the same top result
+   on a fixed English/German/Spanish/Dutch check (lower ranks reorder). David chose int8 on those numbers.
 2. **Dependency:** fastembed and onnxruntime join the `[api]` extra, which serve already requires.
 
 ## Build plan (T4), after review
