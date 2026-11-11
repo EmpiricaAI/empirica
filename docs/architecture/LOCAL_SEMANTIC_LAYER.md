@@ -67,6 +67,18 @@ Seven places bypass the resolver today: lessons storage, `qdrant_search_client`,
 doctor's secret scrub, setup's check and PersonaRegistry. The build repoints them (goal 6f1e9bb6 tracks the defects
 found alongside).
 
+### Upgrading to Cortex (David, 2026-11-11)
+
+Moving to Cortex should be simple, with the cloud store used instead of the local one or alongside it.
+
+- **Instead of:** this falls out of the resolution order. A Cortex seat configures its Qdrant, through the per-org
+  resolver or `EMPIRICA_QDRANT_URL`, and a configured store always wins over the local server. Nothing else changes.
+- **Moving what exists:** vectors are derived data. `empirica project-embed` re-embeds each practice from SQLite and the
+  git notes into whichever store resolves. Vectors are re-embedded, not copied, because the cloud model's dimensions
+  differ from the local model's 384.
+- **Alongside:** the local store stays where it is. Clearing or keeping it is the person's choice, and `doctor` shows
+  which store is in use.
+
 ### 4. Install and first run
 
 - **Install:** fastembed and onnxruntime join the `[api]` extra, which serve already requires.
