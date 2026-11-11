@@ -27,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Two local server processes no longer lose each other's acks or archives.** Archive and complete rewrite the whole message; with two serve processes on one database (the service plus a manual run), one overwrote the other: of six processes archiving their own copy, five were lost. The rewrite is now held by a file lock beside the database.
 - **The local server closes its database connections.** Each call left the database and its WAL files open until garbage collection; a test that forked processes while one was open committed two messages for one idempotency key.
 - **Link suggestions work on Qdrant older than 1.10,** which has no `/points/query`: every query failed there and suggestions came back empty. A 404 or 405 is retried on `/points/search`.
+- **A failed embed no longer stores a hashed vector.** When Ollama timed out or was down, or an API provider returned an error, empirica silently embedded with a hash instead, kept that vector for the rest of the process, and wrote it into the semantic collections, where nothing could tell it apart. A failed embed now gives no vector: the write is skipped with a warning and the search returns nothing. After a connection error or timeout the provider is not asked again for 30 seconds in that process (`EMPIRICA_EMBED_BACKOFF`), so a cold model costs one timeout rather than one per search. The `local` provider, which hashes by choice, is unchanged.
+- **Trajectories are stored.** Every session trajectory write failed: its point id was not one Qdrant accepts, and its collection was never created.
+- **Archiving a source reports how many chunks it deleted.** It always reported 0.
+- **Similar personas are found.** The lookup used a call that qdrant-client 1.18 removed and read a field the result does not have, so it never returned a match. The persona registry now uses the same store as everything else instead of a fixed `localhost:6333`.
+- **Lessons, the doctor's secret scrub, the project reference check and the setup check use the store that is configured.** They read only `EMPIRICA_QDRANT_URL` and so missed a per-organisation Qdrant and the local server's store.
 
 ## [1.15.1] - 2026-11-10
 

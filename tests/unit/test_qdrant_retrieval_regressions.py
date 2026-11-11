@@ -2,6 +2,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
+
 from empirica.cli.command_handlers.project_embed import (
     _build_embedding_text,
     _compact_text,
@@ -197,16 +199,21 @@ def test_embed_ollama_retries_with_smaller_prompts_before_fallback():
 
 def test_embed_ollama_sends_keep_alive_and_degrades_on_timeout():
     """keep_alive re-arms model warmth on every call (self-healing pin); a read
-    -timeout degrades to local hash IMMEDIATELY — no 3x shrink-retry — because the
+    -timeout fails the embed IMMEDIATELY — no 3x shrink-retry — because the
     model LOAD, not the prompt size, is the bottleneck. Regression guard for the
-    ~120s preflight hang (mesh-support prop_4pqqclkpcjhnjnszspasu7qvqm)."""
+    ~120s preflight hang (mesh-support prop_4pqqclkpcjhnjnszspasu7qvqm). Since
+    goal 6f1e9bb6 the failure raises instead of returning a hashed vector, and
+    starts a backoff."""
     import requests
 
+    from empirica.core.qdrant.embeddings import EmbeddingUnavailable
+
     provider = EmbeddingsProvider.__new__(EmbeddingsProvider)
+    provider.provider = "ollama"
     provider.ollama_url = "http://localhost:11434"
     provider.model = "qwen3-embedding"
     provider._vector_size = 1024
-    provider._embed_local_hash = lambda text: [7.0]
+    provider._down_until = 0.0
 
     captured = {}
     calls = []
@@ -216,12 +223,16 @@ def test_embed_ollama_sends_keep_alive_and_degrades_on_timeout():
         captured["keep_alive"] = json.get("keep_alive")
         raise requests.exceptions.ReadTimeout("simulated cold-load")
 
-    with patch("requests.post", side_effect=fake_post), patch("time.sleep", return_value=None):
-        result = provider._embed_ollama("some task context")
+    with (
+        patch("requests.post", side_effect=fake_post),
+        patch("time.sleep", return_value=None),
+        pytest.raises(EmbeddingUnavailable),
+    ):
+        provider._embed_ollama("some task context")
 
     assert captured["keep_alive"]  # keep_alive present in the embed payload
-    assert len(calls) == 1  # timeout degrades on first attempt, no shrink-retry
-    assert result == [7.0]  # local-hash fallback, never a hang
+    assert len(calls) == 1  # timeout fails on first attempt, no shrink-retry
+    assert provider._down_until > 0  # and the next embeds in this process do not wait on it again
 
 
 def test_get_embedding_safe_memoizes_by_query_string():

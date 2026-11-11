@@ -85,9 +85,9 @@ DEFAULT_MODELS = {
 # timeout: a cold qwen3-embedding cold-start on the Strix Halo measures ~6s;
 # 20s gives margin for cold-start + tailnet idle-link wake while still failing
 # FAST. The old 60s × 3-size-retry could block a single embed for ~180s — the
-# measured multi-minute PREFLIGHT/POSTFLIGHT hang. On timeout we degrade to the
-# local hash (a valid 1024-d vector — never breaks Qdrant) rather than block, so
-# a backend hiccup never stalls the CLI.
+# measured multi-minute PREFLIGHT/POSTFLIGHT hang. On timeout the embed fails
+# (EmbeddingUnavailable) and the provider backs off for _EMBED_BACKOFF seconds,
+# so a backend hiccup never stalls the CLI and never stores a hashed vector.
 def _parse_keep_alive(raw: str) -> int | str:
     """-1/1800 -> int (seconds, -1=forever); '30m' -> duration string. Both valid to Ollama."""
     return int(raw) if raw.lstrip("-").isdigit() else raw
@@ -96,6 +96,15 @@ def _parse_keep_alive(raw: str) -> int | str:
 _EMBED_KEEP_ALIVE = _parse_keep_alive(os.getenv("EMPIRICA_EMBED_KEEP_ALIVE", "-1"))
 _EMBED_TIMEOUT = float(os.getenv("EMPIRICA_EMBED_TIMEOUT", "20"))
 _EMBED_BATCH_TIMEOUT = float(os.getenv("EMPIRICA_EMBED_BATCH_TIMEOUT", "45"))
+#: After a connection error or timeout, a provider is not asked again for this many seconds in the same process.
+_EMBED_BACKOFF = float(os.getenv("EMPIRICA_EMBED_BACKOFF", "30"))
+
+
+class EmbeddingUnavailable(RuntimeError):
+    """The configured embedding model gave no vector. Raised instead of returning a hashed vector, which is not semantic:
+    it was cached as a success and written into semantic collections with nothing to flag it (goal 6f1e9bb6, David
+    2026-11-11). Callers skip the write or the search; the explicitly chosen ``local`` provider still hashes."""
+
 
 # Known vector dimensions per model
 MODEL_DIMENSIONS = {
@@ -278,6 +287,7 @@ class EmbeddingsProvider:
         )
         self._client = None
         self._vector_size: int | None = None
+        self._down_until = 0.0  # monotonic time until which a down provider is not asked again
 
         if self.provider == "openai":
             # OpenAI uses its REST API directly (no SDK dependency) — the
@@ -334,6 +344,11 @@ class EmbeddingsProvider:
         """Generate embedding vector for the given text using configured provider."""
         text = text or ""
 
+        if self.provider != "local" and time.monotonic() < self._down_until:
+            raise EmbeddingUnavailable(
+                f"{self.provider}/{self.model} was unreachable in the last {_EMBED_BACKOFF:.0f}s; not asking again yet"
+            )
+
         if self.provider == "openai":
             return self._embed_openai(text)
 
@@ -387,7 +402,7 @@ class EmbeddingsProvider:
                         time.sleep(0.4 * attempt)
                         continue
                     logger.warning(f"Ollama returned empty embedding for model {self.model}")
-                    return self._embed_local_hash(text)
+                    raise self._unavailable("empty embedding")
 
                 # Validate and cache actual vector size from model response
                 actual_size = len(embedding)
@@ -409,39 +424,40 @@ class EmbeddingsProvider:
 
                 return embedding
 
-            except requests.exceptions.ConnectionError:
-                logger.warning(f"Cannot connect to Ollama at {self.ollama_url} - falling back to local hash")
-                return self._embed_local_hash(text)
-            except requests.exceptions.Timeout:
+            except requests.exceptions.ConnectionError as e:
+                logger.warning(f"Cannot connect to Ollama at {self.ollama_url}: embed unavailable")
+                raise self._unavailable(f"cannot connect to Ollama at {self.ollama_url}", down=True) from e
+            except requests.exceptions.Timeout as e:
                 # A read-timeout means the model is cold-loading (or the box is under load),
                 # NOT that the prompt is too big — so shrinking it and retrying just burns
                 # another _EMBED_TIMEOUT for nothing. The request already armed the load
                 # server-side (keep_alive re-arms warmth), so the NEXT embed hits the
-                # now-resident model. Degrade THIS call to hash immediately: bounds cold-start
-                # cost to a single _EMBED_TIMEOUT (not 3×), and the _get_embedding_safe memo
-                # means only one distinct query string per process ever pays it.
+                # now-resident model. Fail THIS call immediately: bounds cold-start cost to a
+                # single _EMBED_TIMEOUT (not 3×), and the backoff stops the next searches in
+                # this process from each paying it again. Never a hashed vector: the memo
+                # cached it as a success and writers stored it (goal 6f1e9bb6).
                 logger.warning(
                     f"Ollama embed timed out after {_EMBED_TIMEOUT}s (model cold-loading?) - "
-                    f"degrading to local hash; server is warming for next call"
+                    f"embed unavailable; the server is warming for a later call"
                 )
-                return self._embed_local_hash(text)
+                raise self._unavailable(f"timed out after {_EMBED_TIMEOUT}s", down=True) from e
             except Exception as e:
                 if attempt < len(prompt_sizes):
                     logger.warning(f"Ollama embedding attempt {attempt}/{len(prompt_sizes)} failed: {e}")
                     time.sleep(0.4 * attempt)
                     continue
-                logger.warning(f"Ollama embedding failed: {e} - falling back to local hash")
-                return self._embed_local_hash(text)
+                logger.warning(f"Ollama embedding failed: {e}: embed unavailable")
+                raise self._unavailable("all attempts failed") from e
 
         # Unreachable in practice (prompt_sizes is non-empty), but satisfies type checker
-        return self._embed_local_hash(text)
+        raise self._unavailable("all attempts failed")
 
     def batch_embed(self, texts: list[str], max_chars: int = 1200) -> list[list[float] | None]:
         """Batch embed multiple texts. Returns list of vectors (None for failures)."""
         if self.provider == "ollama":
             return self._batch_embed_ollama(texts, max_chars)
         # Fallback: sequential for non-Ollama providers
-        return [self.embed(t) for t in texts]
+        return [self._embed_or_none(t) for t in texts]
 
     def _batch_embed_ollama(self, texts: list[str], max_chars: int = 1200) -> list[list[float] | None]:
         """Batch embed using Ollama /api/embed endpoint (accepts input list)."""
@@ -480,7 +496,9 @@ class EmbeddingsProvider:
             return embeddings
         except Exception as e:
             logger.warning(f"Batch embed failed: {e} — falling back to sequential")
-            return [self.embed(t) for t in texts]
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                self._down_until = time.monotonic() + _EMBED_BACKOFF  # the per-text retries would each pay it again
+            return [self._embed_or_none(t) for t in texts]
 
     def _embed_openai(self, text: str) -> list[float]:
         """Embed using the OpenAI REST API (text-embedding-3-*, etc.).
@@ -504,7 +522,7 @@ class EmbeddingsProvider:
 
             if not embedding:
                 logger.warning(f"OpenAI returned empty embedding for model {self.model}")
-                return self._embed_local_hash(text)
+                raise self._unavailable("empty embedding")
 
             # Cache vector size
             if self._vector_size is None:
@@ -514,8 +532,10 @@ class EmbeddingsProvider:
             return embedding
 
         except requests.exceptions.RequestException as e:
-            logger.warning(f"OpenAI embedding failed: {e} - falling back to local hash")
-            return self._embed_local_hash(text)
+            logger.warning(f"OpenAI embedding failed: {e}: embed unavailable")
+            raise self._unavailable(
+                str(e), down=isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout))
+            ) from e
 
     def _embed_jina(self, text: str) -> list[float]:
         """Embed using Jina AI API (jina-embeddings-v3, etc.)."""
@@ -533,7 +553,7 @@ class EmbeddingsProvider:
 
             if not embedding:
                 logger.warning(f"Jina returned empty embedding for model {self.model}")
-                return self._embed_local_hash(text)
+                raise self._unavailable("empty embedding")
 
             # Cache vector size
             if self._vector_size is None:
@@ -543,8 +563,10 @@ class EmbeddingsProvider:
             return embedding
 
         except requests.exceptions.RequestException as e:
-            logger.warning(f"Jina embedding failed: {e} - falling back to local hash")
-            return self._embed_local_hash(text)
+            logger.warning(f"Jina embedding failed: {e}: embed unavailable")
+            raise self._unavailable(
+                str(e), down=isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout))
+            ) from e
 
     def _embed_voyage(self, text: str) -> list[float]:
         """Embed using Voyage AI API (voyage-3.5, voyage-3-lite, etc.)."""
@@ -566,7 +588,7 @@ class EmbeddingsProvider:
 
             if not embedding:
                 logger.warning(f"Voyage returned empty embedding for model {self.model}")
-                return self._embed_local_hash(text)
+                raise self._unavailable("empty embedding")
 
             # Cache vector size
             if self._vector_size is None:
@@ -576,8 +598,24 @@ class EmbeddingsProvider:
             return embedding
 
         except requests.exceptions.RequestException as e:
-            logger.warning(f"Voyage embedding failed: {e} - falling back to local hash")
-            return self._embed_local_hash(text)
+            logger.warning(f"Voyage embedding failed: {e}: embed unavailable")
+            raise self._unavailable(
+                str(e), down=isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout))
+            ) from e
+
+    def _unavailable(self, reason: str, *, down: bool = False) -> EmbeddingUnavailable:
+        """The error a failed embed raises. ``down`` (unreachable or timed out) starts the backoff, so a cold or absent
+        model costs one timeout per process window rather than one per search."""
+        if down:
+            self._down_until = time.monotonic() + _EMBED_BACKOFF
+        return EmbeddingUnavailable(f"{self.provider}/{self.model}: {reason}")
+
+    def _embed_or_none(self, text: str) -> list[float] | None:
+        try:
+            return self.embed(text)
+        except EmbeddingUnavailable as e:
+            logger.debug(f"embed skipped: {e}")
+            return None
 
     def _embed_local_hash(self, text: str) -> list[float]:
         """Simple hashing embedding for testing/fallback (no external deps).

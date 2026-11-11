@@ -508,10 +508,14 @@ class LessonStorageManager:
         self._conn.commit()
 
     def _generate_embedding(self, text: str) -> list[float]:
-        """Generate embedding vector for text using the core embeddings provider"""
-        from empirica.core.qdrant.embeddings import get_embedding
+        """Embedding vector for text from the core provider. Raises when the model gives none: a lesson is not written
+        with, or searched by, a vector that is not semantic (goal 6f1e9bb6)."""
+        from empirica.core.qdrant.connection import _get_embedding_safe
 
-        return get_embedding(text)
+        vector = _get_embedding_safe(text)
+        if vector is None:
+            raise RuntimeError("embedding model unavailable")
+        return vector
 
     # ==================== READ ====================
 
@@ -876,8 +880,8 @@ class LessonStorageManager:
 
         # Semantic search
         elif query and self._qdrant:
-            vector = self._generate_embedding(query)
             try:
+                vector = self._generate_embedding(query)
                 # Over-fetch: hits that no longer resolve are dropped below, so
                 # asking for exactly `limit` would return short lists whenever
                 # the collection carries orphans.
