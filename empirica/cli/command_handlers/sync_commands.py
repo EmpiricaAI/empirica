@@ -1628,6 +1628,48 @@ def _rebuild_apply_resolution(db, key, new_id, item) -> None:
         logger.debug(f"rebuild resolution re-apply skip ({key} {new_id}): {e}")
 
 
+def _rebuild_assumptions(db, rebuilt) -> None:
+    """Assumptions from their notes, with their status (goal 1e885685). The rebuild had no branch for them, so it lost
+    every assumption; their notes now carry the outcome (verified / falsified), when and by which finding it was settled,
+    and the due date, stamped by due_note.restamp_assumption after each status change. Best-effort per note."""
+    import time
+
+    from empirica.core.canonical.empirica_git.assumption_store import GitAssumptionStore
+
+    rebuilt.setdefault("assumptions", 0)
+    for note in GitAssumptionStore().discover_assumptions():
+        aid, text = note.get("assumption_id"), note.get("assumption")
+        if not aid or not text:
+            continue
+        status = note.get("status") if note.get("status") in ("unverified", "verified", "falsified") else "unverified"
+        conf = note.get("confidence")
+        conf = conf if isinstance(conf, (int, float)) and not isinstance(conf, bool) and 0.0 <= conf <= 1.0 else None
+        try:
+            cur = db.adapter.conn.execute(
+                "INSERT OR IGNORE INTO assumptions (id, assumption, confidence, status, project_id, session_id, goal_id, "
+                "created_by_ai, created_timestamp, resolved_timestamp, resolution_finding_id, visibility, due_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local', ?)",
+                (
+                    aid,
+                    text,
+                    conf,
+                    status,
+                    note.get("project_id"),
+                    note.get("session_id"),
+                    note.get("goal_id"),
+                    note.get("ai_id"),
+                    _note_time(note.get("created_at")) or time.time(),
+                    note.get("resolved_timestamp"),
+                    note.get("resolution_finding_id"),
+                    note.get("due_at"),
+                ),
+            )
+            db.adapter.conn.commit()
+            rebuilt["assumptions"] += cur.rowcount
+        except Exception as e:
+            logger.debug(f"rebuild assumption skip ({str(aid)[:8]}): {e}")
+
+
 def _rebuild_from_notes() -> dict[str, Any]:
     """
     Rebuild database from git notes.
@@ -1679,6 +1721,7 @@ def _rebuild_from_notes() -> dict[str, Any]:
         # Phase 1: Insert breadcrumbs
         inserted_all_goal_ids = inserted_goal_ids | set(orphan_goal_ids)
         _rebuild_insert_breadcrumbs(db, findings, unknowns, dead_ends, mistakes, inserted_all_goal_ids, rebuilt)
+        _rebuild_assumptions(db, rebuilt)
 
         db.close()
 

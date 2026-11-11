@@ -1691,6 +1691,10 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                     )
                     if cursor.rowcount > 0:
                         resolved_count += 1
+                        # The note records the outcome too, or a rebuild cannot tell it from an open one (1e885685).
+                        from empirica.core.canonical.empirica_git.due_note import restamp_assumption
+
+                        restamp_assumption(db.conn, artifact_id)
                     else:
                         resolution_errors.append(f"Assumption '{artifact_id}' not found")
 
@@ -2745,7 +2749,8 @@ def _apply_session_row(cursor, atype: str, aid: str, item: dict, errors: list, r
         return 0
     if cursor.rowcount > 0:
         changed = cursor.rowcount
-        if "due_at" in updates:  # a snooze or a cleared date reaches the note, or a rebuild brings the old one back
+        if "due_at" in updates or (atype == "assumption" and "status" in updates):
+            # A snooze, a cleared date or an assumption's outcome reaches the note, or a rebuild brings back the old one.
             from empirica.core.canonical.empirica_git.due_note import restamp_due
 
             if not restamp_due(cursor.connection, atype, aid):

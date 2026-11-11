@@ -1553,6 +1553,10 @@ def _apply_resolution(db, project: dict, artifact_type: str, artifact_id: str, b
             "UPDATE assumptions SET status = ?, resolved_timestamp = ? WHERE id = ?",
             (status, now, artifact_id),
         )
+        if cursor.rowcount > 0:  # the note records the outcome too (goal 1e885685)
+            from empirica.core.canonical.empirica_git.due_note import restamp_assumption
+
+            restamp_assumption(db.conn, artifact_id)
     elif artifact_type == "goal":
         cursor.execute(
             "UPDATE goals SET is_completed = 1, status = 'completed', completed_timestamp = ? WHERE id = ?",
@@ -1742,7 +1746,7 @@ async def patch_artifact(
             "id": artifact_id,
             "updated_fields": sorted(updates.keys()),
         }
-        if "due_at" in updates and cursor.rowcount > 0:
+        if ("due_at" in updates or (artifact_type == "assumption" and "status" in updates)) and cursor.rowcount > 0:
             # The note carries the date too (1.16, D3c): say whether it was rewritten, so a failure is visible.
             from empirica.core.canonical.empirica_git.due_note import restamp_due
 
