@@ -149,6 +149,21 @@ def test_a_project_can_be_registered_and_unregistered(writes, http, auth, server
             assert gone.status_code in (200, 201, 204), gone.text[:300]
 
 
+def test_a_project_registered_with_its_own_id_keeps_that_id(writes, http, auth, server):
+    """The upgrade path re-registers a local practice under the project id its machine already uses; a server
+    that minted a fresh id would orphan the practice's history."""
+    needs(server, "projects.registry")
+    own_id = str(uuid.uuid4())
+    name = f"conformance-{uuid.uuid4().hex[:10]}"
+    reg = http.post("/v1/projects/register", headers=auth, json={"name": name, "display_name": name, "project_id": own_id})
+    assert reg.status_code in (200, 201), reg.text[:300]
+    got = body_of(reg).get("project_id") or body_of(reg).get("id")
+    try:
+        assert got == own_id, f"asked to register under {own_id}, the server answered {got}"
+    finally:
+        http.post("/v1/projects/unregister", headers=auth, json={"project_id": got or own_id, "purge": True})
+
+
 # ── auto-accept ───────────────────────────────────────────────────────────────────────────────────────────
 
 def test_auto_accept_can_be_set_and_read_back_and_is_restored(writes, http, auth, server):

@@ -130,3 +130,19 @@ def test_the_human_postflight_output_shows_its_warnings(monkeypatch, capsys):
     result = {"ok": True, "warnings": ["cortex sync dropped: cortex does not know this practice"]}
     wp._postflight_format_human_output(result, "s" * 36, {}, "", {}, [], None)
     assert "cortex sync dropped" in capsys.readouterr().out
+
+
+def test_slug_taken_names_the_holder_and_the_suggested_name():
+    # Cortex's 409 carries existing_id and suggested; dropping them left the user to guess what to rename to (7683668e).
+    body = {"code": "slug_taken", "existing_id": "other-id", "suggested": "demo-2"}
+    out = pc._interpret_cortex_register_response(409, body, UUID)
+    assert out["outcome"] == "slug_taken" and out["existing_id"] == "other-id" and out["suggested"] == "demo-2"
+    assert "demo-2" in out["hint"]
+
+
+def test_bulk_register_reports_the_suggested_name(monkeypatch):
+    monkeypatch.setattr(
+        pc, "_post_project", lambda *a, **k: (409, {"code": "slug_taken", "existing_id": "x", "suggested": "demo-2"})
+    )
+    out = pc._register_one_project({"name": "demo"}, "http://x", "k", 1.0)
+    assert out["outcome"] == "failed" and out.get("existing_id") == "x" and out.get("suggested") == "demo-2"

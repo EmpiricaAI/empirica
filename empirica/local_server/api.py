@@ -64,6 +64,14 @@ class ProjectRegistry:
         slug = _slug(name)
         with connect(self.path) as db:
             row = db.execute("SELECT id FROM local_projects WHERE slug = ?", (slug,)).fetchone()
+            if row and project_id and row[0] != project_id:
+                # Another project holds the name: Cortex's answer is 409 slug_taken, never a silent rename and never the
+                # other project's id (that orphaned the caller's history on an upgrade; cortex b63fa50a, goal 4ba64b83).
+                taken = {r[0] for r in db.execute("SELECT slug FROM local_projects WHERE slug LIKE ?", (f"{slug}-%",))}
+                n = 2
+                while f"{slug}-{n}" in taken:
+                    n += 1
+                raise SlugTaken(existing_id=row[0], suggested=f"{slug}-{n}")
             if row:
                 return {"project_id": row[0], "id": row[0], "slug": slug, "already_registered": True}
             pid = project_id or str(uuid.uuid4())
@@ -166,6 +174,15 @@ class _Ctx:
 
     def registry(self) -> ProjectRegistry:
         return self._open()[1]
+
+
+class SlugTaken(Exception):
+    """A register under a name another project holds (answered 409 slug_taken, as Cortex does)."""
+
+    def __init__(self, existing_id: str, suggested: str):
+        super().__init__(f"slug held by {existing_id}")
+        self.existing_id = existing_id
+        self.suggested = suggested
 
 
 def refuse(error: str, status: int, **extra) -> JSONResponse:
@@ -298,7 +315,17 @@ def _project_routes(r, ctx: _Ctx, auth) -> None:
         name = str(body.get("name") or "").strip()
         if not name:
             return refuse("name is required", 400)
-        return ctx.registry().register(name, body.get("project_id"), body.get("display_name"), body.get("repo_url"))
+        own_id = body.get("project_id") or body.get("id")  # Cortex accepts either key for the caller's id
+        try:
+            return ctx.registry().register(name, own_id, body.get("display_name"), body.get("repo_url"))
+        except SlugTaken as e:
+            return refuse(
+                "another project already holds this name",
+                409,
+                code="slug_taken",
+                existing_id=e.existing_id,
+                suggested=e.suggested,
+            )
 
     @r.post("/v1/projects/unregister", dependencies=auth)
     async def project_unregister(request: Request):  # pyright: ignore[reportUnusedFunction]

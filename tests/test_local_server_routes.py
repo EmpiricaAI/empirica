@@ -347,3 +347,21 @@ def test_the_practice_check_agrees_with_slug_for_case_folding_characters():
     from empirica.local_server.api import _has_practice
 
     assert _has_practice("K") and _has_practice("Café") and not _has_practice("___") and not _has_practice("日本")
+
+
+def test_register_keeps_an_id_sent_under_cortexs_alias(client):
+    # Cortex accepts the caller's id as `id` or `project_id` (upgrade seam, cortex b63fa50a); so does the local server.
+    own = "0b6f5a1e-0000-4000-8000-000000000001"
+    resp = client.post("/v1/projects/register", json={"name": "aliased", "id": own})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["project_id"] == own
+
+
+def test_a_slug_held_by_another_project_is_a_409_with_a_suggestion(client):
+    first = client.post("/v1/projects/register", json={"name": "beta", "project_id": "id-one"}).json()["project_id"]
+    again = client.post("/v1/projects/register", json={"name": "beta", "project_id": first})
+    assert again.status_code == 200 and again.json().get("already_registered") is True  # same project: idempotent
+    other = client.post("/v1/projects/register", json={"name": "beta", "project_id": "id-two"})
+    assert other.status_code == 409, other.text
+    body = other.json()
+    assert body.get("code") == "slug_taken" and body.get("existing_id") == first and body.get("suggested") == "beta-2"

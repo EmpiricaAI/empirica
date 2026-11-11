@@ -1,6 +1,6 @@
 # Vendored from Cortex
 
-`conformance/` and `../contract/` are copied from the empirica-cortex repository at commit `cc7f58a2` (2026-11-10; first vendored at `849e4ef1`). Cortex owns
+`conformance/` and `../contract/` are copied from the empirica-cortex repository at commit `b63fa50a` (2026-11-11; first vendored at `849e4ef1`). Cortex owns
 the contract and this suite; core vendors them to test the local server (empirica-local, spec phase 1) against the same
 contract Cortex serves. Edit them in the cortex repo and copy them here again, never here alone, or the two halves drift.
 
