@@ -168,6 +168,8 @@ Ollama or Cortex, when configured, is used instead. `empirica doctor` has a
 semantic-search check, and `project-search` says when search is off and why.
 After moving to Cortex, `empirica project-embed` in each practice re-embeds it
 into the store in use.
+Which embedding model suits which hardware, and how to change it:
+[Embedding models](../../reference/EMBEDDING_MODELS.md).
 
 ## Installation Options
 
