@@ -1,0 +1,80 @@
+"""Clients use the local server's store and model last, after anything configured (goal db2cf3fa, T4.3).
+
+Order: an explicit URL, the per-org resolver a Cortex seat installs, EMPIRICA_QDRANT_URL, a server on 6333, then the local
+server when its health advertises the service. Embeddings: a configured provider, Ollama with a model, then the local
+server's /ollama, then hashed vectors. So moving to Cortex changes nothing here. The probes are stubbed: this box runs a
+real Qdrant on 6333, and a test must not depend on that.
+"""
+
+from __future__ import annotations
+
+import urllib.request
+
+import pytest
+
+import empirica.core.qdrant.connection as qc
+
+HEALTH = {"edition": "local", "services": {"vectors": "/qdrant", "embeddings": "/ollama"}}
+
+
+@pytest.fixture
+def no_6333(monkeypatch):
+    def refuse(req, *a, **k):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        raise OSError(f"refused {url}")
+
+    monkeypatch.setattr(urllib.request, "urlopen", refuse)
+    monkeypatch.delenv("EMPIRICA_QDRANT_URL", raising=False)
+    monkeypatch.setenv("EMPIRICA_SERVE_PORT", "8123")
+    monkeypatch.setattr(qc, "_local_service_cache", {})
+    monkeypatch.setattr(qc, "_url_resolver", None)
+
+
+def _health(monkeypatch, doc):
+    import empirica.core.mesh_endpoint as me
+
+    monkeypatch.setattr(me, "_probe_health", lambda url: doc)
+
+
+def test_with_nothing_configured_the_store_is_the_local_servers(monkeypatch, no_6333):
+    _health(monkeypatch, HEALTH)
+    assert qc.local_server_service("vectors") == "http://127.0.0.1:8123/qdrant"
+    assert qc.qdrant_search_client().url == "http://127.0.0.1:8123/qdrant"
+    client = qc._get_qdrant_client()
+    assert client is not None and "8123" in str(getattr(client._client, "rest_uri", ""))
+
+
+def test_a_configured_store_wins_over_the_local_server(monkeypatch, no_6333):
+    _health(monkeypatch, HEALTH)
+    monkeypatch.setenv("EMPIRICA_QDRANT_URL", "http://cortex-qdrant.example:6333")
+    assert qc.qdrant_search_client().url == "http://cortex-qdrant.example:6333"
+
+
+def test_a_local_server_without_the_service_is_not_used(monkeypatch, no_6333):
+    _health(monkeypatch, {"edition": "local", "services": {"vectors": None}})
+    assert qc.local_server_service("vectors") is None and qc.qdrant_search_client() is None
+    _health(monkeypatch, {"edition": "cortex", "services": {"vectors": "/qdrant"}})
+    monkeypatch.setattr(qc, "_local_service_cache", {})
+    assert qc.local_server_service("vectors") is None, "only the local edition"
+
+
+def test_embeddings_auto_uses_the_local_model_before_hashed_vectors(monkeypatch, no_6333):
+    import empirica.core.qdrant.embeddings as emb
+
+    _health(monkeypatch, HEALTH)
+    monkeypatch.delenv("EMPIRICA_EMBEDDINGS_PROVIDER", raising=False)
+    monkeypatch.delenv("EMPIRICA_EMBEDDINGS_MODEL", raising=False)
+    monkeypatch.setattr(emb, "_check_ollama_available", lambda url: False)
+    monkeypatch.setattr(emb, "_load_config_file", lambda: {})
+    p = emb.EmbeddingsProvider()
+    assert (p.provider, p.ollama_url, p.model) == ("ollama", "http://127.0.0.1:8123/ollama", "multilingual-e5-small")
+
+
+def test_without_a_local_model_auto_still_falls_back_to_hashed(monkeypatch, no_6333):
+    import empirica.core.qdrant.embeddings as emb
+
+    _health(monkeypatch, None)
+    monkeypatch.delenv("EMPIRICA_EMBEDDINGS_PROVIDER", raising=False)
+    monkeypatch.setattr(emb, "_check_ollama_available", lambda url: False)
+    monkeypatch.setattr(emb, "_load_config_file", lambda: {})
+    assert emb.EmbeddingsProvider().provider == "local"

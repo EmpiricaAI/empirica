@@ -350,6 +350,45 @@ def _get_embeddings_batch_for_collection(
     return vectors
 
 
+_local_service_cache: dict[str, str | None] = {}
+
+
+def local_server_service(service: str) -> str | None:
+    """The local server's URL for ``"vectors"`` (``.../qdrant``) or ``"embeddings"`` (``.../ollama``), or None.
+
+    On a machine with no Cortex, ``empirica serve`` holds the vector store and the embedding model (goal db2cf3fa,
+    docs/architecture/LOCAL_SEMANTIC_LAYER.md). Every resolver asks this LAST, after anything configured (an explicit URL,
+    the per-org resolver a Cortex seat installs, ``EMPIRICA_QDRANT_URL``, a server on 6333, Ollama), so moving to Cortex
+    needs no change here. One health probe per process: a refused loopback connection costs about a millisecond.
+    """
+    if service in _local_service_cache:
+        return _local_service_cache[service]
+    value = None
+    try:
+        from empirica.core.mesh_endpoint import _probe_health, local_server_url
+
+        base = local_server_url()
+        doc = _probe_health(f"{base}/v1/health") or {}
+        path = (doc.get("services") or {}).get(service) if doc.get("edition") == "local" else None
+        value = f"{base}{path}" if path else None
+    except Exception:
+        value = None
+    _local_service_cache[service] = value
+    return value
+
+
+def _default_store_url() -> str:
+    """A Qdrant server on 6333 when one answers, else the local server's store when it holds one, else 6333 (to report)."""
+    default_url = "http://localhost:6333"
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen(urllib.request.Request(f"{default_url}/collections", method="GET"), timeout=1):
+            return default_url
+    except Exception:
+        return local_server_service("vectors") or default_url
+
+
 def semantic_layer_status(project_id: str | None = None) -> dict:
     """Whether semantic search can work here, and why not: ``{semantic, qdrant, qdrant_url, embeddings, reason}``.
 
@@ -363,7 +402,7 @@ def semantic_layer_status(project_id: str | None = None) -> dict:
     if not _check_qdrant_available():
         out["reason"] = "semantic search is off: qdrant-client is not installed, or embeddings are disabled"
         return out
-    url = _service_url(project_id=project_id) or "http://localhost:6333"
+    url = _service_url(project_id=project_id) or _default_store_url()
     out["qdrant_url"] = url
     try:
         import urllib.request
@@ -412,8 +451,9 @@ def qdrant_search_client():
             if r.status == 200:
                 return RestQdrant(default_url)
     except Exception:
-        pass  # no local server: the caller skips its search
-    return None
+        pass  # no server on 6333: the local server's store, when it holds one
+    local = local_server_service("vectors")
+    return RestQdrant(local) if local else None
 
 
 def _get_qdrant_client(
@@ -482,6 +522,11 @@ def _get_qdrant_client(
                 return QdrantClient(url=default_url)
     except Exception:
         pass  # Server not available
+
+    # Priority 5: the local server's embedded store, on a machine with no Cortex (goal db2cf3fa)
+    local = local_server_service("vectors")
+    if local:
+        return QdrantClient(url=local)
 
     # No Qdrant server available — skip gracefully
     logger.debug("Qdrant server not available. Start with: qdrant")

@@ -233,17 +233,20 @@ def _point_read_routes(r, deps, answer: _Answer) -> None:
 
     @r.post("/qdrant/collections/{name}/points/search", dependencies=deps)
     async def search(name: str, request: Request):  # pyright: ignore[reportUnusedFunction]
-        req = m.SearchRequest.model_validate(await _body(request))
+        # The older search API: parsed by hand, because newer qdrant-client releases no longer ship its SearchRequest
+        # model (CI, 2026-11-11). Only the fields empirica's raw /points/search fallbacks send.
+        data = await _body(request)
+        flt = m.Filter.model_validate(data["filter"]) if data.get("filter") else None
         return await answer(
             lambda c: (
                 c.query_points(
                     name,
-                    query=req.vector,
-                    query_filter=req.filter,
-                    limit=req.limit or 10,
-                    score_threshold=req.score_threshold,
-                    with_payload=_flag(req.with_payload, False),
-                    with_vectors=_flag(req.with_vector, False),
+                    query=data.get("vector"),
+                    query_filter=flt,
+                    limit=int(data.get("limit") or 10),
+                    score_threshold=data.get("score_threshold"),
+                    with_payload=_flag(data.get("with_payload"), False),
+                    with_vectors=_flag(data.get("with_vector"), False),
                 ).points
             )
         )

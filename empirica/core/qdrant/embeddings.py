@@ -255,15 +255,26 @@ class EmbeddingsProvider:
 
         # Resolve "auto" to actual provider, tracking if we fell back
         self._auto_fallback = False
+        served_locally = False
         if provider_env == "auto":
             self.provider = _resolve_auto_provider(self.ollama_url)
             if self.provider == "local":
-                self._auto_fallback = True
+                # Before hashed vectors: the local server's model, on a machine with no Ollama (goal db2cf3fa).
+                from empirica.core.qdrant.connection import local_server_service
+
+                local = local_server_service("embeddings")
+                if local:
+                    self.provider, self.ollama_url, served_locally = "ollama", local, True
+                else:
+                    self._auto_fallback = True
         else:
             self.provider = provider_env
 
         self.model = os.getenv(
-            "EMPIRICA_EMBEDDINGS_MODEL", file_conf.get("model", DEFAULT_MODELS.get(self.provider, "qwen3-embedding"))
+            "EMPIRICA_EMBEDDINGS_MODEL",
+            "multilingual-e5-small"
+            if served_locally
+            else file_conf.get("model", DEFAULT_MODELS.get(self.provider, "qwen3-embedding")),
         )
         self._client = None
         self._vector_size: int | None = None
