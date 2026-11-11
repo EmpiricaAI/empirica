@@ -786,25 +786,11 @@ def _patch(*body):
     return {"command": "\n".join(["*** Begin Patch", *body, "*** End Patch"])}
 
 
-@pytest.mark.parametrize("lead", ["\t", " ", "\xa0"])
-def test_whitespace_before_an_absolute_path_is_part_of_the_path_to_codex(home, tmp_path, lead):
-    # Codex keeps it, finds the path relative and joins it to the working directory; Python stripped it and checked the
-    # absolute path inside the practice. With the session's working directory elsewhere, codex wrote outside (pass 4).
-    proj = home[1]
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
-    verdict = sd.judge(
-        "apply_patch",
-        _patch(f"*** Add File: {lead}{proj}/g.txt", "+x"),
-        cwd=str(elsewhere),
-        project_root=str(proj),
-        empirica_is_read=_is_read,
-    )
-    assert verdict["trivial"] is False, verdict
-
-
-def test_an_ordinary_patch_path_with_spaces_and_dashes_is_still_trivial(home):
-    verdict = _judge(home, "apply_patch", _patch("*** Add File: notes/my notes-2026_11.v2.md", "+x"))
+@pytest.mark.parametrize("name", ["notes/my notes-2026_11.v2.md", "notes/café.md", "notizen/Übersicht.md"])
+def test_an_ordinary_patch_path_is_still_trivial(home, name):
+    # The Sentinel is a discipline gate, not a security layer (David, 2026-11-11): an honest file name in any script is a
+    # small edit; no character list decides it.
+    verdict = _judge(home, "apply_patch", _patch(f"*** Add File: {name}", "+x"))
     assert verdict["trivial"] is True, verdict
 
 
@@ -846,13 +832,6 @@ def test_a_patch_that_adds_and_updates_files_inside_the_practice_is_trivial(home
         # Codex resolves `..` lexically, Python's realpath after following symlinks: through an inward directory symlink
         # they name different files, so any `..` in a patch path needs a transaction (1.16.0 sweep, pass 2).
         (("*** Add File: notes/../README.md", "+x"), "outside_write"),
-        # Codex joins paths through the url crate, which drops TAB, CR and LF inside a segment: `..\t` climbs and
-        # `CLAUDE\t.md` is CLAUDE.md (1.16.0 sweep, pass 3). Only plain printable ASCII paths are budgeted.
-        (("*** Add File: ..\t/x.txt", "+x"), "outside_write"),
-        (("*** Add File: CLAUDE\t.md", "+x"), "outside_write"),
-        (("*** Add File: .gi\tt/hooks/pre-commit", "+x"), "outside_write"),
-        (("*** Add File: notes/caf\u00e9.md", "+x"), "outside_write"),
-        (("*** Add File: notes\\a.md", "+x"), "outside_write"),
     ],
 )
 def test_a_patch_that_deletes_moves_reaches_outside_or_names_nothing_needs_a_transaction(home, body, cls):

@@ -242,7 +242,7 @@ def patch_lines(patch: str) -> list[str]:
     return [line.removesuffix("\r").strip() for line in (patch or "").split("\n")]
 
 
-def patch_paths(patch: str, *, raw: bool = False) -> list[str]:
+def patch_paths(patch: str) -> list[str]:
     """Every path a codex ``apply_patch`` names, in order: added, deleted, updated, and the destination of a move.
 
     The grammar is codex's own (codex-rs/apply-patch/src/parser.rs, as ecodex cited it): file headers between
@@ -258,8 +258,7 @@ def patch_paths(patch: str, *, raw: bool = False) -> list[str]:
     for line in lines[1:]:
         for header in _PATCH_HEADERS:
             if line.startswith(header):
-                # raw: the path exactly as codex takes it, everything after the marker (the allowlist reads this form)
-                path = line[len(header) :] if raw else line[len(header) :].strip()
+                path = line[len(header) :].strip()
                 if path:
                     paths.append(path)
                 break
