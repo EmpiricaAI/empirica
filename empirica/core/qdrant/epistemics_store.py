@@ -4,9 +4,12 @@ Epistemic learning trajectory storage and search.
 
 from __future__ import annotations
 
+import uuid
+
 from empirica.core.qdrant.collections import _epistemics_collection
 from empirica.core.qdrant.connection import (
     _check_qdrant_available,
+    _ensure_collection_matches_vector,
     _get_embedding_safe,
     _get_qdrant_client,
     _get_qdrant_imports,
@@ -25,7 +28,7 @@ def upsert_epistemics(project_id: str, items: list[dict]) -> int:
 
     try:
         _, _, _, PointStruct = _get_qdrant_imports()
-        client = _get_qdrant_client()
+        client = _get_qdrant_client(project_id=project_id)
         if client is None:
             return 0
         coll = _epistemics_collection(project_id)
@@ -35,15 +38,30 @@ def upsert_epistemics(project_id: str, items: list[dict]) -> int:
             vector = _get_embedding_safe(item.get("text", ""))
             if vector is None:
                 continue
-            payload = item.get("metadata", {})
-            points.append(PointStruct(id=item["id"], vector=vector, payload=payload))
+            payload = dict(item.get("metadata", {}))
+            payload["item_id"] = str(item["id"])
+            points.append(PointStruct(id=_point_id(item["id"]), vector=vector, payload=payload))
 
         if points:
+            # Created on first write, like the other per-project collections (goal 6f1e9bb6: it never was, and every
+            # upsert failed on the missing collection before it could fail on the id).
+            _ensure_collection_matches_vector(client, coll, len(points[0].vector), create_if_missing=True)
             client.upsert(collection_name=coll, points=points)
         return len(points)
     except Exception as e:
         logger.warning(f"Failed to upsert epistemics: {e}")
         return 0
+
+
+def _point_id(item_id) -> int | str:
+    """A Qdrant point id for ``item_id``: an int or a UUID as it is, anything else (``session_<uuid>``) as a stable
+    UUIDv5, so the same item replaces its point. Qdrant rejects any other string; the original rides in ``item_id``."""
+    if isinstance(item_id, int):
+        return item_id
+    try:
+        return str(uuid.UUID(str(item_id)))
+    except ValueError:
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"empirica:epistemics:{item_id}"))
 
 
 def search_epistemics(project_id: str, query_text: str, filters: dict | None = None, limit: int = 5) -> list[dict]:
@@ -59,7 +77,7 @@ def search_epistemics(project_id: str, query_text: str, filters: dict | None = N
         return []
 
     try:
-        client = _get_qdrant_client()
+        client = _get_qdrant_client(project_id=project_id)
         if client is None:
             return []
         coll = _epistemics_collection(project_id)

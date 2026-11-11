@@ -3075,7 +3075,6 @@ def _format_human(checks: list[Check]) -> str:
 
 def _handle_scrub_secrets(cwd: Path, apply_it: bool, include_global: bool = False) -> int:
     """`doctor --scrub-secrets`: remove credentials already stored in this project's artifacts. Plan by default."""
-    import os as _os
     import sqlite3 as _sqlite3
 
     from empirica.core import secret_scrub as ss
@@ -3098,7 +3097,9 @@ def _handle_scrub_secrets(cwd: Path, apply_it: bool, include_global: bool = Fals
     project_id = _project_id_of(cwd)
     qdrant_report: dict[str, Any]
     if project_id:
-        base = _os.environ.get("EMPIRICA_QDRANT_URL") or "http://localhost:6333"
+        from empirica.core.qdrant.connection import store_url
+
+        base = store_url(project_id)  # the per-org store or the local server's, not only the env (goal 6f1e9bb6)
         qdrant_report = ss.scrub_qdrant(ss.QdrantHttp(base), project_id, include_global=include_global, apply=apply_it)
     else:
         qdrant_report = {"points": {}, "applied": apply_it, "error": "no project_id in .empirica/project.yaml"}

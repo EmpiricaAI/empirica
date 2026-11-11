@@ -13,7 +13,7 @@ Key Features:
 - Cross-reference with public keys for signature verification
 
 Design:
-    registry = PersonaRegistry(qdrant_host="localhost", qdrant_port=6333)
+    registry = PersonaRegistry()  # the store every empirica client resolves
     registry.register_persona(signing_persona)
 
     # Find security experts
@@ -94,25 +94,41 @@ class PersonaRegistry:
         "uncertainty",
     ]
 
-    def __init__(self, qdrant_host: str = "localhost", qdrant_port: int = 6333, prefer_grpc: bool = True):
+    def __init__(
+        self,
+        qdrant_host: str | None = None,
+        qdrant_port: int = 6333,
+        prefer_grpc: bool = False,
+        client: Any = None,
+    ):
         """
         Initialize PersonaRegistry
 
         Args:
-            qdrant_host: Qdrant server host
-            qdrant_port: Qdrant server port
-            prefer_grpc: Use gRPC if available (faster)
+            qdrant_host: An explicit Qdrant host. When omitted, the store is the one every other empirica client
+                resolves (the per-org resolver, ``EMPIRICA_QDRANT_URL``, a server on 6333, the local server's store).
+            qdrant_port: Port for an explicit ``qdrant_host``
+            prefer_grpc: gRPC for an explicit ``qdrant_host`` (off by default: the local server speaks REST only)
+            client: An already-built client (tests, embedding callers)
 
         Raises:
             ConnectionError: If cannot connect to Qdrant
         """
         try:
-            self.client = QdrantClient(host=qdrant_host, port=qdrant_port, prefer_grpc=prefer_grpc)
+            if client is not None:
+                self.client = client
+            elif qdrant_host:
+                self.client = QdrantClient(host=qdrant_host, port=qdrant_port, prefer_grpc=prefer_grpc)
+            else:
+                from empirica.core.qdrant import connection
+
+                resolved = connection._get_qdrant_client()
+                if resolved is None:
+                    raise ConnectionError("no Qdrant store answers (no server, no local server store)")
+                self.client = resolved
 
             # Verify connection
             self.client.get_collections()
-
-            logger.info(f"✓ Connected to Qdrant at {qdrant_host}:{qdrant_port}")
 
         except Exception as e:
             logger.error(f"Failed to connect to Qdrant: {e}")
@@ -276,23 +292,24 @@ class PersonaRegistry:
             priors = signing_persona.persona.epistemic_config.priors
             query_vector = [priors[key] for key in self.VECTOR_KEYS]
 
-            # Search similar
-            results = self.client.search(  # pyright: ignore[reportAttributeAccessIssue] — search() deprecated in newer stubs but still works
+            # Search similar (query_points: client.search() is gone in qdrant-client 1.18, goal 6f1e9bb6)
+            results = self.client.query_points(
                 collection_name=self.COLLECTION_NAME,
-                query_vector=query_vector,
+                query=query_vector,
                 limit=limit + 1,  # +1 to exclude self
-                query_filter=None,
-            )
+                with_payload=True,
+            ).points
 
             similar = []
             for scored_point in results:
+                payload = scored_point.payload or {}
                 # Skip self
-                if scored_point.payload.get("persona_id") == signing_persona.persona.persona_id:
+                if payload.get("persona_id") == signing_persona.persona.persona_id:
                     continue
 
                 # Check threshold
                 if scored_point.score >= min_similarity:
-                    persona_dict = self._point_to_persona_dict(scored_point.point)
+                    persona_dict = self._point_to_persona_dict(scored_point)
                     persona_dict["similarity_score"] = scored_point.score
                     similar.append(persona_dict)
 

@@ -1847,11 +1847,13 @@ def _check_semantic_layer():
         print("⚠ Ollama: could not check status")
 
     qdrant_ok = False
-    qdrant_url = os.environ.get("EMPIRICA_QDRANT_URL", "http://localhost:6333")
+    from empirica.core.qdrant.connection import store_url
+
+    qdrant_url = store_url()  # env, a server on 6333, or the local server's store (goal 6f1e9bb6)
     try:
         import urllib.request
 
-        urllib.request.urlopen(qdrant_url, timeout=2)
+        urllib.request.urlopen(f"{qdrant_url}/collections", timeout=2)
         qdrant_ok = True
         print(f"✓ Qdrant: running at {qdrant_url}")
     except Exception:

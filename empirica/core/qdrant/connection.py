@@ -377,16 +377,36 @@ def local_server_service(service: str) -> str | None:
     return value
 
 
-def _default_store_url() -> str:
-    """A Qdrant server on 6333 when one answers, else the local server's store when it holds one, else 6333 (to report)."""
-    default_url = "http://localhost:6333"
+def _probe_default_server() -> bool:
+    """Whether a Qdrant server answers on localhost:6333."""
     try:
         import urllib.request
 
-        with urllib.request.urlopen(urllib.request.Request(f"{default_url}/collections", method="GET"), timeout=1):
-            return default_url
+        with urllib.request.urlopen(
+            urllib.request.Request("http://localhost:6333/collections", method="GET"), timeout=1
+        ):
+            return True
     except Exception:
-        return local_server_service("vectors") or default_url
+        return False
+
+
+def _default_store_url() -> str:
+    """A Qdrant server on 6333 when one answers, else the local server's store when it holds one, else 6333 (to report)."""
+    default_url = "http://localhost:6333"
+    if _probe_default_server():
+        return default_url
+    return local_server_service("vectors") or default_url
+
+
+def store_url(project_id: str | None = None) -> str:
+    """The Qdrant base URL this process would use, for code that speaks REST itself or reports on the store.
+
+    Same order as :func:`_get_qdrant_client`: the per-org resolver for ``project_id``, ``EMPIRICA_QDRANT_URL``, a server on
+    6333, the local server's store. When none answers it still returns 6333, so a caller can name what it tried; such a
+    caller must report the store as unreachable, never as empty (goal 6f1e9bb6: five places read only the env variable).
+    Not for ``empirica serve``'s own health check: the local-server step probes serve's health, which would ask itself.
+    """
+    return _service_url(project_id=project_id) or _default_store_url()
 
 
 def semantic_layer_status(project_id: str | None = None) -> dict:
@@ -402,7 +422,7 @@ def semantic_layer_status(project_id: str | None = None) -> dict:
     if not _check_qdrant_available():
         out["reason"] = "semantic search is off: qdrant-client is not installed, or embeddings are disabled"
         return out
-    url = _service_url(project_id=project_id) or _default_store_url()
+    url = store_url(project_id)
     out["qdrant_url"] = url
     try:
         import urllib.request
@@ -432,26 +452,19 @@ def semantic_layer_status(project_id: str | None = None) -> dict:
     return out
 
 
-def qdrant_search_client():
+def qdrant_search_client(project_id: str | None = None):
     """A read-only similarity client over REST (``empirica.core.qdrant.rest``), or None when no server answers.
 
-    Same server resolution as :func:`_get_qdrant_client` without a project id (``EMPIRICA_QDRANT_URL``, else a local
-    server on 6333), without importing ``qdrant_client``: for hot paths that only query.
+    Same server resolution as :func:`_get_qdrant_client` (the per-org resolver for ``project_id``, ``EMPIRICA_QDRANT_URL``,
+    a server on 6333, the local server's store), without importing ``qdrant_client``: for hot paths that only query.
     """
     from empirica.core.qdrant.rest import RestQdrant
 
-    url = os.getenv("EMPIRICA_QDRANT_URL")
+    url = _service_url(project_id=project_id)
     if url:
         return RestQdrant(url)
-    default_url = "http://localhost:6333"
-    try:
-        import urllib.request
-
-        with urllib.request.urlopen(urllib.request.Request(f"{default_url}/collections", method="GET"), timeout=1) as r:
-            if r.status == 200:
-                return RestQdrant(default_url)
-    except Exception:
-        pass  # no server on 6333: the local server's store, when it holds one
+    if _probe_default_server():
+        return RestQdrant("http://localhost:6333")
     local = local_server_service("vectors")
     return RestQdrant(local) if local else None
 

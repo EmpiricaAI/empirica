@@ -509,22 +509,14 @@ def _qdrant_similarity_pull(project_id: str, topic_text: str, threshold: float) 
         from empirica.core.qdrant.collections import _memory_collection
 
         collection = _memory_collection(project_id)
-        try:
-            response = client.query_points(
-                collection_name=collection,
-                query=vector,
-                limit=100,
-                score_threshold=threshold,
-            )
-            results = response.points  # query_points returns wrapped object
-        except Exception:
-            # Older Qdrant clients still expose .search()
-            results = client.search(  # type: ignore[attr-defined]
-                collection_name=collection,
-                query_vector=vector,
-                limit=100,
-                score_threshold=threshold,
-            )
+        # query_points exists from qdrant-client 1.10 (the floor); search() is gone in 1.18, so no fallback to it.
+        results = client.query_points(
+            collection_name=collection,
+            query=vector,
+            limit=100,
+            score_threshold=threshold,
+            with_payload=True,
+        ).points
         for r in results:
             payload = getattr(r, "payload", None) or {}
             art_id = payload.get("artifact_id") or payload.get("id")

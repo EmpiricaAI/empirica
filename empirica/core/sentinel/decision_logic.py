@@ -159,7 +159,7 @@ class DecisionLogic:
 
     def __init__(
         self,
-        qdrant_host: str = "localhost",
+        qdrant_host: str | None = None,
         qdrant_port: int = 6333,
         min_confidence: float = 0.3,
         domain_weight: float = 0.6,
@@ -169,7 +169,7 @@ class DecisionLogic:
         Initialize DecisionLogic.
 
         Args:
-            qdrant_host: Qdrant server host
+            qdrant_host: Qdrant server host (default: the store empirica resolves)
             qdrant_port: Qdrant server port
             min_confidence: Minimum confidence threshold for matches
             domain_weight: Weight for domain relevance (0-1)

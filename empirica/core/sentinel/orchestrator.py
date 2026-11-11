@@ -666,13 +666,13 @@ class Sentinel:
         ),
     }
 
-    def __init__(self, session_id: str, qdrant_host: str = "localhost", qdrant_port: int = 6333):
+    def __init__(self, session_id: str, qdrant_host: str | None = None, qdrant_port: int = 6333):
         """
         Initialize Sentinel.
 
         Args:
             session_id: Current session ID
-            qdrant_host: Qdrant server host
+            qdrant_host: Qdrant server host (default: the store empirica resolves)
             qdrant_port: Qdrant server port
         """
         self.session_id = session_id

@@ -3423,8 +3423,11 @@ def _hard_delete_source_chunks(project_id: str, source_id: str) -> int | None:
                 FieldCondition(key="source_id", match=MatchValue(value=source_id)),
             ]
         )
-        result = client.delete(collection_name=coll, points_selector=flt)
-        return getattr(result, "deleted", 0) or 0
+        # The delete answers with an operation status and no count, so count first (goal 6f1e9bb6: this read a
+        # `deleted` field that is never there and always reported 0).
+        matched = client.count(collection_name=coll, count_filter=flt, exact=True).count
+        client.delete(collection_name=coll, points_selector=flt)
+        return matched
     except Exception as e:
         logger.warning(f"source archive: qdrant chunk delete FAILED: {e}")
         return None
@@ -3463,8 +3466,11 @@ def _hard_delete_source_memory_embed(project_id: str, source_id: str) -> int | N
                 FieldCondition(key="type", match=MatchValue(value="source")),
             ]
         )
-        result = client.delete(collection_name=coll, points_selector=flt)
-        return getattr(result, "deleted", 0) or 0
+        # The delete answers with an operation status and no count, so count first (goal 6f1e9bb6: this read a
+        # `deleted` field that is never there and always reported 0).
+        matched = client.count(collection_name=coll, count_filter=flt, exact=True).count
+        client.delete(collection_name=coll, points_selector=flt)
+        return matched
     except Exception as e:
         logger.warning(f"source archive: qdrant discovery-embed delete FAILED: {e}")
         return None

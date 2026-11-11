@@ -591,10 +591,11 @@ class WorkspaceDBRepository(BaseRepository):
         # to delete issued by a service that was never asked.
         try:
             import json as _json
-            import os as _os
             import urllib.request as _url
 
-            base = _os.environ.get("EMPIRICA_QDRANT_URL", "http://localhost:6333")
+            from empirica.core.qdrant import connection as _qc
+
+            base = _qc.store_url(project_id)  # the store this project's vectors are written to (goal 6f1e9bb6)
             with _url.urlopen(f"{base}/collections", timeout=5) as resp:
                 names = [c["name"] for c in _json.loads(resp.read())["result"]["collections"]]
             refs["qdrant_collections"] = [n for n in names if n.startswith(f"project_{project_id}_")]

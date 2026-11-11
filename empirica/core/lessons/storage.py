@@ -1550,35 +1550,18 @@ _storage: LessonStorageManager | None = None
 
 
 def _try_get_qdrant_client():
-    """Try to get a Qdrant client, return None if unavailable.
+    """The Qdrant client every empirica writer resolves, or None when no store answers.
 
-    Requires a running Qdrant server. File-based storage was removed (#45)
-    because it creates incompatible storage formats and CWD-relative paths.
+    It used to read only ``EMPIRICA_QDRANT_URL`` and a server on 6333, so lessons missed the per-org resolver a Cortex
+    seat installs and the local server's store on a machine with no Cortex (goal 6f1e9bb6).
     """
     try:
-        import os
+        from empirica.core.qdrant import connection
 
-        from qdrant_client import QdrantClient
-
-        # Priority 1: Explicit URL
-        url = os.getenv("EMPIRICA_QDRANT_URL")
-        if url:
-            return QdrantClient(url=url)
-
-        # Priority 2: Check if Qdrant server is running on localhost
-        default_url = "http://localhost:6333"
-        try:
-            import urllib.request
-
-            req = urllib.request.Request(f"{default_url}/collections", method="GET")
-            with urllib.request.urlopen(req, timeout=1) as resp:
-                if resp.status == 200:
-                    return QdrantClient(url=default_url)
-        except Exception:  # noqa: S110 — Qdrant server may not be running; graceful fallback
-            pass
-
-        logger.debug("Qdrant server not available for lessons storage")
-        return None
+        client = connection._get_qdrant_client()
+        if client is None:
+            logger.debug("Qdrant not available for lessons storage")
+        return client
     except ImportError:
         logger.debug("qdrant-client not installed, SEARCH layer disabled")
         return None
