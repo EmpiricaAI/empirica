@@ -9,6 +9,7 @@ What it answers is exactly what it implements: ``GET /v1/health`` lists the impl
 contract route answers ``501 {"capability": "<name>"}`` until its capability is built, never a stub that pretends.
 """
 
+import os
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -104,6 +105,8 @@ def router():
         from fastapi import Depends
 
         embedder.register(r, [Depends(api.require_local_caller)])
+        if not os.environ.get("EMPIRICA_LOCAL_NO_WARM"):  # tests and stubs set it
+            embedder.warm_in_background()
 
     @r.get("/v1/health")
     @r.get("/health")

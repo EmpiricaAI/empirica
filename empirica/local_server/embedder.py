@@ -86,6 +86,25 @@ def default_embedder() -> Embedder:
     return _default
 
 
+def warm_in_background(embedder: Embedder | None = None) -> threading.Thread:
+    """Load (on a fresh machine, download) the model off the request path when serve starts, so the first search does not
+    wait on it inside a hook with a 30 s timeout (goal db2cf3fa, T4.5). A failure here is logged; the routes still answer
+    503 for a model that will not load."""
+    model = embedder or default_embedder()
+
+    def warm():
+        try:
+            model(["warm"])
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning("embedding model did not load at serve start: %s", e)
+
+    thread = threading.Thread(target=warm, name="empirica-embedder-warm", daemon=True)
+    thread.start()
+    return thread
+
+
 def register(r, guard, embedder: Embedder | None = None) -> None:
     """Add Ollama's embedding routes under ``/ollama`` to router ``r`` behind ``guard`` (loopback-only, like the store)."""
     from fastapi.responses import JSONResponse

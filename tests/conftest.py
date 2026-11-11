@@ -188,6 +188,9 @@ def isolate_empirica_instance():
     # (the cache reset is required — the first check pins the answer). Tests
     # that mock _check_qdrant_available / the client are unaffected.
     os.environ["EMPIRICA_ENABLE_EMBEDDINGS"] = "false"
+    # The local server warms its embedding model in a background thread at startup (goal db2cf3fa); in tests that would
+    # download the model wherever fastembed is installed, CI included.
+    os.environ["EMPIRICA_LOCAL_NO_WARM"] = "1"
 
     # Strip terminal vars so subprocesses don't inherit them.
     # CRITICAL: TMUX is included — without it, any test that subshells `tmux`
@@ -785,6 +788,7 @@ def _provision_never_installs_a_real_serve_service():
     mp.setattr(pp, "_mesh_edition", lambda: "local")
     mp.setattr(pp, "_serve_unit_installed", lambda: False)
     mp.setattr(pp, "_api_extra_missing", lambda: None)
+    mp.setattr(pp, "_embedding_model_step", lambda args, dry_run, **k: {"step": "embedding-model", "changed": False})
     try:
         yield
     finally:

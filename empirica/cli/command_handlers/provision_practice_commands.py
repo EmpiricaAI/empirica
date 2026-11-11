@@ -135,6 +135,49 @@ def _serve_unit_installed() -> bool:
         return False
 
 
+def _embedding_model_step(args, dry_run: bool, *, post=None) -> dict:
+    """The ``embedding-model`` step: when the local server will embed for this machine (no Cortex, no Ollama model), have
+    it load its model now, downloading it once (about 135 MB), so no hook ever waits on the download (goal db2cf3fa)."""
+    step: dict = {"step": "embedding-model", "changed": False}
+    if getattr(args, "no_local_server", False) or getattr(args, "no_cortex", False):
+        return {**step, "note": "skipped (--no-local-server or --no-cortex)"}
+    try:
+        from empirica.core.qdrant.connection import local_server_service
+        from empirica.core.qdrant.embeddings import _check_ollama_available
+
+        if _check_ollama_available(os.environ.get("EMPIRICA_OLLAMA_URL", "http://localhost:11434")):
+            return {**step, "note": "Ollama has an embedding model: the local model is not needed"}
+        url = local_server_service("embeddings")
+    except Exception:
+        url = None
+    if not url:
+        return {**step, "note": "no local embedding service: semantic search uses a configured provider, or is off"}
+    if dry_run:
+        return {**step, "changed": True, "note": "dry-run: would load the embedding model (about 135 MB, once)"}
+    _narrate("Loading the embedding model (about 135 MB the first time; it stays on this machine)...")
+    try:
+        status, _ = (post or _post_json)(f"{url}/api/embed", {"input": ["warm"]}, 600)
+    except OSError as e:
+        status = f"{type(e).__name__}: {e}"
+    if status == 200:
+        return {**step, "changed": True, "note": "embedding model ready"}
+    return {
+        **step,
+        "error": f"the local embedding model did not load ({status})",
+        "hint": "check the network and `empirica serve-service status`; `empirica doctor` shows the semantic-search state",
+    }
+
+
+def _post_json(url: str, body: dict, timeout: float):
+    import urllib.request
+
+    req = urllib.request.Request(
+        url, data=json.dumps(body).encode(), method="POST", headers={"Content-Type": "application/json"}
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.status, resp.read()
+
+
 def _local_server_step(args, proj_dir: Path, dry_run: bool) -> dict:
     """The ``local-server`` step: with no Cortex configured and no local server running, install and start the serve service,
     so practices on this machine can hand work to each other (David's ruling 2026-11-10: nothing to configure).
@@ -660,6 +703,7 @@ def handle_provision_practice_command(args) -> int:
     steps.append(_initial_commit_step(proj_dir, dry_run))
 
     steps.append(_local_server_step(args, proj_dir, dry_run))  # before registering, so registration reaches it
+    steps.append(_embedding_model_step(args, dry_run))
 
     register_cmd = ["empirica", "project-register", ".", "--output", "json"]
     if getattr(args, "no_cortex", False):
