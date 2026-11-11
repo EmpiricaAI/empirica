@@ -522,6 +522,48 @@ def _gitignore_step(proj_dir: Path, dry_run: bool) -> dict:
     return step
 
 
+def _initial_commit_step(proj_dir: Path, dry_run: bool) -> dict:
+    """An empty first commit when the practice repo has none, so git notes (the canonical log) can be written from the
+    first artifact. project-init runs ``git init`` and commits nothing: on a fresh machine every artifact logged before the
+    person's own first commit went to SQLite only (git_stored:false), and a rebuild from notes would lose it (goal
+    db2cf3fa). Empty, so none of the person's files are committed for them; no git identity is invented."""
+    step: dict = {"step": "initial-commit", "changed": False}
+    top = (
+        subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], cwd=proj_dir, capture_output=True, text=True, check=False
+        ).stdout.strip()
+        if proj_dir.is_dir()
+        else ""
+    )
+    # Only the practice's own repo: a folder inside another repo resolves to that one, which is not ours to commit to.
+    # project-init makes the repo and reports its own failure; in a dry run it has not run.
+    if not top or Path(top).resolve() != proj_dir.resolve():
+        return {**step, "note": "not its own git repository yet: nothing to commit to"}
+    has_head = subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD"], cwd=proj_dir, capture_output=True, text=True, check=False
+    )
+    if has_head.returncode == 0:
+        return step
+    if dry_run:
+        _narrate(f"[dry-run] would make an empty first commit in {proj_dir}")
+        return {**step, "changed": True, "note": "dry-run: would make an empty first commit"}
+    r = subprocess.run(
+        ["git", "commit", "--allow-empty", "-q", "-m", "Initial commit (empirica provision-practice)"],
+        cwd=proj_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if r.returncode != 0:
+        return {
+            **step,
+            "error": (r.stderr or r.stdout or "git commit failed").strip().splitlines()[-1],
+            "hint": "set git's identity (`git config --global user.name ...` and `git config --global user.email ...`), "
+            "then run this again: until the practice has a commit, nothing it logs reaches its git notes",
+        }
+    return {**step, "changed": True, "note": "empty first commit, so git notes can be written"}
+
+
 def handle_provision_practice_command(args) -> int:
     """``empirica provision-practice <name> [options]``.
 
@@ -615,6 +657,7 @@ def handle_provision_practice_command(args) -> int:
         steps.append({"step": "patch-project-yaml", "changed": changed})
 
     steps.append(_gitignore_step(proj_dir, dry_run))
+    steps.append(_initial_commit_step(proj_dir, dry_run))
 
     steps.append(_local_server_step(args, proj_dir, dry_run))  # before registering, so registration reaches it
 

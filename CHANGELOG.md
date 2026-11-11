@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A new practice can write its git notes from the first artifact.** `provision-practice` left the new repository with no commit, so git notes (the canonical log) could not be written and everything logged before your first commit went to SQLite only. It now makes an empty first commit (none of your files are committed); without a git identity it says so instead.
 - **An earlier INVESTIGATE no longer asks you to confirm every run.** When the last CHECK said investigate, the Sentinel asked for permission on every praxic call of the next transaction until a finding was logged, even after the investigating transaction had closed with POSTFLIGHT. It now asks at most once per transaction, and not at all once that transaction has closed.
 - **Due dates survive a rebuild.** They lived only in SQLite, so `sync-pull --rebuild` and profile import dropped every one. Goals, unknowns and assumptions now carry `due_at` in their git notes; a snooze or a cleared date rewrites the note, and the rebuild and import read it back. `doctor --reconcile-notes` backfills goal notes written before this.
 - **Profile import imports goals.** It had skipped every goal silently: its insert left out a required column, and `INSERT OR IGNORE` turned the failure into a skip.
