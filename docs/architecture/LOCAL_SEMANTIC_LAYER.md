@@ -73,9 +73,13 @@ Moving to Cortex should be simple, with the cloud store used instead of the loca
 
 - **Instead of:** this falls out of the resolution order. A Cortex seat configures its Qdrant, through the per-org
   resolver or `EMPIRICA_QDRANT_URL`, and a configured store always wins over the local server. Nothing else changes.
-- **Moving what exists:** vectors are derived data. `empirica project-embed` re-embeds each practice from SQLite and the
-  git notes into whichever store resolves. Vectors are re-embedded, not copied, because the cloud model's dimensions
-  differ from the local model's 384.
+- **Moving what exists:** vectors are derived data and are never copied. Hosted Cortex embeds each artifact it
+  receives (`POST /v1/artifacts/import`, the same path as `/log`) with its own model, and its Qdrant is not reachable
+  from a user's machine, so the client re-embeds nothing (cortex, 2026-11-11, read from its import path). For a Qdrant
+  server a person or organisation runs and can reach, `empirica project-embed` re-embeds each practice from SQLite and
+  the git notes into it; the dimension check recreates a collection whose size differs from the local model's 384.
+  Client-side `project-embed` into a store Cortex queries would put vectors in a different space and return bad
+  results without an error.
 - **Alongside:** the local store stays where it is. Clearing or keeping it is the person's choice, and `doctor` shows
   which store is in use.
 

@@ -39,4 +39,6 @@ empirica doctor               # the semantic-search check names the store and th
 ```
 
 Vectors are derived data: re-embedding loses nothing, because the artifacts themselves live in SQLite and the git notes.
-The same command moves a practice to Cortex's store after you connect to Cortex.
+The same command fills a Qdrant server you run yourself after you point empirica at it (`EMPIRICA_QDRANT_URL`).
+Cortex is different: it embeds the artifacts it receives with its own model, on its own server, so nothing is
+re-embedded from your machine.
