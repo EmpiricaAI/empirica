@@ -155,8 +155,18 @@ review gate. A gate, people beyond you and organisations come with Cortex; once
 the same commands use it instead. A message to an address outside `local.<you>.` answers "not
 available on this server".
 
-Knowledge and goals are already shared between practices on one machine:
-`empirica project-search --global` and `empirica goals-list --all-projects`.
+Goals are shared between practices on one machine with
+`empirica goals-list --all-projects`, and knowledge with
+`empirica project-search --global`.
+
+Semantic search (`project-search`, and the related artifacts surfaced as you
+work) needs a Qdrant server and an embedding model. Without them, Empirica still
+logs everything, to SQLite and the git notes, and says that search is off:
+`empirica doctor` has a semantic-search check, and `project-search` reports the
+reason instead of returning an empty result. To turn it on, run Qdrant (for
+example `docker run -d -p 6333:6333 -v ~/.qdrant:/qdrant/storage qdrant/qdrant`)
+and Ollama with an embedding model (`ollama pull qwen3-embedding`), then run
+`empirica project-embed` in each practice.
 
 ## Installation Options
 

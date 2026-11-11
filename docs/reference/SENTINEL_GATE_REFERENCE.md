@@ -195,7 +195,9 @@ The project root comes from the shared project resolver: `instance_projects/{ins
 declared at the next PREFLIGHT. `strict` refuses every change outside a transaction, as described above; `off` allows every call outside a transaction. Inside an
 open transaction the usual rules apply in every mode.
 
-In `discipline`, only a file edit may run outside a transaction: an Edit, Write, MultiEdit or NotebookEdit to a file whose
+In `discipline`, only a file edit may run outside a transaction: an Edit, Write, MultiEdit or NotebookEdit, or codex's
+`apply_patch` for every file the patch names (a patch that deletes or moves a file, or names none it can read, always needs a
+transaction; `apply_patch` run through the shell is a command), to a file whose
 real path (symlinks followed) is inside the practice, not a hard link to another file, not inside the running empirica
 package, not under `.git`, `.claude`, `.claude-plugin`, `.codex`, `.cursor`, `.empirica`, `.vscode`, `.idea`, `.husky`,
 `.github`, `.gitlab`, `.circleci`, `.buildkite`, `.devcontainer` or `site-packages` (compared case-folded), and not a file
