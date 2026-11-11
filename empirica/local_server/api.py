@@ -64,6 +64,12 @@ class ProjectRegistry:
         slug = _slug(name)
         with connect(self.path) as db:
             row = db.execute("SELECT id FROM local_projects WHERE slug = ?", (slug,)).fetchone()
+            if row and project_id and row[0] != project_id and self._minted_placeholder(slug, row[0], project_id):
+                # Registered before ids were sent (bulk register on 1.15.x): the held id is one this server minted and no
+                # practice here uses, and the caller is the practice at that name. Adopt its id instead of refusing the
+                # practice its own name (1.16.0 sweep, pass 2).
+                db.execute("UPDATE local_projects SET id = ? WHERE slug = ?", (project_id, slug))
+                return {"project_id": project_id, "id": project_id, "slug": slug, "adopted_from": row[0]}
             if row and project_id and row[0] != project_id:
                 # Another project holds the name: Cortex's answer is 409 slug_taken, never a silent rename and never the
                 # other project's id (that orphaned the caller's history on an upgrade; cortex b63fa50a, goal 4ba64b83).
@@ -80,6 +86,14 @@ class ProjectRegistry:
                 (pid, slug, display_name or name, repo_url, _now()),
             )
         return {"project_id": pid, "id": pid, "slug": slug}
+
+    def _minted_placeholder(self, slug: str, held_id: str, caller_id: str) -> bool:
+        """Whether ``held_id`` is a placeholder for the practice ``caller_id``: no practice on this machine has ``held_id``,
+        and the practice named ``slug`` in core's workspace registry is ``caller_id``."""
+        practices = self._workspace()
+        if any(p["id"] == held_id for p in practices):
+            return False
+        return any(p["id"] == caller_id and p["slug"] == slug for p in practices)
 
     def unregister(self, project_id: str | None, slug: str | None) -> bool:
         with connect(self.path) as db:

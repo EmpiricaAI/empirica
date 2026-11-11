@@ -529,6 +529,22 @@ def _embed_summary(docs: int, memory_total: int, parts: dict[str, int], decision
     return msg + f" | decisions: {decisions} | assumptions: {assumptions}"
 
 
+def _embed_landing(
+    docs_read: int, docs_written: int, memory_read: int, memory_written: int
+) -> tuple[bool, int, str | None]:
+    """(ok, items read but not embedded, error). A failed embed writes nothing (no hashed stand-in since 1.16.0), so a run
+    that read N items and wrote fewer did not refresh retrieval, and the run says so."""
+    missing = max(0, docs_read - docs_written) + max(0, memory_read - memory_written)
+    if not missing:
+        return True, 0, None
+    return (
+        False,
+        missing,
+        f"{missing} of {docs_read + memory_read} items were not embedded: the embedding model or the vector store did not "
+        "answer (`empirica doctor` names which)",
+    )
+
+
 def _eidetic_summary(new: int, already_present: int) -> str:
     """`eidetic: 0` alone reads the same for a healthy re-run and for nothing found."""
     return f" | eidetic: {new} new, {already_present} already present"
@@ -577,7 +593,7 @@ def handle_project_embed_command(args):
         docs_cfg = idx.get("index", {})
         docs_to_upsert, did = _prepare_docs_from_semantic_index(root, docs_cfg)
         _append_reference_docs(db, project_id, docs_to_upsert, did)
-        upsert_docs(project_id, docs_to_upsert)
+        docs_written = upsert_docs(project_id, docs_to_upsert)
 
         findings, unknowns, mistakes, dead_ends, lessons, snapshots = _query_memory_artifacts(db, project_id)
 
@@ -604,7 +620,7 @@ def handle_project_embed_command(args):
         # an existing close(), so every run since 2026-09-06 raised "Cannot
         # operate on a closed database" after embedding nothing past memory.
         db.close()
-        upsert_memory(project_id, mem_items)
+        memory_written = upsert_memory(project_id, mem_items)
 
         typed_decisions = _embed_typed_decisions(project_id, decisions)
         typed_assumptions = _embed_typed_assumptions(project_id, assumptions)
@@ -635,10 +651,18 @@ def handle_project_embed_command(args):
                 project_id, apply=bool(getattr(args, "purge_global", False))
             )
 
+        landed_ok, not_embedded, landing_error = _embed_landing(
+            len(docs_to_upsert), docs_written, len(mem_items), memory_written
+        )
         result = {
-            "ok": True,
-            "docs": len(docs_to_upsert),
-            "memory": len(mem_items),
+            "ok": landed_ok,
+            # Points written, not rows read: a failed embed now writes nothing, and reporting the rows read said N
+            # embedded when none were (1.16.0 sweep, pass 2).
+            "docs": docs_written,
+            "docs_read": len(docs_to_upsert),
+            "memory": memory_written,
+            "memory_read": len(mem_items),
+            "not_embedded": not_embedded,
             "eidetic": eidetic_count,
             # newly embedded vs already there: 0 new with 446 present is healthy;
             # 0 new with 0 present is a store that has nothing, or a failure upstream
@@ -666,12 +690,16 @@ def handle_project_embed_command(args):
             "global_ineligible": global_ineligible,
         }
 
+        if landing_error:
+            result["error"] = landing_error
         record_embed_outcome(
             root,
-            ok=True,
+            ok=landed_ok,
+            error=landing_error,
             counts={
-                "docs": len(docs_to_upsert),
-                "memory": len(mem_items),
+                "docs": docs_written,
+                "memory": memory_written,
+                "not_embedded": not_embedded,
                 "eidetic": result.get("eidetic"),
                 "eidetic_already_present": result.get("eidetic_already_present"),
             },
@@ -681,8 +709,8 @@ def handle_project_embed_command(args):
             print(json.dumps(result, indent=2))
         else:
             msg = _embed_summary(
-                len(docs_to_upsert),
-                len(mem_items),
+                docs_written,
+                memory_written,
                 {
                     "findings": len(findings),
                     "unknowns": len(unknowns),
@@ -709,6 +737,8 @@ def handle_project_embed_command(args):
                         else global_ineligible["present"]
                     )
                     msg += f" | {verb}: {count}"
+            if landing_error:
+                msg += f"\n⚠️  {landing_error}"
             print(msg)
 
         return printed(result, args)

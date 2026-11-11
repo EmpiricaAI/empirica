@@ -365,3 +365,22 @@ def test_a_slug_held_by_another_project_is_a_409_with_a_suggestion(client):
     assert other.status_code == 409, other.text
     body = other.json()
     assert body.get("code") == "slug_taken" and body.get("existing_id") == first and body.get("suggested") == "beta-2"
+
+
+def test_a_practice_registered_before_ids_were_sent_keeps_its_name_after_the_upgrade(client, monkeypatch):
+    # Bulk register on 1.15.x sent no id, so the server minted one. On 1.16 the practice registers under its own id: the
+    # server adopts it when the held id is not any practice's id on this machine and the caller's id is the practice at that
+    # name, instead of answering 409 against the practice's own placeholder (1.16.0 sweep, pass 2).
+    from empirica.local_server import api
+
+    minted = client.post("/v1/projects/register", json={"name": "gamma"}).json()["project_id"]
+    monkeypatch.setattr(
+        api.ProjectRegistry,
+        "_workspace",
+        staticmethod(lambda: [{"id": "gamma-real-id", "slug": "gamma", "display_name": "gamma"}]),
+    )
+    again = client.post("/v1/projects/register", json={"name": "gamma", "project_id": "gamma-real-id"})
+    assert again.status_code == 200, again.text
+    assert again.json()["project_id"] == "gamma-real-id" and again.json().get("adopted_from") == minted
+    other = client.post("/v1/projects/register", json={"name": "gamma", "project_id": "someone-else"})
+    assert other.status_code == 409

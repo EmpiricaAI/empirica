@@ -31,7 +31,10 @@ def _ctx(db):
     }
 
 
-def _stored_confidence(monkeypatch, *, args_confidence, config_data=None):
+def _stored_confidence(monkeypatch, tmp_path, *, args_confidence, config_data=None):
+    # The handler writes the assumption's git note in the working directory; run from an empty directory, or every run
+    # added a note to the checkout's own refs/notes/empirica/assumptions/assump-1 (216 had piled up; 1.16.0 sweep).
+    monkeypatch.chdir(tmp_path)
     db = MagicMock()
     db.log_assumption.return_value = "assump-1"
     monkeypatch.setattr(alc, "_parse_config_input", lambda args: config_data)
@@ -51,17 +54,19 @@ def _stored_confidence(monkeypatch, *, args_confidence, config_data=None):
     return db.log_assumption.call_args.kwargs["confidence"]
 
 
-def test_cli_confidence_is_stored(monkeypatch):
+def test_cli_confidence_is_stored(monkeypatch, tmp_path):
     # the bug stored 0.5 regardless of the flag
-    assert _stored_confidence(monkeypatch, args_confidence=0.7) == 0.7
+    assert _stored_confidence(monkeypatch, tmp_path, args_confidence=0.7) == 0.7
 
 
-def test_cli_confidence_zero_preserved(monkeypatch):
+def test_cli_confidence_zero_preserved(monkeypatch, tmp_path):
     # explicit 0.0 is a valid confidence — must not be clobbered to the default
-    assert _stored_confidence(monkeypatch, args_confidence=0.0) == 0.0
+    assert _stored_confidence(monkeypatch, tmp_path, args_confidence=0.0) == 0.0
 
 
-def test_stdin_confidence_overrides_args(monkeypatch):
+def test_stdin_confidence_overrides_args(monkeypatch, tmp_path):
     # AI-first (stdin JSON) mode: config_data wins over the argparse default
-    got = _stored_confidence(monkeypatch, args_confidence=0.5, config_data={"assumption": "x", "confidence": 0.9})
+    got = _stored_confidence(
+        monkeypatch, tmp_path, args_confidence=0.5, config_data={"assumption": "x", "confidence": 0.9}
+    )
     assert got == 0.9

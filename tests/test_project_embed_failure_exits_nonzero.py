@@ -107,7 +107,7 @@ def test_the_handler_records_failure_before_reporting_it(monkeypatch, tmp_path):
     source = inspect.getsource(project_embed.handle_project_embed_command)
     failure = source.split("except Exception as e:")[-1]
     assert failure.index("record_embed_outcome(") < failure.index("handle_cli_error(")
-    assert "ok=True" in source
+    assert "ok=landed_ok" in source  # the success path records what landed (1.16.0 sweep, pass 2)
 
 
 def test_an_unwritable_status_does_not_raise(tmp_path):
@@ -157,3 +157,10 @@ def test_the_json_result_names_both_numbers():
     import inspect
 
     assert '"eidetic_already_present"' in inspect.getsource(project_embed.handle_project_embed_command)
+
+
+def test_a_run_that_wrote_fewer_points_than_it_read_is_not_ok():
+    # A failed embed now writes nothing; the run reported the rows it read as embedded (1.16.0 sweep, pass 2).
+    assert project_embed._embed_landing(3, 3, 10, 10) == (True, 0, None)
+    ok, missing, error = project_embed._embed_landing(3, 3, 10, 0)
+    assert ok is False and missing == 10 and "10 of 13" in error

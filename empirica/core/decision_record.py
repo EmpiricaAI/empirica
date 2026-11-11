@@ -252,9 +252,10 @@ def patch_paths(patch: str) -> list[str]:
     if not lines or lines[0] != "*** Begin Patch":
         return []
     paths: list[str] = []
+    # Every header line counts, not only those before the first `*** End Patch`: inside an Update hunk codex trims only the
+    # line's end, so an indented `*** End Patch` is a context line and the hunks after it still apply (1.16.0 sweep, pass
+    # 2). A content line that reads as a header adds a path, which only makes the check stricter.
     for line in lines[1:]:
-        if line == "*** End Patch":
-            break
         for header in _PATCH_HEADERS:
             if line.startswith(header):
                 path = line[len(header) :].strip()

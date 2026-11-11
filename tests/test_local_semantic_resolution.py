@@ -94,3 +94,17 @@ def test_ollama_down_with_a_configured_store_does_not_switch_to_the_local_model(
     monkeypatch.setattr(emb, "_load_config_file", lambda: {})
     p = emb.EmbeddingsProvider()
     assert p.model != "multilingual-e5-small" and p.provider == "local", (p.provider, p.model)
+
+
+def test_per_org_routing_counts_as_a_configured_store(monkeypatch, no_6333):
+    # The guard compared only the project-less store; a seat routing Qdrant per organisation (CORTEX_QDRANT_URLS_BY_ORG)
+    # resolves its writes per project, so the local model must not be chosen there either (1.16.0 sweep, pass 2).
+    import empirica.core.qdrant.embeddings as emb
+
+    _health(monkeypatch, HEALTH)
+    monkeypatch.setenv("CORTEX_QDRANT_URLS_BY_ORG", "org-a=http://qdrant-a:6333")
+    monkeypatch.delenv("EMPIRICA_EMBEDDINGS_PROVIDER", raising=False)
+    monkeypatch.delenv("EMPIRICA_EMBEDDINGS_MODEL", raising=False)
+    monkeypatch.setattr(emb, "_check_ollama_available", lambda url: False)
+    monkeypatch.setattr(emb, "_load_config_file", lambda: {})
+    assert emb.EmbeddingsProvider().model != "multilingual-e5-small"

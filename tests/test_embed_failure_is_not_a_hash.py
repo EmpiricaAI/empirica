@@ -91,3 +91,13 @@ def test_explicit_local_provider_still_hashes(monkeypatch):
     p = embeddings.EmbeddingsProvider()
     vec = p.embed("hello")
     assert isinstance(vec, list) and len(vec) > 0
+
+
+def test_batch_inside_the_backoff_does_not_ask_the_model(provider, monkeypatch):
+    # The batch path ignored the backoff, so with a hanging Ollama every batch of 50 waited the full 45 s (1.16.0 sweep).
+    calls: list = []
+    monkeypatch.setattr(requests, "post", _post_raising(requests.exceptions.Timeout("slow"), calls))
+    with pytest.raises(embeddings.EmbeddingUnavailable):
+        provider.embed("first")
+    assert provider.batch_embed(["a", "b"]) == [None, None]
+    assert len(calls) == 1

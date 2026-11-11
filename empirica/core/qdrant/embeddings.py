@@ -275,7 +275,7 @@ class EmbeddingsProvider:
                 from empirica.core.qdrant.connection import local_server_service, store_url
 
                 local = local_server_service("embeddings")
-                if local and store_url() != local_server_service("vectors"):
+                if local and (store_url() != local_server_service("vectors") or os.getenv("CORTEX_QDRANT_URLS_BY_ORG")):
                     local = None
                 if local:
                     self.provider, self.ollama_url, served_locally = "ollama", local, True
@@ -467,6 +467,9 @@ class EmbeddingsProvider:
     def _batch_embed_ollama(self, texts: list[str], max_chars: int = 1200) -> list[list[float] | None]:
         """Batch embed using Ollama /api/embed endpoint (accepts input list)."""
         import requests
+
+        if time.monotonic() < self._down_until:  # inside the backoff: no batch waits on a model that just failed
+            return [None] * len(texts)
 
         url = f"{self.ollama_url}/api/embed"
         prepared = [self._prepare_ollama_prompt(t, max_chars=max_chars) for t in texts]

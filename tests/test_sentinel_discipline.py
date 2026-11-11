@@ -815,6 +815,15 @@ def test_a_patch_that_adds_and_updates_files_inside_the_practice_is_trivial(home
         (("*** Add File: a\u2028/../../.git/hooks/pre-commit", "+x"), "outside_write"),
         # An Environment ID applies the patch somewhere else, so local paths say nothing about where it lands.
         (("*** Environment ID: remote", "*** Add File: notes/a.md", "+x"), "remote"),
+        # Inside an Update hunk codex trims only the line's end, so an indented `*** End Patch` is a context line and the
+        # headers after it still apply; stopping at it hid them (1.16.0 sweep, pass 2).
+        (
+            ("*** Update File: notes.txt", "@@", " *** End Patch", "+x", "*** Add File: /tmp/OUTSIDE.txt", "+evil"),
+            "outside_write",
+        ),
+        # Codex resolves `..` lexically, Python's realpath after following symlinks: through an inward directory symlink
+        # they name different files, so any `..` in a patch path needs a transaction (1.16.0 sweep, pass 2).
+        (("*** Add File: notes/../README.md", "+x"), "outside_write"),
     ],
 )
 def test_a_patch_that_deletes_moves_reaches_outside_or_names_nothing_needs_a_transaction(home, body, cls):

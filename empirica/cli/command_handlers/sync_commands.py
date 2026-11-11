@@ -1641,7 +1641,7 @@ def _rebuild_apply_resolution(db, key, new_id, item) -> None:
                 ),
             )
             db.adapter.conn.commit()
-        elif key == "unknowns" and item.get("resolved"):
+        elif key == "unknowns" and (item.get("resolved") or item.get("is_resolved")):  # reconcile writes is_resolved
             cur.execute(
                 "UPDATE project_unknowns SET is_resolved = 1, resolved_by = ?, resolved_timestamp = ? WHERE id = ?",
                 (item.get("resolved_by") or "resolved", _resolved_time(item) or _t.time(), new_id),

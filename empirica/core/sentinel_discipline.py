@@ -316,6 +316,17 @@ def judge(tool_name: str, tool_input, *, cwd: str | None, project_root: str | No
                 "classes": ["remote"],
                 "why": "a patch applied in another environment needs a transaction",
             }
+        dotted = [
+            p for p in _decision_record().patch_paths(str(tool_input.get("command") or "")) if ".." in p.split("/")
+        ]
+        if dotted:
+            # Codex resolves `..` lexically; realpath follows symlinks first. Through an inward directory symlink the two
+            # name different files, so a `..` is never budgeted (1.16.0 sweep, pass 2).
+            return {
+                "trivial": False,
+                "classes": ["outside_write"],
+                "why": f"{dotted[0]} climbs with '..'; a patch path that does needs a transaction",
+            }
     if tool_name in _FILE_TOOLS:
         paths = _file_paths(_decision_record(), tool_name, tool_input, cwd)
         if not paths:
