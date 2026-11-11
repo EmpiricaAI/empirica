@@ -428,3 +428,15 @@ def test_adoption_takes_only_an_id_the_server_minted(client, monkeypatch):
     monkeypatch.setattr(api.ProjectRegistry, "_workspace_ids", staticmethod(lambda: {"zeta-other"}))
     resp = client.post("/v1/projects/register", json={"name": "zeta", "project_id": "zeta-other"})
     assert resp.status_code == 409, resp.text
+
+
+def test_a_minted_flag_never_overrides_a_workspace_practices_own_id(client, monkeypatch):
+    # An older serve adopting a row leaves minted=1 on a real id; a newer serve must still refuse to hand it on (pass 5).
+    from empirica.local_server import api
+
+    pid = client.post("/v1/projects/register", json={"name": "eta"}).json()["project_id"]  # minted
+    monkeypatch.setattr(api.ProjectRegistry, "_workspace_ids", staticmethod(lambda: {pid, "eta-two"}))
+    monkeypatch.setattr(
+        api.ProjectRegistry, "_workspace", staticmethod(lambda: [{"id": "eta-two", "slug": "eta", "display_name": "e"}])
+    )
+    assert client.post("/v1/projects/register", json={"name": "eta", "project_id": "eta-two"}).status_code == 409

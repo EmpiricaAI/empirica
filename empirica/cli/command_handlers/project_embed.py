@@ -678,7 +678,9 @@ def handle_project_embed_command(args):
             "memory": memory_written,
             "memory_read": len(mem_items),
             "not_embedded": not_embedded,
-            "semantic_search": "on" if store_available else "off: no vector store, nothing to embed into",
+            "semantic_search": "on"
+            if store_available or docs_written or memory_written
+            else "off: no vector store, nothing to embed into",
             "eidetic": eidetic_count,
             # newly embedded vs already there: 0 new with 446 present is healthy;
             # 0 new with 0 present is a store that has nothing, or a failure upstream

@@ -62,7 +62,11 @@ class ProjectRegistry:
             # Whether this server made the id up (the caller sent none): 1 minted, 0 the caller's, NULL a row from before
             # the column, judged by the older rule. Only a minted id is a placeholder to adopt (1.16.0 sweep, pass 4).
             if "minted" not in {r[1] for r in db.execute("PRAGMA table_info(local_projects)")}:
-                db.execute("ALTER TABLE local_projects ADD COLUMN minted INTEGER")
+                try:
+                    db.execute("ALTER TABLE local_projects ADD COLUMN minted INTEGER")
+                except sqlite3.OperationalError as e:  # another serve added it between the check and here
+                    if "duplicate column" not in str(e):
+                        raise
 
     def register(self, name: str, project_id: str | None, display_name: str | None, repo_url: str | None) -> dict:
         slug = _slug(name)
@@ -99,7 +103,9 @@ class ProjectRegistry:
         held_id, minted = held
         if minted == 0:
             return False
-        if minted is None and held_id in self._workspace_ids():
+        if (
+            held_id in self._workspace_ids()
+        ):  # a practice's own id, whatever the flag says (an older serve leaves it set)
             return False
         if db.execute("SELECT 1 FROM local_projects WHERE id = ?", (caller_id,)).fetchone():
             return False  # the caller already holds another name here: adopting would collide on the id
