@@ -11,7 +11,20 @@ import pytest
 
 requests = pytest.importorskip("requests")
 
-from empirica.core.qdrant import connection, embeddings  # noqa: E402
+import importlib  # noqa: E402
+
+from empirica.core.qdrant import connection  # noqa: E402
+
+
+class _CurrentEmbeddings:
+    """The embeddings module as sys.modules holds it NOW. tests/test_serve_health.py pops it, after which
+    _get_embedding_safe imports a fresh copy; a module object bound at import time here would be patched in vain."""
+
+    def __getattr__(self, name):
+        return getattr(importlib.import_module("empirica.core.qdrant.embeddings"), name)
+
+
+embeddings = _CurrentEmbeddings()
 
 
 @pytest.fixture
@@ -20,7 +33,7 @@ def provider(monkeypatch):
     monkeypatch.setenv("EMPIRICA_EMBEDDINGS_MODEL", "qwen3-embedding")
     monkeypatch.setenv("EMPIRICA_OLLAMA_URL", "http://127.0.0.1:9")
     p = embeddings.EmbeddingsProvider()
-    monkeypatch.setattr(embeddings, "_provider_singleton", p)
+    monkeypatch.setattr(importlib.import_module("empirica.core.qdrant.embeddings"), "_provider_singleton", p)
     connection._embed_memo.clear()
     yield p
     connection._embed_memo.clear()

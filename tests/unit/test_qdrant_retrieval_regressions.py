@@ -206,7 +206,9 @@ def test_embed_ollama_sends_keep_alive_and_degrades_on_timeout():
     starts a backoff."""
     import requests
 
-    from empirica.core.qdrant.embeddings import EmbeddingUnavailable
+    # The class from the provider's own module: tests/test_serve_health.py pops the module from sys.modules, so a fresh
+    # import here can be a different module object than the one EmbeddingsProvider was bound from.
+    EmbeddingUnavailable = EmbeddingsProvider._unavailable.__globals__["EmbeddingUnavailable"]
 
     provider = EmbeddingsProvider.__new__(EmbeddingsProvider)
     provider.provider = "ollama"
