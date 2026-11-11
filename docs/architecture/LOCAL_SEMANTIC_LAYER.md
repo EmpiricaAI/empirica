@@ -1,6 +1,6 @@
 # The local semantic layer: design for review
 
-Status: proposal, goal db2cf3fa (T3). David's ruling, 2026-11-11: on a machine with no Cortex, `empirica serve` owns the
+Status: design decided, build next (goal db2cf3fa, T4). David's ruling, 2026-11-11: on a machine with no Cortex, `empirica serve` owns the
 vector store and the embedding model. Nothing here is built yet.
 
 ## The problem, measured
@@ -87,18 +87,11 @@ tag, as the hot-path rule requires. Writes from `*-log` verbs and the postflight
 
 Cortex machines, Windows-native serve (unsupported), and multi-user machines: one store per user's home.
 
-## Questions for David
+## Decided (David, 2026-11-11)
 
-1. **Which model.** All of these are in fastembed's supported list at 384 dimensions. Download sizes are not yet checked
-   against the model files; they go into onboarding's message once measured.
-   - A: `BAAI/bge-small-en-v1.5`. English only.
-   - B: `intfloat/multilingual-e5-small`. Multilingual.
-   - C: `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`. Multilingual, Apache-2.0.
-   - Prediction: B. Practices hold Dutch, German and Spanish text as well as English, and English-only embeddings
-     rank those poorly.
-2. **Where the dependency lives.**
-   - In `[api]`, which serve already requires, or in a new `[local]` extra.
-   - Prediction: `[api]`. A machine with no Cortex runs serve anyway, and a second extra is a second thing to get wrong.
+1. **Model:** `intfloat/multilingual-e5-small` (384 dimensions, multilingual), through fastembed. Practices hold Dutch,
+   German and Spanish text as well as English. The download size goes into onboarding's message once measured.
+2. **Dependency:** fastembed and onnxruntime join the `[api]` extra, which serve already requires.
 
 ## Build plan (T4), after review
 
