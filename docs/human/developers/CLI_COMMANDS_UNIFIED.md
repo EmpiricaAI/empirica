@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.15.1
-**Generated:** 2026-11-10 13:40:46 UTC
+**Framework version:** 1.16.0
+**Generated:** 2026-11-11 23:03:41 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1305,6 +1305,8 @@ Correct FIELDS on existing artifacts — impact, subject, visibility, and above 
 
 - `config` — **required** · default=`-`
   JSON file or - for stdin (default: stdin)
+- `--project-id` — optional
+  Correct artifacts in another practice (its name or UUID), e.g. snooze a goal created there with goals-create --project-id. Lessons are refused with it: they live outside a practice's database
 - `--schema` — optional · flag
   Print the input JSON schema and exit
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`

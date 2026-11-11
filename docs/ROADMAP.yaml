@@ -106,11 +106,11 @@ items:
   - id: cockpit-rejoin
     title: Restarted cockpit panes rejoin the mesh unprompted
     prediction: After a cockpit restart by launch or by refresh, resumed sessions re-arm their listener and catch up on mail without anyone typing, using the wake and inbox poll added in 1.14.14.
-    confidence: 0.35
+    confidence: 0.3
     evidence: reported
     basis: Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. As of 1.14.19 cockpit refresh wakes each resumed claude pane once it is idle, which gives it the turn that arms the listener; that is tested with fakes and has not been measured on a live cockpit. The one live restart measured since (0 of 6 resumed panes armed before a human prompt) was a kill-server then launch, so the refresh wake never ran, and the listener wake service was off on every unit, so it grades neither. Launch gets the same wake as refresh in 1.14.22, tested with fakes, not yet measured on a live cockpit.
     falsifier: After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later.
-    horizon: "1.16.0"
+    horizon: "1.16.1"
     steered: true
     status: predicted
     revisions:
@@ -130,15 +130,19 @@ items:
         from: 0.4
         to: 0.35
         reason: Past its 1.14.23 horizon and still unmeasured. The cockpit server on the machine checked has run since 2 November, before 1.14.22 shipped the launch wake, so no launch restart has happened on it, and no refresh since has been graded. The work it needs is done; the measurement is a restart. The horizon moves to 1.16.0 and the confidence drops, because a prediction that misses its horizon was over-confident about when.
+      - "on": "2026-11-12"
+        from: 0.35
+        to: 0.3
+        reason: "Not delivered by its 1.16.0 horizon: 1.16.0 went to the local semantic layer, rebuilds that restore every note-backed artifact, and four pre-publish review passes, and cockpit work was moved to the 1.16 point releases before the cut. The horizon moves to 1.16.1 and the confidence drops, because a prediction that misses its horizon was over-confident about when."
 
   - id: wake-default
     title: Wake service on by default
     prediction: The wake service stops being opt-in once a few weeks of live use show no wake into a busy pane.
-    confidence: 0.3
+    confidence: 0.25
     evidence: measured
     basis: It passed a live trial on two seats and refuses busy panes, drafts and dialogs. Open edge cases are an image-only prompt that can read as blank and a spinner scrolled out of view that reads as idle.
     falsifier: A report of a wake that interrupted a running turn or submitted a half-typed draft.
-    horizon: "1.16.0"
+    horizon: "1.16.1"
     steered: false
     status: predicted
     revisions:
@@ -146,6 +150,10 @@ items:
         from: 0.35
         to: 0.3
         reason: Not worked on by its 1.15.0 horizon. The release went to the local server, due dates, the Sentinel default and two review sweeps, and the wake service is still opt-in. The horizon moves to 1.16.0 and the confidence drops, because a prediction that misses its horizon was over-confident about when.
+      - "on": "2026-11-12"
+        from: 0.3
+        to: 0.25
+        reason: "Not worked on by its 1.16.0 horizon: 1.16.0 went to the local semantic layer, rebuilds that restore every note-backed artifact, and four pre-publish review passes, and cockpit work was moved to the 1.16 point releases before the cut. The wake service is still opt-in. The horizon moves to 1.16.1 and the confidence drops, because a prediction that misses its horizon was over-confident about when."
 
   - id: multi-runner-test-evidence
     title: Two test runners keep both reports
@@ -206,7 +214,8 @@ items:
     falsifier: On the release that claims it, a fresh machine with no Cortex, Qdrant or Ollama, after provision-practice, returns nothing from project-search for an artifact it has just logged.
     horizon: "1.16.0"
     steered: true
-    status: predicted
+    status: shipped
+    resolved_in: "1.16.0"
 
   - id: rebuild-assumptions
     title: A rebuild restores assumptions
@@ -217,4 +226,5 @@ items:
     falsifier: On the release that claims it, an assumption logged, verified and then rebuilt from the notes is missing, or reads as unverified.
     horizon: "1.16.0"
     steered: true
-    status: predicted
+    status: shipped
+    resolved_in: "1.16.0"

@@ -5,7 +5,13 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.16.0] - 2026-11-12
+
+### Highlights
+
+- **Semantic search on a machine with no Cortex, Qdrant or Ollama.** The local server now holds the vector store and a multilingual embedding model (they come with the `api` extra), so search finds a note in one language from a question in another. A configured Qdrant, Ollama or Cortex is used instead when present.
+- **A rebuild from the git notes restores assumptions, decisions, sources and tasks, with their outcome.** Each comes back verified or falsified, upheld or reversed, archived, or completed, and a note rewritten after a commit no longer leaves a stale copy behind. Links between artifacts, falsifiers and lessons are not in the notes yet.
+- **A failed embed never stores a fake vector.** When the embedding model fails, nothing is written and the run says so, instead of a hashed vector that search could not tell apart from a real one.
 
 ### Added
 
