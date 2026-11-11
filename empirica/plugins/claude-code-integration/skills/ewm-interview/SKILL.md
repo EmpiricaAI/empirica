@@ -172,7 +172,7 @@ Where the flags come from Phase 3:
 | Code lives on Forgejo | `--forgejo-owner` + `--forgejo-host` (ask for both — they are not guessable) |
 | Code lives on GitHub / GitLab / local | omit the Forgejo flags |
 | No Cortex (one person, one machine) | omit both; practices hand work to each other through the local server, which `provision-practice` starts if it is not running. Proposals pass automatically: there is no review gate |
-| Wants a review gate on proposals | Cortex, with the ntfy app and the browser extension, is what adds it; omit the flags once `cortex.url` is set |
+| Wants a review gate on proposals | Cortex is what adds it; omit the flags once `cortex.url` is set |
 | On the mesh | omit `--no-cortex`; `--tenant` / `--org` default from the current directory's project.yaml |
 | Fully standalone, no mailbox at all | `--no-cortex` (also skips the local server) |
 | Starts `empirica serve` themselves | `--no-local-server` (keeps the mailbox, installs no service) |

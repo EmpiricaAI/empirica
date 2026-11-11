@@ -150,10 +150,9 @@ In Claude Code, a session's SessionStart tells it to start a Monitor on
 its practice arrives (the Monitor lasts 30 minutes and is re-armed). Other
 harnesses (codex, ecodex) are not woken this way: they see new messages with
 `empirica mailbox poll`. Proposals pass automatically: the local server has no
-review gate. A gate, people beyond you and organisations come with Cortex, used
-with the ntfy app and the browser extension; once `cortex.url` is set in
-`~/.empirica/credentials.yaml` (or `empirica auth login`), the same commands use
-it instead. A message to an address outside `local.<you>.` answers "not
+review gate. A gate, people beyond you and organisations come with Cortex; once
+`cortex.url` is set in `~/.empirica/credentials.yaml` (or `empirica auth login`),
+the same commands use it instead. A message to an address outside `local.<you>.` answers "not
 available on this server".
 
 Knowledge and goals are already shared between practices on one machine:
