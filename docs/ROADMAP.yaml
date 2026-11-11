@@ -196,3 +196,25 @@ items:
     steered: true
     status: shipped
     resolved_in: "1.15.0"
+
+  - id: local-semantic-search
+    title: Semantic search on a machine with no Cortex
+    prediction: On a machine with no Cortex, semantic search works after onboarding with nothing else to install, because the local server holds the vector store and a multilingual embedding model.
+    confidence: 0.6
+    evidence: reviewed
+    basis: Measured on a fresh machine with no Cortex, Qdrant or Ollama, each practice gets its git repository and database but semantic search is empty; since this release that is reported plainly. The design is written and decided (the server serves the part of Qdrant's API that Empirica uses over an embedded store, and an Ollama-compatible embedding route), and the store's embedded mode was checked to provide every operation needed. Nothing is built yet.
+    falsifier: On the release that claims it, a fresh machine with no Cortex, Qdrant or Ollama, after provision-practice, returns nothing from project-search for an artifact it has just logged.
+    horizon: "1.16.0"
+    steered: true
+    status: predicted
+
+  - id: rebuild-assumptions
+    title: A rebuild restores assumptions
+    prediction: A rebuild from the git notes restores assumptions, with whether each was verified or falsified.
+    confidence: 0.7
+    evidence: reviewed
+    basis: Read in the code, the rebuild recreates findings, unknowns, dead ends, mistakes and goals from their notes but has no branch for assumptions, so a rebuild loses every one; assumption notes also record only the state at creation.
+    falsifier: On the release that claims it, an assumption logged, verified and then rebuilt from the notes is missing, or reads as unverified.
+    horizon: "1.16.0"
+    steered: true
+    status: predicted
