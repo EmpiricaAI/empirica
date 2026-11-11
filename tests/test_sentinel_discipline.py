@@ -786,6 +786,11 @@ def _patch(*body):
     return {"command": "\n".join(["*** Begin Patch", *body, "*** End Patch"])}
 
 
+def test_an_ordinary_patch_path_with_spaces_and_dashes_is_still_trivial(home):
+    verdict = _judge(home, "apply_patch", _patch("*** Add File: notes/my notes-2026_11.v2.md", "+x"))
+    assert verdict["trivial"] is True, verdict
+
+
 def test_a_patch_that_adds_and_updates_files_inside_the_practice_is_trivial(home):
     verdict = _judge(
         home,
@@ -824,6 +829,13 @@ def test_a_patch_that_adds_and_updates_files_inside_the_practice_is_trivial(home
         # Codex resolves `..` lexically, Python's realpath after following symlinks: through an inward directory symlink
         # they name different files, so any `..` in a patch path needs a transaction (1.16.0 sweep, pass 2).
         (("*** Add File: notes/../README.md", "+x"), "outside_write"),
+        # Codex joins paths through the url crate, which drops TAB, CR and LF inside a segment: `..\t` climbs and
+        # `CLAUDE\t.md` is CLAUDE.md (1.16.0 sweep, pass 3). Only plain printable ASCII paths are budgeted.
+        (("*** Add File: ..\t/x.txt", "+x"), "outside_write"),
+        (("*** Add File: CLAUDE\t.md", "+x"), "outside_write"),
+        (("*** Add File: .gi\tt/hooks/pre-commit", "+x"), "outside_write"),
+        (("*** Add File: notes/caf\u00e9.md", "+x"), "outside_write"),
+        (("*** Add File: notes\\a.md", "+x"), "outside_write"),
     ],
 )
 def test_a_patch_that_deletes_moves_reaches_outside_or_names_nothing_needs_a_transaction(home, body, cls):

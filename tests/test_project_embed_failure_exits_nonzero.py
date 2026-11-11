@@ -164,3 +164,9 @@ def test_a_run_that_wrote_fewer_points_than_it_read_is_not_ok():
     assert project_embed._embed_landing(3, 3, 10, 10) == (True, 0, None)
     ok, missing, error = project_embed._embed_landing(3, 3, 10, 0)
     assert ok is False and missing == 10 and "10 of 13" in error
+
+
+def test_a_run_with_semantic_search_off_is_a_skip_not_a_failure():
+    # With no vector store (or embeddings disabled) nothing can be written; that is the documented "retrieval is skipped",
+    # not a failed run, or doctor FAILs on every practice without Qdrant (1.16.0 sweep, pass 3).
+    assert project_embed._embed_landing(3, 0, 10, 0, store_available=False) == (True, 0, None)

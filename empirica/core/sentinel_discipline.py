@@ -88,6 +88,9 @@ _FILE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch")  # a
 _PATCH_REMOVES = ("*** Delete File:", "*** Move to:")
 #: A patch applied in another environment: its paths say nothing about this practice (codex streaming_parser.rs).
 _PATCH_ELSEWHERE = "*** Environment ID:"
+#: The only characters a budgeted patch path may hold: letters, digits, space and a few punctuation marks with no special
+#: meaning to a path parser. No backslash, percent, control or non-ASCII character.
+_PLAIN_PATCH_PATH = re.compile(r"[A-Za-z0-9 ._/+@=,~-]+")
 
 
 # ── settings ────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -316,9 +319,18 @@ def judge(tool_name: str, tool_input, *, cwd: str | None, project_root: str | No
                 "classes": ["remote"],
                 "why": "a patch applied in another environment needs a transaction",
             }
-        dotted = [
-            p for p in _decision_record().patch_paths(str(tool_input.get("command") or "")) if ".." in p.split("/")
-        ]
+        named = _decision_record().patch_paths(str(tool_input.get("command") or ""))
+        unusual = [p for p in named if not _PLAIN_PATCH_PATH.fullmatch(p)]
+        if unusual:
+            # An allowlist, not another blocked character: three passes each found a character the two sides read
+            # differently (an indent, \x1c, then a TAB the url crate drops inside a segment, so `..\t` climbs). Only plain
+            # printable ASCII is budgeted; anything else needs a transaction (1.16.0 sweep, pass 3).
+            return {
+                "trivial": False,
+                "classes": ["outside_write"],
+                "why": f"{unusual[0]!r} has characters outside plain ASCII; such a patch path needs a transaction",
+            }
+        dotted = [p for p in named if ".." in p.split("/")]
         if dotted:
             # Codex resolves `..` lexically; realpath follows symlinks first. Through an inward directory symlink the two
             # name different files, so a `..` is never budgeted (1.16.0 sweep, pass 2).

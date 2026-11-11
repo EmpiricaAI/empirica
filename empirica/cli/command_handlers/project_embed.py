@@ -530,10 +530,13 @@ def _embed_summary(docs: int, memory_total: int, parts: dict[str, int], decision
 
 
 def _embed_landing(
-    docs_read: int, docs_written: int, memory_read: int, memory_written: int
+    docs_read: int, docs_written: int, memory_read: int, memory_written: int, *, store_available: bool = True
 ) -> tuple[bool, int, str | None]:
     """(ok, items read but not embedded, error). A failed embed writes nothing (no hashed stand-in since 1.16.0), so a run
-    that read N items and wrote fewer did not refresh retrieval, and the run says so."""
+    that read N items and wrote fewer did not refresh retrieval, and the run says so. With no store at all (embeddings
+    disabled, or nothing answers), retrieval is skipped by design: a skip, not a failure (1.16.0 sweep, pass 3)."""
+    if not store_available:
+        return True, 0, None
     missing = max(0, docs_read - docs_written) + max(0, memory_read - memory_written)
     if not missing:
         return True, 0, None
@@ -543,6 +546,16 @@ def _embed_landing(
         f"{missing} of {docs_read + memory_read} items were not embedded: the embedding model or the vector store did not "
         "answer (`empirica doctor` names which)",
     )
+
+
+def _semantic_store_available(project_id: str) -> bool:
+    """Whether a vector store resolves for this project (embeddings enabled and a client answers)."""
+    try:
+        from empirica.core.qdrant.connection import _check_qdrant_available, _get_qdrant_client
+
+        return bool(_check_qdrant_available() and _get_qdrant_client(project_id=project_id) is not None)
+    except Exception:
+        return False
 
 
 def _eidetic_summary(new: int, already_present: int) -> str:
@@ -651,8 +664,9 @@ def handle_project_embed_command(args):
                 project_id, apply=bool(getattr(args, "purge_global", False))
             )
 
+        store_available = _semantic_store_available(project_id)
         landed_ok, not_embedded, landing_error = _embed_landing(
-            len(docs_to_upsert), docs_written, len(mem_items), memory_written
+            len(docs_to_upsert), docs_written, len(mem_items), memory_written, store_available=store_available
         )
         result = {
             "ok": landed_ok,
@@ -663,6 +677,7 @@ def handle_project_embed_command(args):
             "memory": memory_written,
             "memory_read": len(mem_items),
             "not_embedded": not_embedded,
+            "semantic_search": "on" if store_available else "off: no vector store, nothing to embed into",
             "eidetic": eidetic_count,
             # newly embedded vs already there: 0 new with 446 present is healthy;
             # 0 new with 0 present is a store that has nothing, or a failure upstream

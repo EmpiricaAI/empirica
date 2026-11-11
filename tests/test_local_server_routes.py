@@ -384,3 +384,31 @@ def test_a_practice_registered_before_ids_were_sent_keeps_its_name_after_the_upg
     assert again.json()["project_id"] == "gamma-real-id" and again.json().get("adopted_from") == minted
     other = client.post("/v1/projects/register", json={"name": "gamma", "project_id": "someone-else"})
     assert other.status_code == 409
+
+
+def test_adoption_never_takes_an_id_a_practice_here_uses_even_an_archived_one(client, monkeypatch):
+    from empirica.local_server import api
+
+    client.post("/v1/projects/register", json={"name": "delta", "project_id": "archived-delta"})
+    monkeypatch.setattr(
+        api.ProjectRegistry,
+        "_workspace",
+        staticmethod(lambda: [{"id": "new-delta", "slug": "delta", "display_name": "delta"}]),
+    )
+    monkeypatch.setattr(api.ProjectRegistry, "_workspace_ids", staticmethod(lambda: {"archived-delta", "new-delta"}))
+    resp = client.post("/v1/projects/register", json={"name": "delta", "project_id": "new-delta"})
+    assert resp.status_code == 409, resp.text
+
+
+def test_adoption_refuses_an_id_already_registered_under_another_name(client, monkeypatch):
+    from empirica.local_server import api
+
+    client.post("/v1/projects/register", json={"name": "epsilon-2", "project_id": "eps-id"})  # followed a rename hint
+    client.post("/v1/projects/register", json={"name": "epsilon"})  # minted
+    monkeypatch.setattr(
+        api.ProjectRegistry,
+        "_workspace",
+        staticmethod(lambda: [{"id": "eps-id", "slug": "epsilon", "display_name": "e"}]),
+    )
+    resp = client.post("/v1/projects/register", json={"name": "epsilon", "project_id": "eps-id"})
+    assert resp.status_code == 409, resp.text  # was a 500: the id already holds another row

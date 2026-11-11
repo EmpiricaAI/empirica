@@ -90,10 +90,12 @@ class ProjectRegistry:
     def _minted_placeholder(self, slug: str, held_id: str, caller_id: str) -> bool:
         """Whether ``held_id`` is a placeholder for the practice ``caller_id``: no practice on this machine has ``held_id``,
         and the practice named ``slug`` in core's workspace registry is ``caller_id``."""
-        practices = self._workspace()
-        if any(p["id"] == held_id for p in practices):
+        if held_id in self._workspace_ids():  # any status: an archived practice's id is still its own
             return False
-        return any(p["id"] == caller_id and p["slug"] == slug for p in practices)
+        with connect(self.path) as db:
+            if db.execute("SELECT 1 FROM local_projects WHERE id = ?", (caller_id,)).fetchone():
+                return False  # the caller already holds another name here: adopting would collide on the id
+        return any(p["id"] == caller_id and p["slug"] == slug for p in self._workspace())
 
     def unregister(self, project_id: str | None, slug: str | None) -> bool:
         with connect(self.path) as db:
@@ -121,6 +123,18 @@ class ProjectRegistry:
         except sqlite3.Error:
             return []
         return [{"id": r[0], "slug": _slug(Path(r[2]).parent.name), "display_name": r[1]} for r in rows if r[2]]
+
+    @staticmethod
+    def _workspace_ids() -> set[str]:
+        """Every practice id in core's workspace registry, whatever its status; unreadable means none."""
+        ws = Path.home() / ".empirica" / "workspace" / "workspace.db"
+        if not ws.is_file():
+            return set()
+        try:
+            with connect(f"file:{ws}?mode=ro", uri=True) as db:
+                return {r[0] for r in db.execute("SELECT id FROM global_projects")}
+        except sqlite3.Error:
+            return set()
 
     def projects(self) -> list[dict]:
         """Registered practices first, then workspace ones not already present; one row per slug."""
