@@ -62,7 +62,15 @@ def health_document() -> dict:
         "contract": str(contract().get("contract", "")),
         "capabilities": sorted(IMPLEMENTED),
         "wake": _wake_health(),
+        "services": _services(),
     }
+
+
+def _services() -> dict:
+    """The local semantic layer this server holds, for clients choosing where to send vectors (goal db2cf3fa)."""
+    from empirica.local_server import vectors
+
+    return {"vectors": "/qdrant" if vectors.available() else None}
 
 
 def _wake_health() -> dict:
@@ -81,6 +89,12 @@ def router():
 
     r = APIRouter()
     api.register(r)
+    from empirica.local_server import vectors
+
+    if vectors.available():  # the semantic layer's store (goal db2cf3fa); absent without qdrant-client
+        from fastapi import Depends
+
+        vectors.register(r, [Depends(api.require_local_caller)])
 
     @r.get("/v1/health")
     @r.get("/health")
