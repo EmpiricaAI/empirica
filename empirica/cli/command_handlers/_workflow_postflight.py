@@ -295,6 +295,26 @@ def _pipeline_workspace_index_sync(session_id, project_id):
         logger.debug(f"Workspace index sync skipped: {e}")
 
 
+def _pipeline_graph_notes_export(session_id, project_id) -> dict | None:
+    """Stage: links, falsifiers and lessons into the git notes, incremental and bounded (goal 966808c0, David 2026-11-12).
+    The rebuild reads them back; without this they lived in SQLite only."""
+    try:
+        from empirica.core.canonical.empirica_git.goal_note_state import _project_root
+        from empirica.core.canonical.empirica_git.graph_note_export import export_graph_notes
+
+        db = _get_db_for_session(session_id)
+        try:
+            root = _project_root(db.conn)
+            if not root:  # a database outside any project: never write into the working directory's repository
+                return None
+            return export_graph_notes(db.conn, root)
+        finally:
+            db.close()
+    except Exception as e:
+        logger.debug(f"Graph notes export skipped: {e}")
+        return None
+
+
 def _pipeline_decay_and_global_sync(session_id, project_id):
     """Stage 7: Decay triggers + global sync."""
     try:
@@ -449,6 +469,7 @@ def _run_postflight_storage_pipeline(
     _stage("auto_embed_memories", _pipeline_auto_embed_memories, session_id, project_id)
     _stage("workspace_index_sync", _pipeline_workspace_index_sync, session_id, project_id)
     _stage("decay_and_global_sync", _pipeline_decay_and_global_sync, session_id, project_id)
+    _stage("graph_notes_export", _pipeline_graph_notes_export, session_id, project_id)
     _stage(
         "epistemic_snapshot",
         _pipeline_epistemic_snapshot,

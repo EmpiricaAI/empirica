@@ -153,3 +153,28 @@ def test_lessons_exported_then_rebuilt_come_back(practice, tmp_path):
         fresh.close()
     assert rebuilt["lessons"] == 2 and names == ["commit per task", "read before writing"]
     assert sorted(p.name for p in (tmp_path / "fresh_lessons").iterdir()) == ["id-comm.yaml", "id-read.yaml"]
+
+
+def test_the_postflight_stage_exports_the_practices_links(practice, monkeypatch):
+    from empirica.cli.command_handlers import _workflow_postflight as wp
+
+    db = SessionDatabase()
+    try:
+        _edge(db, "f1", "f2", "evidence", "2026-11-01 10:00:00")
+    finally:
+        db.close()
+    monkeypatch.setattr(wp, "_get_db_for_session", lambda sid: SessionDatabase())
+    out = wp._pipeline_graph_notes_export("s1", "p1")
+    assert out["edges"]["written"] == 1
+    assert [n["from_id"] for n in gx.discover_edge_notes(str(practice))] == ["f1"]
+
+
+def test_doctor_reconcile_lists_and_exports_the_graph_notes(practice):
+    db = SessionDatabase()
+    try:
+        _edge(db, "f1", "f2", "evidence", "2026-11-01 10:00:00")
+        assert gx.plan_graph_notes(db.conn, str(practice)) == {"edge_sources": 1, "falsifiers": 0, "lessons": 0}
+        out = gx.export_graph_notes(db.conn, str(practice), full=True)
+    finally:
+        db.close()
+    assert out["edges"]["written"] == 1 and out["falsifiers"]["written"] == 0 and out["lessons"]["written"] == 0

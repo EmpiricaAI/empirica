@@ -185,3 +185,30 @@ def export_lesson_notes(root: str, *, full: bool = False) -> dict:
 def discover_lesson_notes(root: str) -> list[dict]:
     """Every lesson note's full lesson, for the rebuild."""
     return [p["lesson"] for p in _discover(root, LESSON_PREFIX) if isinstance(p.get("lesson"), dict)]
+
+
+def export_graph_notes(conn, root: str, *, full: bool = False) -> dict:
+    """Links, falsifiers and lessons into notes: incremental and bounded at each POSTFLIGHT, everything when ``full``
+    (doctor --reconcile-notes --apply). Never raises; each part reports its own counts."""
+    out: dict = {}
+    for name, run in (
+        ("edges", lambda: export_edge_notes(conn, root, full=full)),
+        ("falsifiers", lambda: export_falsifier_notes(conn, root, full=full)),
+        ("lessons", lambda: export_lesson_notes(root, full=full)),
+    ):
+        try:
+            out[name] = run()
+        except Exception as e:  # one part failing must not stop the others
+            logger.warning("notes export (%s) failed: %s", name, e)
+            out[name] = {"error": f"{type(e).__name__}: {e}"}
+    return out
+
+
+def plan_graph_notes(conn, root: str) -> dict:
+    """What a full export would write: counts only (doctor's dry run)."""
+    lessons = Path(root) / ".empirica" / "lessons"
+    return {
+        "edge_sources": conn.execute("SELECT COUNT(DISTINCT from_id) FROM artifact_edges").fetchone()[0],
+        "falsifiers": conn.execute("SELECT COUNT(*) FROM falsifiers").fetchone()[0],
+        "lessons": len(list(lessons.glob("*.yaml"))) if lessons.is_dir() else 0,
+    }
