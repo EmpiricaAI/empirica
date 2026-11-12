@@ -658,11 +658,13 @@ def handle_lesson_search_command(args: Namespace) -> dict[str, Any]:
         query=query, domain=domain, improves_vector=improves, limit=limit, include_superseded=include_superseded
     )
 
+    problem = getattr(storage, "last_search_problem", None)
     return {
         "ok": True,
         "query": query or improves or domain,
         "count": len(lessons),
         "lessons": lessons,
+        **({"semantic_search": problem} if problem else {}),
         **_supersession_note(storage, include_superseded),
     }
 

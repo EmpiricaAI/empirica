@@ -203,3 +203,30 @@ def test_auto_read_falls_back_to_warm_when_cold_is_missing(store):
 
 def test_auto_read_still_returns_none_for_a_truly_absent_lesson(store):
     assert store.get_lesson("nosuchlesson") is None
+
+
+# ── a search that could not run says so (1.16.x, goal a34eef6d) ──────────────────────────────────────────────────────────
+
+
+def test_a_search_with_the_embedding_model_down_says_so(store, monkeypatch):
+    store._qdrant = _FakeQdrant([])
+
+    def down(_text):
+        raise RuntimeError("embedding model unavailable")
+
+    monkeypatch.setattr(store, "_generate_embedding", down)
+    assert store.search_lessons(query="anything") == []
+    assert "embedding" in (store.last_search_problem or "")
+
+
+def test_a_query_with_no_vector_store_says_the_list_is_not_a_match(store):
+    store._qdrant = None
+    store.search_lessons(query="anything")
+    assert "no vector store" in (store.last_search_problem or "")
+
+
+def test_a_search_that_ran_reports_no_problem(store):
+    store._qdrant = _FakeQdrant([])
+    store._generate_embedding = lambda _t: [0.1]  # type: ignore[method-assign]
+    store.search_lessons(query="anything")
+    assert store.last_search_problem is None

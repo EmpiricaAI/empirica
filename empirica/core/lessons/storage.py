@@ -125,6 +125,8 @@ class LessonStorageManager:
             self._conn = db_conn
             self._db = None
 
+        self.last_search_problem: str | None = None
+
         # COLD layer - YAML files
         if cold_storage_path is None:
             cold_storage_path = Path(".empirica/lessons")
@@ -826,6 +828,9 @@ class LessonStorageManager:
         """
         results = []
         superseded = self.superseded_ids()
+        # Why a semantic search did not run, for the caller to show: an empty list must not read as "nothing matches" when the
+        # model was down, nor a full listing as matches when there is no vector store (1.16.x, goal a34eef6d).
+        self.last_search_problem = None
 
         def _governance(lesson) -> dict:
             """The fields that decide whether a lesson leaves the practice.
@@ -922,34 +927,33 @@ class LessonStorageManager:
                     )
             except Exception as e:
                 logger.warning(f"Qdrant search failed: {e}")
+                self.last_search_problem = f"semantic search did not run: {e}"
 
         # Fallback - list all from warm
         else:
-            cursor = self._conn.cursor()
-            cursor.execute(
-                """
-                SELECT id, name, description, domain,
-                       sharing_policy, abstraction_level, abstract_pattern
-                FROM lessons
-                ORDER BY created_timestamp DESC
-                LIMIT ?
-            """,
-                (limit,),
-            )
-            for row in cursor.fetchall():
-                results.append(
-                    {
-                        "id": row[0],
-                        "name": row[1],
-                        "description": row[2],
-                        "domain": row[3],
-                        "sharing_policy": row[4],
-                        "abstraction_level": row[5],
-                        "abstract_pattern": row[6],
-                    }
+            if query:
+                self.last_search_problem = (
+                    "no vector store: semantic search is off, so these are all lessons, not matches for the query"
                 )
+            results.extend(self._recent_lessons(limit))
 
         return _apply_supersession(results, superseded, include_superseded)
+
+    def _recent_lessons(self, limit: int) -> list[dict]:
+        """The newest lessons from the warm layer, for a search with nothing to filter on."""
+        cursor = self._conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, name, description, domain,
+                   sharing_policy, abstraction_level, abstract_pattern
+            FROM lessons
+            ORDER BY created_timestamp DESC
+            LIMIT ?
+        """,
+            (limit,),
+        )
+        keys = ("id", "name", "description", "domain", "sharing_policy", "abstraction_level", "abstract_pattern")
+        return [dict(zip(keys, row, strict=True)) for row in cursor.fetchall()]
 
     # ==================== LEARNING PATH ====================
 
