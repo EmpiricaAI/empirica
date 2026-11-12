@@ -41,8 +41,8 @@ def test_the_model_is_loaded_through_the_local_server(local_only):
 
 
 def test_a_model_that_does_not_load_is_an_error_with_a_hint(local_only):
-    step = REAL_STEP(_args(), False, post=lambda *a: (503, b"{}"))
-    assert "did not load (503)" in step["error"] and "doctor" in step["hint"]
+    step = REAL_STEP(_args(), False, post=lambda *a: (500, b"{}"))  # a 503 means still loading: waited for, below
+    assert "did not load (500)" in step["error"] and "doctor" in step["hint"]
 
 
 def test_with_ollama_the_local_model_is_not_downloaded(monkeypatch):
@@ -87,3 +87,19 @@ def test_a_configured_qdrant_needs_no_local_model(local_only, monkeypatch):
     monkeypatch.setattr(qc, "store_url", lambda project_id=None: "http://qdrant.example:6333")
     out = REAL_STEP(_args(), dry_run=True)
     assert out["changed"] is False and "Qdrant" in out["note"]
+
+
+def test_a_model_still_loading_is_waited_for_not_reported_as_failed(local_only):
+    # serve warms the model in the background, so on a fresh machine provision's own request met the load lock and got an
+    # immediate 503, and the run failed while the download it was waiting for was still under way (1.16.1 sweep, B1).
+    answers = iter([(503, b"{}"), (503, b"{}"), (200, b"{}")])
+    naps = []
+    step = REAL_STEP(_args(), False, post=lambda *a: next(answers), sleep=naps.append)
+    assert step["changed"] is True and not step.get("error")
+    assert len(naps) == 2
+
+
+def test_a_model_that_never_finishes_loading_is_an_error_after_the_budget(local_only):
+    clock = iter(range(0, 10_000, 100))
+    step = REAL_STEP(_args(), False, post=lambda *a: (503, b"{}"), sleep=lambda s: None, now=lambda: next(clock))
+    assert "did not load (503)" in step["error"]

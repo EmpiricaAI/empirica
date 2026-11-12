@@ -149,7 +149,7 @@ PREFLIGHT or at CHECK.
 
 This isn't bureaucracy. It catches the most common AI failure mode: **acting before
 understanding**. A few small edits inside the project may run outside a transaction, up to
-a budget you set, and each one is recorded; commands that change state, files that run code
+a small budget (3 by default; you can change it), and each one is recorded; commands that change state, files that run code
 or hold secrets, and anything that reaches outside the machine always need a transaction.
 
 You don't need to manage the Sentinel directly. It works automatically through hooks.
@@ -165,7 +165,7 @@ As the AI investigates, it logs structured artifacts automatically:
 | **Finding** | A discovered fact, with measured impact (0.0–1.0) | Feeds memory, searchable in future sessions |
 | **Unknown** | A question that needs answering | Guides investigation, urgency increases with age |
 | **Dead-end** | A failed approach, with reason | Prevents re-exploration of paths that don't work |
-| **Assumption** | An unverified belief, with confidence level | Tracked until verified or falsified |
+| **Assumption** | An unverified belief, with confidence level | Tracked until verified, falsified, or expired (nobody checked before its subject went away) |
 | **Decision** | A choice point, with rationale and alternatives | Permanent audit trail of why choices were made |
 | **Mistake** | An error, with root cause and prevention strategy | Feeds the cognitive immune system |
 | **Falsifier** | The observation that would prove a belief wrong, written down *before* the evidence | Catches the failure confidence cannot: a true measurement claimed more widely than it was taken. Resurfaces every session until someone checks it |

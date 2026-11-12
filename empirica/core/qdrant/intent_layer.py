@@ -275,7 +275,7 @@ def search_assumptions(
     """Search assumptions by semantic similarity with optional filters.
 
     Args:
-        status: Filter by 'unverified', 'verified', 'falsified'
+        status: Filter by 'unverified', 'verified', 'falsified', 'expired'
         entity_type: Filter by entity type
         min_urgency: Minimum urgency_signal threshold (0.0-1.0)
         qdrant_url: optional per-request Qdrant URL (per-org routing)

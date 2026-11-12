@@ -202,7 +202,7 @@ def _add_instance_group(subparsers):
 def _add_sentinel_group(subparsers):
     sentinel_root = subparsers.add_parser(
         "sentinel",
-        help="Sentinel pause/resume/status (per-instance noetic firewall control)",
+        help="Sentinel pause/resume/status (per-instance Sentinel gate control)",
     )
     sentinel_subs = sentinel_root.add_subparsers(dest="sentinel_action", metavar="action")
 

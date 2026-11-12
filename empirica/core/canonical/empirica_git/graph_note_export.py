@@ -174,7 +174,9 @@ def export_lesson_notes(conn, root: str, *, full: bool = False) -> dict:
         except (OSError, ValueError, yaml.YAMLError) as e:
             logger.warning("lesson %s not exported: %s", lesson_id, e)
         if not isinstance(data, dict):
-            continue
+            # Could not be read: stop here, so the watermark does not move past it and the next run retries (1.16.1 sweep).
+            failed += 1
+            break
         data.setdefault("id", lesson_id)
         if _write_note(root, f"{LESSON_PREFIX}/{lesson_id}", {"lesson": data}):
             written += 1

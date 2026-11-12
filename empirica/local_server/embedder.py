@@ -131,6 +131,22 @@ def warm_in_background(embedder: Embedder | None = None) -> threading.Thread:
     return thread
 
 
+async def _json_object(request: Request) -> Any:
+    """The request body as a JSON object, or a 400 response: a malformed body or a list raised a 500 (1.16.1 sweep, as the
+    /qdrant routes were fixed in ac238432d)."""
+    from fastapi.responses import JSONResponse
+
+    try:
+        data = await request.json()
+    except ValueError:
+        return JSONResponse({"error": "the body is not valid JSON"}, status_code=400)
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        return JSONResponse({"error": "the body must be a JSON object"}, status_code=400)
+    return data
+
+
 def register(r, guard, embedder: Embedder | None = None) -> None:
     """Add Ollama's embedding routes under ``/ollama`` to router ``r`` behind ``guard`` (loopback-only, like the store)."""
     from fastapi.responses import JSONResponse
@@ -152,13 +168,17 @@ def register(r, guard, embedder: Embedder | None = None) -> None:
 
     @r.post("/ollama/api/embeddings", dependencies=guard)
     async def embeddings(request: Request):  # pyright: ignore[reportUnusedFunction]
-        data = await request.json()
-        out = await run([str((data or {}).get("prompt") or "")])
+        data = await _json_object(request)
+        if isinstance(data, JSONResponse):
+            return data
+        out = await run([str(data.get("prompt") or "")])
         return out if isinstance(out, JSONResponse) else {"embedding": out[0]}
 
     @r.post("/ollama/api/embed", dependencies=guard)
     async def embed(request: Request):  # pyright: ignore[reportUnusedFunction]
-        data = await request.json() or {}
+        data = await _json_object(request)
+        if isinstance(data, JSONResponse):
+            return data
         raw = data.get("input")
         texts = [str(t) for t in raw] if isinstance(raw, list) else [str(raw or "")]
         out = await run(texts)

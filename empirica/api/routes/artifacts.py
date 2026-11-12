@@ -1482,7 +1482,7 @@ async def resolve_artifact(
 
     Per-type semantics (matches `empirica resolve-artifacts` CLI):
     - unknown:    is_resolved = 1, resolved_by, resolved_timestamp
-    - assumption: status = 'verified' | 'falsified' (see below)
+    - assumption: status = 'verified' | 'falsified' (see below), or 'expired' with body status="expired"
     - goal:       is_completed = 1, status = 'completed', completed_timestamp
     - finding:    is_resolved = 1 + optional `resolution_kind` (migration 061)
     - dead_end /
@@ -1549,6 +1549,9 @@ def _apply_resolution(db, project: dict, artifact_type: str, artifact_id: str, b
         # Borne out and falsified are OPPOSITE events; defaulting to verified
         # manufactures confirmation the caller never claimed.
         status = "verified" if body.get("verified") is True else "falsified"
+        if body.get("status") is not None and body.get("status") != "expired":
+            # Only expired is read from `status`; anything else would be recorded as falsified (1.16.1 sweep).
+            raise HTTPException(status_code=422, detail='status must be "expired"; use verified: true/false otherwise')
         if body.get("status") == "expired":  # nobody checked it before its subject went away (goal 148d3199)
             status = "expired"
         cursor.execute(
@@ -2005,6 +2008,8 @@ async def delete_artifact(
             "action": result["action"],
             "edges_removed": result.get("edges_removed", 0),
             "git_notes_cleaned": result.get("git_notes_cleaned", False),
+            "qdrant": result.get("qdrant", {}),
+            **({"layer_errors": result["layer_errors"]} if result.get("layer_errors") else {}),
         }
     finally:
         db.close()

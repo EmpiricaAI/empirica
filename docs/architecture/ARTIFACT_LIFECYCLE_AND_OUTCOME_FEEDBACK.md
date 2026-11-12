@@ -24,7 +24,7 @@ All transitions go through `empirica resolve-artifacts` (`empirica resolve-artif
 |---|---|---|---|
 | finding | `resolve-artifacts` or `finding-resolve` | `is_resolved`, `resolution`, `resolved_timestamp`, `superseded_by`, `resolution_kind` | closed. `resolution_kind` is a closed vocabulary: `stale` (was true, aged), `superseded` (replaced by a named artifact), `retracted` (was false when written), `mistyped` (belongs to another type) |
 | unknown | `resolve-artifacts` or `unknown-resolve` | `is_resolved`, resolver text, `resolved_timestamp` | answered |
-| assumption | `resolve-artifacts` | status, optional `verified` | verified or falsified |
+| assumption | `resolve-artifacts` | status, optional `verified`, or `"status": "expired"` | verified, falsified, or expired (nobody checked it before its subject went away; counted as neither) |
 | goal | `resolve-artifacts` | completion with a reason | done |
 | dead_end, mistake | `resolve-artifacts` (`invalidated_by` optional) | `is_invalidated`, `invalidated_at`, `invalidated_by`, `invalidation_reason`, `last_revisited_at` | no longer actionable: the approach works after all, or the prevention does not hold or no longer applies. One shape for both, on purpose: "was wrong" and "no longer applies" are the same state for a reader |
 | decision | `resolve-artifacts` with `outcome` | `outcome` (`upheld`, `reversed`, `mixed`; required), `outcome_assessed_at`, `regret_score` | what the choice produced. `regret` is 0 to 1 and self-assessed, not derived from outcome and reversibility |

@@ -3080,7 +3080,19 @@ def migration_080_assumption_expired_status(cursor: sqlite3.Cursor):
         logger.warning("Migration 080 skipped: the assumptions status CHECK is not the expected one")
         return
     new_sql = row[0].replace(old_check, "'unverified', 'verified', 'falsified', 'expired'", 1)
-    new_sql = new_sql.replace("CREATE TABLE assumptions", "CREATE TABLE assumptions__080", 1)
+    import re as _re
+
+    # The stored name may be quoted ("assumptions", after an ALTER ... RENAME or an outside tool): a miss here would CREATE the
+    # original name again and fail every SessionDatabase() at startup (1.16.1 sweep).
+    new_sql, renamed = _re.subn(
+        r'^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`\[]?assumptions["`\]]?',
+        "CREATE TABLE assumptions__080",
+        new_sql,
+        count=1,
+    )
+    if not renamed:
+        logger.warning("Migration 080 skipped: the assumptions CREATE statement has an unexpected header")
+        return
     extras = cursor.execute(
         "SELECT sql FROM sqlite_master WHERE tbl_name = 'assumptions' AND type IN ('index', 'trigger') AND sql IS NOT NULL"
     ).fetchall()

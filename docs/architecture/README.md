@@ -6,7 +6,7 @@
 
 ## What is Empirica?
 
-Empirica is a **measurement-first epistemic framework** for AI agents — a CLI + plugin layer that wraps any AI workflow with a measured transaction loop (PREFLIGHT → CHECK → POSTFLIGHT), enforces a noetic / praxic firewall before actions, and grounds the agent's self-assessment against deterministic evidence (tests, lint, git, artifact logs).
+Empirica is a **measurement-first epistemic framework** for AI agents — a CLI + plugin layer that wraps any AI workflow with a measured transaction loop (PREFLIGHT → CHECK → POSTFLIGHT), gates praxic actions behind a declared grounding (a discipline layer, not a security boundary), and grounds the agent's self-assessment against deterministic evidence (tests, lint, git, artifact logs).
 
 It's provider-agnostic (Claude Code, Gemini CLI, Cursor, Copilot, Codex, Roo Code, etc.) and ships with hooks for whichever platform's available.
 

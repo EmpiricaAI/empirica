@@ -74,7 +74,7 @@ def _release_tags(root: str) -> dict[str, str]:
     """Tag name -> the date it was made, in the repository at ``root``. Empty when git cannot answer."""
     try:
         done = subprocess.run(
-            ["git", "-C", root, "for-each-ref", "refs/tags", "--format=%(refname:short)%09%(creatordate:short)"],
+            ["git", "-C", root, "for-each-ref", "refs/tags", "--format=%(refname:lstrip=2)%09%(creatordate:short)"],
             capture_output=True,
             text=True,
             timeout=5,

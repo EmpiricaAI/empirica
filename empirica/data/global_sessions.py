@@ -97,7 +97,10 @@ def plan_reconcile(conn: sqlite3.Connection) -> dict:
             if not traj or not Path(traj).exists():
                 gone += 1
                 continue
-            dbs.append(Path(traj) / "sessions" / "sessions.db")
+            # Older registrations stored the project root, not <root>/.empirica (session_resolver handles both): reading
+            # <root>/sessions/sessions.db found nothing and closed every session of such a practice as absent (1.16.1 sweep).
+            base = Path(traj) if Path(traj).name == ".empirica" else Path(traj) / ".empirica"
+            dbs.append(base / "sessions" / "sessions.db")
         states = []
         for db in dbs:
             if not db.exists():

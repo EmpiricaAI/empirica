@@ -55,7 +55,12 @@ def _project_root(conn) -> str | None:
             if name == "main" and path:
                 parts = Path(path).parts
                 if ".empirica" in parts:
-                    return str(Path(*parts[: parts.index(".empirica")]))
+                    root = Path(*parts[: parts.index(".empirica")])
+                    # ~/.empirica is the seat's own store, not a practice: its "root" is the home directory, and a note
+                    # written there would land in a dotfiles repo where home is one (1.16.1 sweep).
+                    if root == Path.home():
+                        return None
+                    return str(root)
     except Exception:
         pass
     return None

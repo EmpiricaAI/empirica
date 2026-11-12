@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.16.0
-**Generated:** 2026-11-12 16:45:13 UTC
+**Generated:** 2026-11-12 22:21:14 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -222,7 +222,7 @@ Adopt an orphaned transaction from a different instance (e.g., after tmux restar
 
 #### `empirica preflight-submit`  _(aliases: `pre`, `preflight`)_
 
-Open an epistemic transaction. Records baseline vectors + task context as the starting measurement point. Must be called before any praxic tool (Edit/Write/Bash); the Sentinel firewall enforces this. Pairs with check-submit (mid-cycle gate) and postflight-submit (close). AI-first: pass JSON via stdin or a config file path.
+Open an epistemic transaction. Records baseline vectors + task context as the starting measurement point. Must be called before praxic work (Edit/Write/state-changing Bash); the Sentinel gate holds it until then, beyond a small budget of project-local edits. Pairs with check-submit (mid-cycle gate) and postflight-submit (close). AI-first: pass JSON via stdin or a config file path.
 
 **Arguments:**
 
@@ -268,7 +268,7 @@ Run an epistemic check WITHOUT submitting it as the gate decision. Use this to p
 
 #### `empirica check-submit`
 
-Submit a check assessment AND apply the gate decision. Pass `decision`=`proceed` to move to the praxic phase, `investigate` to stay noetic, `proceed_with_caution` for a soft gate. The Sentinel firewall reads the result to allow/deny subsequent praxic tools. Required after PREFLIGHT before any Edit/Write/Bash.
+Submit a check assessment AND apply the gate decision. Pass `decision`=`proceed` to move to the praxic phase, `investigate` to stay noetic, `proceed_with_caution` for a soft gate. The Sentinel gate reads the result to allow/deny subsequent praxic tools. Required after PREFLIGHT before any Edit/Write/Bash.
 
 **Arguments:**
 
@@ -2920,7 +2920,7 @@ Resume the Sentinel for this instance (back on-the-record). Add --global for the
 
 #### `empirica sentinel`
 
-Sentinel pause/resume/status (per-instance noetic firewall control)
+Sentinel pause/resume/status (per-instance Sentinel gate control)
 
 **Subcommands:**
 

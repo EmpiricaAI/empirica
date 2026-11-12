@@ -53,8 +53,8 @@ def add_cascade_parsers(subparsers):
         help=(
             "Open an epistemic transaction. Records baseline vectors + task "
             "context as the starting measurement point. Must be called before "
-            "any praxic tool (Edit/Write/Bash); the Sentinel firewall enforces "
-            "this. Pairs with check-submit (mid-cycle gate) and postflight-submit "
+            "praxic work (Edit/Write/state-changing Bash); the Sentinel gate holds "
+            "it until then, beyond a small budget of project-local edits. Pairs with check-submit (mid-cycle gate) and postflight-submit "
             "(close). AI-first: pass JSON via stdin or a config file path."
         ),
     )
@@ -183,7 +183,7 @@ def add_cascade_parsers(subparsers):
         help=(
             "Submit a check assessment AND apply the gate decision. Pass `decision`=`proceed` "
             "to move to the praxic phase, `investigate` to stay noetic, "
-            "`proceed_with_caution` for a soft gate. The Sentinel firewall "
+            "`proceed_with_caution` for a soft gate. The Sentinel gate "
             "reads the result to allow/deny subsequent praxic tools. Required "
             "after PREFLIGHT before any Edit/Write/Bash."
         ),

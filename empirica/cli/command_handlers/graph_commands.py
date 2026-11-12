@@ -66,7 +66,7 @@ LOG_ARTIFACTS_SCHEMA = {
                 "impact": "<float 0-1, optional>",
                 "subject": "<optional>",
                 "visibility": "<public | shared | local — optional, default 'local'>",
-                "due": "<unknown and assumption only, optional: YYYY-MM-DD or +7d / +2w — when it comes back up>",
+                "due": "<unknown and assumption only, optional: YYYY-MM-DD, +7d / +2w, or after:<release tag> — when it comes back up>",
             },
         },
     ],
@@ -1679,6 +1679,14 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
 
                     _verified = item.get("verified")
                     _status = "verified" if _verified is True else "falsified"
+                    if item.get("status") is not None and item.get("status") != "expired":
+                        # Only expired is read from `status`; anything else used to fall through to falsified, recording the
+                        # opposite of a `"status": "verified"` (1.16.1 sweep). verified/falsified come from `verified`.
+                        resolution_errors.append(
+                            f"Assumption '{artifact_id}': status {item.get('status')!r} is not accepted; use "
+                            '"verified": true/false, or "status": "expired"'
+                        )
+                        continue
                     if item.get("status") == "expired":
                         # Nobody checked it before its subject went away: neither borne out nor refuted (goal 148d3199).
                         _status = "expired"
@@ -2627,6 +2635,8 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
             for label, status in (it.get("qdrant") or {}).items():
                 if status.startswith(("error:", "unavailable")):
                     contract_failures.append(f"{it.get('id')}: qdrant {label}: {status}")
+            for layer, err in (it.get("layer_errors") or {}).items():  # raised after the row was deleted (32ba82cd0)
+                contract_failures.append(f"{it.get('id')}: {layer}: {err}")
         if audit_status.startswith("error:"):
             contract_failures.append(f"audit decision not recorded: {audit_status}")
         delete_errors.extend(contract_failures)
@@ -2650,7 +2660,7 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
                 "project, not the cwd, and this verb has no --project-id. Counts above are that project's."
             )
         print(json.dumps(result, indent=2))
-        return 0
+        return 0 if result["ok"] else 1  # a store that could not be cleaned is a failure, not a 0 (1.16.1 sweep)
 
     except Exception as e:
         handle_cli_error(e, "Delete artifacts", getattr(args, "verbose", False))

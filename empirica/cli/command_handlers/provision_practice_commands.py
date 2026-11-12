@@ -135,7 +135,7 @@ def _serve_unit_installed() -> bool:
         return False
 
 
-def _embedding_model_step(args, dry_run: bool, *, post=None) -> dict:
+def _embedding_model_step(args, dry_run: bool, *, post=None, sleep=None, now=None) -> dict:
     """The ``embedding-model`` step: when the local server will embed for this machine (no Cortex, no Ollama model), have
     it load its model now, downloading it once (about 135 MB), so no hook ever waits on the download (goal db2cf3fa)."""
     step: dict = {"step": "embedding-model", "changed": False}
@@ -148,7 +148,7 @@ def _embedding_model_step(args, dry_run: bool, *, post=None) -> dict:
         # Resolved as the embedding provider resolves them (env, then ~/.empirica/config.yaml): reading only the env missed an
         # Ollama or a provider set in the file, and downloaded a model this machine never uses (1.16.x, goal a34eef6d).
         conf = _load_config_file()
-        provider = os.environ.get("EMPIRICA_EMBEDDINGS_PROVIDER", conf.get("provider", "auto")).lower()
+        provider = (os.environ.get("EMPIRICA_EMBEDDINGS_PROVIDER") or conf.get("provider") or "auto").strip().lower()
         if provider not in ("auto", "local"):
             return {
                 **step,
@@ -171,10 +171,20 @@ def _embedding_model_step(args, dry_run: bool, *, post=None) -> dict:
     if dry_run:
         return {**step, "changed": True, "note": "dry-run: would load the embedding model (about 135 MB, once)"}
     _narrate("Loading the embedding model (about 135 MB the first time; it stays on this machine)...")
-    try:
-        status, _ = (post or _post_json)(f"{url}/api/embed", {"input": ["warm"]}, 600)
-    except OSError as e:
-        status = f"{type(e).__name__}: {e}"
+    import time
+
+    clock, nap = now or time.monotonic, sleep or time.sleep
+    deadline = clock() + 600
+    while True:
+        try:
+            status, _ = (post or _post_json)(f"{url}/api/embed", {"input": ["warm"]}, 600)
+        except OSError as e:
+            status = f"{type(e).__name__}: {e}"
+        # 503 is the load lock: serve warms the model in the background on start, so on a fresh machine this request meets
+        # the download already under way. Wait it out within the same budget rather than fail the run (1.16.1 sweep).
+        if status != 503 or clock() >= deadline:
+            break
+        nap(3)
     if status == 200:
         return {**step, "changed": True, "note": "embedding model ready"}
     return {

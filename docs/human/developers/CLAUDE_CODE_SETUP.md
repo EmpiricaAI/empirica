@@ -73,8 +73,8 @@ fresh, which picks up a changed timeout or matcher after an upgrade.
 
 The Sentinel gate is the load-bearing one. It is a discipline layer, not a
 security boundary: it gates praxic tools (Edit/Write/Bash) until the
-transaction is certified, and in the default `discipline` mode lets a small,
-user-set budget of project-local edits run outside a transaction
+transaction is certified, and in the default `discipline` mode lets a small
+budget of project-local edits (3 by default, configurable) run outside a transaction
 (`empirica sentinel mode` shows the mode and budget in force). A CHECK that
 falls below the threshold, or returns `investigate`, is an advisory allow, not a block.
 
