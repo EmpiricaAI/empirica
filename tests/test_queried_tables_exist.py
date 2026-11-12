@@ -50,11 +50,23 @@ def _inventory() -> tuple[set[str], set[str]]:
 def _recreated_after_drop(migrations: str, dropped: set[str]) -> set[str]:
     alive = set()
     for name in dropped:
+        # A quoted name counts as a drop only inside a drop list, not wherever the table is named in a string.
+        lists = [
+            (m.start(), m.group(0))
+            for m in re.finditer(r"(?:tables_to_drop|LEGACY_TABLES_\d+)\s*=\s*[\[(].*?[\])]", migrations, re.S)
+        ]
         last_drop = max(
-            (m.start() for m in re.finditer(rf"DROP TABLE(?: IF EXISTS)? {name}\b|\"{name}\"", migrations)), default=-1
+            [m.start() for m in re.finditer(rf"DROP TABLE(?: IF EXISTS)? {name}\b", migrations)]
+            + [start for start, block in lists if f'"{name}"' in block],
+            default=-1,
         )
+        # A rebuild (create a copy, drop the original, rename the copy into place) re-creates it through the RENAME.
         last_create = max(
-            (m.start() for m in re.finditer(rf"CREATE TABLE(?: IF NOT EXISTS)? {name}\b", migrations)), default=-1
+            (
+                m.start()
+                for m in re.finditer(rf"CREATE TABLE(?: IF NOT EXISTS)? {name}\b|RENAME TO {name}\b", migrations)
+            ),
+            default=-1,
         )
         if last_create > last_drop:
             alive.add(name)

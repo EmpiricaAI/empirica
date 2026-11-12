@@ -474,7 +474,7 @@ class ProfileImporter:
                         conf
                         if isinstance(conf, (int, float)) and not isinstance(conf, bool) and 0.0 <= conf <= 1.0
                         else None,
-                        status if status in ("unverified", "verified", "falsified") else "unverified",
+                        status if status in ("unverified", "verified", "falsified", "expired") else "unverified",
                         data.get("project_id"),
                         data.get("session_id"),
                         data.get("transaction_id"),

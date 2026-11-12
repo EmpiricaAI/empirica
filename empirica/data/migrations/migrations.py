@@ -1634,6 +1634,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Add `due_at` (an ISO date, nullable) to goals, project_unknowns and assumptions (prop_bnviyv2epvg27kgmqycwlflshm, ecodex: 32 planned goals and nothing to resurface them). An open item whose date has come is listed under Due at bootstrap and session start. Not backfilled: a date nobody set would be invented.",
         lambda cursor: migration_079_due_at(cursor),
     ),
+    (
+        "080_assumption_expired_status",
+        "Allow `assumptions.status` = 'expired': an assumption nobody checked before its subject went away (a removed code path, a window that passed), the same word the falsifier verdict uses. verified and falsified were the only closes, so the gardening pass of 2026-11-12 left 4 moot assumptions open rather than mislabel them (David's ruling). SQLite cannot widen a CHECK in place, so the table is rebuilt from its own stored SQL (every column added by later migrations is kept), rows copied, indexes and triggers recreated, inside a savepoint. Idempotent: a table that already allows 'expired' is left alone.",
+        lambda cursor: migration_080_assumption_expired_status(cursor),
+    ),
 ]
 
 
@@ -3063,6 +3068,36 @@ def migration_079_due_at(cursor: sqlite3.Cursor):
     """A date on which an open goal, unknown or assumption comes back up. Nullable, not backfilled."""
     for table in ("goals", "project_unknowns", "assumptions"):
         add_column_if_missing(cursor, table, "due_at", "TEXT", "NULL")
+
+
+def migration_080_assumption_expired_status(cursor: sqlite3.Cursor):
+    """Widen the CHECK on ``assumptions.status`` to allow 'expired', by rebuilding the table from its own SQL."""
+    row = cursor.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'assumptions'").fetchone()
+    if row is None or "'expired'" in row[0]:
+        return
+    old_check = "'unverified', 'verified', 'falsified'"
+    if old_check not in row[0]:
+        logger.warning("Migration 080 skipped: the assumptions status CHECK is not the expected one")
+        return
+    new_sql = row[0].replace(old_check, "'unverified', 'verified', 'falsified', 'expired'", 1)
+    new_sql = new_sql.replace("CREATE TABLE assumptions", "CREATE TABLE assumptions__080", 1)
+    extras = cursor.execute(
+        "SELECT sql FROM sqlite_master WHERE tbl_name = 'assumptions' AND type IN ('index', 'trigger') AND sql IS NOT NULL"
+    ).fetchall()
+    cursor.execute("SAVEPOINT migration_080")
+    try:
+        cursor.execute(new_sql)
+        cursor.execute("INSERT INTO assumptions__080 SELECT * FROM assumptions")
+        cursor.execute("DROP TABLE assumptions")  # takes its indexes and triggers with it
+        cursor.execute("ALTER TABLE assumptions__080 RENAME TO assumptions")
+        for (sql,) in extras:
+            cursor.execute(sql)
+        cursor.execute("RELEASE migration_080")
+    except Exception:
+        cursor.execute("ROLLBACK TO migration_080")
+        cursor.execute("RELEASE migration_080")
+        raise
+    logger.info("✅ Migration 080 complete: assumptions.status allows 'expired'")
 
 
 def migration_078_goal_status_vocabulary(cursor: sqlite3.Cursor):

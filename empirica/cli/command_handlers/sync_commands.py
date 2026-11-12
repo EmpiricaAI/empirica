@@ -1653,7 +1653,9 @@ def _rebuild_assumptions(db, rebuilt) -> None:
         aid, text = note.get("assumption_id"), note.get("assumption")
         if not aid or not text:
             continue
-        status = note.get("status") if note.get("status") in ("unverified", "verified", "falsified") else "unverified"
+        from empirica.data.artifact_fields import ASSUMPTION_STATUSES
+
+        status = note.get("status") if note.get("status") in ASSUMPTION_STATUSES else "unverified"
         conf = note.get("confidence")
         conf = conf if isinstance(conf, (int, float)) and not isinstance(conf, bool) and 0.0 <= conf <= 1.0 else None
         try:

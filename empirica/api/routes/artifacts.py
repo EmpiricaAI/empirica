@@ -1549,6 +1549,8 @@ def _apply_resolution(db, project: dict, artifact_type: str, artifact_id: str, b
         # Borne out and falsified are OPPOSITE events; defaulting to verified
         # manufactures confirmation the caller never claimed.
         status = "verified" if body.get("verified") is True else "falsified"
+        if body.get("status") == "expired":  # nobody checked it before its subject went away (goal 148d3199)
+            status = "expired"
         cursor.execute(
             "UPDATE assumptions SET status = ?, resolved_timestamp = ? WHERE id = ?",
             (status, now, artifact_id),

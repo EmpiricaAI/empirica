@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Links between artifacts, falsifiers and lessons reach the git notes, and a rebuild restores them.** They lived in the database only (lessons in a git-ignored folder), so a rebuild from the notes lost every one. They are exported at each POSTFLIGHT, in the background and a bounded batch at a time, and in full by `doctor --reconcile-notes --apply`; `sync-push` carries them like the other notes.
 - **A goal, unknown or assumption can come back when a release is tagged.** `--due after:v1.17.0` (and `due_at` in `update-artifacts`) lists the item under Due at bootstrap and session start once that tag exists in the project's repository, beside the items whose date has come. The forecast pass now proposes a due date, or the release it predicts, for the planned items it creates.
+- **An assumption can be closed as expired.** Verified and falsified were the only ways to close one, so an assumption whose subject went away before anyone checked it (a removed code path, a window that passed) stayed open or was mislabelled. `resolve-artifacts` takes `"status": "expired"`, the word falsifiers already use for the same case; calibration and the forecast record still count only verified and falsified. A database migration widens the allowed statuses.
 
 ### Fixed
 

@@ -90,6 +90,7 @@ RESOLVE_ARTIFACTS_SCHEMA = {
             "id": "<UUID of the artifact to resolve>",
             "resolution": "<resolution text or status — semantics depend on type>",
             "verified": "<true/false, optional, for assumption→finding>",
+            "status": "<assumption only, optional: expired — nobody checked it before its subject went away (neither verified nor falsified)>",
             "superseded_by": "<finding: optional UUID of the finding that replaced this one. "
             "lesson: REQUIRED id of the lesson that replaces it — the only way a lesson is retired>",
             "resolution_kind": "<finding only, optional closed vocabulary: stale (was true, aged out) | "
@@ -1678,6 +1679,9 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
 
                     _verified = item.get("verified")
                     _status = "verified" if _verified is True else "falsified"
+                    if item.get("status") == "expired":
+                        # Nobody checked it before its subject went away: neither borne out nor refuted (goal 148d3199).
+                        _status = "expired"
                     cursor = db.conn.cursor()
                     cursor.execute(
                         "UPDATE assumptions SET status = ?, resolution_finding_id = ?, "

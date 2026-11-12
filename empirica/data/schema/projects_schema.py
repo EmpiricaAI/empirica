@@ -217,7 +217,7 @@ SCHEMAS = [
         description TEXT,
         confidence REAL DEFAULT 0.5 CHECK(confidence BETWEEN 0.0 AND 1.0),
         status TEXT NOT NULL DEFAULT 'unverified' CHECK(status IN (
-            'unverified', 'verified', 'falsified'
+            'unverified', 'verified', 'falsified', 'expired'
         )),
         resolution_finding_id TEXT,
         entity_type TEXT NOT NULL DEFAULT 'project',

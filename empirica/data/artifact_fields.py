@@ -187,7 +187,8 @@ def updatable_fields(artifact_type: str) -> set[str]:
 GOAL_STATUSES: tuple[str, ...] = ("planned", "in_progress", "blocked", "completed", "abandoned")
 
 
-ASSUMPTION_STATUSES = ("unverified", "verified", "falsified")
+#: expired: nobody checked it before its subject went away (goal 148d3199), the falsifier verdict of the same name.
+ASSUMPTION_STATUSES = ("unverified", "verified", "falsified", "expired")
 DECISION_OUTCOMES = ("upheld", "reversed", "mixed")
 
 
