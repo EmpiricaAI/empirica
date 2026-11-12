@@ -88,8 +88,7 @@ def _args(ids, **kw):
 
 def _run(args, capsys):
     try:
-        handle_projects_unregister_command(args)
-        code = 0
+        code = handle_projects_unregister_command(args) or 0  # the handler returns its exit code
     except SystemExit as e:
         code = e.code or 0
     return code, json.loads(capsys.readouterr().out)

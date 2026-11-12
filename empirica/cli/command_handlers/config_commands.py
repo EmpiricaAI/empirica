@@ -78,14 +78,15 @@ def handle_config_show_command(args):
     Displays MCO (Meta-Agent Configuration Object) configuration.
     """
     try:
-        print("\n📋 Empirica Configuration")
-        print("=" * 70)
+        # The parser's flag is --output; this read `format`, which nothing sets, so --output json printed YAML.
+        output_format = getattr(args, "output", None) or "yaml"
+        as_json = output_format == "json"
+        say = (lambda *a, **k: None) if as_json else print  # banners only in the human form: JSON is one document
+        say("\n📋 Empirica Configuration")
+        say("=" * 70)
 
         # Use MCO loader
         mco = get_mco_config()
-
-        # Determine output format
-        output_format = getattr(args, "format", "yaml")
         section = getattr(args, "section", None)
 
         # Build config dict
@@ -101,33 +102,37 @@ def handle_config_show_command(args):
         if section:
             if section in config:
                 config = config[section]
-                print(f"\nSection: {section}")
+                say(f"\nSection: {section}")
             else:
-                print(f"❌ Section not found: {section}")
-                print(f"   Available sections: {', '.join(config.keys())}")
-                return
+                if as_json:
+                    print(json.dumps({"ok": False, "error": f"Section not found: {section}", "sections": list(config)}))
+                else:
+                    print(f"❌ Section not found: {section}")
+                    print(f"   Available sections: {', '.join(config.keys())}")
+                return 1
         else:
-            print("\nMCO Configuration (Model Profiles, Personas, Epistemic Conduct)")
+            say("\nMCO Configuration (Model Profiles, Personas, Epistemic Conduct)")
 
-        print("=" * 70)
+        say("=" * 70)
 
         # Display config
-        if output_format == "json":
-            print(json.dumps(config, indent=2))
+        if as_json:
+            print(json.dumps(config, indent=2, default=str))
         else:  # yaml
             print(yaml.dump(config, default_flow_style=False, sort_keys=False))
 
         # Show config sources
         if not section:
-            print("\n" + "=" * 70)
-            print("📂 Configuration Sources:")
-            print(f"   MCO directory: {mco.config_dir}")
-            print("   Files loaded:")
-            print("     • model_profiles.yaml - Bias corrections per model")
-            print("     • personas.yaml - Investigation budgets")
-            print("     • epistemic_conduct.yaml - Bidirectional accountability")
-            print("     • ask_before_investigate.yaml - Query heuristics")
-            print("     • protocols.yaml - Tool schemas")
+            say("\n" + "=" * 70)
+            say("📂 Configuration Sources:")
+            say(f"   MCO directory: {mco.config_dir}")
+            say("   Files loaded:")
+            say("     • model_profiles.yaml - Bias corrections per model")
+            say("     • personas.yaml - Investigation budgets")
+            say("     • epistemic_conduct.yaml - Bidirectional accountability")
+            say("     • ask_before_investigate.yaml - Query heuristics")
+            say("     • protocols.yaml - Tool schemas")
+        return 0
 
     except Exception as e:
         handle_cli_error(e, "Config Show", getattr(args, "verbose", False))

@@ -206,7 +206,7 @@ def handle_edit_with_confidence_command(args):
                 print(json.dumps(result, indent=2))
             else:
                 print("❌ Missing required arguments")
-            return None
+            return 1
 
         # Validate file exists
         if not Path(file_path).exists():
@@ -215,7 +215,7 @@ def handle_edit_with_confidence_command(args):
                 print(json.dumps(result, indent=2))
             else:
                 print(f"❌ File does not exist: {file_path}")
-            return None
+            return 1
 
         # Initialize components
         assessor = EditConfidenceAssessor()

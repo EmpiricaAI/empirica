@@ -1622,7 +1622,7 @@ def _local_unregister(args, output_format: str) -> int:
         return emit({"ok": True, "applied": True, "rows": public_rows, "removed": len(plan["rows"])}, 0)
 
 
-def handle_projects_unregister_command(args) -> None:
+def handle_projects_unregister_command(args) -> int | None:
     """Unregister a project from Cortex (soft archive by default, --purge to hard-delete).
 
     Soft archive (default):
@@ -1654,10 +1654,7 @@ def handle_projects_unregister_command(args) -> None:
                     )
                 )
                 sys.exit(2)
-            code = _local_unregister(args, getattr(args, "output", "human"))
-            if code:
-                sys.exit(code)
-            return
+            return _local_unregister(args, getattr(args, "output", "human")) or 0
         project_id = getattr(args, "project_id", None)
         slug = getattr(args, "slug", None)
         purge = bool(getattr(args, "purge", False))

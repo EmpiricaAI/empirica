@@ -158,29 +158,7 @@ def test_note_without_text_exits_1(tmp_path):
 # the print and the return, a dict literal returned after printing. KNOWN_OLDER lists the handlers that had that shape before
 # 1.14.22 (by file and function: line numbers move); a new one fails here, and the list only shrinks.
 
-KNOWN_OLDER = {
-    ("_workflow_preflight.py", "handle_preflight_submit_command"),
-    ("config_commands.py", "handle_config_show_command"),
-    ("domain_commands.py", "handle_domain_validate_command"),
-    ("edit_verification_command.py", "handle_edit_with_confidence_command"),
-    (
-        "goal_commands.py",
-        "handle_goals_complete_task_command",
-    ),  # exits 1 via sys.exit before the return: a false positive
-    ("goal_commands.py", "handle_goals_progress_command"),
-    ("goal_commands.py", "handle_goals_get_tasks_command"),
-    ("identity_commands.py", "handle_identity_create_command"),
-    ("identity_commands.py", "handle_identity_export_command"),
-    ("memory_commands.py", "handle_session_rollup_command"),
-    ("monitor_commands.py", "handle_mco_load_command"),
-    ("monitor_commands.py", "handle_system_status_command"),
-    ("projects_commands.py", "handle_projects_unregister_command"),
-    ("session_commands.py", "handle_sessions_show_command"),
-    ("setup_claude_code.py", "handle_setup_claude_code_command"),
-    ("utility_commands.py", "handle_qdrant_cleanup_command"),
-    ("utility_commands.py", "handle_qdrant_status_command"),
-    ("workspace_commands.py", "handle_workspace_backfill_entities_command"),
-}
+KNOWN_OLDER: set[tuple[str, str]] = set()  # emptied by goal 494dcfee; a new instance fails the guard
 
 
 def _prints_json(node) -> bool:
@@ -294,3 +272,55 @@ def test_the_scans_stay_quiet_on_handlers_that_only_look_like_the_defect(src):
 )
 def test_the_scans_still_fire_on_a_refusal_that_returns_none(src):
     assert _strict_hits(_fn(src)) == ["refusal-then-none"]
+
+
+# ── the handlers KNOWN_OLDER listed, driven from the CLI (goal 494dcfee) ───────────────────────────────────────────────────
+#
+# Each printed its refusal and returned None (exit 0), or printed its result and returned the dict, which the dispatcher
+# printed again. One JSON document, and exit 1 on a refusal.
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ("config", "--section", "no-such-section", "--output", "json"),
+        ("edit-with-confidence", "--file-path", "missing.py", "--old-str", "a", "--new-str", "b", "--output", "json"),
+        ("goals-progress", "--goal-id", "00000000-dead", "--output", "json"),
+        ("goals-get-tasks", "--goal-id", "00000000-dead", "--output", "json"),
+        ("goals-complete-task", "--task-id", "00000000-dead", "--output", "json"),
+        ("identity-export", "--ai-id", "nobody-here", "--output", "json"),
+        ("sessions-show", "00000000-dead", "--output", "json"),
+        ("system-status", "--output", "json"),
+    ],
+    ids=lambda a: a[0],
+)
+def test_an_older_handlers_refusal_exits_1(tmp_path, argv):
+    proc = _cli(tmp_path, *argv)
+
+    assert proc.returncode == 1, (proc.stdout, proc.stderr)
+    docs = _documents(proc.stdout)
+    assert len(docs) <= 1 and all(d.get("ok") is False for d in docs)
+
+
+def test_identity_create_over_an_existing_identity_exits_1(tmp_path):
+    assert _cli(tmp_path, "identity-create", "--ai-id", "twice", "--output", "json").returncode == 0
+    proc = _cli(tmp_path, "identity-create", "--ai-id", "twice", "--output", "json")
+
+    assert proc.returncode == 1
+    docs = _documents(proc.stdout)
+    assert len(docs) == 1 and docs[0]["ok"] is False
+
+
+def test_workspace_backfill_prints_one_document(tmp_path):
+    proc = _cli(tmp_path, "workspace-backfill-entities", "--dry-run", "--output", "json")
+
+    assert proc.returncode == 0, proc.stderr
+    assert len(_documents(proc.stdout)) == 1
+
+
+def test_config_output_json_prints_one_document(tmp_path):
+    # The handler read args.format, which the parser never sets, so --output json printed banners and YAML.
+    proc = _cli(tmp_path, "config", "--section", "personas", "--output", "json")
+
+    assert proc.returncode == 0, proc.stderr
+    assert len(_documents(proc.stdout)) == 1

@@ -43,8 +43,7 @@ def handle_identity_create_command(args):
                 print(f"   Key file: {result['key_file']}")
                 print(f"\n💡 To replace: empirica identity-create --ai-id {ai_id} --overwrite")
 
-            # Return None to avoid exit code issues and duplicate output
-            return None
+            return 1
 
         # Create identity
         identity = manager.create_identity(ai_id, overwrite=overwrite)
@@ -185,8 +184,7 @@ def handle_identity_export_command(args):
             print("\n💡 Create it first:")
             print(f"   empirica identity-create --ai-id {ai_id}")
 
-        # Return None to avoid exit code issues and duplicate output
-        return None
+        return 1
 
     except Exception as e:
         handle_cli_error(e, "Identity export", getattr(args, "verbose", False))

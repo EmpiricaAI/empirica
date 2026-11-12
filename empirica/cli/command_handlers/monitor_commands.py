@@ -118,7 +118,7 @@ def handle_mco_load_command(args):
                     print(json.dumps({"ok": False, "error": str(e)}))
                 else:
                     print(f"\n❌ Error loading snapshot: {e}")
-                return
+                return 1
 
         # Fresh load from MCO files
         if session_id:
@@ -1678,7 +1678,7 @@ def handle_system_status_command(args):
             else:
                 print("\n  No active Empirica session found.")
                 print("  Run: empirica session-create --ai-id <your-ai-id>  # e.g., empirica, cortex")
-            return
+            return 1
 
         # Create dashboard and get status
         from empirica.core.system_dashboard import SystemDashboard

@@ -1226,9 +1226,7 @@ def handle_goals_complete_task_command(args):
             print(f"   {result['hint']}", file=sys.stderr)
 
         task_repo.close()
-        if not success:
-            sys.exit(1)
-        return None
+        return 0 if success else 1
 
     except Exception as e:
         handle_cli_error(e, "Complete task", getattr(args, "verbose", False))
@@ -1291,8 +1289,7 @@ def handle_goals_progress_command(args):
                 print(f"   Goal ID: {goal_id}")
 
         goal_repo.close()
-        # Return None to avoid exit code issues and duplicate output
-        return None
+        return 0 if result.get("ok") else 1
 
     except Exception as e:
         handle_cli_error(e, "Get goal progress", getattr(args, "verbose", False))
@@ -1902,7 +1899,7 @@ def handle_goals_get_tasks_command(args):
                 print(f"❌ {result.get('message', 'Error retrieving tasks')}")
 
         task_repo.close()
-        return None
+        return 0 if result.get("ok") else 1
 
     except Exception as e:
         handle_cli_error(e, "Get tasks", getattr(args, "verbose", False))

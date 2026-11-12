@@ -2671,7 +2671,7 @@ def handle_setup_claude_code_command(args):
             else:
                 print("❌ Error: Could not find bundled plugin files")
                 print("   Run from a valid Empirica installation or dev environment")
-            return None
+            return 1
 
         if output_format != "json":
             print("🧠 Setting up Claude Code integration...")
@@ -2797,4 +2797,4 @@ def handle_setup_claude_code_command(args):
             from ..cli_utils import handle_cli_error
 
             handle_cli_error(e, "Setup Claude Code", getattr(args, "verbose", False))
-        return None
+        return 1

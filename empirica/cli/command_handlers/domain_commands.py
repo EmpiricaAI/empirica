@@ -67,4 +67,4 @@ def handle_domain_validate_command(args):
         else:
             print(f"✓ All {len(domains)} domain(s) valid.")
 
-    return {"ok": len(errors) == 0}
+    return 1 if errors else 0

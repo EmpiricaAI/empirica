@@ -1689,8 +1689,8 @@ def handle_preflight_submit_command(args):
             else:
                 print(f"❌ {result.get('message', 'Failed to submit PREFLIGHT assessment')}")
 
-        # Return None to avoid exit code issues and duplicate output
-        return None
+        # Printed above; the exit code says whether it was accepted.
+        return 0 if result.get("ok") else 1
 
     except Exception as e:
         handle_cli_error(e, "Preflight submit", getattr(args, "verbose", False))

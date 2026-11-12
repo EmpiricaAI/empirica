@@ -645,7 +645,7 @@ def handle_workspace_backfill_entities_command(args):
             if dry_run and (added or updated):
                 print("\n   Run without --dry-run to apply.")
 
-        return {"ok": True, "added": added, "updated": updated, "scanned": len(projects)}
+        return 0  # printed above: returning the dict printed it a second time
 
     except Exception as e:
         handle_cli_error(e, "Workspace backfill entities", getattr(args, "verbose", False))

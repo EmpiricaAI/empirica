@@ -542,7 +542,7 @@ def handle_session_rollup_command(args):
                 print(f"❌ Rejected: {len(result.rejected)} findings")
             print("=" * 70)
 
-        return None
+        return 0  # a rollup that rejected findings still succeeded
 
     except Exception as e:
         handle_cli_error(e, "Session rollup", getattr(args, "verbose", False))

@@ -232,13 +232,25 @@ def _run_backfill(tmp_path, *, dry_run=False, output="json"):
     """Invoke handle_workspace_backfill_entities_command in-process under
     a redirected ~/.empirica/workspace home.
     """
+    import contextlib
+    import io
+    import json
+
     from empirica.cli.command_handlers.workspace_commands import (
         handle_workspace_backfill_entities_command,
     )
 
     args = SimpleNamespace(dry_run=dry_run, output=output, verbose=False)
-    with patch("empirica.data.repositories.workspace_db.Path.home", return_value=tmp_path):
-        return handle_workspace_backfill_entities_command(args)
+    out = io.StringIO()
+    with (
+        patch("empirica.data.repositories.workspace_db.Path.home", return_value=tmp_path),
+        contextlib.redirect_stdout(out),
+    ):
+        rc = handle_workspace_backfill_entities_command(args)
+    # The handler prints its one document and returns the exit code (it used to return the dict too, printed twice).
+    doc = json.loads(out.getvalue())
+    assert rc == (0 if doc.get("ok") else 1)
+    return {k: doc[k] for k in ("ok", "added", "updated", "scanned") if k in doc}
 
 
 def test_backfill_adds_missing_entity_rows(tmp_path):

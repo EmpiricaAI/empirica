@@ -232,7 +232,7 @@ def handle_sessions_show_command(args):
                 print("\n❌ Session ID required")
                 print("💡 Usage: empirica sessions-show <session-id>")
                 print("💡 Or: empirica sessions-show --session-id <session-id>")
-            return
+            return 1
 
         try:
             session_id = R.resolve_session(session_id_arg)
@@ -243,7 +243,7 @@ def handle_sessions_show_command(args):
                 print(f"\n❌ {e!s}")
                 print(f"💡 Provided: {session_id_arg}")
                 print("💡 List sessions with: empirica sessions-list")
-            return
+            return 1
 
         db = SessionDatabase()
         summary = db.get_session_summary(session_id, detail_level="detailed")
@@ -256,7 +256,7 @@ def handle_sessions_show_command(args):
                 print(f"\n❌ Session not found: {session_id_arg}")
                 print("💡 List sessions with: empirica sessions list")
             db.close()
-            return
+            return 1
 
         if getattr(args, "output", None) == "json":
             print(json.dumps({"ok": True, "session": summary}))

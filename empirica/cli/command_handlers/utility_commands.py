@@ -68,7 +68,7 @@ def handle_qdrant_cleanup_command(args):
                 print(json.dumps({"ok": False, "error": result["error"]}))
             else:
                 print(f"Error: {result['error']}")
-            return
+            return 1
 
         if getattr(args, "output", "human") == "json":
             print(json.dumps({"ok": True, **result}, indent=2))
@@ -167,7 +167,7 @@ def handle_qdrant_status_command(args):
                     print(json.dumps({"ok": False, "error": "Qdrant not available"}))
                 else:
                     print("Qdrant is not available. Set EMPIRICA_QDRANT_URL or start Qdrant.")
-                return
+                return 1
 
         projects, globals_list = _group_collections_by_project(info)
         total_points = sum(c["points"] or 0 for c in info)
