@@ -253,6 +253,42 @@ def _local_server_step(args, proj_dir: Path, dry_run: bool) -> dict:
     }
 
 
+def _already_registered(proj_dir: Path) -> bool:
+    """Whether the workspace registry already holds this practice (by its .empirica path). False when it cannot be asked."""
+    import sqlite3
+
+    from empirica.data.global_sessions import workspace_db_path
+
+    db = workspace_db_path()
+    if not db.exists():
+        return False
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
+        try:
+            traj = str((proj_dir / ".empirica").resolve())
+            return (
+                conn.execute("SELECT 1 FROM global_projects WHERE trajectory_path = ?", (traj,)).fetchone() is not None
+            )
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+
+
+def _register_step(args, proj_dir: Path, dry_run: bool, run=None) -> dict:
+    """Register the practice. ``changed`` is true only when it was not registered before: it used to be the command's
+    success, so every idempotent re-run read as a change (gardening, unknown 599327d0)."""
+    register_cmd = ["empirica", "project-register", ".", "--output", "json"]
+    if getattr(args, "no_cortex", False):
+        register_cmd.append("--no-cortex")
+    before = _already_registered(proj_dir)
+    ok, err = (run or _run)(register_cmd, proj_dir, dry_run)
+    step = {"step": "project-register", "changed": ok and not before, "error": None if ok else err}
+    if before:
+        step["already_registered"] = True
+    return step
+
+
 def _run(cmd: list[str], cwd: Path, dry_run: bool) -> tuple[bool, str]:
     """Run a subprocess in ``cwd``. Returns (ok, stdout_or_error)."""
     display = " ".join(shlex.quote(c) for c in cmd)
@@ -721,11 +757,7 @@ def handle_provision_practice_command(args) -> int:
     steps.append(_local_server_step(args, proj_dir, dry_run))  # before registering, so registration reaches it
     steps.append(_embedding_model_step(args, dry_run))
 
-    register_cmd = ["empirica", "project-register", ".", "--output", "json"]
-    if getattr(args, "no_cortex", False):
-        register_cmd.append("--no-cortex")
-    ok, err = _run(register_cmd, proj_dir, dry_run)
-    steps.append({"step": "project-register", "changed": ok, "error": None if ok else err})
+    steps.append(_register_step(args, proj_dir, dry_run))
 
     forgejo_owner = getattr(args, "forgejo_owner", None)
     if forgejo_owner:
