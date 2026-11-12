@@ -110,3 +110,51 @@ def test_the_local_server_answer_expires(monkeypatch):
     assert qc.local_server_service("vectors") is None  # cached: not asked again within the window
     clock[0] += 21
     assert qc.local_server_service("vectors") == "http://127.0.0.1:8000/qdrant"  # asked again, serve is up
+
+
+def test_the_embedder_reports_its_state():
+    import threading
+
+    from empirica.local_server import embedder
+
+    gate = threading.Event()
+    model = embedder.Embedder(load=lambda: (gate.wait(5), lambda texts: [[0.0] for _ in texts])[1])
+    assert model.state == "idle"
+    worker = threading.Thread(target=lambda: model(["x"]))
+    worker.start()
+    for _ in range(100):
+        if model.state == "loading":
+            break
+        threading.Event().wait(0.01)
+    assert model.state == "loading"
+    gate.set()
+    worker.join(5)
+    assert model.state == "ready"
+
+
+def test_semantic_status_says_the_local_model_is_still_loading(monkeypatch):
+    # It said semantic search was on while every embed was failing on a model still downloading (1.16.0 sweep, a34eef6d).
+    import io
+    import urllib.request
+
+    import empirica.core.mesh_endpoint as me
+    import empirica.core.qdrant.connection as qc
+    import empirica.core.qdrant.embeddings as emb
+
+    local = "http://127.0.0.1:8000/ollama"
+    monkeypatch.setattr(qc, "_check_qdrant_available", lambda *a, **k: True)
+    monkeypatch.setattr(qc, "store_url", lambda project_id=None: "http://127.0.0.1:8000/qdrant")
+
+    class _Reply(io.BytesIO):
+        status = 200
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _Reply(b"{}"))
+    monkeypatch.setattr(emb, "get_provider_info", lambda: {"provider": "ollama", "model": "multilingual-e5-small"})
+    monkeypatch.setattr(emb, "get_embedding_provider", lambda: type("P", (), {"ollama_url": local})())
+    monkeypatch.setattr(qc, "local_server_service", lambda s: local if s == "embeddings" else None)
+    monkeypatch.setattr(me, "local_server_url", lambda: "http://127.0.0.1:8000")
+    monkeypatch.setattr(
+        me, "_probe_health", lambda url: {"edition": "local", "services": {"embeddings_state": "loading"}}
+    )
+    out = qc.semantic_layer_status()
+    assert out["semantic"] is False and "loading" in out["reason"]

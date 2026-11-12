@@ -77,6 +77,13 @@ class Embedder:
         self._lock = threading.Lock()
         self._loading = threading.Lock()
 
+    @property
+    def state(self) -> str:
+        """``ready`` (loaded), ``loading`` (a load, on a fresh machine a download, is under way) or ``idle`` (not asked yet)."""
+        if self._embed is not None:
+            return "ready"
+        return "loading" if self._loading.locked() else "idle"
+
     def __call__(self, texts: list[str]) -> list[list[float]]:
         if self._embed is None:
             if not self._loading.acquire(blocking=False):
@@ -98,6 +105,11 @@ def default_embedder() -> Embedder:
     if _default is None:
         _default = Embedder()
     return _default
+
+
+def default_state() -> str:
+    """The state of serve's model (see :attr:`Embedder.state`), for the health document."""
+    return default_embedder().state
 
 
 def warm_in_background(embedder: Embedder | None = None) -> threading.Thread:

@@ -470,8 +470,11 @@ def semantic_layer_status(project_id: str | None = None) -> dict:
     except Exception as e:
         out["embeddings"] = f"unavailable ({type(e).__name__})"
         hashed = True
+    loading = _local_model_not_ready()
     if out["qdrant"] != "reachable":
         out["reason"] = f"semantic search is off: no Qdrant answers at {url}"
+    elif loading:
+        out["reason"] = loading
     elif hashed:
         out["reason"] = (
             "semantic search is degraded: embeddings are hashed vectors (provider 'local'), not a semantic model; "
@@ -480,6 +483,28 @@ def semantic_layer_status(project_id: str | None = None) -> dict:
     else:
         out["semantic"] = True
     return out
+
+
+def _local_model_not_ready() -> str | None:
+    """Why the local server's model cannot embed yet, when it is the provider in use; None when it can or is not in use."""
+    try:
+        from .embeddings import get_embedding_provider
+
+        local = local_server_service("embeddings")
+        if not local or getattr(get_embedding_provider(), "ollama_url", None) != local:
+            return None
+        from empirica.core.mesh_endpoint import _probe_health, local_server_url
+
+        state = ((_probe_health(f"{local_server_url()}/v1/health") or {}).get("services") or {}).get("embeddings_state")
+    except Exception:
+        return None
+    if state in (None, "ready"):
+        return None
+    return (
+        "semantic search is not ready: the local embedding model is still loading (the first download is about 135 MB)"
+        if state == "loading"
+        else "semantic search is not ready: the local embedding model has not loaded yet; it loads on first use"
+    )
 
 
 def qdrant_search_client(project_id: str | None = None):
