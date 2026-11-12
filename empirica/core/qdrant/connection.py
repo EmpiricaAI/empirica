@@ -215,14 +215,15 @@ def _get_embeddings_batch(texts: list[str]) -> list[list[float] | None]:
 
 
 def _get_vector_size() -> int:
-    """Get vector size from embeddings provider. Defaults to 1024 on error (matches qwen3-embedding)."""
-    try:
-        from .embeddings import get_vector_size
+    """Vector size of the embeddings provider in use. Raises when it cannot be known (a model not in MODEL_DIMENSIONS whose
+    test embed fails): a 1024 guess made create-first writers build collections at the wrong size (1.16.0 sweep). Every
+    caller runs inside a try that treats this as "skip"; the collection is created at the right size once the model answers."""
+    from .embeddings import get_vector_size
 
+    try:
         return get_vector_size()
     except Exception as e:
-        logger.debug(f"Could not get vector size: {e}, defaulting to 1024")
-        return 1024
+        raise RuntimeError(f"vector size unknown: the embedding model did not answer ({type(e).__name__}: {e})") from e
 
 
 def _get_provider_context() -> str:

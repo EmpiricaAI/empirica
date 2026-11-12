@@ -114,3 +114,17 @@ def test_batch_inside_the_backoff_does_not_ask_the_model(provider, monkeypatch):
         provider.embed("first")
     assert provider.batch_embed(["a", "b"]) == [None, None]
     assert len(calls) == 1
+
+
+def test_an_unknown_model_whose_embed_fails_has_no_guessed_size(monkeypatch):
+    # The size fell back to a 1024 guess, and create-first writers made collections at it (1.16.0 sweep, a34eef6d).
+    from empirica.core.qdrant import connection as conn
+
+    monkeypatch.setenv("EMPIRICA_EMBEDDINGS_PROVIDER", "ollama")
+    monkeypatch.setenv("EMPIRICA_EMBEDDINGS_MODEL", "some-unlisted-model")
+    monkeypatch.setenv("EMPIRICA_OLLAMA_URL", "http://127.0.0.1:9")
+    mod = importlib.import_module("empirica.core.qdrant.embeddings")
+    monkeypatch.setattr(mod, "_provider_singleton", None)
+    monkeypatch.setattr(requests, "post", _post_raising(requests.exceptions.ConnectionError("refused"), []))
+    with pytest.raises(RuntimeError):
+        conn._get_vector_size()
