@@ -440,3 +440,16 @@ def test_a_minted_flag_never_overrides_a_workspace_practices_own_id(client, monk
         api.ProjectRegistry, "_workspace", staticmethod(lambda: [{"id": "eta-two", "slug": "eta", "display_name": "e"}])
     )
     assert client.post("/v1/projects/register", json={"name": "eta", "project_id": "eta-two"}).status_code == 409
+
+
+def test_a_project_id_that_is_not_a_string_is_a_400_not_a_500(client):
+    resp = client.post("/v1/projects/register", json={"name": "theta", "project_id": {"x": 1}})
+    assert resp.status_code == 400, resp.text
+
+
+def test_an_id_already_registered_under_another_name_is_a_409_not_a_500(client):
+    # A renamed practice re-registering under its own id: the insert hit the id's primary key and answered 500.
+    client.post("/v1/projects/register", json={"name": "iota", "project_id": "iota-id"})
+    resp = client.post("/v1/projects/register", json={"name": "iota-renamed", "project_id": "iota-id"})
+    assert resp.status_code == 409, resp.text
+    assert resp.json().get("code") == "id_in_use" and resp.json().get("existing_slug") == "iota"

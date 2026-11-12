@@ -68,7 +68,9 @@ class ProjectRegistry:
                     if "duplicate column" not in str(e):
                         raise
 
-    def register(self, name: str, project_id: str | None, display_name: str | None, repo_url: str | None) -> dict:
+    def register(
+        self, name: str, project_id: str | None, display_name: str | None, repo_url: str | None, *, _retry: bool = False
+    ) -> dict:
         slug = _slug(name)
         with connect(self.path) as db:
             row = db.execute("SELECT id, minted FROM local_projects WHERE slug = ?", (slug,)).fetchone()
@@ -88,11 +90,24 @@ class ProjectRegistry:
                 raise SlugTaken(existing_id=row[0], suggested=f"{slug}-{n}")
             if row:
                 return {"project_id": row[0], "id": row[0], "slug": slug, "already_registered": True}
+            if project_id:
+                held = db.execute("SELECT slug FROM local_projects WHERE id = ?", (project_id,)).fetchone()
+                if (
+                    held
+                ):  # the id already holds another name (a renamed practice): the insert hit its primary key, a 500
+                    raise IdInUse(existing_slug=held[0])
             pid = project_id or str(uuid.uuid4())
-            db.execute(
-                "INSERT INTO local_projects (id, slug, display_name, repo_url, created_at, minted) VALUES (?,?,?,?,?,?)",
-                (pid, slug, display_name or name, repo_url, _now(), 0 if project_id else 1),
-            )
+            try:
+                db.execute(
+                    "INSERT INTO local_projects (id, slug, display_name, repo_url, created_at, minted) VALUES (?,?,?,?,?,?)",
+                    (pid, slug, display_name or name, repo_url, _now(), 0 if project_id else 1),
+                )
+            except sqlite3.IntegrityError:
+                if _retry:
+                    raise
+                # Another serve registered the same new name between the read above and this insert: answer as a register
+                # that came second would (1.16.0 sweep, pass 6).
+                return self.register(name, project_id, display_name, repo_url, _retry=True)
         return {"project_id": pid, "id": pid, "slug": slug}
 
     def _minted_placeholder(self, db, slug: str, held: tuple, caller_id: str) -> bool:
@@ -216,6 +231,14 @@ class _Ctx:
 
     def registry(self) -> ProjectRegistry:
         return self._open()[1]
+
+
+class IdInUse(Exception):
+    """A register under an id that already holds another name here (answered 409 id_in_use)."""
+
+    def __init__(self, existing_slug: str):
+        super().__init__(f"id holds {existing_slug}")
+        self.existing_slug = existing_slug
 
 
 class SlugTaken(Exception):
@@ -358,8 +381,18 @@ def _project_routes(r, ctx: _Ctx, auth) -> None:
         if not name:
             return refuse("name is required", 400)
         own_id = body.get("project_id") or body.get("id")  # Cortex accepts either key for the caller's id
+        if own_id is not None and not (isinstance(own_id, str) and own_id.strip()):
+            return refuse("project_id must be a non-empty string", 400)
+        display, repo = (v if isinstance(v, str) else None for v in (body.get("display_name"), body.get("repo_url")))
         try:
-            return ctx.registry().register(name, own_id, body.get("display_name"), body.get("repo_url"))
+            return ctx.registry().register(name, own_id, display, repo)
+        except IdInUse as e:
+            return refuse(
+                "this project id is already registered under another name",
+                409,
+                code="id_in_use",
+                existing_slug=e.existing_slug,
+            )
         except SlugTaken as e:
             return refuse(
                 "another project already holds this name",
