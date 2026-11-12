@@ -1130,7 +1130,7 @@ def add_checkpoint_parsers(subparsers):
     unknown_log_parser.add_argument("--goal-id", help="Optional goal UUID")
     unknown_log_parser.add_argument(
         "--due",
-        help="When this should come back up: a date YYYY-MM-DD or an offset +7d / +2w. Listed under Due at bootstrap and session start once the date has come, until it is done, snoozed (update-artifacts due_at) or dropped",
+        help="When this should come back up: a date YYYY-MM-DD, an offset +7d / +2w, or after:<release tag>. Listed under Due at bootstrap and session start once the date has come or the tag exists, until it is done, snoozed (update-artifacts due_at) or dropped",
     )
     unknown_log_parser.add_argument("--task-id", help="Optional task UUID")
     unknown_log_parser.add_argument(
@@ -1378,7 +1378,7 @@ def add_checkpoint_parsers(subparsers):
     assumption_log_parser.add_argument("--domain", help="Domain scope (e.g., security, architecture)")
     assumption_log_parser.add_argument(
         "--due",
-        help="When this should come back up: a date YYYY-MM-DD or an offset +7d / +2w. Listed under Due at bootstrap and session start once the date has come, until it is done, snoozed (update-artifacts due_at) or dropped",
+        help="When this should come back up: a date YYYY-MM-DD, an offset +7d / +2w, or after:<release tag>. Listed under Due at bootstrap and session start once the date has come or the tag exists, until it is done, snoozed (update-artifacts due_at) or dropped",
     )
     assumption_log_parser.add_argument("--goal-id", help="Optional goal UUID")
     _add_entity_flags(assumption_log_parser)
@@ -2030,7 +2030,7 @@ Example:
     goals_create_parser.add_argument("--use-beads", action="store_true", help="Create BEADS issue and link to goal")
     goals_create_parser.add_argument(
         "--due",
-        help="When this should come back up: a date YYYY-MM-DD or an offset +7d / +2w. Listed under Due at bootstrap and session start once the date has come, until it is done, snoozed (update-artifacts due_at) or dropped",
+        help="When this should come back up: a date YYYY-MM-DD, an offset +7d / +2w, or after:<release tag>. Listed under Due at bootstrap and session start once the date has come or the tag exists, until it is done, snoozed (update-artifacts due_at) or dropped",
     )
     goals_create_parser.add_argument(
         "--status",

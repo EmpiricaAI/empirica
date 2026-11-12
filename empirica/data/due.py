@@ -4,7 +4,9 @@
 SessionStart context list it under Due until the practitioner answers it one of three ways: do it, snooze it (a new
 date, through ``update-artifacts``), or drop it (complete, resolve or falsify it with the existing verbs).
 
-A condition trigger ("after release X") is not here yet: a date is the part that can fire on its own.
+A release can be the trigger instead of a date (goal 1d9040d6): ``after:<tag>`` is stored in ``due_at`` as written. It sorts
+above every ISO date, so the date query never fires it; :func:`due_items` lists the item once that tag exists in the
+project's repository. Everything that carries ``due_at`` (update-artifacts, notes, a rebuild) carries the condition too.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
+import subprocess
 from datetime import date, timedelta
 
 #: artifact type -> (table, the predicate that makes a row still open)
@@ -25,7 +28,10 @@ DUE_TABLES: dict[str, tuple[str, str]] = {
 }
 _TEXT_COLUMN = {"goal": "objective", "unknown": "unknown", "assumption": "assumption"}
 _OFFSET = re.compile(r"^\+(\d{1,4})([dw])$")
-FORMAT_HELP = "a date YYYY-MM-DD, or an offset from today: +7d, +2w"
+#: A release tag a git ref can carry: no leading dash (it would read as a flag), no "..", no spaces.
+_AFTER = re.compile(r"^after:([A-Za-z0-9][A-Za-z0-9._/-]*)$")
+AFTER_PREFIX = "after:"
+FORMAT_HELP = "a date YYYY-MM-DD, an offset from today (+7d, +2w), or after:<release tag>"
 logger = logging.getLogger(__name__)
 
 
@@ -34,8 +40,14 @@ class DueDateError(ValueError):
 
 
 def parse_due(text: str, *, today: date | None = None) -> str:
-    """The ISO date ``text`` names: ``YYYY-MM-DD`` as given, or ``+Nd``/``+Nw`` counted from ``today``."""
+    """The ISO date ``text`` names: ``YYYY-MM-DD`` as given, or ``+Nd``/``+Nw`` counted from ``today``; or a release
+    condition ``after:<tag>``, kept as written."""
     value = (text or "").strip()
+    if value.startswith(AFTER_PREFIX):
+        tag = _AFTER.match(value)
+        if not tag or ".." in value or value.endswith((".", "/")):
+            raise DueDateError(f"due condition {value!r} does not name a release tag (after:v1.17.0)")
+        return value
     offset = _OFFSET.match(value)
     if offset:
         n, unit = int(offset.group(1)), offset.group(2)
@@ -58,24 +70,60 @@ def set_due(conn: sqlite3.Connection, artifact_type: str, artifact_id: str, due_
     return cur.rowcount > 0
 
 
-def due_items(conn: sqlite3.Connection, project_id: str, *, today: date | None = None, limit: int = 5) -> list[dict]:
-    """Open items of ``project_id`` whose date has come, oldest date first. The last one carries ``more`` when the cap
-    left items out, so a short list never reads as the whole list."""
+def _release_tags(root: str) -> dict[str, str]:
+    """Tag name -> the date it was made, in the repository at ``root``. Empty when git cannot answer."""
+    try:
+        done = subprocess.run(
+            ["git", "-C", root, "for-each-ref", "refs/tags", "--format=%(refname:short)%09%(creatordate:short)"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        logger.warning("release tags not read for due conditions: %s", e)  # not "no tag yet": say so
+        return {}
+    if done.returncode != 0:
+        logger.warning("release tags not read for due conditions: %s", done.stderr.strip())
+        return {}
+    return dict(line.split("\t", 1) for line in done.stdout.splitlines() if "\t" in line)
+
+
+def due_items(
+    conn: sqlite3.Connection,
+    project_id: str,
+    *,
+    today: date | None = None,
+    limit: int = 5,
+    root: str | None = None,
+) -> list[dict]:
+    """Open items of ``project_id`` whose date has come, oldest date first, and those waiting on a release that is now
+    tagged in the repository at ``root`` (sorted by the tag's date and marked ``fired``; without ``root`` a condition is
+    not evaluated). The last item carries ``more`` when the cap left items out, so a short list never reads as the whole
+    list."""
     cutoff = (today or date.today()).isoformat()
     rows: list[dict] = []
+    waiting: list[dict] = []
     for kind, (table, still_open) in DUE_TABLES.items():
         try:
             found = conn.execute(
                 f"SELECT id, {_TEXT_COLUMN[kind]}, due_at FROM {table} "
-                f"WHERE project_id = ? AND due_at IS NOT NULL AND due_at <= ? AND {still_open}",
+                f"WHERE project_id = ? AND due_at IS NOT NULL AND (due_at <= ? OR due_at LIKE 'after:%') AND {still_open}",
                 (project_id, cutoff),
             ).fetchall()
         except sqlite3.OperationalError as e:
             if "no such column" not in str(e) and "no such table" not in str(e):
                 logger.warning("due items not read from %s: %s", table, e)  # locked or damaged: not "nothing due"
             continue  # a database older than the column: nothing can be due there yet
-        rows += [{"type": kind, "id": r[0], "text": r[1], "due_at": r[2]} for r in found]
-    rows.sort(key=lambda r: (r["due_at"], r["type"], r["id"]))
+        for r in found:
+            item = {"type": kind, "id": r[0], "text": r[1], "due_at": r[2]}
+            (waiting if str(r[2]).startswith(AFTER_PREFIX) else rows).append(item)
+    if waiting and root:  # git is asked only when something waits on a release
+        tags = _release_tags(root)
+        for item in waiting:
+            made = tags.get(item["due_at"][len(AFTER_PREFIX) :])
+            if made:
+                rows.append({**item, "fired": made})
+    rows.sort(key=lambda r: (r.get("fired") or r["due_at"], r["type"], r["id"]))
     shown = rows[: max(limit, 0)]
     if shown and len(rows) > len(shown):
         shown[-1]["more"] = len(rows) - len(shown)

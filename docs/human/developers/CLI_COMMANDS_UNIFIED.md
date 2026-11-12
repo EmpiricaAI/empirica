@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.16.0
-**Generated:** 2026-11-11 23:03:41 UTC
+**Generated:** 2026-11-12 15:25:25 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -353,7 +353,7 @@ Create a new goal — the unit of tracked work. One per coherent deliverable: a 
 - `--use-beads` — optional · flag
   Create BEADS issue and link to goal
 - `--due` — optional
-  When this should come back up: a date YYYY-MM-DD or an offset +7d / +2w. Listed under Due at bootstrap and session start once the date has come, until it is done, snoozed (update-artifacts due_at) or dropped
+  When this should come back up: a date YYYY-MM-DD, an offset +7d / +2w, or after:<release tag>. Listed under Due at bootstrap and session start once the date has come or the tag exists, until it is done, snoozed (update-artifacts due_at) or dropped
 - `--status` — optional · type=`choice` · choices={planned, in_progress, blocked} · default=`in_progress`
   Initial status: 'planned' (logged, not started), 'in_progress' (active, default), or 'blocked' (waiting on external dependency)
 - `--engagement-id` — optional
@@ -723,7 +723,7 @@ Log an open question — something you'd need to know before acting confidently,
 - `--goal-id` — optional
   Optional goal UUID
 - `--due` — optional
-  When this should come back up: a date YYYY-MM-DD or an offset +7d / +2w. Listed under Due at bootstrap and session start once the date has come, until it is done, snoozed (update-artifacts due_at) or dropped
+  When this should come back up: a date YYYY-MM-DD, an offset +7d / +2w, or after:<release tag>. Listed under Due at bootstrap and session start once the date has come or the tag exists, until it is done, snoozed (update-artifacts due_at) or dropped
 - `--task-id` — optional
   Optional task UUID
 - `--subject` — optional
@@ -892,7 +892,7 @@ Log a belief you're acting on without verification. Use when proceeding requires
 - `--domain` — optional
   Domain scope (e.g., security, architecture)
 - `--due` — optional
-  When this should come back up: a date YYYY-MM-DD or an offset +7d / +2w. Listed under Due at bootstrap and session start once the date has come, until it is done, snoozed (update-artifacts due_at) or dropped
+  When this should come back up: a date YYYY-MM-DD, an offset +7d / +2w, or after:<release tag>. Listed under Due at bootstrap and session start once the date has come or the tag exists, until it is done, snoozed (update-artifacts due_at) or dropped
 - `--goal-id` — optional
   Optional goal UUID
 - `--entity-type` — optional · type=`choice` · choices={project, organization, contact, engagement}

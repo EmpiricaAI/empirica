@@ -55,9 +55,11 @@ run its command says so instead of estimating.
    | low | low | park as an `unknown`; do not forecast it |
 
 6. **Emit, after the human confirms the ranked list.** `goals-create --status planned` with a real description and tasks per direction,
-   a falsifier registered for each (`falsifiers` at PREFLIGHT or CHECK, with a `query`), and, where the project has a
+   a `--due` that brings it back (the prediction's `horizon` as `after:<release tag>`, or a date when the horizon is a time), a
+   falsifier registered for each (`falsifiers` at PREFLIGHT or CHECK, with a `query`), and, where the project has a
    `docs/ROADMAP.yaml`, the public subset added to it. A roadmap is public text: a human reads every line before it ships, and it carries
-   no ids.
+   no ids. Open planned goals, unknowns and assumptions the pass touched that carry no due date get one proposed in the same
+   confirmation; a planned item nothing brings back is a stub that falls through.
 
 **Steered.** A goal that exists, or that you create in this pass because of the prediction, makes the item `steered: true`. Only an item
 predicted *before* any goal and shipped anyway is unplanned foresight. Do not create the goal first and mark the item unsteered.

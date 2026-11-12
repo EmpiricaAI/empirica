@@ -2310,7 +2310,7 @@ class SessionDatabase:
         try:
             from empirica.data.due import due_items
 
-            breadcrumbs["due"] = due_items(self.conn, resolved_id)
+            breadcrumbs["due"] = due_items(self.conn, resolved_id, root=str(project_root) if project_root else None)
         except Exception as e:  # a bootstrap must not fail on its newest section; the warning says it was skipped
             logger.warning(f"due items not read: {e}")
             breadcrumbs["due"] = []
