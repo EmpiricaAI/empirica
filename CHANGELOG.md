@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Deleting a project, or scrubbing its secrets, no longer reads a missing Qdrant as an empty one.** When the Qdrant that holds a project's vectors is briefly down and only the local server's store answers, an empty answer there now counts as unknown: `entity-delete` refuses instead of orphaning the collections, and `doctor --scrub-secrets` reports itself incomplete instead of clean.
 - **Registering a practice no longer answers 500 on two inputs.** The local server refuses a project id that is not a string (400), and answers a practice re-registering its id under a new name with 409 `id_in_use` and the name that id already holds. Two servers registering the same new name at once no longer fail the second request.
 
 ## [1.16.0] - 2026-11-12

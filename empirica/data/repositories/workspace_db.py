@@ -598,7 +598,17 @@ class WorkspaceDBRepository(BaseRepository):
             base = _qc.store_url(project_id)  # the store this project's vectors are written to (goal 6f1e9bb6)
             with _url.urlopen(f"{base}/collections", timeout=5) as resp:
                 names = [c["name"] for c in _json.loads(resp.read())["result"]["collections"]]
-            refs["qdrant_collections"] = [n for n in names if n.startswith(f"project_{project_id}_")]
+            held = [n for n in names if n.startswith(f"project_{project_id}_")]
+            if not held and _qc.is_local_fallback(base, project_id):
+                # The local server's store answered because nothing else did. Its "none" may mean a Qdrant at 6333 that holds
+                # this project's collections is down, so it is unknown, not zero (1.16.0 sweep, a34eef6d).
+                refs["qdrant_collections"] = None
+                refs["qdrant_error"] = (
+                    "only the local server's fallback store answered, and it holds none of this project's collections; a "
+                    "Qdrant that holds them may be down"
+                )
+            else:
+                refs["qdrant_collections"] = held
         except Exception as e:
             refs["qdrant_collections"] = None
             refs["qdrant_error"] = f"{type(e).__name__}: {e}"

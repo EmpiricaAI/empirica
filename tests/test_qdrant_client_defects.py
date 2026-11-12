@@ -190,3 +190,67 @@ def test_project_references_asks_the_resolved_store(monkeypatch, tmp_path):
     refs = repo.project_references("p1")
     assert asked == ["http://org-store:7335/collections"]
     assert refs["qdrant_collections"] == ["project_p1_memory"]
+
+
+def test_an_empty_answer_from_the_local_fallback_store_is_unknown_not_zero(monkeypatch):
+    # With 6333 briefly down and nothing configured, store_url falls through to the local server's store, which holds none of
+    # a project whose vectors live on 6333; reading that as "no collections" licensed a delete that orphaned them (1.16.x).
+    import io
+    import json
+    import urllib.request
+
+    from empirica.data.repositories import workspace_db
+
+    fallback = "http://127.0.0.1:8765/qdrant"
+    monkeypatch.setattr(connection, "store_url", lambda project_id=None: fallback)
+    monkeypatch.setattr(connection, "_service_url", lambda qdrant_url=None, project_id=None: None)
+    monkeypatch.setattr(connection, "local_server_service", lambda s: fallback if s == "vectors" else None)
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda url, timeout=None: io.BytesIO(
+            json.dumps({"result": {"collections": [{"name": "project_other_memory"}]}}).encode()
+        ),
+    )
+    repo = workspace_db.WorkspaceDBRepository.__new__(workspace_db.WorkspaceDBRepository)
+    monkeypatch.setattr(repo, "_execute", lambda *a, **k: SimpleNamespace(fetchone=lambda: (0,)), raising=False)
+    refs = repo.project_references("p1")
+    assert refs["qdrant_collections"] is None and "fallback" in refs["qdrant_error"]
+
+
+def test_the_local_fallback_store_is_authoritative_when_it_holds_the_project(monkeypatch):
+    import io
+    import json
+    import urllib.request
+
+    from empirica.data.repositories import workspace_db
+
+    fallback = "http://127.0.0.1:8765/qdrant"
+    monkeypatch.setattr(connection, "store_url", lambda project_id=None: fallback)
+    monkeypatch.setattr(connection, "_service_url", lambda qdrant_url=None, project_id=None: None)
+    monkeypatch.setattr(connection, "local_server_service", lambda s: fallback if s == "vectors" else None)
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda url, timeout=None: io.BytesIO(
+            json.dumps({"result": {"collections": [{"name": "project_p1_memory"}]}}).encode()
+        ),
+    )
+    repo = workspace_db.WorkspaceDBRepository.__new__(workspace_db.WorkspaceDBRepository)
+    monkeypatch.setattr(repo, "_execute", lambda *a, **k: SimpleNamespace(fetchone=lambda: (0,)), raising=False)
+    assert repo.project_references("p1")["qdrant_collections"] == ["project_p1_memory"]
+
+
+def test_a_scrub_of_a_fallback_store_holding_none_of_the_project_is_incomplete():
+    from empirica.core import secret_scrub as ss
+
+    class Store:
+        def list_collections(self):
+            return ["project_other_memory"]
+
+        def scroll(self, collection):
+            return []
+
+    out = ss.scrub_qdrant(Store(), "p1", empty_is_unknown=True)
+    assert "error" in out and "fallback" in out["error"]
+    assert "error" not in ss.scrub_qdrant(Store(), "p1")  # a configured store that holds nothing is a clean answer

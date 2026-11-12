@@ -409,6 +409,13 @@ def store_url(project_id: str | None = None) -> str:
     return _service_url(project_id=project_id) or _default_store_url()
 
 
+def is_local_fallback(url: str, project_id: str | None = None) -> bool:
+    """Whether ``url`` is the local server's store reached as the last resort: nothing configured for ``project_id`` and no
+    server on 6333 answered. A configured or 6333 store that is briefly down also ends here, so an EMPTY answer from this
+    store cannot tell "this project has no vectors" from "they are on a store that did not answer"."""
+    return _service_url(project_id=project_id) is None and url == local_server_service("vectors")
+
+
 def semantic_layer_status(project_id: str | None = None) -> dict:
     """Whether semantic search can work here, and why not: ``{semantic, qdrant, qdrant_url, embeddings, reason}``.
 

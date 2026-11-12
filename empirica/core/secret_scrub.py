@@ -170,13 +170,28 @@ def _project_collections(names: list[str], project_id: str) -> list[str]:
     return [n for n in names if n.startswith(prefix)]
 
 
-def scrub_qdrant(client: QdrantLike, project_id: str, include_global: bool = False, apply: bool = False) -> dict:
+def scrub_qdrant(
+    client: QdrantLike,
+    project_id: str,
+    include_global: bool = False,
+    apply: bool = False,
+    empty_is_unknown: bool = False,
+) -> dict:
     """Scrub the payloads of this project's collections (and the shared ones if asked). Returns
-    ``{"points": {collection: n}, "applied": bool}``, plus ``"error"`` if the store could not be read."""
+    ``{"points": {collection: n}, "applied": bool}``, plus ``"error"`` if the store could not be read.
+
+    ``empty_is_unknown``: the store is the local server's fallback, reached because nothing else answered; if it holds none of
+    this project's collections, a Qdrant that does may be down, so the scrub is incomplete, not clean (1.16.0 sweep)."""
     points: dict[str, int] = {}
     try:
         names = client.list_collections()
         targets = _project_collections(names, project_id)
+        if empty_is_unknown and not targets:
+            return {
+                "points": points,
+                "applied": apply,
+                "error": "only the local server's fallback store answered, and it holds none of this project's collections",
+            }
         if include_global:
             targets += [n for n in GLOBAL_COLLECTIONS if n in names]
         for collection in targets:

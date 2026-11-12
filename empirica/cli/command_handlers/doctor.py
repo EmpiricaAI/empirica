@@ -3100,7 +3100,15 @@ def _handle_scrub_secrets(cwd: Path, apply_it: bool, include_global: bool = Fals
         from empirica.core.qdrant.connection import store_url
 
         base = store_url(project_id)  # the per-org store or the local server's, not only the env (goal 6f1e9bb6)
-        qdrant_report = ss.scrub_qdrant(ss.QdrantHttp(base), project_id, include_global=include_global, apply=apply_it)
+        from empirica.core.qdrant.connection import is_local_fallback
+
+        qdrant_report = ss.scrub_qdrant(
+            ss.QdrantHttp(base),
+            project_id,
+            include_global=include_global,
+            apply=apply_it,
+            empty_is_unknown=is_local_fallback(base, project_id),
+        )
     else:
         qdrant_report = {"points": {}, "applied": apply_it, "error": "no project_id in .empirica/project.yaml"}
     report.update(sqlite=sqlite_report, notes=notes_report, qdrant=qdrant_report)
