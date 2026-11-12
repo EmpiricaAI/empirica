@@ -272,3 +272,26 @@ def test_the_6333_probe_is_asked_once_per_window(monkeypatch):
     assert connection._probe_default_server() is False
     assert connection._probe_default_server() is False
     assert len(calls) == 1
+
+
+def test_epistemics_search_applies_its_filters(monkeypatch):
+    # The filters were accepted and never read, so a --min-learning-delta search returned every trajectory (1.16.x).
+    from empirica.core.qdrant import epistemics_store as es
+
+    client = QdrantClient(":memory:")
+    monkeypatch.setattr(es, "_check_qdrant_available", lambda *a, **k: True)
+    monkeypatch.setattr(es, "_get_qdrant_client", lambda *a, **k: client)
+    monkeypatch.setattr(es, "_get_embedding_safe", lambda text: [0.1, 0.2, 0.3, 0.4])
+    items = [
+        {
+            "id": f"session_{i}",
+            "text": "t",
+            "metadata": {"session_id": str(i), "deltas": {"know": k}, "calibration_accuracy": q},
+        }
+        for i, (k, q) in enumerate([(0.05, "poor"), (0.3, "good"), (0.4, "fair")])
+    ]
+    assert es.upsert_epistemics("p1", items) == 3
+    high = es.search_epistemics("p1", "q", filters={"deltas.know": {"$gte": 0.2}}, limit=5)
+    assert sorted(r["session_id"] for r in high) == ["1", "2"]
+    good = es.search_epistemics("p1", "q", filters={"calibration_accuracy": "good"}, limit=5)
+    assert [r["session_id"] for r in good] == ["1"]

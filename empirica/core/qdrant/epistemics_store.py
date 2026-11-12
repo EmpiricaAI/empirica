@@ -66,7 +66,10 @@ def _point_id(item_id) -> int | str:
 
 def search_epistemics(project_id: str, query_text: str, filters: dict | None = None, limit: int = 5) -> list[dict]:
     """
-    Search epistemic learning trajectories by semantic similarity.
+    Search epistemic learning trajectories by semantic similarity, keeping only results that match ``filters``: each key a
+    payload path ("deltas.know"), each value either the exact value or ``{"$gte": n}`` / ``{"$lte": n}``. The filters were
+    accepted and never applied (1.16.x); they are applied to the results, over-fetching so the limit still fills, which
+    works the same on the client and the REST path.
     Returns empty list if Qdrant not available.
     """
     if not _check_qdrant_available():
@@ -75,22 +78,43 @@ def search_epistemics(project_id: str, query_text: str, filters: dict | None = N
     qvec = _get_embedding_safe(query_text)
     if qvec is None:
         return []
+    fetch = limit if not filters else max(limit * 4, limit + 20)
 
     try:
         client = _get_qdrant_client(project_id=project_id)
         if client is None:
             return []
         coll = _epistemics_collection(project_id)
-        results = client.query_points(collection_name=coll, query=qvec, limit=limit, with_payload=True)
-        return [{"score": getattr(r, "score", 0.0) or 0.0, **(r.payload or {})} for r in results.points]
+        results = client.query_points(collection_name=coll, query=qvec, limit=fetch, with_payload=True)
+        found = [{"score": getattr(r, "score", 0.0) or 0.0, **(r.payload or {})} for r in results.points]
+        return [r for r in found if _matches(r, filters)][:limit]
     except Exception as e:
         logger.debug(f"search_epistemics failed: {e}")
 
     # REST fallback
     try:
         coll = _epistemics_collection(project_id)
-        rd = _rest_search(coll, qvec, limit)
-        return [{"score": d.get("score", 0.0), **(d.get("payload") or {})} for d in rd]
+        rd = _rest_search(coll, qvec, fetch)
+        found = [{"score": d.get("score", 0.0), **(d.get("payload") or {})} for d in rd]
+        return [r for r in found if _matches(r, filters)][:limit]
     except Exception as e:
         logger.debug(f"search_epistemics REST fallback failed: {e}")
         return []
+
+
+def _matches(payload: dict, filters: dict | None) -> bool:
+    """Whether a result's payload satisfies every filter (see search_epistemics). A missing value does not match."""
+    for path, want in (filters or {}).items():
+        value: object = payload
+        for part in path.split("."):
+            value = value.get(part) if isinstance(value, dict) else None
+        if isinstance(want, dict):
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                return False
+            if "$gte" in want and value < want["$gte"]:
+                return False
+            if "$lte" in want and value > want["$lte"]:
+                return False
+        elif value != want:
+            return False
+    return True
