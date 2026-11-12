@@ -61,18 +61,32 @@ def _load_fastembed():
     return embed
 
 
+class ModelLoading(RuntimeError):
+    """The model is still loading (on a fresh machine, downloading); the route answers 503 at once instead of waiting."""
+
+
 class Embedder:
-    """The model, loaded on first use (the first call downloads it), under a lock. ``load`` is replaceable for tests."""
+    """The model, loaded on first use (the first call downloads it). ``load`` is replaceable for tests.
+
+    The load holds its own lock: a second caller during a slow first download is told :class:`ModelLoading` at once rather
+    than holding a worker thread until the download ends (1.16.0 sweep). Embeds run under a separate lock."""
 
     def __init__(self, load=None):
         self._load = load or _load_fastembed
         self._embed: Any = None
         self._lock = threading.Lock()
+        self._loading = threading.Lock()
 
     def __call__(self, texts: list[str]) -> list[list[float]]:
+        if self._embed is None:
+            if not self._loading.acquire(blocking=False):
+                raise ModelLoading("the embedding model is still loading")
+            try:
+                if self._embed is None:
+                    self._embed = self._load()
+            finally:
+                self._loading.release()
         with self._lock:
-            if self._embed is None:
-                self._embed = self._load()
             return self._embed(texts)
 
 

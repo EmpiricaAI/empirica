@@ -350,7 +350,15 @@ def _get_embeddings_batch_for_collection(
     return vectors
 
 
-_local_service_cache: dict[str, str | None] = {}
+_local_service_cache: dict[str, tuple[float, str | None]] = {}
+#: How long an answer stands: a process that asked before serve started sees it within this window (1.16.0 sweep).
+_LOCAL_SERVICE_TTL = 30.0
+
+
+def _service_clock() -> float:
+    import time
+
+    return time.monotonic()
 
 
 def local_server_service(service: str) -> str | None:
@@ -359,10 +367,12 @@ def local_server_service(service: str) -> str | None:
     On a machine with no Cortex, ``empirica serve`` holds the vector store and the embedding model (goal db2cf3fa,
     docs/architecture/LOCAL_SEMANTIC_LAYER.md). Every resolver asks this LAST, after anything configured (an explicit URL,
     the per-org resolver a Cortex seat installs, ``EMPIRICA_QDRANT_URL``, a server on 6333, Ollama), so moving to Cortex
-    needs no change here. One health probe per process: a refused loopback connection costs about a millisecond.
+    needs no change here. One health probe per ``_LOCAL_SERVICE_TTL`` seconds: a refused loopback connection costs about a
+    millisecond, and the answer expires so a long-lived process sees serve start or stop.
     """
-    if service in _local_service_cache:
-        return _local_service_cache[service]
+    hit = _local_service_cache.get(service)
+    if hit and _service_clock() - hit[0] < _LOCAL_SERVICE_TTL:
+        return hit[1]
     value = None
     try:
         from empirica.core.mesh_endpoint import _probe_health, local_server_url
@@ -373,7 +383,7 @@ def local_server_service(service: str) -> str | None:
         value = f"{base}{path}" if path else None
     except Exception:
         value = None
-    _local_service_cache[service] = value
+    _local_service_cache[service] = (_service_clock(), value)
     return value
 
 

@@ -66,3 +66,47 @@ def test_a_model_that_will_not_load_is_503_not_a_fake_vector(tmp_path, monkeypat
 
 def test_health_advertises_the_embedding_service(client):
     assert client.get("/v1/health").json()["services"]["embeddings"] == "/ollama"
+
+
+def test_an_embed_while_the_model_loads_is_answered_at_once(monkeypatch):
+    # The model loaded under the lock every embed waits on, so during a slow first download each request held a worker thread
+    # until it finished (1.16.0 sweep, a34eef6d). A second caller is told "loading" at once.
+    import threading
+
+    from empirica.local_server import embedder
+
+    started, release = threading.Event(), threading.Event()
+
+    def slow_load():
+        started.set()
+        release.wait(5)
+        return lambda texts: [[0.0] * 384 for _ in texts]
+
+    model = embedder.Embedder(load=slow_load)
+    first = threading.Thread(target=lambda: model(["warm"]))
+    first.start()
+    assert started.wait(5)
+    with pytest.raises(embedder.ModelLoading):
+        model(["second"])
+    release.set()
+    first.join(5)
+    assert model(["after"]) == [[0.0] * 384]
+
+
+def test_the_local_server_answer_expires(monkeypatch):
+    # Cached for the life of the process, a "no local server" answer kept serve out of reach of a long-lived process
+    # that asked before it started (1.16.0 sweep, a34eef6d).
+    import empirica.core.mesh_endpoint as me
+    import empirica.core.qdrant.connection as qc
+
+    answers = iter([None, {"edition": "local", "services": {"vectors": "/qdrant"}}])
+    monkeypatch.setattr(me, "_probe_health", lambda url: next(answers))
+    monkeypatch.setattr(me, "local_server_url", lambda: "http://127.0.0.1:8000")
+    clock = [1000.0]
+    monkeypatch.setattr(qc, "_service_clock", lambda: clock[0], raising=False)
+    qc._local_service_cache.clear()
+    assert qc.local_server_service("vectors") is None  # serve not up yet
+    clock[0] += 10
+    assert qc.local_server_service("vectors") is None  # cached: not asked again within the window
+    clock[0] += 21
+    assert qc.local_server_service("vectors") == "http://127.0.0.1:8000/qdrant"  # asked again, serve is up
