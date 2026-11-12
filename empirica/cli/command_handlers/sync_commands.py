@@ -1742,6 +1742,31 @@ def _rebuild_sources(db, rebuilt) -> None:
             logger.debug(f"rebuild source skip ({str(note.get('source_id'))[:8]}): {e}")
 
 
+def _rebuild_edges(db, rebuilt, root: str | None = None) -> None:
+    """Links between artifacts from their notes (goal 966808c0): one note per source artifact, written by the POSTFLIGHT
+    exporter (graph_note_export). Best-effort per edge; an existing link is kept."""
+    import os
+
+    from empirica.core.canonical.empirica_git.graph_note_export import discover_edge_notes
+
+    rebuilt.setdefault("edges", 0)
+    for note in discover_edge_notes(root or os.getcwd()):
+        from_id = note.get("from_id")
+        for edge in note.get("edges") or []:
+            if not from_id or not isinstance(edge, dict) or not edge.get("to_id") or not edge.get("relation"):
+                continue
+            try:
+                cur = db.adapter.conn.execute(
+                    "INSERT OR IGNORE INTO artifact_edges (from_id, to_id, relation, created_at, metadata) "
+                    "VALUES (?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?)",
+                    (from_id, edge["to_id"], edge["relation"], edge.get("created_at"), edge.get("metadata")),
+                )
+                rebuilt["edges"] += cur.rowcount
+            except Exception as e:
+                logger.debug(f"rebuild edge skip ({str(from_id)[:8]}): {e}")
+    db.adapter.conn.commit()
+
+
 def _rebuild_from_notes() -> dict[str, Any]:
     """
     Rebuild database from git notes.
@@ -1796,6 +1821,7 @@ def _rebuild_from_notes() -> dict[str, Any]:
         _rebuild_assumptions(db, rebuilt)
         _rebuild_decisions(db, rebuilt)
         _rebuild_sources(db, rebuilt)
+        _rebuild_edges(db, rebuilt)
 
         db.close()
 
