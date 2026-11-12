@@ -1945,12 +1945,13 @@ def _log_deletion_decision(cursor, project_id: str, session_id: str, choice: str
     Returns ``recorded`` or ``error: ...``; never raises.
     """
     try:
+        decision_id = str(uuid.uuid4())
         cursor.execute(
             "INSERT INTO decisions "
             "(id, project_id, session_id, choice, rationale, reversibility, created_timestamp, visibility) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                str(uuid.uuid4()),
+                decision_id,
                 project_id,
                 session_id,
                 choice,
@@ -1960,6 +1961,25 @@ def _log_deletion_decision(cursor, project_id: str, session_id: str, choice: str
                 "local",
             ),
         )
+        # Its note too, or a rebuild drops the receipt of the very deletion it audits (1.16.x, goal a34eef6d).
+        try:
+            from empirica.core.canonical.empirica_git.decision_store import GitDecisionStore
+            from empirica.core.canonical.empirica_git.goal_note_state import _project_root
+
+            root = _project_root(cursor.connection)
+            if not root:  # a database outside any project: never fall back to the cwd's repo
+                return "recorded"
+            GitDecisionStore(workspace_root=root).store_decision(
+                decision_id=decision_id,
+                project_id=project_id or "",
+                session_id=session_id or "",
+                ai_id="delete-artifacts",
+                choice=choice,
+                rationale=rationale,
+                reversibility="committal",
+            )
+        except Exception as e:
+            logger.warning(f"_log_deletion_decision: audit note not written: {e}")
         return "recorded"
     except Exception as e:
         logger.warning(f"_log_deletion_decision: audit row not written: {e}")

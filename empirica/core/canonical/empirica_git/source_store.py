@@ -202,3 +202,37 @@ def insert_source_from_note(conn, note: dict, created_ts: float) -> int:
     )
     conn.commit()
     return cur.rowcount
+
+
+def rename_source_note(old_id: str, new_id: str, workspace_root: str | None) -> str:
+    """Move a source's note to its new id and archive the old ref, after the row's id was swapped (sources reconcile).
+    Without it a rebuild restored the old id and a later archive restamp found no note. Returns what happened; never raises."""
+    try:
+        store = GitSourceStore(workspace_root=workspace_root)
+        note = store.load_source(old_id)
+        if not note:
+            return "no note"
+        moved = store.store_source(
+            source_id=new_id,
+            project_id=note.get("project_id") or "",
+            session_id=note.get("session_id") or "",
+            title=note.get("title") or "",
+            source_type=note.get("source_type") or "document",
+            source_url=note.get("source_url"),
+            doc_path=note.get("doc_path"),
+            description=note.get("description"),
+            confidence=note.get("confidence", 0.7),
+            direction=note.get("direction") or "noetic",
+            ai_id=note.get("ai_id") or "",
+            created_at=note.get("created_at"),
+            extra={**note, "source_id": new_id, "renamed_from": old_id},
+        )
+        if not moved:
+            return "not moved"
+        from empirica.core.canonical.empirica_git.note_lifecycle import archive_note
+
+        archived = archive_note("sources", old_id, workspace_root)
+        return "moved" if archived.get("archived") else f"moved, old note kept: {archived.get('reason')}"
+    except Exception as e:  # the row swap is done; a note that did not follow is reported, not raised
+        logger.warning("source note %s not moved to %s: %s", old_id[:8], new_id[:8], e)
+        return f"not moved: {type(e).__name__}"

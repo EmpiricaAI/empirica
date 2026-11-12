@@ -59,7 +59,8 @@ def restamp_due(conn, artifact_type: str, artifact_id: str) -> bool:
         row = conn.execute(f"SELECT due_at FROM {table} WHERE id = ?", (artifact_id,)).fetchone()
         if row is None:
             return False
-        return _restore_unknown(_project_root(conn), artifact_id, row[0])
+        root = _project_root(conn)
+        return bool(root) and _restore_unknown(root, artifact_id, row[0])  # no project: never write into the cwd's repo
     except Exception as e:
         logger.warning("due date not written to the %s note %s: %s", artifact_type, str(artifact_id)[:8], e)
         return False
@@ -106,7 +107,10 @@ def restamp_assumption(conn, assumption_id: str) -> bool:
         if row is None:
             return False
         state = {"resolved_timestamp": row[1], "resolution_finding_id": row[2], "confidence": row[4]}
-        return _restore_assumption(_project_root(conn), assumption_id, row[3], status=row[0], state=state)
+        root = _project_root(conn)
+        if not root:  # a database outside any project: never fall back to the cwd's repo
+            return False
+        return _restore_assumption(root, assumption_id, row[3], status=row[0], state=state)
     except Exception as e:
         logger.warning("assumption note %s not rewritten: %s", str(assumption_id)[:8], e)
         return False
@@ -155,7 +159,10 @@ def restamp_decision(conn, decision_id: str) -> bool:
         ).fetchone()
         if row is None:
             return False
-        store = GitDecisionStore(workspace_root=_project_root(conn))
+        root = _project_root(conn)
+        if not root:  # a database outside any project: never fall back to the cwd's repo
+            return False
+        store = GitDecisionStore(workspace_root=root)
         note = store.load_decision(decision_id)
         if not note:
             return False
@@ -197,7 +204,10 @@ def restamp_source(conn, source_id: str) -> bool:
         ).fetchone()
         if row is None:
             return False
-        store = GitSourceStore(workspace_root=_project_root(conn))
+        root = _project_root(conn)
+        if not root:  # a database outside any project: never fall back to the cwd's repo
+            return False
+        store = GitSourceStore(workspace_root=root)
         note = store.load_source(source_id)
         if not note:
             return False

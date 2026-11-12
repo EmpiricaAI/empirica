@@ -813,6 +813,12 @@ def _swap_source_id(
         local_uuid,
         cortex_uuid,
     )
+    # The note is canonical: it follows the id, or a rebuild restores the old one (1.16.x, goal a34eef6d).
+    from empirica.core.canonical.empirica_git.goal_note_state import _project_root
+    from empirica.core.canonical.empirica_git.source_store import rename_source_note
+
+    root = _project_root(db.conn)
+    result["note"] = rename_source_note(local_uuid, cortex_uuid, root) if root else "no project: note not moved"
     return result
 
 
