@@ -139,8 +139,13 @@ def test_lessons_exported_then_rebuilt_come_back(practice, tmp_path):
                     ),
                 )
             )
-        assert gx.export_lesson_notes(str(practice))["written"] == 2
-        assert gx.export_lesson_notes(str(practice))["written"] == 0
+        assert gx.export_lesson_notes(db.conn, str(practice))["written"] == 2
+        assert gx.export_lesson_notes(db.conn, str(practice))["written"] == 0
+        # A lesson whose full record is in the table only (no YAML file) is exported too: the store reads it as a fallback.
+        (practice / ".empirica" / "lessons" / "id-comm.yaml").unlink()
+        db.conn.execute("UPDATE lessons SET updated_timestamp = updated_timestamp + 10 WHERE id = 'id-comm'")
+        db.conn.commit()
+        assert gx.export_lesson_notes(db.conn, str(practice))["written"] == 1
     finally:
         db.close()
 

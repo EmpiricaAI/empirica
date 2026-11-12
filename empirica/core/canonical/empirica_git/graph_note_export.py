@@ -151,29 +151,34 @@ def _discover(root: str, prefix: str) -> list[dict]:
 LESSON_PREFIX = "empirica/lessons"
 
 
-def export_lesson_notes(root: str, *, full: bool = False) -> dict:
-    """Write the note of every lesson whose cold YAML (its full content, under .empirica/lessons, which git ignores) changed
-    since the watermark (all of them when ``full``). ``{"written", "failed"}``."""
+def export_lesson_notes(conn, root: str, *, full: bool = False) -> dict:
+    """Write the note of every lesson updated since the watermark (all of them when ``full``): its full content from the
+    cold YAML under .empirica/lessons (which git ignores) when the file exists, else the record the lessons table keeps,
+    which the store reads as its fallback. ``{"written", "failed"}``."""
     import yaml
 
     folder = Path(root) / ".empirica" / "lessons"
     since = 0.0 if full else float(_watermarks(root).get("lessons") or 0.0)
-    changed = sorted(
-        (p.stat().st_mtime, p) for p in (folder.glob("*.yaml") if folder.is_dir() else []) if p.stat().st_mtime > since
-    )
+    rows = conn.execute(
+        "SELECT id, lesson_data, MAX(COALESCE(updated_timestamp, 0), COALESCE(created_timestamp, 0)) AS changed "
+        "FROM lessons WHERE MAX(COALESCE(updated_timestamp, 0), COALESCE(created_timestamp, 0)) > ? ORDER BY changed",
+        (since,),
+    ).fetchall()
     written = failed = 0
     newest = since
-    for mtime, path in changed:
+    for lesson_id, stored, changed in rows:
+        data = None
+        path = folder / f"{lesson_id}.yaml"
         try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError) as e:
-            logger.warning("lesson %s not exported: %s", path.name, e)
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) if path.is_file() else json.loads(stored or "null")
+        except (OSError, ValueError, yaml.YAMLError) as e:
+            logger.warning("lesson %s not exported: %s", lesson_id, e)
+        if not isinstance(data, dict):
             continue
-        if not isinstance(data, dict) or not data.get("id"):
-            continue
-        if _write_note(root, f"{LESSON_PREFIX}/{data['id']}", {"lesson": data}):
+        data.setdefault("id", lesson_id)
+        if _write_note(root, f"{LESSON_PREFIX}/{lesson_id}", {"lesson": data}):
             written += 1
-            newest = max(newest, mtime)
+            newest = max(newest, float(changed or 0.0))
         else:
             failed += 1
             break
@@ -194,7 +199,7 @@ def export_graph_notes(conn, root: str, *, full: bool = False) -> dict:
     for name, run in (
         ("edges", lambda: export_edge_notes(conn, root, full=full)),
         ("falsifiers", lambda: export_falsifier_notes(conn, root, full=full)),
-        ("lessons", lambda: export_lesson_notes(root, full=full)),
+        ("lessons", lambda: export_lesson_notes(conn, root, full=full)),
     ):
         try:
             out[name] = run()
@@ -206,9 +211,8 @@ def export_graph_notes(conn, root: str, *, full: bool = False) -> dict:
 
 def plan_graph_notes(conn, root: str) -> dict:
     """What a full export would write: counts only (doctor's dry run)."""
-    lessons = Path(root) / ".empirica" / "lessons"
     return {
         "edge_sources": conn.execute("SELECT COUNT(DISTINCT from_id) FROM artifact_edges").fetchone()[0],
         "falsifiers": conn.execute("SELECT COUNT(*) FROM falsifiers").fetchone()[0],
-        "lessons": len(list(lessons.glob("*.yaml"))) if lessons.is_dir() else 0,
+        "lessons": conn.execute("SELECT COUNT(*) FROM lessons").fetchone()[0],
     }
