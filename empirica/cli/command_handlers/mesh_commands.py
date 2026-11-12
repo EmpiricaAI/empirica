@@ -896,6 +896,12 @@ def handle_mesh_off_command(args) -> int:
     # nothing happened (mesh-support prop_isfyt5634vg6hmuuyb25ivog7m).
     stop_listener_for(ai_id)
     after = listener_status_for(ai_id)
+    if after.uncertain:  # launchctl did not answer: a stop it cannot read back is not reported as done (1.16.0 sweep)
+        sys.stderr.write(
+            f"could not confirm the {ai_id} listener stopped: the service manager did not answer. "
+            "Run `empirica mesh status` to check.\n"
+        )
+        return 1
     if after.active:
         manual = (
             f"launchctl bootout gui/$(id -u)/com.empirica.listener.{ai_id} && "

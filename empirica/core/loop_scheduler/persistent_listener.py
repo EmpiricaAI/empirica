@@ -86,15 +86,26 @@ def _systemctl(*args: str, check: bool = False) -> subprocess.CompletedProcess:
     )
 
 
+#: The return code _launchctl gives a call that timed out or could not run: the answer is unknown, not "not running".
+LAUNCHCTL_TIMEOUT = 124
+
+
 def _launchctl(*args: str, check: bool = False) -> subprocess.CompletedProcess:
-    """Run `launchctl <args>` with a 5s timeout. Defensive, never raises unless `check=True`."""
-    return subprocess.run(
-        ["launchctl", *args],
-        capture_output=True,
-        text=True,
-        timeout=5,
-        check=check,
-    )
+    """Run `launchctl <args>` with a 5s timeout. Never raises unless `check=True`: a timeout (it raised TimeoutExpired out of
+    stop(), 1.16.0 sweep) or a missing launchctl comes back as returncode ``LAUNCHCTL_TIMEOUT``, which callers read as
+    unknown."""
+    try:
+        return subprocess.run(
+            ["launchctl", *args],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=check,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        if check:
+            raise
+        return subprocess.CompletedProcess(["launchctl", *args], LAUNCHCTL_TIMEOUT, "", f"{type(e).__name__}: {e}")
 
 
 # ─── Capability probes ──────────────────────────────────────────────────
@@ -237,6 +248,8 @@ class ListenerStatus:
     active: bool
     unit_path: str | None = None
     log_path: str | None = None
+    #: The service manager did not answer (a launchctl timeout): ``active`` is a guess, not a reading.
+    uncertain: bool = False
 
 
 class ListenerServiceUnavailable(RuntimeError):
@@ -505,6 +518,7 @@ class PersistentListenerService:
             )
         installed = path.exists()
         active = False
+        uncertain = False
         if self.backend == "systemd":
             if installed:
                 r = _systemctl("is-active", f"{_unit_name(ai_id)}.service")
@@ -520,8 +534,9 @@ class PersistentListenerService:
             try:
                 r = _launchctl("list", f"com.empirica.listener.{_safe(ai_id)}")
                 active = r.returncode == 0
+                uncertain = r.returncode == LAUNCHCTL_TIMEOUT
             except Exception:
-                active = False
+                active, uncertain = False, True
             # A loaded-but-plist-elsewhere service still counts as installed.
             installed = installed or active
         return ListenerStatus(
@@ -531,6 +546,7 @@ class PersistentListenerService:
             active=active,
             unit_path=str(path),
             log_path=str(log_path),
+            uncertain=uncertain,
         )
 
     def is_running(self, ai_id: str) -> bool:

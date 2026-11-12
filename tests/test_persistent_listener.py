@@ -602,3 +602,36 @@ def test_mesh_off_reports_stopped_only_once_it_is(monkeypatch, capsys):
     monkeypatch.setattr(mc, "stop_listener_for", lambda ai_id: None)
     assert mc.handle_mesh_off_command(SimpleNamespace(instance="x", uninstall=False)) == 0
     assert "listener stopped" in capsys.readouterr().out
+
+
+def test_a_launchctl_timeout_is_a_result_not_a_traceback(monkeypatch):
+    # _launchctl said it never raised, but its 5 s timeout raised TimeoutExpired out of stop() (1.16.0 sweep, a34eef6d).
+    import subprocess
+
+    from empirica.core.loop_scheduler import persistent_listener as pl
+
+    def hang(*a, **k):
+        raise subprocess.TimeoutExpired(cmd="launchctl", timeout=5)
+
+    monkeypatch.setattr(pl.subprocess, "run", hang)
+    r = pl._launchctl("list", "com.empirica.listener.x")
+    assert r.returncode == pl.LAUNCHCTL_TIMEOUT
+
+
+def test_mesh_off_cannot_claim_a_stop_it_could_not_confirm(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from empirica.cli.command_handlers import mesh_commands as mc
+    from empirica.core.loop_scheduler.persistent_listener import ListenerStatus
+
+    states = iter(
+        [
+            ListenerStatus(ai_id="x", backend="launchd", installed=True, active=True),
+            ListenerStatus(ai_id="x", backend="launchd", installed=True, active=False, uncertain=True),
+        ]
+    )
+    monkeypatch.setattr(mc, "listener_status_for", lambda ai_id: next(states))
+    monkeypatch.setattr(mc, "stop_listener_for", lambda ai_id: None)
+    assert mc.handle_mesh_off_command(SimpleNamespace(instance="x", uninstall=False)) == 1
+    out, err = capsys.readouterr()
+    assert "listener stopped" not in out and "could not confirm" in err
