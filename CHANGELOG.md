@@ -5,7 +5,13 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.16.1] - 2026-11-12
+
+### Highlights
+
+- **Links, falsifiers and lessons reach the git notes, so a rebuild restores the whole graph.** They are exported at each POSTFLIGHT, a bounded batch at a time, and in full by `doctor --reconcile-notes --apply`. A link deleted after it was exported can still come back on a rebuild; that is next.
+- **Sessions close in the workspace registry.** Nearly every session ever started was still listed as active. A session now closes there when it ends, and `doctor --reconcile-sessions` closes the rows left behind.
+- **Planned work can wait for a release, and an assumption can expire.** `--due after:v1.17.0` brings a goal, unknown or assumption back once that tag exists, and an assumption whose subject went away before anyone checked it closes as `expired`, counted as neither confirmation nor error.
 
 ### Added
 

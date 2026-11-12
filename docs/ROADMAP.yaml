@@ -25,8 +25,8 @@
 # Quote `made_in`: an unquoted 1.10 loads as the number 1.1. Quote the `on` key of a revision too: unquoted, `on:` is the boolean true in YAML 1.1.
 
 forecast:
-  made_in: "1.14.14"
-  made_on: "2026-10-25"
+  made_in: "1.16.1"
+  made_on: "2026-11-12"
 
 items:
   - id: correctness-backlog
@@ -110,7 +110,7 @@ items:
     evidence: reported
     basis: Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. As of 1.14.19 cockpit refresh wakes each resumed claude pane once it is idle, which gives it the turn that arms the listener; that is tested with fakes and has not been measured on a live cockpit. The one live restart measured since (0 of 6 resumed panes armed before a human prompt) was a kill-server then launch, so the refresh wake never ran, and the listener wake service was off on every unit, so it grades neither. Launch gets the same wake as refresh in 1.14.22, tested with fakes, not yet measured on a live cockpit.
     falsifier: After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later.
-    horizon: "1.16.1"
+    horizon: "1.17.0"
     steered: true
     status: predicted
     revisions:
@@ -134,7 +134,10 @@ items:
         from: 0.35
         to: 0.3
         reason: "Not delivered by its 1.16.0 horizon: 1.16.0 went to the local semantic layer, rebuilds that restore every note-backed artifact, and four pre-publish review passes, and cockpit work was moved to the 1.16 point releases before the cut. The horizon moves to 1.16.1 and the confidence drops, because a prediction that misses its horizon was over-confident about when."
-
+      - "on": "2026-11-12"
+        from: 0.3
+        to: 0.3
+        reason: "Not worked on by its 1.16.1 horizon: cockpit work was paused until the 1.16 point releases are scoped, and 1.16.1 went to notes restoring links, sessions closing in the workspace registry, and a review sweep. The horizon moves to 1.17.0. The confidence holds this time: the miss is a decision to pause, not new evidence about the restart path, which still waits for its first measured restart."
   - id: wake-default
     title: Wake service on by default
     prediction: The wake service stops being opt-in once a few weeks of live use show no wake into a busy pane.
@@ -144,7 +147,9 @@ items:
     falsifier: A report of a wake that interrupted a running turn or submitted a half-typed draft.
     horizon: "1.16.1"
     steered: false
-    status: predicted
+    status: dropped
+    resolved_in: "1.16.1"
+    reason: "Dropped at 1.16.1. Its falsifier needs weeks of live use with the wake service on, and none was gathered: cockpit work was paused, and the service stayed opt-in on every seat. A fair bet that was never played out, not one shown wrong."
     revisions:
       - "on": "2026-11-10"
         from: 0.35
@@ -228,3 +233,48 @@ items:
     steered: true
     status: shipped
     resolved_in: "1.16.0"
+
+  - id: links-follow-deletions
+    title: Rebuilt links match the live graph
+    prediction: A rebuild from the git notes stops restoring links that were deleted, and a link whose end was renamed comes back renamed.
+    confidence: 0.8
+    evidence: measured
+    basis: Links reach the notes since this cycle, written per source when a source gains a link. Reproduced in a scratch repository on 2026-11-12, a link deleted by delete-artifacts or a dangling-edge prune stays in its source's note, and an id swap (which updates the row without a new timestamp) is never re-exported, so a rebuild brings back the old link.
+    falsifier: In a fresh practice, log two linked findings, delete the link with delete-artifacts, run doctor --reconcile-notes --apply, rebuild from the notes into an empty database, and find the deleted link there.
+    horizon: "1.17.0"
+    steered: true
+    status: predicted
+
+  - id: one-embedding-decision
+    title: Vectors never land in a store of the wrong size
+    prediction: A long-running process that started while the vector store was unreachable never writes vectors of the local model's size into that store once it comes back.
+    confidence: 0.7
+    evidence: reviewed
+    basis: Read in the code on 2026-11-12. The embedding provider is chosen once per process, and with no Ollama and the configured Qdrant down at start it picks the local 384-dimension model; the store choice is probed again every 30 seconds, so the process can later write those vectors into the configured store. Not reproduced live.
+    falsifier: Start a long-running Empirica process with Ollama absent and the configured Qdrant stopped, start Qdrant, log an artifact after 30 seconds, and find a 384-dimension point in a configured collection.
+    horizon: "1.17.0"
+    steered: true
+    status: predicted
+
+  - id: due-uptake
+    title: Planned work carries what brings it back
+    prediction: At least half of the planned goals created between 1.15.0 and 1.17.0 carry a due date or a release condition.
+    confidence: 0.55
+    evidence: measured
+    basis: Measured on this practice on 2026-11-12, two days after 1.15.0 added due dates, 3 of the 7 planned goals created since carry one. From 1.16.1 a goal can come back when a release is tagged, and the forecast pass proposes a date or a release for every planned goal it creates.
+    falsifier: Count planned goals created after the 1.15.0 tag and before the 1.17.0 tag in this practice, and find that fewer than half have a due_at.
+    horizon: "1.17.0"
+    steered: true
+    status: predicted
+
+  - id: cortex-connect
+    title: A local practice moves onto Cortex in one command
+    prediction: "`empirica cortex connect` moves a local practice onto a Cortex team: its artifacts arrive in the team's store, embedded there, and a user who belongs to no team is told to create one or ask an admin."
+    confidence: 0.45
+    evidence: reported
+    basis: Decided on 2026-11-12 that core builds the verb and Cortex owns the endpoints and their tests. The import, visibility mapping and team-first refusal are designed; the team-lifecycle endpoints the verb needs are announced by Cortex but not yet shipped, which caps this at reported.
+    falsifier: 1.17.0 ships without an `empirica cortex connect` verb, or the verb refuses every practice on a machine with a Cortex login and a team.
+    horizon: "1.17.0"
+    steered: true
+    status: predicted
+
