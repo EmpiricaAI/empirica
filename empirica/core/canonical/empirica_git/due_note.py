@@ -20,9 +20,10 @@ _TABLES = {"goal": "goals", "unknown": "project_unknowns", "assumption": "assump
 #: Row fields whose change must reach the artifact's git note, or a rebuild restores the old value (goals 1e885685,
 #: 25f4ab9a). ``due_at`` applies to every type in ``_TABLES``.
 NOTE_STATE_FIELDS = {
-    "goal": frozenset({"status", "is_completed", "completed_timestamp"}),
-    "assumption": frozenset({"status", "due_at"}),
-    "decision": frozenset({"outcome", "outcome_assessed_at", "regret_score"}),
+    "goal": frozenset({"status", "is_completed", "completed_timestamp", "objective"}),
+    "assumption": frozenset({"status", "due_at", "confidence"}),
+    "decision": frozenset({"outcome", "outcome_assessed_at", "regret_score", "reversibility"}),
+    "source": frozenset({"confidence", "description"}),
 }
 
 
@@ -99,12 +100,12 @@ def restamp_assumption(conn, assumption_id: str) -> bool:
         from empirica.core.canonical.empirica_git.goal_note_state import _project_root
 
         row = conn.execute(
-            "SELECT status, resolved_timestamp, resolution_finding_id, due_at FROM assumptions WHERE id = ?",
+            "SELECT status, resolved_timestamp, resolution_finding_id, due_at, confidence FROM assumptions WHERE id = ?",
             (assumption_id,),
         ).fetchone()
         if row is None:
             return False
-        state = {"resolved_timestamp": row[1], "resolution_finding_id": row[2]}
+        state = {"resolved_timestamp": row[1], "resolution_finding_id": row[2], "confidence": row[4]}
         return _restore_assumption(_project_root(conn), assumption_id, row[3], status=row[0], state=state)
     except Exception as e:
         logger.warning("assumption note %s not rewritten: %s", str(assumption_id)[:8], e)
@@ -129,7 +130,7 @@ def _restore_assumption(
             session_id=note.get("session_id") or "",
             ai_id=note.get("ai_id") or "unknown",
             assumption=note.get("assumption") or "",
-            confidence=note.get("confidence", 0.5),
+            confidence=(state or {}).get("confidence", note.get("confidence", 0.5)),
             domain=note.get("domain"),
             goal_id=note.get("goal_id"),
             due_at=due_at,
@@ -149,7 +150,8 @@ def restamp_decision(conn, decision_id: str) -> bool:
         from empirica.core.canonical.empirica_git.goal_note_state import _project_root
 
         row = conn.execute(
-            "SELECT outcome, outcome_assessed_at, regret_score FROM decisions WHERE id = ?", (decision_id,)
+            "SELECT outcome, outcome_assessed_at, regret_score, reversibility FROM decisions WHERE id = ?",
+            (decision_id,),
         ).fetchone()
         if row is None:
             return False
@@ -169,7 +171,7 @@ def restamp_decision(conn, decision_id: str) -> bool:
                 rationale=note.get("rationale") or "",
                 alternatives=note.get("alternatives"),
                 confidence=note.get("confidence_at_decision", 0.7),
-                reversibility=note.get("reversibility") or "exploratory",
+                reversibility=row[3] or note.get("reversibility") or "exploratory",
                 goal_id=note.get("goal_id"),
                 created_at=note.get("created_at"),
                 extra=keep,
@@ -189,7 +191,8 @@ def restamp_source(conn, source_id: str) -> bool:
         from empirica.core.canonical.empirica_git.source_store import GitSourceStore
 
         row = conn.execute(
-            "SELECT archived, archive_reason, archive_target_id, archived_at, source_url FROM epistemic_sources WHERE id = ?",
+            "SELECT archived, archive_reason, archive_target_id, archived_at, source_url, description, confidence "
+            "FROM epistemic_sources WHERE id = ?",
             (source_id,),
         ).fetchone()
         if row is None:
@@ -211,8 +214,8 @@ def restamp_source(conn, source_id: str) -> bool:
                 source_type=note.get("source_type") or "document",
                 source_url=row[4] if row[4] is not None else note.get("source_url"),
                 doc_path=note.get("doc_path"),
-                description=note.get("description"),
-                confidence=note.get("confidence", 0.7),
+                description=row[5] if row[5] is not None else note.get("description"),
+                confidence=row[6] if row[6] is not None else note.get("confidence", 0.7),
                 direction=note.get("direction") or "noetic",
                 ai_id=note.get("ai_id") or "",
                 created_at=note.get("created_at"),

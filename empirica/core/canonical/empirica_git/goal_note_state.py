@@ -155,6 +155,8 @@ def _stamp(store: GitGoalStore, row: dict[str, Any], action: str) -> bool:
     details = row.get("details") or {}
     if existing:
         goal_data = {**(existing.get("goal_data") or {}), **state, **details}
+        if row.get("objective"):
+            goal_data["objective"] = row["objective"]  # a corrected objective, or the note keeps the creation-time one
         lineage = list(existing.get("lineage") or [])
         ai_id = existing.get("ai_id") or "unknown"
         created_at = existing.get("created_at")

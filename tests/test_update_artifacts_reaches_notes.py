@@ -68,3 +68,37 @@ def test_a_decision_outcome_outside_the_vocabulary_is_refused(practice):
         assert db.conn.execute("SELECT outcome FROM decisions WHERE id = ?", (did,)).fetchone()[0] is None
     finally:
         db.close()
+
+
+def test_corrected_metadata_reaches_the_notes(practice):
+    # Each of these is correctable and read back by a rebuild; none reached the note, so a rebuild reverted it (a34eef6d).
+    from empirica.core.canonical.empirica_git.assumption_store import GitAssumptionStore
+    from empirica.core.canonical.empirica_git.decision_store import GitDecisionStore
+
+    created = gc.log_artifacts_graph(
+        {"nodes": [
+            {"ref": "d", "type": "decision", "data": {"choice": "x", "rationale": "y", "reversibility": "exploratory"}},
+            {"ref": "a", "type": "assumption", "data": {"assumption": "z", "confidence": 0.4}},
+        ], "edges": []},
+        session_id="s", project_id="p", project_path=str(practice),
+    )  # fmt: skip
+    did, aid = created["created"]["d"], created["created"]["a"]
+    db = SessionDatabase()
+    try:
+        sid = db.create_session(ai_id="t")
+        gid = db.create_goal(session_id=sid, objective="old objective")
+    finally:
+        db.close()
+    out = _update(
+        {
+            "updates": [
+                {"type": "decision", "id": did, "reversibility": "committal"},
+                {"type": "assumption", "id": aid, "confidence": 0.9},
+                {"type": "goal", "id": gid, "objective": "new objective"},
+            ]
+        }
+    )
+    assert not out.get("errors"), out
+    assert GitDecisionStore().load_decision(did)["reversibility"] == "committal"
+    assert GitAssumptionStore().load_assumption(aid)["confidence"] == 0.9
+    assert GitGoalStore().load_goal(gid)["goal_data"]["objective"] == "new objective"
