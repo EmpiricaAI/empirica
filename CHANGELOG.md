@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Links between artifacts, falsifiers and lessons reach the git notes, and a rebuild restores them.** They lived in the database only (lessons in a git-ignored folder), so a rebuild from the notes lost every one. They are exported at each POSTFLIGHT, in the background and a bounded batch at a time, and in full by `doctor --reconcile-notes --apply`; `sync-push` carries them like the other notes.
+
 ### Fixed
 
 - **Deleting a project, or scrubbing its secrets, no longer reads a missing Qdrant as an empty one.** When the Qdrant that holds a project's vectors is briefly down and only the local server's store answers, an empty answer there now counts as unknown: `entity-delete` refuses instead of orphaning the collections, and `doctor --scrub-secrets` reports itself incomplete instead of clean.
