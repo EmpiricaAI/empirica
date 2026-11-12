@@ -173,3 +173,48 @@ def test_imported_decisions_and_assumptions_are_local_not_the_shared_table_defau
 
     assert world.db.conn.execute("SELECT visibility FROM decisions WHERE id='d1'").fetchone()[0] == "local"
     assert world.db.conn.execute("SELECT visibility FROM assumptions WHERE id='a1'").fetchone()[0] == "local"
+
+
+# ── what the rebuild restores, profile import restores too (1.16.x, goal a34eef6d) ────────────────────────────────────────
+
+
+def test_a_decision_comes_back_with_its_assessment(world):
+    _note(world, "decisions", "d9", {
+        "decision_id": "d9", "choice": "use X", "rationale": "because", "reversibility": "committal",
+        "project_id": world.pid, "session_id": world.sid, "ai_id": "a", "created_at": "2026-10-03T16:52:03+00:00",
+        "outcome": "reversed", "outcome_assessed_at": 1794400000.0, "regret_score": 0.7,
+    })  # fmt: skip
+    ProfileImporter(workspace_root=str(world.repo)).import_all(world.db)
+    row = world.db.conn.execute("SELECT outcome, regret_score FROM decisions WHERE id = 'd9'").fetchone()
+    assert tuple(row) == ("reversed", 0.7)
+
+
+def test_a_goal_comes_back_with_its_tasks_and_without_the_list_in_goal_data(world):
+    _note(world, "goals", "g9", {
+        "goal_id": "g9", "session_id": world.sid, "ai_id": "a", "created_at": "2026-10-03T16:52:03+00:00",
+        "goal_data": {"objective": "ship", "status": "in_progress", "project_id": world.pid, "tasks": [
+            {"id": "t1", "description": "read", "status": "completed", "epistemic_importance": "medium",
+             "completion_evidence": "commit abc", "created_timestamp": 1.0, "completed_timestamp": 2.0},
+            {"id": "t2", "description": "write", "status": "pending", "epistemic_importance": "high",
+             "completion_evidence": None, "created_timestamp": 3.0, "completed_timestamp": None},
+        ]},
+    })  # fmt: skip
+    stats = ProfileImporter(workspace_root=str(world.repo)).import_all(world.db)
+    rows = world.db.conn.execute("SELECT id, status FROM subtasks WHERE goal_id = 'g9' ORDER BY id").fetchall()
+    assert [tuple(r) for r in rows] == [("t1", "completed"), ("t2", "pending")]
+    assert '"tasks"' not in world.db.conn.execute("SELECT goal_data FROM goals WHERE id = 'g9'").fetchone()[0]
+    assert stats["tasks"]["imported"] == 2
+
+
+def test_a_source_comes_back_archived(world):
+    _note(world, "sources", "s9", {
+        "source_id": "s9", "project_id": world.pid, "session_id": world.sid, "title": "RFC", "source_type": "url",
+        "source_url": "https://example.org/rfc", "confidence": 0.8, "direction": "noetic", "ai_id": "a",
+        "created_at": "2026-10-03T16:52:03+00:00", "archived": True, "archive_reason": "url_unreachable",
+    })  # fmt: skip
+    stats = ProfileImporter(workspace_root=str(world.repo)).import_all(world.db)
+    row = world.db.conn.execute(
+        "SELECT title, archived, archive_reason FROM epistemic_sources WHERE id = 's9'"
+    ).fetchone()
+    assert tuple(row) == ("RFC", 1, "url_unreachable")
+    assert stats["sources"]["imported"] == 1

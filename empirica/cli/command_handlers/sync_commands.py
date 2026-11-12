@@ -1385,38 +1385,10 @@ def _rebuild_ensure_goals(db, now, rebuilt, all_items_lists=()):
 
 
 def _rebuild_tasks(db, goal_id, tasks, rebuilt) -> None:
-    """A goal's tasks from the list its note carries (goal 25f4ab9a). Best-effort per task."""
-    import json as _json
+    """A goal's tasks from the list its note carries (goal 25f4ab9a)."""
+    from empirica.core.canonical.empirica_git.goal_note_state import insert_tasks
 
-    rebuilt.setdefault("tasks", 0)
-    for t in tasks if isinstance(tasks, list) else []:
-        if not isinstance(t, dict) or not t.get("id") or not t.get("description"):
-            continue
-        status = (
-            t.get("status")
-            if t.get("status") in ("pending", "in_progress", "completed", "blocked", "skipped")
-            else "pending"
-        )
-        try:
-            cur = db.adapter.conn.execute(
-                "INSERT OR IGNORE INTO subtasks (id, goal_id, description, status, epistemic_importance, "
-                "completion_evidence, created_timestamp, completed_timestamp, subtask_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    t["id"],
-                    goal_id,
-                    t["description"],
-                    status,
-                    t.get("epistemic_importance") or "medium",
-                    t.get("completion_evidence"),
-                    t.get("created_timestamp"),
-                    t.get("completed_timestamp"),
-                    _json.dumps({"findings": [], "unknowns": [], "dead_ends": []}),
-                ),
-            )
-            db.adapter.conn.commit()
-            rebuilt["tasks"] += cur.rowcount
-        except Exception as e:
-            logger.debug(f"rebuild task skip ({str(t.get('id'))[:8]}): {e}")
+    rebuilt["tasks"] = rebuilt.get("tasks", 0) + insert_tasks(db.adapter.conn, goal_id, tasks)
 
 
 def _rebuild_ensure_orphan_goals(db, orphan_goal_ids, all_items_lists, now, rebuilt):
@@ -1758,43 +1730,16 @@ def _rebuild_sources(db, rebuilt) -> None:
     lost every source; their notes now carry the archive state, stamped by due_note.restamp_source. Best-effort per note."""
     import time
 
-    from empirica.core.canonical.empirica_git.source_store import GitSourceStore
+    from empirica.core.canonical.empirica_git.source_store import GitSourceStore, insert_source_from_note
 
     rebuilt.setdefault("sources", 0)
     for note in GitSourceStore().discover_sources():
-        sid, title = note.get("source_id"), note.get("title")
-        if not sid or not title or not note.get("project_id"):
-            continue
-        conf = note.get("confidence")
-        conf = conf if isinstance(conf, (int, float)) and not isinstance(conf, bool) and 0.0 <= conf <= 1.0 else None
-        archived = note.get("archived") is True
         try:
-            cur = db.adapter.conn.execute(
-                "INSERT OR IGNORE INTO epistemic_sources (id, project_id, session_id, source_type, source_url, title, "
-                "description, confidence, epistemic_layer, discovered_by_ai, discovered_at, archived, archive_reason, "
-                "archive_target_id, archived_at, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local')",
-                (
-                    sid,
-                    note.get("project_id"),
-                    note.get("session_id"),
-                    note.get("source_type") or "document",
-                    note.get("source_url") or note.get("doc_path"),
-                    title,
-                    note.get("description"),
-                    conf,
-                    note.get("direction") or "noetic",
-                    note.get("ai_id"),
-                    _note_time(note.get("created_at")) or time.time(),
-                    1 if archived else 0,
-                    note.get("archive_reason") if archived else None,
-                    note.get("archive_target_id") if archived else None,
-                    note.get("archived_at") if archived else None,
-                ),
+            rebuilt["sources"] += insert_source_from_note(
+                db.adapter.conn, note, _note_time(note.get("created_at")) or time.time()
             )
-            db.adapter.conn.commit()
-            rebuilt["sources"] += cur.rowcount
         except Exception as e:
-            logger.debug(f"rebuild source skip ({str(sid)[:8]}): {e}")
+            logger.debug(f"rebuild source skip ({str(note.get('source_id'))[:8]}): {e}")
 
 
 def _rebuild_from_notes() -> dict[str, Any]:

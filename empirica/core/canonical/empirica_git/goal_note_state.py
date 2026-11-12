@@ -302,3 +302,37 @@ def apply_goal_notes(conn, project_root: str) -> dict[str, Any]:
         else:
             failed += 1
     return {"restamped": done, "failed": failed, "planned": len(plan["drifted"])}
+
+
+_TASK_STATUSES = ("pending", "in_progress", "completed", "blocked", "skipped")
+
+
+def insert_tasks(conn, goal_id: str, tasks) -> int:
+    """Insert the task rows a goal note's list carries (goal 25f4ab9a); returns how many were new. Shared by the rebuild and
+    profile import so the two cannot drift. Best-effort per task: a malformed entry is skipped, an existing id is kept."""
+    added = 0
+    for t in tasks if isinstance(tasks, list) else []:
+        if not isinstance(t, dict) or not t.get("id") or not t.get("description"):
+            continue
+        status = t.get("status") if t.get("status") in _TASK_STATUSES else "pending"
+        try:
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO subtasks (id, goal_id, description, status, epistemic_importance, "
+                "completion_evidence, created_timestamp, completed_timestamp, subtask_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    t["id"],
+                    goal_id,
+                    t["description"],
+                    status,
+                    t.get("epistemic_importance") or "medium",
+                    t.get("completion_evidence"),
+                    t.get("created_timestamp"),
+                    t.get("completed_timestamp"),
+                    json.dumps({"findings": [], "unknowns": [], "dead_ends": []}),
+                ),
+            )
+            added += cur.rowcount
+        except Exception as e:
+            logger.debug(f"task skip ({str(t.get('id'))[:8]}): {e}")
+    conn.commit()
+    return added

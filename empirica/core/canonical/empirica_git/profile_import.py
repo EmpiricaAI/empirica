@@ -400,8 +400,9 @@ class ProfileImporter:
                     """
                     INSERT INTO decisions
                     (id, choice, alternatives, rationale, confidence_at_decision, reversibility,
-                     project_id, session_id, transaction_id, goal_id, created_by_ai, created_timestamp, visibility)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local')
+                     project_id, session_id, transaction_id, goal_id, created_by_ai, created_timestamp, visibility,
+                     outcome, outcome_assessed_at, regret_score)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local', ?, ?, ?)
                 """,
                     (
                         row_id,
@@ -416,6 +417,12 @@ class ProfileImporter:
                         data.get("goal_id"),
                         data.get("ai_id"),
                         ts,
+                        # The assessment rides in the note since 1.16 (restamp_decision); a rebuild restored it, import did not.
+                        outcome if (outcome := data.get("outcome")) in ("upheld", "reversed", "mixed") else None,
+                        data.get("outcome_assessed_at") if outcome in ("upheld", "reversed", "mixed") else None,
+                        regret
+                        if isinstance(regret := data.get("regret_score"), (int, float)) and not isinstance(regret, bool)
+                        else None,
                     ),
                 )
                 imported += 1
@@ -487,10 +494,13 @@ class ProfileImporter:
         return imported
 
     def import_goals(self, db) -> int:
-        """Import goals from git notes into SQLite."""
+        """Import goals from git notes into SQLite, with the task list each note carries."""
+        from empirica.core.canonical.empirica_git.goal_note_state import insert_tasks
+
         ids = self._discover_refs("refs/notes/empirica/goals/")
         imported = 0
         skipped = 0
+        tasks_imported = 0
 
         cursor = db.conn.cursor()
         for goal_id in ids:
@@ -498,7 +508,8 @@ class ProfileImporter:
             if not data:
                 continue
 
-            goal_data = data.get("goal_data", {})
+            goal_data = dict(data.get("goal_data", {}))
+            tasks = goal_data.pop("tasks", None)  # rows of their own (goal 25f4ab9a), not part of goal_data
             ts = self._parse_timestamp(data.get("created_at"))
             if not ts:
                 ts = datetime.now(timezone.utc).timestamp()
@@ -530,11 +541,28 @@ class ProfileImporter:
                     imported += 1
                 else:
                     skipped += 1
+                tasks_imported += insert_tasks(db.conn, data.get("goal_id", goal_id), tasks)
             except Exception as e:
                 logger.warning(f"Failed to import goal {goal_id[:8]}: {e}")
 
         db.conn.commit()
         self._stats["goals"] = {"imported": imported, "skipped": skipped, "total": len(ids)}
+        self._stats["tasks"] = {"imported": tasks_imported, "skipped": 0, "total": tasks_imported}
+        return imported
+
+    def import_sources(self, db) -> int:
+        """Import sources from git notes, archived ones as archived (the rebuild restored them; import did not)."""
+        from empirica.core.canonical.empirica_git.source_store import GitSourceStore, insert_source_from_note
+
+        notes = GitSourceStore(workspace_root=self.workspace_root).discover_sources()
+        imported = 0
+        for note in notes:
+            ts = self._parse_timestamp(note.get("created_at")) or datetime.now(timezone.utc).timestamp()
+            try:
+                imported += insert_source_from_note(db.conn, note, ts)
+            except Exception as e:
+                logger.warning(f"Failed to import source {str(note.get('source_id'))[:8]}: {e}")
+        self._stats["sources"] = {"imported": imported, "skipped": len(notes) - imported, "total": len(notes)}
         return imported
 
     def import_all(self, db) -> dict[str, dict[str, int]]:
@@ -560,6 +588,7 @@ class ProfileImporter:
         self.import_decisions(db)
         self.import_assumptions(db)
         self.import_goals(db)
+        self.import_sources(db)
 
         total_imported = sum(s["imported"] for s in self._stats.values())
         total_skipped = sum(s["skipped"] for s in self._stats.values())

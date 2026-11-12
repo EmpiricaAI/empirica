@@ -167,3 +167,38 @@ class GitSourceStore:
             if note:
                 out.append(note)
         return out
+
+
+def insert_source_from_note(conn, note: dict, created_ts: float) -> int:
+    """Insert one source row from its note, archived ones as archived (goal 25f4ab9a); returns 1 when new, 0 when the id
+    exists or the note lacks what a row needs. Shared by the rebuild and profile import so the two cannot drift."""
+    sid, title = note.get("source_id"), note.get("title")
+    if not sid or not title or not note.get("project_id"):
+        return 0
+    conf = note.get("confidence")
+    conf = conf if isinstance(conf, (int, float)) and not isinstance(conf, bool) and 0.0 <= conf <= 1.0 else None
+    archived = note.get("archived") is True
+    cur = conn.execute(
+        "INSERT OR IGNORE INTO epistemic_sources (id, project_id, session_id, source_type, source_url, title, "
+        "description, confidence, epistemic_layer, discovered_by_ai, discovered_at, archived, archive_reason, "
+        "archive_target_id, archived_at, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local')",
+        (
+            sid,
+            note.get("project_id"),
+            note.get("session_id"),
+            note.get("source_type") or "document",
+            note.get("source_url") or note.get("doc_path"),
+            title,
+            note.get("description"),
+            conf,
+            note.get("direction") or "noetic",
+            note.get("ai_id"),
+            created_ts,
+            1 if archived else 0,
+            note.get("archive_reason") if archived else None,
+            note.get("archive_target_id") if archived else None,
+            note.get("archived_at") if archived else None,
+        ),
+    )
+    conn.commit()
+    return cur.rowcount
