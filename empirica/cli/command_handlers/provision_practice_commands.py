@@ -143,11 +143,27 @@ def _embedding_model_step(args, dry_run: bool, *, post=None) -> dict:
         return {**step, "note": "skipped (--no-local-server or --no-cortex)"}
     try:
         from empirica.core.qdrant.connection import local_server_service
-        from empirica.core.qdrant.embeddings import _check_ollama_available
+        from empirica.core.qdrant.embeddings import _check_ollama_available, _load_config_file
 
-        if _check_ollama_available(os.environ.get("EMPIRICA_OLLAMA_URL", "http://localhost:11434")):
+        # Resolved as the embedding provider resolves them (env, then ~/.empirica/config.yaml): reading only the env missed an
+        # Ollama or a provider set in the file, and downloaded a model this machine never uses (1.16.x, goal a34eef6d).
+        conf = _load_config_file()
+        provider = os.environ.get("EMPIRICA_EMBEDDINGS_PROVIDER", conf.get("provider", "auto")).lower()
+        if provider not in ("auto", "local"):
+            return {
+                **step,
+                "note": f"embeddings use the configured provider ({provider}): the local model is not needed",
+            }
+        if _check_ollama_available(
+            os.environ.get("EMPIRICA_OLLAMA_URL", conf.get("ollama_url", "http://localhost:11434"))
+        ):
             return {**step, "note": "Ollama has an embedding model: the local model is not needed"}
         url = local_server_service("embeddings")
+        from empirica.core.qdrant.connection import store_url
+
+        if url and (store_url() != local_server_service("vectors") or os.environ.get("CORTEX_QDRANT_URLS_BY_ORG")):
+            # Same rule as the provider's auto choice: the local model's vectors belong in the local store only.
+            return {**step, "note": "vectors go to a configured Qdrant: the local model is not used there"}
     except Exception:
         url = None
     if not url:
