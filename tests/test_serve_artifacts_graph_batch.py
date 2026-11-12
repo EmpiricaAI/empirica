@@ -467,3 +467,77 @@ def test_batch_delete_422_when_body_empty(tmp_path, monkeypatch, reset_daemon_ca
         response = client.post("/api/v1/artifacts/delete", json={})
 
     assert response.status_code == 422
+
+
+def _rows(db_path, table, ids):
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return {r[0] for r in conn.execute(f"SELECT id FROM {table} WHERE id IN ({','.join('?' * len(ids))})", ids)}
+    finally:
+        conn.close()
+
+
+def test_batch_delete_a_failing_item_does_not_undo_the_others(tmp_path, monkeypatch, reset_daemon_cache):
+    # One commit at the end of the batch: an exception on item 2 rolled SQLite back for items 1 and 3 too, while their
+    # Qdrant points and git notes were already gone, and the response was a 500 (1.16.x, goal 7a8677da).
+    from empirica.cli.command_handlers import graph_commands as gc
+
+    pid = str(uuid.uuid4())
+    proj = _make_project_with_db(tmp_path, pid)
+    db_path = proj / ".empirica" / "sessions" / "sessions.db"
+    ids = [_insert_finding(db_path, pid, f"delete me {i}") for i in range(3)]
+
+    real_resolve = gc.resolve_id_prefix
+
+    def resolve(cursor, table, id_col, artifact_id):
+        if artifact_id == ids[1]:
+            raise sqlite3.OperationalError("database is locked")
+        return real_resolve(cursor, table, id_col, artifact_id)
+
+    monkeypatch.setattr(gc, "resolve_id_prefix", resolve)
+    monkeypatch.setattr(gc, "_delete_from_qdrant", lambda art_id, project_id: {"memory": "absent", "eidetic": "absent"})
+    with patch("empirica.utils.session_resolver.InstanceResolver.project_path", return_value=str(proj)):
+        monkeypatch.chdir(proj)
+        response = TestClient(create_serve_app()).post(
+            "/api/v1/artifacts/delete", json={"items": [{"id": i, "type": "finding"} for i in ids]}
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert (data["deleted"], data["failed"]) == (2, 1)
+    assert [r["outcome"] for r in data["results"]] == ["deleted", "failed", "deleted"]
+    assert "database is locked" in data["results"][1]["reason"]
+    assert _rows(db_path, "project_findings", ids) == {ids[1]}
+
+
+def test_a_layer_that_raises_after_the_row_is_gone_is_reported_not_rolled_back(
+    tmp_path, monkeypatch, reset_daemon_cache
+):
+    # The Qdrant point and git note cannot be put back, so the row they follow is committed before them; a layer that
+    # raises is named in the receipt instead of undoing the row.
+    from empirica.cli.command_handlers import graph_commands as gc
+
+    pid = str(uuid.uuid4())
+    proj = _make_project_with_db(tmp_path, pid)
+    db_path = proj / ".empirica" / "sessions" / "sessions.db"
+    ids = [_insert_finding(db_path, pid, f"delete me {i}") for i in range(2)]
+
+    def notes(artifact_type, artifact_id, project_path=None):
+        if artifact_id == ids[0]:
+            raise RuntimeError("git exploded")
+        return True
+
+    monkeypatch.setattr(gc, "_delete_artifact_git_notes", notes)
+    monkeypatch.setattr(
+        gc, "_delete_from_qdrant", lambda art_id, project_id: {"memory": "deleted", "eidetic": "absent"}
+    )
+    with patch("empirica.utils.session_resolver.InstanceResolver.project_path", return_value=str(proj)):
+        monkeypatch.chdir(proj)
+        response = TestClient(create_serve_app()).post("/api/v1/artifacts/delete", json={"ids": ids})
+
+    assert response.status_code == 200
+    first, second = response.json()["results"]
+    assert first["outcome"] == "deleted" and first["git_notes_cleaned"] is False
+    assert "git exploded" in first["layer_errors"]["git_notes"]
+    assert second["outcome"] == "deleted" and "layer_errors" not in second
+    assert _rows(db_path, "project_findings", ids) == set()

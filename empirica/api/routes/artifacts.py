@@ -1881,7 +1881,9 @@ async def post_artifacts_delete(
 
     Scope: `?project_id=X`, `?path=Y`, or the daemon's bound project (default).
 
-    Each delete fans out to all three storage layers via _delete_single_artifact.
+    Each delete fans out to all three storage layers via _delete_single_artifact, which commits the row before the
+    Qdrant point and git note go; an item that fails is reported as ``failed`` and the others stand. A layer that failed
+    after its row was deleted is named under the item's ``layer_errors``.
     """
     project = _resolve_project_dict(project_id, path)
     project_id = project.get("project_id")
@@ -1911,13 +1913,27 @@ async def post_artifacts_delete(
                     results.append({"id": art_id, "outcome": "not_found"})
                     continue
                 raw = {**raw, "type": resolved[0]}
-            result = _delete_single_artifact(
-                cursor,
-                raw,
-                project_id=project_id,
-                dry_run=False,
-                project_path=project_path,
-            )
+            try:
+                result = _delete_single_artifact(
+                    cursor,
+                    raw,
+                    project_id=project_id,
+                    dry_run=False,
+                    project_path=project_path,
+                )
+            except Exception as exc:
+                # Each item commits its own row, so one that fails is reported here; an escape would answer 500 about
+                # a batch whose earlier items are already gone from every layer.
+                db.conn.rollback()
+                results.append(
+                    {
+                        "id": art_id,
+                        "type": raw.get("type"),
+                        "outcome": "failed",
+                        "reason": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+                continue
             if result is None:
                 results.append({"id": art_id, "outcome": "skipped"})
             elif result.get("error"):

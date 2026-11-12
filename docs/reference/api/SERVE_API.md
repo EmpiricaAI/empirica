@@ -676,6 +676,11 @@ An unexpected error on one item (a locked database) is rolled back and reported 
 
 Batch delete. Body: `{ids: [...]}` or `{items: [{id, type}, ...]}`.
 Each delete fans out to the three-layer cleanup (sqlite + Qdrant + git notes).
+Each item's row is committed before its Qdrant point and git note are removed,
+since those cannot be put back: an item that fails is reported with
+`outcome: "failed"` and a `reason`, and the other items stand. A layer that
+failed after its row was deleted is named under that item's `layer_errors`
+(`qdrant`, `git_notes`).
 
 **Response:** `{ok, deleted, not_found, failed, results: [...]}`
 

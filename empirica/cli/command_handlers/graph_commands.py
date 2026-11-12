@@ -2262,12 +2262,25 @@ def _delete_single_artifact(
     cursor.execute(f"DELETE FROM {table} WHERE {id_col} = ?", (full_id,))
     # Layer 1b: sqlite — cascade-clean dangling edges in artifact_edges
     edges_removed = _delete_artifact_edges(cursor, full_id)
-    # Layer 2: Qdrant — vector points (memory + eidetic mirrors)
-    qdrant_report = _delete_from_qdrant(full_id, project_id) if project_id else {}
-    # Layer 3: git notes — breadcrumb ref (closes the documented gap)
-    git_notes_cleaned = _delete_artifact_git_notes(artifact_type, full_id, project_path)
+    # Committed before the layers below, which cannot be undone: with one commit at the end of a batch, a failure on a
+    # later item rolled this row back while its vector point and note were already gone (1.16.x, goal 7a8677da).
+    cursor.connection.commit()
 
-    return {
+    layer_errors: dict[str, str] = {}
+    # Layer 2: Qdrant — vector points (memory + eidetic mirrors)
+    try:
+        qdrant_report = _delete_from_qdrant(full_id, project_id) if project_id else {}
+    except Exception as e:  # the row is gone either way: name the layer that failed rather than abandon the batch
+        qdrant_report = {}
+        layer_errors["qdrant"] = f"{type(e).__name__}: {e}"
+    # Layer 3: git notes — breadcrumb ref (closes the documented gap)
+    try:
+        git_notes_cleaned = _delete_artifact_git_notes(artifact_type, full_id, project_path)
+    except Exception as e:
+        git_notes_cleaned = False
+        layer_errors["git_notes"] = f"{type(e).__name__}: {e}"
+
+    out = {
         "type": artifact_type,
         "id": full_id,
         "action": "deleted",
@@ -2277,6 +2290,9 @@ def _delete_single_artifact(
         # while reporting only on the sqlite one (#412).
         "qdrant": qdrant_report,
     }
+    if layer_errors:
+        out["layer_errors"] = layer_errors
+    return out
 
 
 def _resolve_dangling_endpoints(db, frm, to, frm_ok, to_ok, resolver):
