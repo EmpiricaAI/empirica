@@ -114,3 +114,32 @@ def test_health_advertises_the_vector_service(base_url):
     with urllib.request.urlopen(f"{base_url}/v1/health", timeout=5) as r:
         doc = json.loads(r.read())
     assert doc["edition"] == "local" and doc["services"]["vectors"] == "/qdrant"
+
+
+def test_a_malformed_body_is_a_400_in_qdrants_shape_not_a_500(base_url):
+    # Bodies were parsed before the error mapping, so a bad one was an unhandled 500 (1.16.0 sweep, a34eef6d).
+    import json
+    import urllib.error
+    import urllib.request
+
+    def post(path, body: bytes, method="POST"):
+        req = urllib.request.Request(
+            f"{base_url}/qdrant{path}", data=body, method=method, headers={"Content-Type": "application/json"}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status, json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"{}")
+
+    status, _ = post("/collections/c1", json.dumps({"vectors": {"size": 4, "distance": "Cosine"}}).encode(), "PUT")
+    assert status == 200
+    for path, body, method in (
+        ("/collections/c1/points/query", b"not json", "POST"),
+        ("/collections/c1/points/query", json.dumps({"limit": "many"}).encode(), "POST"),
+        ("/collections/c1/points", json.dumps({"points": "nope"}).encode(), "PUT"),
+        ("/collections/c2", json.dumps({"vectors": {"size": "x"}}).encode(), "PUT"),
+    ):
+        status, payload = post(path, body, method)
+        assert status == 400, (path, status, payload)
+        assert "error" in (payload.get("status") or {}), payload

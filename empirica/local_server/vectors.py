@@ -109,9 +109,20 @@ class _Answer:
             )
 
 
-async def _body(request: Request) -> dict:
-    data = await request.json()
+async def _body(request: Request) -> Any:
+    """The JSON body, or the parse error to raise inside the answered call: bodies are validated there, where a ValueError
+    (bad JSON, a pydantic ValidationError) becomes Qdrant's 400 shape instead of an unhandled 500 (1.16.0 sweep)."""
+    try:
+        data = await request.json()
+    except ValueError as e:
+        return e
     return data if isinstance(data, dict) else {}
+
+
+def _parsed(data: Any) -> dict:
+    if isinstance(data, Exception):
+        raise ValueError(f"request body is not valid JSON: {data}")
+    return data
 
 
 def register(r, guard) -> None:
@@ -146,8 +157,10 @@ def _collection_routes(r, deps, answer: _Answer) -> None:
 
     @r.put("/qdrant/collections/{name}", dependencies=deps)
     async def create(name: str, request: Request):  # pyright: ignore[reportUnusedFunction]
-        spec = m.CreateCollection.model_validate(await _body(request))
-        return await answer(lambda c: c.create_collection(name, vectors_config=spec.vectors))
+        data = await _body(request)
+        return await answer(
+            lambda c: c.create_collection(name, vectors_config=m.CreateCollection.model_validate(_parsed(data)).vectors)
+        )
 
     @r.delete("/qdrant/collections/{name}", dependencies=deps)
     async def drop(name: str):  # pyright: ignore[reportUnusedFunction]
@@ -160,22 +173,41 @@ def _point_write_routes(r, deps, answer: _Answer) -> None:
     @r.put("/qdrant/collections/{name}/points", dependencies=deps)
     async def upsert(name: str, request: Request):  # pyright: ignore[reportUnusedFunction]
         data = await _body(request)
-        points = (
-            m.PointsList.model_validate(data).points if "points" in data else m.PointsBatch.model_validate(data).batch
-        )
-        return await answer(lambda c: c.upsert(name, points=points))
+
+        def run(c):
+            body = _parsed(data)
+            points = (
+                m.PointsList.model_validate(body).points
+                if "points" in body
+                else m.PointsBatch.model_validate(body).batch
+            )
+            return c.upsert(name, points=points)
+
+        return await answer(run)
 
     @r.post("/qdrant/collections/{name}/points/delete", dependencies=deps)
     async def delete(name: str, request: Request):  # pyright: ignore[reportUnusedFunction]
         data = await _body(request)
-        selector = m.PointIdsList.model_validate(data) if "points" in data else m.FilterSelector.model_validate(data)
-        return await answer(lambda c: c.delete(name, points_selector=selector))
+
+        def run(c):
+            body = _parsed(data)
+            selector = (
+                m.PointIdsList.model_validate(body) if "points" in body else m.FilterSelector.model_validate(body)
+            )
+            return c.delete(name, points_selector=selector)
+
+        return await answer(run)
 
     @r.post("/qdrant/collections/{name}/points/payload", dependencies=deps)
     async def set_payload(name: str, request: Request):  # pyright: ignore[reportUnusedFunction]
-        req = m.SetPayload.model_validate(await _body(request))
-        target = req.points if req.points is not None else req.filter
-        return await answer(lambda c: c.set_payload(name, payload=req.payload, points=target, key=req.key))
+        data = await _body(request)
+
+        def run(c):
+            req = m.SetPayload.model_validate(_parsed(data))
+            target = req.points if req.points is not None else req.filter
+            return c.set_payload(name, payload=req.payload, points=target, key=req.key)
+
+        return await answer(run)
 
 
 def _point_read_routes(r, deps, answer: _Answer) -> None:
@@ -183,21 +215,25 @@ def _point_read_routes(r, deps, answer: _Answer) -> None:
 
     @r.post("/qdrant/collections/{name}/points", dependencies=deps)
     async def retrieve(name: str, request: Request):  # pyright: ignore[reportUnusedFunction]
-        req = m.PointRequest.model_validate(await _body(request))
-        return await answer(
-            lambda c: c.retrieve(
+        data = await _body(request)
+
+        def run(c):
+            req = m.PointRequest.model_validate(_parsed(data))
+            return c.retrieve(
                 name,
                 ids=req.ids,
                 with_payload=_flag(req.with_payload, True),
                 with_vectors=_flag(req.with_vector, False),
             )
-        )
+
+        return await answer(run)
 
     @r.post("/qdrant/collections/{name}/points/scroll", dependencies=deps)
     async def scroll(name: str, request: Request):  # pyright: ignore[reportUnusedFunction]
-        req = m.ScrollRequest.model_validate(await _body(request))
+        data = await _body(request)
 
         def run(c):
+            req = m.ScrollRequest.model_validate(_parsed(data))
             points, nxt = c.scroll(
                 name,
                 scroll_filter=req.filter,
@@ -212,14 +248,21 @@ def _point_read_routes(r, deps, answer: _Answer) -> None:
 
     @r.post("/qdrant/collections/{name}/points/count", dependencies=deps)
     async def count(name: str, request: Request):  # pyright: ignore[reportUnusedFunction]
-        req = m.CountRequest.model_validate(await _body(request))
-        return await answer(lambda c: c.count(name, count_filter=req.filter, exact=req.exact is not False))
+        data = await _body(request)
+
+        def run(c):
+            req = m.CountRequest.model_validate(_parsed(data))
+            return c.count(name, count_filter=req.filter, exact=req.exact is not False)
+
+        return await answer(run)
 
     @r.post("/qdrant/collections/{name}/points/query", dependencies=deps)
     async def query(name: str, request: Request):  # pyright: ignore[reportUnusedFunction]
-        req = m.QueryRequest.model_validate(await _body(request))
-        return await answer(
-            lambda c: c.query_points(
+        data = await _body(request)
+
+        def run(c):
+            req = m.QueryRequest.model_validate(_parsed(data))
+            return c.query_points(
                 name,
                 query=req.query,
                 query_filter=req.filter,
@@ -229,24 +272,26 @@ def _point_read_routes(r, deps, answer: _Answer) -> None:
                 with_payload=_flag(req.with_payload, False),
                 with_vectors=_flag(req.with_vector, False),
             )
-        )
+
+        return await answer(run)
 
     @r.post("/qdrant/collections/{name}/points/search", dependencies=deps)
     async def search(name: str, request: Request):  # pyright: ignore[reportUnusedFunction]
         # The older search API: parsed by hand, because newer qdrant-client releases no longer ship its SearchRequest
         # model (CI, 2026-11-11). Only the fields empirica's raw /points/search fallbacks send.
         data = await _body(request)
-        flt = m.Filter.model_validate(data["filter"]) if data.get("filter") else None
-        return await answer(
-            lambda c: (
-                c.query_points(
-                    name,
-                    query=data.get("vector"),
-                    query_filter=flt,
-                    limit=int(data.get("limit") or 10),
-                    score_threshold=data.get("score_threshold"),
-                    with_payload=_flag(data.get("with_payload"), False),
-                    with_vectors=_flag(data.get("with_vector"), False),
-                ).points
-            )
-        )
+
+        def run(c):
+            body = _parsed(data)
+            flt = m.Filter.model_validate(body["filter"]) if body.get("filter") else None
+            return c.query_points(
+                name,
+                query=body.get("vector"),
+                query_filter=flt,
+                limit=int(body.get("limit") or 10),
+                score_threshold=body.get("score_threshold"),
+                with_payload=_flag(body.get("with_payload"), False),
+                with_vectors=_flag(body.get("with_vector"), False),
+            ).points
+
+        return await answer(run)
