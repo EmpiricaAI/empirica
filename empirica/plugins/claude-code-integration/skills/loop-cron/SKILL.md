@@ -244,5 +244,5 @@ the bespoke flag file becomes dead code and can be deleted.
 ## Related
 
 - `empirica status --all --pretty` — cockpit overview
-- `empirica sentinel pause/resume` — per-instance noetic firewall control
+- `empirica sentinel pause/resume` — per-instance Sentinel gate control
 - `docs/architecture/COCKPIT.md` — full state-file layout and discovery rules

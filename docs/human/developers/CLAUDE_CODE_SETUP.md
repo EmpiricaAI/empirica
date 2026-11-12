@@ -51,7 +51,7 @@ fresh, which picks up a changed timeout or matcher after an upgrade.
 
 | Hook | Event | Purpose |
 |---|---|---|
-| `sentinel-gate.py` | PreToolUse (Edit/Write, Bash) | Noetic firewall — denies Edit/Write/mutating Bash until the transaction is certified by grounded PREFLIGHT `claims` or a CHECK; records each decision in `.empirica/decisions.jsonl` |
+| `sentinel-gate.py` | PreToolUse (Edit/Write, Bash) | Discipline gate — holds Edit/Write and state-changing Bash until the transaction is certified by grounded PREFLIGHT `claims` or a CHECK (outside a transaction, a small budget of project-local edits runs and is recorded); records each decision in `.empirica/decisions.jsonl` |
 | `ruling-shape.py` | PreToolUse (AskUserQuestion) | Reminder when a single-select question has no `(Recommended)` option; never blocks. Marks a cockpit pane as waiting on a question |
 | `pane-waiting.py` | PermissionRequest, Notification | Marks a cockpit pane as waiting on a permission dialog, and sends a desktop notification when one goes unanswered; never decides |
 | `tool-router.py` | UserPromptSubmit | Suggests a domain agent, skill or workflow for the prompt, from whole-word keywords and the session's vectors |
@@ -71,9 +71,12 @@ fresh, which picks up a changed timeout or matcher after an upgrade.
 | `session-end-postflight.py` | SessionEnd | Auto-POSTFLIGHT if a transaction is still open |
 | `curate-snapshots.py` | SessionEnd | Prunes old snapshots |
 
-The Sentinel firewall is the load-bearing one: it gates praxic tools
-(Edit/Write/Bash) until the transaction is certified. A CHECK that falls
-below the threshold, or returns `investigate`, is an advisory allow, not a block.
+The Sentinel gate is the load-bearing one. It is a discipline layer, not a
+security boundary: it gates praxic tools (Edit/Write/Bash) until the
+transaction is certified, and in the default `discipline` mode lets a small,
+user-set budget of project-local edits run outside a transaction
+(`empirica sentinel mode` shows the mode and budget in force). A CHECK that
+falls below the threshold, or returns `investigate`, is an advisory allow, not a block.
 
 ---
 

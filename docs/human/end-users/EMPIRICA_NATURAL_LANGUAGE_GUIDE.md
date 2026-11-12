@@ -33,7 +33,7 @@ When you start Claude Code in a project with Empirica installed, several things 
 1. **Session created** — A unique session ID is generated, linked to this project
 2. **Context loaded** — Previous findings, goals, and calibration are retrieved
 3. **Statusline active** — Your terminal shows the AI's current epistemic state
-4. **Sentinel watching** — The noetic firewall prevents premature action
+4. **Sentinel watching** — The discipline layer keeps changes inside a measured transaction
 
 You don't need to do anything special. Just describe what you want to work on:
 
@@ -142,12 +142,15 @@ through conversation. Here are the phrases that drive each phase:
 
 ### The Sentinel: Why Investigation Comes First
 
-The **Sentinel** is a noetic firewall — it blocks destructive actions (editing files,
-running commands) until the AI has demonstrated sufficient understanding through CHECK.
+The **Sentinel** is a discipline layer, not a security boundary. It keeps work inside a
+measured transaction: reading, searching and exploring (noetic work) are always free, and
+changing things (praxic work) waits until the AI has said what that change rests on, at
+PREFLIGHT or at CHECK.
 
-This isn't bureaucracy. It prevents the most common AI failure mode: **acting before
-understanding**. The AI can read, search, and explore freely (noetic tools). But it
-can't edit, write, or execute (praxic tools) until CHECK passes.
+This isn't bureaucracy. It catches the most common AI failure mode: **acting before
+understanding**. A few small edits inside the project may run outside a transaction, up to
+a budget you set, and each one is recorded; commands that change state, files that run code
+or hold secrets, and anything that reaches outside the machine always need a transaction.
 
 You don't need to manage the Sentinel directly. It works automatically through hooks.
 If the AI says "CHECK returned investigate — I need to learn more before proceeding,"

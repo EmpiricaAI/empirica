@@ -27,7 +27,7 @@ If you want them, read on.
 ┌──────────────────────────────────────────────────────────────────┐
 │  EMPIRICA CORE  (this repo, pip install empirica)                │
 │  • Artifacts, goals, transactions, calibration                   │
-│  • Sentinel firewall, PREFLIGHT/CHECK/POSTFLIGHT                 │
+│  • Sentinel discipline gate, PREFLIGHT/CHECK/POSTFLIGHT          │
 │  • project-search (local), entity graph, commit-context          │
 │  • SQLite + git notes — all local                                │
 └────────────────────┬─────────────────────────────────────────────┘
