@@ -3179,6 +3179,42 @@ def _refuse_flags(args: Any, message: str) -> int:
     return 2
 
 
+def _handle_reconcile_sessions(args: Any, apply_it: bool) -> int:
+    """`doctor --reconcile-sessions`: close the registry's session rows that ended without being closed (goal 119e2972).
+    The plan by default; --apply writes. Exit 1 when a practice database could not be read (its rows stay active)."""
+    import sqlite3
+
+    from empirica.data.global_sessions import apply_reconcile, plan_reconcile, workspace_db_path
+
+    path = workspace_db_path()
+    if not path.exists():
+        print(
+            json.dumps({"ok": True, "applied": False, "note": f"no workspace registry at {path}: nothing to reconcile"})
+        )
+        return 0
+    conn = sqlite3.connect(str(path), timeout=10)
+    try:
+        the_plan = plan_reconcile(conn)
+        closed = apply_reconcile(conn, the_plan) if apply_it else 0
+    finally:
+        conn.close()
+    by_reason: dict[str, int] = {}
+    for item in the_plan["close"]:
+        by_reason[item["reason"]] = by_reason.get(item["reason"], 0) + 1
+    out = {
+        "ok": not the_plan["unknown_dbs"],
+        "applied": apply_it,
+        "counts": the_plan["counts"],
+        "would_close" if not apply_it else "closed": closed if apply_it else len(the_plan["close"]),
+        "by_reason": by_reason,
+        "unknown_dbs": the_plan["unknown_dbs"],
+    }
+    if not apply_it and the_plan["close"]:
+        out["next"] = "empirica doctor --reconcile-sessions --apply"
+    print(json.dumps(out, indent=2))
+    return 0 if out["ok"] else 1
+
+
 def handle_doctor_command(args: Any) -> int:
     cwd = Path.cwd()
     # Same guard as setup-claude-code: `--apply` is read only on the
@@ -3187,10 +3223,11 @@ def handle_doctor_command(args: Any) -> int:
     if (
         getattr(args, "apply", False)
         and not getattr(args, "reconcile_notes", False)
+        and not getattr(args, "reconcile_sessions", False)
         and not getattr(args, "scrub_secrets", False)
     ):
         msg = (
-            "doctor: --apply only means something with --reconcile-notes or --scrub-secrets. "
+            "doctor: --apply only means something with --reconcile-notes, --reconcile-sessions or --scrub-secrets. "
             "The health report never writes; nothing was done. "
             "Drop --apply for the report, or add one of those flags to repair."
         )
@@ -3206,6 +3243,14 @@ def handle_doctor_command(args: Any) -> int:
             args,
             "--reconcile-notes and --scrub-secrets rewrite different things; run them one at a time. Nothing was done.",
         )
+    repairs = [f for f in ("reconcile_notes", "reconcile_sessions", "scrub_secrets") if getattr(args, f, False)]
+    if len(repairs) > 1:
+        return _refuse_flags(
+            args,
+            f"{' and '.join('--' + f.replace('_', '-') for f in repairs)}: run one repair at a time. Nothing was done.",
+        )
+    if getattr(args, "reconcile_sessions", False):
+        return _handle_reconcile_sessions(args, apply_it=bool(getattr(args, "apply", False)))
     if getattr(args, "reconcile_notes", False):
         return _handle_reconcile_notes(cwd, apply_it=bool(getattr(args, "apply", False)))
     if getattr(args, "scrub_secrets", False):

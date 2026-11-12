@@ -1442,7 +1442,8 @@ _LOCAL_REFERENCE_TABLES: tuple[tuple[str, str, int], ...] = (
     ),
     ("entity_artifacts", "entity_type = 'project' AND entity_id = ?", 1),
     ("instance_bindings", "project_id = ?", 1),
-    ("global_sessions", "origin_project_id = ? OR current_project_id = ?", 2),
+    # An active session only: a closed one is history, not a use (goal 119e2972; workspace deleted two closed rows by hand).
+    ("global_sessions", "status = 'active' AND (origin_project_id = ? OR current_project_id = ?)", 2),
     ("engagements", "project_id = ?", 1),
 )
 

@@ -292,6 +292,9 @@ def close_session(session_id: str, db_path: str = "./.empirica/sessions/sessions
         )
 
         db.conn.commit()
+        from empirica.data.global_sessions import close_global_sessions
+
+        close_global_sessions([session_id])
         logger.info(f"Session {session_id} closed successfully")
 
     finally:

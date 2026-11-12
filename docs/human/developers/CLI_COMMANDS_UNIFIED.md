@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.16.0
-**Generated:** 2026-11-12 15:25:25 UTC
+**Generated:** 2026-11-12 16:45:13 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -4595,10 +4595,12 @@ Check Empirica install health (Desktop + general — .empirica/, git remote, Cor
   Repair historical notes/sqlite divergence: archive notes for artifacts sqlite no longer has, stamp resolutions notes never received. DRY-RUN unless --apply.
 - `--scrub-secrets` — optional · flag
   Remove credentials already stored in this project's artifacts: SQLite rows, git notes and Qdrant payloads (write-time redaction only stops new ones). DRY-RUN unless --apply. Never touches another practice.
+- `--reconcile-sessions` — optional · flag
+  Close the workspace registry's session rows that ended without being closed: the session ended in its practice, is absent from it, or the practice is gone from disk. A database that cannot be read is left as it is. DRY-RUN unless --apply.
 - `--include-global` — optional · flag
   WITH --scrub-secrets: also scrub the shared Qdrant collections (global_learnings, epistemic_events).
 - `--apply` — optional · flag
-  REQUIRES --reconcile-notes or --scrub-secrets: actually write (without --apply you get the plan). Refused on its own — the health report never writes.
+  REQUIRES --reconcile-notes, --reconcile-sessions or --scrub-secrets: actually write (without --apply you get the plan). Refused on its own — the health report never writes.
 
 #### `empirica release`
 

@@ -162,6 +162,10 @@ def auto_close_previous_sessions(db, ai_id, current_project_id, current_instance
                 )
 
     db.conn.commit()
+    if result["closed_sessions"]:
+        from empirica.data.global_sessions import close_global_sessions
+
+        close_global_sessions(s["session_id"] for s in result["closed_sessions"])
     return result
 
 

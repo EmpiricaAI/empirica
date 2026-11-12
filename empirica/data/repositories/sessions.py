@@ -257,6 +257,9 @@ class SessionRepository(BaseRepository):
         """,
             (datetime.utcnow().isoformat(), avg_confidence, drift_detected, notes, session_id),
         )
+        from empirica.data.global_sessions import close_global_sessions
+
+        close_global_sessions([session_id])  # the registry row closes with the session (goal 119e2972)
 
     # ------------------------------------------------------------------
     # Subagent session operations (migration 034 — isolated from main

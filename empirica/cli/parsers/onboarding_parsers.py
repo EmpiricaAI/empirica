@@ -323,6 +323,15 @@ Exit codes:
         ),
     )
     doctor_parser.add_argument(
+        "--reconcile-sessions",
+        action="store_true",
+        help=(
+            "Close the workspace registry's session rows that ended without being closed: the session ended in its "
+            "practice, is absent from it, or the practice is gone from disk. A database that cannot be read is left "
+            "as it is. DRY-RUN unless --apply."
+        ),
+    )
+    doctor_parser.add_argument(
         "--include-global",
         action="store_true",
         help="WITH --scrub-secrets: also scrub the shared Qdrant collections (global_learnings, epistemic_events).",
@@ -330,5 +339,5 @@ Exit codes:
     doctor_parser.add_argument(
         "--apply",
         action="store_true",
-        help="REQUIRES --reconcile-notes or --scrub-secrets: actually write (without --apply you get the plan). Refused on its own — the health report never writes.",
+        help="REQUIRES --reconcile-notes, --reconcile-sessions or --scrub-secrets: actually write (without --apply you get the plan). Refused on its own — the health report never writes.",
     )

@@ -70,6 +70,14 @@ GLOBAL_PROJECTS_COLUMNS: tuple[tuple[str, str, str], ...] = (
 )
 
 
+def ensure_global_sessions_closed_at(cursor) -> None:
+    """Give an existing ``global_sessions`` the ``closed_at`` column a close writes (goal 119e2972). The CREATE above had no such
+    column, so a table made by it could not record when a session closed; tables from older releases had it."""
+    cols = {r[1] for r in cursor.execute("PRAGMA table_info(global_sessions)").fetchall()}
+    if cols and "closed_at" not in cols:
+        cursor.execute("ALTER TABLE global_sessions ADD COLUMN closed_at REAL")
+
+
 def _ensure_global_projects(cursor: sqlite3.Cursor) -> None:
     """Create `global_projects`, or add the columns an older table lacks. Runs before its indexes."""
     columns = ",\n            ".join(" ".join(part for part in col if part) for col in GLOBAL_PROJECTS_COLUMNS)
@@ -116,10 +124,12 @@ def _ensure_workspace_schema(conn: sqlite3.Connection) -> None:
             parent_session_id TEXT,
             created_at REAL,
             last_activity REAL,
+            closed_at REAL,
             FOREIGN KEY (origin_project_id) REFERENCES global_projects(id),
             FOREIGN KEY (current_project_id) REFERENCES global_projects(id)
         )
     """)
+    ensure_global_sessions_closed_at(cursor)
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_global_sessions_instance
         ON global_sessions(instance_id, status)
