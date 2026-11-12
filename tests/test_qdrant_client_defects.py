@@ -295,3 +295,34 @@ def test_epistemics_search_applies_its_filters(monkeypatch):
     assert sorted(r["session_id"] for r in high) == ["1", "2"]
     good = es.search_epistemics("p1", "q", filters={"calibration_accuracy": "good"}, limit=5)
     assert [r["session_id"] for r in good] == ["1"]
+
+
+def test_the_not_embedded_warning_asks_about_the_projects_store(monkeypatch):
+    # It asked about the default store, so a per-org seat was told "no Qdrant at localhost:6333" (1.16.0 sweep, a34eef6d).
+    from empirica.cli.command_handlers import artifact_log_commands as alc
+
+    asked: list = []
+    monkeypatch.setattr(connection, "_check_qdrant_available", lambda *a, **k: True)
+    monkeypatch.setattr(
+        connection,
+        "semantic_layer_status",
+        lambda project_id=None: asked.append(project_id) or {"qdrant": "reachable", "semantic": True},
+    )
+    alc._embed_warning(False, "finding", project_id="p1")
+    assert asked == ["p1"]
+
+
+def test_doctors_semantic_check_asks_about_the_practices_store(monkeypatch, tmp_path):
+    from empirica.cli.command_handlers import doctor
+
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / "project.yaml").write_text("project_id: p1\n")
+    monkeypatch.chdir(tmp_path)
+    asked: list = []
+    monkeypatch.setattr(
+        connection,
+        "semantic_layer_status",
+        lambda project_id=None: asked.append(project_id) or {"semantic": True, "qdrant": "reachable"},
+    )
+    doctor.check_semantic_layer()
+    assert asked == ["p1"]

@@ -1622,8 +1622,12 @@ def check_semantic_layer(status_fn=None) -> Check:
     name = "Semantic search (Qdrant + embeddings)"
     try:
         if status_fn is None:
-            from empirica.core.qdrant.connection import semantic_layer_status as status_fn
-        status = status_fn()
+            from empirica.core.qdrant.connection import semantic_layer_status
+
+            # This practice's store: a seat routing Qdrant per organisation was told about the default one (1.16.x).
+            status = semantic_layer_status(_project_id_of(Path.cwd()))
+        else:
+            status = status_fn()
     except Exception as exc:
         return Check(name, WARN, f"could not check: {exc}")
     data = {k: status.get(k) for k in ("qdrant", "qdrant_url", "embeddings")}

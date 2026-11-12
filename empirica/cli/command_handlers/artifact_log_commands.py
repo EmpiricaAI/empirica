@@ -1192,7 +1192,7 @@ def _embed_finding_qdrant(project_id, finding_id, finding, session_id, goal_id, 
         return False
 
 
-def _embed_warning(embedded: bool, kind: str) -> str | None:
+def _embed_warning(embedded: bool, kind: str, project_id: str | None = None) -> str | None:
     """A line for the operator when Qdrant is in use and the artifact was NOT embedded, else None.
 
     The embed is deliberately non-fatal, so a failure used to leave only a ``logger.warning`` nobody reads, and the artifact
@@ -1206,7 +1206,9 @@ def _embed_warning(embedded: bool, kind: str) -> str | None:
 
         if not _check_qdrant_available():
             return None
-        status = semantic_layer_status()  # only on this failure path: it asks the server
+        status = semantic_layer_status(
+            project_id
+        )  # only on this failure path: it asks the server for THIS project's store
     except Exception:
         return None
     if status.get("qdrant") != "reachable":
@@ -1386,7 +1388,7 @@ def handle_finding_log_command(args):
         embedded = _embed_finding_qdrant(
             project_id, finding_id, finding, session_id, goal_id, subtask_id, subject, impact
         )
-        embed_warning = _embed_warning(embedded, "finding")
+        embed_warning = _embed_warning(embedded, "finding", project_id)
         if embed_warning:
             print(f"warning: {embed_warning}", file=sys.stderr)
         eidetic_result = _ingest_finding_eidetic(project_id, finding_id, finding, subject, impact, session_id)
