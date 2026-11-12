@@ -377,17 +377,30 @@ def local_server_service(service: str) -> str | None:
     return value
 
 
+#: The last answer from localhost:6333 and when it was asked. One prompt asked twice (the search client, then the embedding
+#: provider's store choice), and a hanging listener cost a second each time; 30 s lets a long-lived process see 6333 return.
+_probe_cache: dict[str, tuple[float, bool]] = {}
+_PROBE_TTL = 30.0
+
+
 def _probe_default_server() -> bool:
-    """Whether a Qdrant server answers on localhost:6333."""
+    """Whether a Qdrant server answers on localhost:6333 (cached per process for ``_PROBE_TTL`` seconds)."""
+    import time
+
+    hit = _probe_cache.get("6333")
+    if hit and time.monotonic() - hit[0] < _PROBE_TTL:
+        return hit[1]
     try:
         import urllib.request
 
         with urllib.request.urlopen(
             urllib.request.Request("http://localhost:6333/collections", method="GET"), timeout=1
         ):
-            return True
+            answer = True
     except Exception:
-        return False
+        answer = False
+    _probe_cache["6333"] = (time.monotonic(), answer)
+    return answer
 
 
 def _default_store_url() -> str:

@@ -548,6 +548,13 @@ def reset_process_wide_caches():
         is_editable_install.cache_clear()
     except Exception:
         pass
+    try:  # the 6333 probe answer and the local server's services are cached per process
+        import empirica.core.qdrant.connection as _qc
+
+        _qc._probe_cache.clear()
+        _qc._local_service_cache.clear()
+    except Exception:
+        pass
     yield
     try:
         import empirica.api.daemon_project as _dp

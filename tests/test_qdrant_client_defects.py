@@ -254,3 +254,21 @@ def test_a_scrub_of_a_fallback_store_holding_none_of_the_project_is_incomplete()
     out = ss.scrub_qdrant(Store(), "p1", empty_is_unknown=True)
     assert "error" in out and "fallback" in out["error"]
     assert "error" not in ss.scrub_qdrant(Store(), "p1")  # a configured store that holds nothing is a clean answer
+
+
+def test_the_6333_probe_is_asked_once_per_window(monkeypatch):
+    # The per-prompt path asked twice (qdrant_search_client, then the embedding provider's store_url); a hanging listener
+    # cost a second each time (1.16.x).
+    import urllib.request
+
+    calls: list = []
+
+    def refuse(*a, **k):
+        calls.append(1)
+        raise OSError("refused")
+
+    monkeypatch.setattr(urllib.request, "urlopen", refuse)
+    monkeypatch.setattr(connection, "_probe_cache", {}, raising=False)
+    assert connection._probe_default_server() is False
+    assert connection._probe_default_server() is False
+    assert len(calls) == 1
