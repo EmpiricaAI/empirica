@@ -2864,6 +2864,10 @@ def _handle_reconcile_notes(cwd: Path, apply_it: bool) -> int:
     from empirica.core.canonical.empirica_git.goal_note_state import apply_goal_notes, plan_goal_notes
 
     the_plan["goals"] = plan_goal_notes(db.conn, str(cwd))
+    # Unknown, assumption, decision and source refs a rewrite at HEAD forked before note_target (1.16.x, goal a34eef6d).
+    from empirica.core.canonical.empirica_git.note_lifecycle import apply_note_forks, plan_note_forks
+
+    the_plan["note_forks"] = plan_note_forks(str(cwd))
 
     # The worktree collapse is REPORTED, never silent: N worktrees sharing one
     # notes history reconcile ONCE, and a run that quietly skips the other N-1
@@ -2881,6 +2885,7 @@ def _handle_reconcile_notes(cwd: Path, apply_it: bool) -> int:
 
     receipt = _apply(db, str(cwd), the_plan)
     receipt["goals"] = apply_goal_notes(db.conn, str(cwd))
+    receipt["note_forks"] = apply_note_forks(str(cwd), the_plan["note_forks"])
     receipt["dry_run"] = False
     print(_json.dumps(receipt, indent=2, default=str))
 

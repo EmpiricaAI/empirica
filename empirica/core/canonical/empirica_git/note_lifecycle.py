@@ -185,3 +185,77 @@ def stamp_resolution(
         detail = (added.stderr.strip()[:120] if added else "git unavailable") or "unknown"
         return {"stamped": False, "reason": f"note rewrite failed: {detail}"}
     return {"stamped": True, "reason": "resolution stamped, note remains ACTIVE"}
+
+
+#: Note kinds whose stores rewrote a note at HEAD before note_target, so a ref may hold two notes. Goals have their own repair
+#: (goal_note_state._consolidate); findings, dead ends and mistakes are restamped on their own commit by stamp_resolution.
+FORKABLE_KINDS = ("unknowns", "assumptions", "decisions", "sources")
+
+
+def plan_note_forks(project_path: str | None) -> list[dict]:
+    """Every unknown, assumption, decision or source note ref that holds more than one note: ``[{"ref", "notes"}]``."""
+    out: list[dict] = []
+    refs = _git(
+        ["for-each-ref", "--format=%(refname)", *(f"{ACTIVE_PREFIX}/{k}/" for k in FORKABLE_KINDS)], project_path
+    )
+    for full in refs.stdout.split() if refs and refs.returncode == 0 else []:
+        short = full.removeprefix("refs/notes/")
+        listed = _git(["notes", f"--ref={short}", "list"], project_path)
+        count = len([ln for ln in (listed.stdout.splitlines() if listed else []) if len(ln.split()) >= 2])
+        if count > 1:
+            out.append({"ref": short, "notes": count})
+    return out
+
+
+def _merged_note(ref: str, commits: list[str], project_path: str | None) -> dict | None:
+    """The notes of one ref merged oldest commit first, a later non-null value winning: these artifacts' state only moves
+    forward (resolved, verified, assessed, archived), so the newest write holds it, and earlier keys it dropped survive."""
+    dated = []
+    for commit in commits:
+        # Ordered by how many commits precede it, then by commit time: two commits made in the same second tie on time, and
+        # the old writer always wrote at the HEAD of the moment, so the deeper commit holds the later write.
+        depth = _git(["rev-list", "--count", commit], project_path)
+        when = _git(["show", "-s", "--format=%ct", commit], project_path)
+        shown = _git(["notes", f"--ref={ref}", "show", commit], project_path)
+        try:
+            payload = json.loads(shown.stdout) if shown and shown.returncode == 0 else None
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            key = (
+                int(depth.stdout.strip() or 0) if depth and depth.returncode == 0 else 0,
+                int(when.stdout.strip() or 0) if when and when.returncode == 0 else 0,
+            )
+            dated.append((key, payload))
+    if not dated:
+        return None
+    merged: dict = {}
+    for _when, payload in sorted(dated, key=lambda d: d[0]):
+        merged.update({k: v for k, v in payload.items() if v is not None or k not in merged})
+    return merged
+
+
+def apply_note_forks(project_path: str | None, plan: list[dict]) -> dict:
+    """Merge each planned ref onto the commit readers look at first and remove its other notes. ``{"merged", "failed"}``.
+    The removed notes stay in the notes ref's own history."""
+    merged = failed = 0
+    for item in plan:
+        ref = item["ref"]
+        listed = _git(["notes", f"--ref={ref}", "list"], project_path)
+        commits = [ln.split()[1] for ln in (listed.stdout.splitlines() if listed else []) if len(ln.split()) >= 2]
+        note = _merged_note(ref, commits, project_path) if len(commits) > 1 else None
+        if note is None:
+            failed += len(commits) > 1
+            continue
+        wrote = _git(
+            ["notes", f"--ref={ref}", "add", "-f", "-F", "-", commits[0]],
+            project_path,
+            input=json.dumps(note, indent=2),
+        )
+        if not wrote or wrote.returncode != 0:
+            failed += 1
+            continue
+        for commit in commits[1:]:
+            _git(["notes", f"--ref={ref}", "remove", commit], project_path)
+        merged += 1
+    return {"merged": merged, "failed": failed}
