@@ -185,6 +185,11 @@
       "reason": "The Sentinel check-submit deadlock anecdote is verified (CHANGELOG 1.8.9). CONTRADICTED: 'the AI cannot act until it demonstrates understanding' (PREFLIGHT claims skip CHECK; CHECK certifies, it does not unlock). Unsourced: 2-3X rework, 0.14-0.16 vs 0.20-0.25, 10 minutes, 'measurably faster'; the document calls its claim testable and it is untested. Rewriting a brand document is a separate decision.",
       "decided_by": "empirica (2026-10-27 gate crossing; read 2026-10-13, goal 61c3bd28)",
       "review_by": "2026-12-31"
+    },
+    "docs/architecture/NOTIFY.md": {
+      "status": "verified_current",
+      "reason": "Read 2026-11-12 and checked against HEAD: the four verbs (emit, config, backends, test) and every emit flag in the doc match `empirica notify --help` / `notify emit --help`; ~/.empirica/notify.yaml is the config the parser names; the three backends (stdout, log, ntfy) exist in empirica/core/notify/backends.py; the cockpit summary still carries the notify_dispatcher block.",
+      "decided_by": "empirica (2026-11-12, 1.16.x)"
     }
   }
 }
