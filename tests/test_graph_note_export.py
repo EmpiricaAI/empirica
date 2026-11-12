@@ -112,3 +112,44 @@ def test_falsifiers_exported_then_rebuilt_come_back_with_their_verdict(practice,
     finally:
         fresh.close()
     assert rebuilt["falsifiers"] == 2 and rows == {"fa1": "survived", "fa2": "tripped"}
+
+
+def test_lessons_exported_then_rebuilt_come_back(practice, tmp_path):
+    from empirica.cli.command_handlers.sync_commands import _rebuild_lessons
+    from empirica.core.lessons import EpistemicDelta, Lesson, LessonEpistemic
+    from empirica.core.lessons.storage import LessonStorageManager
+
+    db = SessionDatabase()
+    try:
+        store = LessonStorageManager(
+            db_conn=db.conn, cold_storage_path=practice / ".empirica" / "lessons", qdrant_client=None
+        )
+        for name in ("read before writing", "commit per task"):
+            store.create_lesson(
+                Lesson(
+                    id=f"id-{name[:4]}",
+                    name=name,
+                    version="1.0",
+                    description=f"{name}: why it matters",
+                    epistemic=LessonEpistemic(
+                        source_confidence=0.8,
+                        teaching_quality=0.8,
+                        reproducibility=0.8,
+                        expected_delta=EpistemicDelta(),
+                    ),
+                )
+            )
+        assert gx.export_lesson_notes(str(practice))["written"] == 2
+        assert gx.export_lesson_notes(str(practice))["written"] == 0
+    finally:
+        db.close()
+
+    fresh = SessionDatabase(db_path=str(tmp_path / "fresh.db"))
+    try:
+        rebuilt: dict = {}
+        _rebuild_lessons(fresh, rebuilt, str(practice), cold_storage_path=tmp_path / "fresh_lessons")
+        names = sorted(r[0] for r in fresh.conn.execute("SELECT name FROM lessons").fetchall())
+    finally:
+        fresh.close()
+    assert rebuilt["lessons"] == 2 and names == ["commit per task", "read before writing"]
+    assert sorted(p.name for p in (tmp_path / "fresh_lessons").iterdir()) == ["id-comm.yaml", "id-read.yaml"]

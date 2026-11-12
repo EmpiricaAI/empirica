@@ -1793,6 +1793,34 @@ def _rebuild_falsifiers(db, rebuilt, root: str | None = None) -> None:
     conn.commit()
 
 
+def _rebuild_lessons(db, rebuilt, root: str | None = None, cold_storage_path=None) -> None:
+    """Lessons from their notes (goal 966808c0), recreated through the lesson store so every layer is written; the store
+    refuses an id it already holds, so an existing lesson is kept. No vector search here: project-embed adds it."""
+    import os
+    from pathlib import Path
+
+    from empirica.core.canonical.empirica_git.graph_note_export import discover_lesson_notes
+    from empirica.core.lessons import Lesson
+    from empirica.core.lessons.storage import LessonStorageManager
+
+    rebuilt.setdefault("lessons", 0)
+    base = root or os.getcwd()
+    notes = discover_lesson_notes(base)
+    if not notes:
+        return
+    store = LessonStorageManager(
+        db_conn=db.adapter.conn,
+        cold_storage_path=Path(cold_storage_path) if cold_storage_path else Path(base) / ".empirica" / "lessons",
+        qdrant_client=None,
+    )
+    for data in notes:
+        try:
+            if store.create_lesson(Lesson.from_dict(data)).get("ok"):
+                rebuilt["lessons"] += 1
+        except Exception as e:
+            logger.debug(f"rebuild lesson skip ({str(data.get('id'))[:8]}): {e}")
+
+
 def _rebuild_from_notes() -> dict[str, Any]:
     """
     Rebuild database from git notes.
@@ -1849,6 +1877,7 @@ def _rebuild_from_notes() -> dict[str, Any]:
         _rebuild_sources(db, rebuilt)
         _rebuild_edges(db, rebuilt)
         _rebuild_falsifiers(db, rebuilt)
+        _rebuild_lessons(db, rebuilt)
 
         db.close()
 

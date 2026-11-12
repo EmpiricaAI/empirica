@@ -146,3 +146,42 @@ def _discover(root: str, prefix: str) -> list[dict]:
         if isinstance(payload, dict):
             out.append(payload)
     return out
+
+
+LESSON_PREFIX = "empirica/lessons"
+
+
+def export_lesson_notes(root: str, *, full: bool = False) -> dict:
+    """Write the note of every lesson whose cold YAML (its full content, under .empirica/lessons, which git ignores) changed
+    since the watermark (all of them when ``full``). ``{"written", "failed"}``."""
+    import yaml
+
+    folder = Path(root) / ".empirica" / "lessons"
+    since = 0.0 if full else float(_watermarks(root).get("lessons") or 0.0)
+    changed = sorted(
+        (p.stat().st_mtime, p) for p in (folder.glob("*.yaml") if folder.is_dir() else []) if p.stat().st_mtime > since
+    )
+    written = failed = 0
+    newest = since
+    for mtime, path in changed:
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as e:
+            logger.warning("lesson %s not exported: %s", path.name, e)
+            continue
+        if not isinstance(data, dict) or not data.get("id"):
+            continue
+        if _write_note(root, f"{LESSON_PREFIX}/{data['id']}", {"lesson": data}):
+            written += 1
+            newest = max(newest, mtime)
+        else:
+            failed += 1
+            break
+    if written:
+        _save_watermark(root, "lessons", newest)
+    return {"written": written, "failed": failed}
+
+
+def discover_lesson_notes(root: str) -> list[dict]:
+    """Every lesson note's full lesson, for the rebuild."""
+    return [p["lesson"] for p in _discover(root, LESSON_PREFIX) if isinstance(p.get("lesson"), dict)]
