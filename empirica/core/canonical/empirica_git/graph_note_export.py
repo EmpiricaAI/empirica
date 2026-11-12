@@ -92,7 +92,45 @@ def export_edge_notes(conn, root: str, *, limit: int | None = DEFAULT_LIMIT, ful
 
 def discover_edge_notes(root: str) -> list[dict]:
     """Every edge note's payload, for the rebuild."""
-    refs = _git(["for-each-ref", "--format=%(refname)", f"refs/notes/{EDGE_PREFIX}/"], root)
+    return [p for p in _discover(root, EDGE_PREFIX) if isinstance(p.get("edges"), list)]
+
+
+FALSIFIER_PREFIX = "empirica/falsifiers"
+
+
+def export_falsifier_notes(conn, root: str, *, full: bool = False) -> dict:
+    """Write the note of every falsifier registered or adjudicated since the watermark (all of them when ``full``): the whole
+    row, so a rebuild brings it back with its verdict. ``{"written", "failed"}``."""
+    since = 0.0 if full else float(_watermarks(root).get("falsifiers") or 0.0)
+    cur = conn.execute(
+        "SELECT *, MAX(COALESCE(adjudicated_at, 0), COALESCE(registered_at, 0)) AS changed FROM falsifiers "
+        "WHERE MAX(COALESCE(adjudicated_at, 0), COALESCE(registered_at, 0)) > ? ORDER BY changed",
+        (since,),
+    )
+    names = [d[0] for d in cur.description]
+    written = failed = 0
+    newest = since
+    for row in cur.fetchall():
+        record = dict(zip(names, row, strict=True))
+        changed = record.pop("changed") or 0.0
+        if _write_note(root, f"{FALSIFIER_PREFIX}/{record['id']}", {"falsifier": record}):
+            written += 1
+            newest = max(newest, float(changed))
+        else:
+            failed += 1
+            break
+    if written:
+        _save_watermark(root, "falsifiers", newest)
+    return {"written": written, "failed": failed}
+
+
+def discover_falsifier_notes(root: str) -> list[dict]:
+    """Every falsifier note's row, for the rebuild."""
+    return [p["falsifier"] for p in _discover(root, FALSIFIER_PREFIX) if isinstance(p.get("falsifier"), dict)]
+
+
+def _discover(root: str, prefix: str) -> list[dict]:
+    refs = _git(["for-each-ref", "--format=%(refname)", f"refs/notes/{prefix}/"], root)
     out = []
     for full in refs.stdout.split() if refs and refs.returncode == 0 else []:
         short = full.removeprefix("refs/notes/")
@@ -105,6 +143,6 @@ def discover_edge_notes(root: str) -> list[dict]:
             payload = json.loads(shown.stdout) if shown and shown.returncode == 0 else None
         except ValueError:
             payload = None
-        if isinstance(payload, dict) and isinstance(payload.get("edges"), list):
+        if isinstance(payload, dict):
             out.append(payload)
     return out

@@ -80,3 +80,35 @@ def test_a_bounded_run_resumes_where_it_stopped(practice):
         assert gx.export_edge_notes(db.conn, str(practice), limit=2)["written"] == 0
     finally:
         db.close()
+
+
+def test_falsifiers_exported_then_rebuilt_come_back_with_their_verdict(practice, tmp_path):
+    from empirica.cli.command_handlers.sync_commands import _rebuild_falsifiers
+
+    db = SessionDatabase()
+    try:
+        cols = "id, project_id, session_id, statement, query, state, registered_at, parent_type, parent_id"
+        db.conn.execute(
+            f"INSERT INTO falsifiers ({cols}) VALUES ('fa1', 'p', 's', 'a row reads human', 'select 1', 'open', 100.0, 'finding', 'f1')"
+        )
+        db.conn.execute(
+            f"INSERT INTO falsifiers ({cols}, evidence, adjudicated_at) VALUES ('fa2', 'p', 's', 'x', NULL, 'tripped', 101.0, "
+            "'assumption', 'a1', 'it fired', 200.0)"
+        )
+        db.conn.commit()
+        assert gx.export_falsifier_notes(db.conn, str(practice))["written"] == 2
+        assert gx.export_falsifier_notes(db.conn, str(practice))["written"] == 0
+        db.conn.execute("UPDATE falsifiers SET state = 'survived', adjudicated_at = 300.0 WHERE id = 'fa1'")
+        db.conn.commit()
+        assert gx.export_falsifier_notes(db.conn, str(practice))["written"] == 1
+    finally:
+        db.close()
+
+    fresh = SessionDatabase(db_path=str(tmp_path / "fresh.db"))
+    try:
+        rebuilt: dict = {}
+        _rebuild_falsifiers(fresh, rebuilt, str(practice))
+        rows = dict(fresh.conn.execute("SELECT id, state FROM falsifiers").fetchall())
+    finally:
+        fresh.close()
+    assert rebuilt["falsifiers"] == 2 and rows == {"fa1": "survived", "fa2": "tripped"}

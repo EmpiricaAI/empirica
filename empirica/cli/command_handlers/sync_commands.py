@@ -1767,6 +1767,32 @@ def _rebuild_edges(db, rebuilt, root: str | None = None) -> None:
     db.adapter.conn.commit()
 
 
+def _rebuild_falsifiers(db, rebuilt, root: str | None = None) -> None:
+    """Falsifiers from their notes, with their verdict (goal 966808c0). Only the table's own columns are restored; an
+    existing falsifier is kept."""
+    import os
+
+    from empirica.core.canonical.empirica_git.graph_note_export import discover_falsifier_notes
+
+    rebuilt.setdefault("falsifiers", 0)
+    conn = db.adapter.conn
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(falsifiers)")}
+    for row in discover_falsifier_notes(root or os.getcwd()):
+        record = {k: v for k, v in row.items() if k in columns}
+        if not record.get("id"):
+            continue
+        try:
+            names = ", ".join(record)
+            cur = conn.execute(
+                f"INSERT OR IGNORE INTO falsifiers ({names}) VALUES ({', '.join('?' for _ in record)})",
+                tuple(record.values()),
+            )
+            rebuilt["falsifiers"] += cur.rowcount
+        except Exception as e:
+            logger.debug(f"rebuild falsifier skip ({str(record.get('id'))[:8]}): {e}")
+    conn.commit()
+
+
 def _rebuild_from_notes() -> dict[str, Any]:
     """
     Rebuild database from git notes.
@@ -1822,6 +1848,7 @@ def _rebuild_from_notes() -> dict[str, Any]:
         _rebuild_decisions(db, rebuilt)
         _rebuild_sources(db, rebuilt)
         _rebuild_edges(db, rebuilt)
+        _rebuild_falsifiers(db, rebuilt)
 
         db.close()
 
