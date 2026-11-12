@@ -71,3 +71,20 @@ def test_rewrites_after_a_commit_keep_one_note_per_artifact(repo):
     assert a.load_assumption("a1")["status"] == "verified"
     assert d.load_decision("d1")["outcome"] == "reversed"
     assert s.load_source("s1")["archived"] is True
+
+
+def test_resolving_a_finding_after_a_commit_keeps_one_note_and_its_date(repo):
+    # resolve_finding re-stored at HEAD and without created_at: a second note, and the finding dated to its resolution
+    # (goal 73b02132).
+    from empirica.core.canonical.empirica_git.finding_store import GitFindingStore
+
+    root, git = repo
+    store = GitFindingStore(str(root))
+    assert store.store_finding(
+        finding_id="f1", project_id="p", session_id="s", ai_id="t", finding="x", created_at="2026-01-01T00:00:00+00:00"
+    )
+    git("commit", "-q", "--allow-empty", "-m", "two")
+    assert store.resolve_finding("f1", "answered")
+    assert len(_notes(root, "empirica/findings/f1")) == 1
+    note = store.load_finding("f1")
+    assert note["is_resolved"] is True and note["created_at"] == "2026-01-01T00:00:00+00:00"

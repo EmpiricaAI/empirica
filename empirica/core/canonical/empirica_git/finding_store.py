@@ -162,14 +162,12 @@ class GitFindingStore:
             # Serialize
             payload_json = json.dumps(payload, indent=2)
 
-            # Get current commit
-            result = subprocess.run(
-                ["git", "rev-parse", "HEAD"], cwd=self.workspace_root, capture_output=True, text=True, check=True
-            )
-            commit_hash = result.stdout.strip()
-
-            # Store in git notes (refs/notes/empirica/findings/<finding-id>)
+            # Store in git notes (refs/notes/empirica/findings/<finding-id>), where the current note lives: a rewrite at a
+            # moved HEAD left a second note and readers took the first listed (goal 73b02132).
             note_ref = f"empirica/findings/{finding_id}"
+            from empirica.core.canonical.empirica_git.note_lifecycle import note_target
+
+            commit_hash = note_target(note_ref, self.workspace_root)
             subprocess.run(
                 ["git", "notes", f"--ref={note_ref}", "add", "-f", "-F", "-", commit_hash],
                 input=payload_json,
@@ -261,6 +259,7 @@ class GitFindingStore:
             subtask_id=finding_data.get("subtask_id"),
             subject=finding_data.get("subject"),
             finding_data=finding_data.get("finding_data"),
+            created_at=finding_data.get("created_at"),  # or the finding is dated to its resolution (goal 73b02132)
             is_resolved=True,
             resolution=resolution,
             superseded_by=superseded_by,
