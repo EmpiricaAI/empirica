@@ -59,12 +59,6 @@
       "decided_by": "empirica (2026-10-30, pre-publish sweep T7; claims audited by a read-only reviewer against HEAD, not independently re-verified by me)",
       "review_by": "2027-01-31"
     },
-    "docs/reference/api/qdrant.md": {
-      "status": "pending_review",
-      "reason": "Subject live but the page has at least two phantom symbols: of 8 functions checked, delete_memory and rank_items have no definition anywhere under empirica/core/qdrant/. The other 6 do exist. NOTE for whoever reviews: a top-level hasattr on the package reports ALL 11 missing because the __init__ does not re-export them — that reading is an artifact, not absence. Start from the two named above.",
-      "decided_by": "empirica (2026-09-13, crossed 180d)",
-      "review_by": "2026-12-01"
-    },
     "docs/reference/api/signaling.md": {
       "status": "pending_review",
       "reason": "Audited 2026-10-30: about 35 claims checked, about 34 hold; the format_vectors_compact example output was confirmed by running it. One WRONG sentence: it says inverted=True means lower is better for uncertainty, density, change and impact, but only uncertainty is inverted (signaling.py:73-87). Undocumented: get_vector_health, get_vector_emoji, get_health_emoji, format_vector_state, HEALTH_EMOJIS, VectorConfig, and three format_vectors_compact parameters (keys, show_values, use_percentage).",

@@ -143,7 +143,6 @@ from empirica.core.qdrant.vector_store import (
     init_collections,
     upsert_memory,
     search,
-    delete_memory
 )
 
 # Initialize Qdrant collections for project
@@ -165,9 +164,6 @@ results = search(
     threshold=0.7
 )
 # Returns: {"findings": [...], "query": "...", "count": 5}
-
-# Delete memory
-delete_memory(project_id="my-project", ids=["f1"])
 ```
 
 ---
@@ -264,7 +260,7 @@ includes code API embedding (30s timeout, best-effort).
 
 - `empirica/core/qdrant/embeddings.py` - EmbeddingsProvider, get_embedding, get_vector_size
 - `empirica/core/qdrant/code_embeddings.py` - Code API extraction and embedding
-- `empirica/core/qdrant/vector_store.py` - init_collections, upsert_memory, search, delete_memory
+- `empirica/core/qdrant/vector_store.py` - init_collections, upsert_memory, search
 - `empirica/core/qdrant/pattern_retrieval.py` - retrieve_task_patterns, check_against_patterns
 
 ---
