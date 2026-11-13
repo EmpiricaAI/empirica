@@ -12,7 +12,7 @@ import inspect
 
 import pytest
 
-from empirica.core.fact_confidence import DEFAULT_FACT_CONFIDENCE, finding_fact_confidence
+from empirica.core.fact_confidence import finding_fact_confidence
 
 
 @pytest.mark.parametrize(
@@ -21,13 +21,6 @@ from empirica.core.fact_confidence import DEFAULT_FACT_CONFIDENCE, finding_fact_
 )
 def test_the_formula(impact, expected):
     assert finding_fact_confidence(impact) == expected
-
-
-def test_a_high_impact_finding_still_clears_the_promotion_threshold():
-    from empirica.core.memory_manager import PROMOTE_MIN_CONFIDENCE
-
-    assert finding_fact_confidence(0.8) >= PROMOTE_MIN_CONFIDENCE
-    assert DEFAULT_FACT_CONFIDENCE < PROMOTE_MIN_CONFIDENCE  # an unrated finding does not promote
 
 
 def test_every_writer_calls_the_one_formula_and_none_keeps_its_own():

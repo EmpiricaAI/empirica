@@ -29,7 +29,6 @@ from ._workflow_postflight import (
     _build_postflight_result,
     _cortex_resolve_project_id,
     _postflight_parse_config_or_legacy,
-    _postflight_update_memory_hot_cache,
     _validate_postflight_preconditions,
     handle_postflight_submit_command,
 )
@@ -48,7 +47,6 @@ __all__ = [
     "_cortex_resolve_project_id",
     "_extract_numeric_value",
     "_postflight_parse_config_or_legacy",
-    "_postflight_update_memory_hot_cache",
     "_soft_run",
     "_validate_postflight_preconditions",
     "handle_check_command",

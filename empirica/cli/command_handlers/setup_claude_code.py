@@ -2752,6 +2752,18 @@ def handle_setup_claude_code_command(args):
 
             serve_restarted = restart_serve_service_if_running()
 
+        # Stage 6.10: Take out the EPISTEMIC FOCUS block POSTFLIGHT used to write into each project's MEMORY.md (goal
+        # ea3335ec). Claude Code owns that file now; every other line in it is kept. Idempotent: 0 after the first run.
+        try:
+            from empirica.core.memory_manager import strip_legacy_focus_blocks
+
+            memory_blocks_removed: int | None = strip_legacy_focus_blocks(claude_dir / "projects")
+        except Exception as e:
+            logger.warning(f"setup: could not clean MEMORY.md files: {e}")
+            memory_blocks_removed = None
+        if output_format != "json" and memory_blocks_removed:
+            print(f"   Removed the old EPISTEMIC FOCUS block from {memory_blocks_removed} MEMORY.md file(s)")
+
         # Stage 7: Output
         if output_format == "json":
             return {
@@ -2773,6 +2785,7 @@ def handle_setup_claude_code_command(args):
                 "listener_service": listener_service_result,
                 "serve_restarted": serve_restarted,
                 "identity_migration": identity_migration_result,
+                "memory_blocks_removed": memory_blocks_removed,  # None: the cleanup could not run
                 "hooks_configured": [
                     "PreToolUse (Sentinel)",
                     "PreCompact",

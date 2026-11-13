@@ -492,8 +492,7 @@ if snapshot:
 
 When sessions end, the `session-end-postflight` hook:
 1. Auto-captures POSTFLIGHT if the PREFLIGHT→POSTFLIGHT cycle wasn't explicitly closed
-2. Updates Claude Code's `MEMORY.md` with epistemically-ranked breadcrumbs from this session's project
-3. Cleans up instance isolation files (`active_work_*`, `tty_sessions/`)
+2. Cleans up instance isolation files (`active_work_*`, `tty_sessions/`)
 
 The `task-completed` hook bridges Claude Code tasks to Empirica goals:
 - Fuzzy-matches completed task subjects against open Empirica goals (threshold: 0.6)

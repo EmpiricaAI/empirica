@@ -12,7 +12,7 @@ Usage:
 
     payload = build_bootstrap_payload(project_path)
     md = render_v2_supplemental(payload)
-    # Append `md` to the additionalContext / MEMORY.md hot cache
+    # Append `md` to the hook's additionalContext
 """
 
 from __future__ import annotations

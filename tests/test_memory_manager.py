@@ -1,373 +1,188 @@
-"""Tests for empirica.core.memory_manager — the CC memory KV cache layer.
+"""Tests for empirica.core.memory_manager — Claude Code's memory folder, read and cleaned, never filled (goal ea3335ec).
 
-Covers: hot cache updates, auto-section replacement, promotion, demotion,
-eviction, stale marker cleanup, and edge cases from the audit.
+POSTFLIGHT and session end used to write an EPISTEMIC FOCUS block into MEMORY.md and promote facts into promoted_*.md files.
+The block duplicated the session-start block, and no MEMORY.md ever indexed a promoted file, so Claude Code never loaded one
+(0 references across 20 memory folders, 2026-11-13). What is left: stats for memory-report, the manual archive of promoted
+files (profile-prune --scope memory), and a one-time removal of the old block, run by setup-claude-code.
 """
 
 from __future__ import annotations
 
+import os
+import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
+import empirica.core.memory_manager as mm
 from empirica.core.memory_manager import (
-    MEMORY_AUTO_START,
-    _collapse_blank_runs,
-    _format_auto_section,
     _remove_from_memory_index,
-    _replace_auto_section,
-    _strip_stale_markers,
-    _try_promote_point,
     demote_stale_memories,
-    enforce_memory_md_cap,
-    promote_eidetic_to_memory,
-    update_hot_cache,
+    get_memory_stats,
+    strip_legacy_focus_block,
+    strip_legacy_focus_blocks,
 )
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+MANUAL_TOP = """# Empirica Project Memory
 
-MANUAL_CONTENT = """# Empirica Project Memory
+## Working agreements
 
-## Important Thing
-
-- [Link](some_file.md) — description
+- [Patch releases by default](feedback_patch.md) — 1.16.x for fixes
 """
 
-AUTO_SECTION = f"""
-{MEMORY_AUTO_START}
+# The block as update_hot_cache wrote it, footer included (shape copied from a live MEMORY.md, 2026-11-13).
+BLOCK = """
+## EPISTEMIC FOCUS (Confidence-Ranked)
 
-### Critical (weight > 0.7)
-- [0.90] **Finding:** Something important...
+### Important (weight 0.4-0.7)
+- [0.60] **Finding:** 1.16.2 pre-publish pass, in progress...
+- [0.55] **Finding:** Change-without-knowledge, measured on core...
+
+### Dead-Ends (avoid re-trying)
+- [1.06] **Dead-End:** Bash: set -o pipefail && python3 - <<'EOF'
+
+### Mistakes (prevention strategies)
+- [0.50] **Mistake:** Saved a schema migration into the live tree
+
+### Active Goals (10)
+- [0.44] **Goal:** 1.16.2 pre-publish pass...
 
 ---
-📊 **5 items ranked** | For deeper context:
-- `empirica project-bootstrap --session-id abc12345` (full load + subtasks)
+📊 **55 items ranked** | For deeper context:
+- `empirica project-bootstrap --session-id 020720fc` (full load + subtasks)
+- `empirica project-search --task "<query>"` (Qdrant semantic)
 - `git notes show --ref=breadcrumbs HEAD` (session narrative)
 """
 
 
-def _write_memory_md(memory_dir: Path, content: str) -> Path:
-    """Write content to MEMORY.md in the given dir."""
-    md = memory_dir / "MEMORY.md"
-    md.write_text(content)
-    return md
+def _memory(tmp_path, text):
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    path = memory_dir / "MEMORY.md"
+    path.write_text(text)
+    return path
 
 
-# ---------------------------------------------------------------------------
-# _strip_stale_markers
-# ---------------------------------------------------------------------------
+# ── the one-time removal ────────────────────────────────────────────────────────────────────────────────────────────────
 
 
-def test_strip_stale_markers_removes_html_comments():
-    content = "before\n<!-- empirica-auto-start -->\nafter"
-    assert "empirica-auto-start" not in _strip_stale_markers(content)
-    assert "before" in _strip_stale_markers(content)
-    assert "after" in _strip_stale_markers(content)
+def test_the_block_is_removed_and_the_manual_lines_kept(tmp_path):
+    path = _memory(tmp_path, MANUAL_TOP + BLOCK)
+    assert strip_legacy_focus_block(path) is True
+    assert path.read_text() == MANUAL_TOP
+    assert (path.parent / ".memory_lock").exists()  # written under the lock the old writers used
 
 
-def test_strip_stale_markers_no_op_on_clean_content():
-    content = "clean content\nno markers here"
-    assert _strip_stale_markers(content) == content
+def test_lines_written_below_the_block_survive(tmp_path):
+    after = "\n## Later\n\n- [Added after](feedback_later.md) — kept\n"
+    path = _memory(tmp_path, MANUAL_TOP + BLOCK + after)
+    strip_legacy_focus_block(path)
+    assert path.read_text() == MANUAL_TOP + after
 
 
-# ---------------------------------------------------------------------------
-# _collapse_blank_runs
-# ---------------------------------------------------------------------------
+def test_a_block_whose_footer_the_cap_cut_off_ends_at_the_first_line_that_is_not_its_own(tmp_path):
+    # enforce_memory_md_cap trimmed the block from the bottom, so the footer could be gone; an index line ("- [Title](f.md)")
+    # right after it must not be read as one of the block's "- [0.60]" lines.
+    truncated = BLOCK.split("\n\n### Mistakes")[0] + "\n"
+    after = "- [Index line](feedback_x.md) — kept\n"
+    path = _memory(tmp_path, MANUAL_TOP + truncated + after)
+    strip_legacy_focus_block(path)
+    assert path.read_text() == MANUAL_TOP + after
 
 
-def test_collapse_blank_runs():
-    content = "a\n\n\n\n\n\nb"
-    result = _collapse_blank_runs(content)
-    assert result.count("\n") <= 3  # max 2 consecutive blanks
+def test_a_file_without_the_block_is_not_rewritten(tmp_path):
+    path = _memory(tmp_path, MANUAL_TOP)
+    old = time.time() - 3600
+    os.utime(path, (old, old))
+    assert strip_legacy_focus_block(path) is False
+    assert path.stat().st_mtime == old
+    assert path.read_text() == MANUAL_TOP
 
 
-def test_collapse_blank_runs_preserves_single_blanks():
-    content = "a\n\nb\n\nc"
-    assert _collapse_blank_runs(content) == content
+def test_a_second_run_changes_nothing(tmp_path):
+    path = _memory(tmp_path, MANUAL_TOP + BLOCK)
+    strip_legacy_focus_block(path)
+    assert strip_legacy_focus_block(path) is False
+    assert path.read_text() == MANUAL_TOP
 
 
-# ---------------------------------------------------------------------------
-# _replace_auto_section
-# ---------------------------------------------------------------------------
+def test_a_missing_file_is_not_an_error(tmp_path):
+    assert strip_legacy_focus_block(tmp_path / "memory" / "MEMORY.md") is False
 
 
-def test_replace_auto_section_append_when_no_auto():
-    result = _replace_auto_section(MANUAL_CONTENT, AUTO_SECTION)
-    assert MEMORY_AUTO_START in result
-    assert "Important Thing" in result
+def test_every_project_memory_folder_is_cleaned_and_counted(tmp_path):
+    root = tmp_path / "projects"
+    a = _memory(root / "-w-a", MANUAL_TOP + BLOCK)
+    b = _memory(root / "-w-b", MANUAL_TOP)
+    (root / "-w-c").mkdir(parents=True)  # a project with no memory folder
+    assert strip_legacy_focus_blocks(root) == 1
+    assert a.read_text() == MANUAL_TOP
+    assert b.read_text() == MANUAL_TOP
+    assert strip_legacy_focus_blocks(tmp_path / "absent") == 0
 
 
-def test_replace_auto_section_replaces_existing():
-    existing = MANUAL_CONTENT + AUTO_SECTION
-    new_auto = AUTO_SECTION.replace("Something important", "Something new")
-    result = _replace_auto_section(existing, new_auto)
-    assert "Something new" in result
-    assert "Something important" not in result
+# ── nothing fills the folder any more ───────────────────────────────────────────────────────────────────────────────────
 
 
-def test_replace_auto_section_strips_stale_markers():
-    existing = MANUAL_CONTENT + "<!-- empirica-auto-start -->\n\n" + AUTO_SECTION
-    result = _replace_auto_section(existing, AUTO_SECTION)
-    assert "empirica-auto-start" not in result
-    assert MEMORY_AUTO_START in result
+def test_the_writers_are_gone():
+    for name in ("update_hot_cache", "promote_eidetic_to_memory", "enforce_memory_md_cap", "fetch_ranked_artifacts"):
+        assert not hasattr(mm, name), name
 
 
-def test_replace_auto_section_no_excessive_blanks():
-    existing = MANUAL_CONTENT + "\n\n\n\n\n\n" + AUTO_SECTION
-    result = _replace_auto_section(existing, AUTO_SECTION)
-    # No runs of 4+ consecutive newlines
-    assert "\n\n\n\n" not in result
+def test_postflight_and_session_end_do_not_touch_the_memory_folder():
+    import empirica.cli.command_handlers._workflow_postflight as wp
+
+    hook = (
+        Path(mm.__file__).parent.parent / "plugins" / "claude-code-integration" / "hooks" / "session-end-postflight.py"
+    )
+    assert "memory_manager" not in hook.read_text()
+    assert "MEMORY.md" not in hook.read_text()
+    assert not hasattr(wp, "_postflight_update_memory_hot_cache")
 
 
-# ---------------------------------------------------------------------------
-# _format_auto_section
-# ---------------------------------------------------------------------------
+# ── kept: stats and the manual archive ──────────────────────────────────────────────────────────────────────────────────
 
 
-def test_format_auto_section_empty_artifacts():
-    artifacts = {"findings": [], "unknowns": [], "dead_ends": [], "goals": [], "mistakes": []}
-    result = _format_auto_section(artifacts, "test-session")
-    assert MEMORY_AUTO_START in result
-    assert "0 items ranked" in result
+def test_stats_report_the_folder(tmp_path):
+    path = _memory(tmp_path, MANUAL_TOP + BLOCK)
+    (path.parent / "feedback_patch.md").write_text("x")
+    with patch("empirica.core.memory_manager.get_memory_dir", return_value=path.parent):
+        stats = get_memory_stats()
+    assert stats["file_count"] == 2
+    assert stats["memory_md_has_auto_section"] is True
+    assert [f["name"] for f in stats["files"]] == ["feedback_patch.md"]
 
 
-def test_format_auto_section_with_findings():
-    artifacts = {
-        "findings": [{"finding": "Test finding", "impact": 0.8}],
-        "unknowns": [],
-        "dead_ends": [],
-        "goals": [],
-        "mistakes": [],
-    }
-    result = _format_auto_section(artifacts, "test-session")
-    assert "Critical" in result
-    assert "Test finding" in result
-
-
-# ---------------------------------------------------------------------------
-# update_hot_cache
-# ---------------------------------------------------------------------------
-
-
-def test_update_hot_cache_creates_memory_md(tmp_path):
-    memory_dir = tmp_path / ".claude" / "projects" / "test" / "memory"
-    memory_dir.mkdir(parents=True)
-
-    with (
-        patch("empirica.core.memory_manager.get_memory_md_path", return_value=memory_dir / "MEMORY.md"),
-        patch(
-            "empirica.core.memory_manager.fetch_ranked_artifacts",
-            return_value={
-                "findings": [],
-                "unknowns": [],
-                "dead_ends": [],
-                "goals": [],
-                "mistakes": [],
-            },
-        ),
-    ):
-        result = update_hot_cache("test-session")
-
-    assert result is True
-    assert (memory_dir / "MEMORY.md").exists()
-
-
-def test_update_hot_cache_no_memory_path():
-    with patch("empirica.core.memory_manager.get_memory_md_path", return_value=None):
-        assert update_hot_cache("test-session") is False
-
-
-# ---------------------------------------------------------------------------
-# promote_eidetic_to_memory
-# ---------------------------------------------------------------------------
-
-
-def test_promote_none_project_id():
-    """None project_id should return early, not create project_None_eidetic."""
-    result = promote_eidetic_to_memory(project_id=None)
-    assert result == []
-
-
-def test_promote_empty_string_project_id():
-    result = promote_eidetic_to_memory(project_id="")
-    assert result == []
-
-
-def test_promote_no_memory_dir():
-    with patch("empirica.core.memory_manager.get_memory_dir", return_value=None):
-        result = promote_eidetic_to_memory(project_id="test-pid")
-    assert result == []
-
-
-def test_promote_qdrant_import_error():
-    """ImportError should be handled gracefully."""
-    with (
-        patch("empirica.core.memory_manager.get_memory_dir", return_value=Path("/tmp/test")),
-        patch("builtins.__import__", side_effect=ImportError("no qdrant")),
-    ):
-        result = promote_eidetic_to_memory(project_id="test-pid")
-    assert result == []
-
-
-# ---------------------------------------------------------------------------
-# _try_promote_point
-# ---------------------------------------------------------------------------
-
-
-def test_try_promote_point_empty_content(tmp_path):
-    point = MagicMock()
-    point.payload = {"content": "", "confidence": 0.8}
-    result = _try_promote_point(point, tmp_path, set())
-    assert result is None
-
-
-def test_try_promote_point_already_promoted(tmp_path):
-    point = MagicMock()
-    point.payload = {"content": "test content", "confidence": 0.8}
-    import hashlib
-
-    h = hashlib.md5(b"test content").hexdigest()[:12]
-    result = _try_promote_point(point, tmp_path, {h})
-    assert result is None
-
-
-def test_try_promote_point_creates_file(tmp_path):
-    point = MagicMock()
-    point.payload = {
-        "content": "Important architectural decision about caching",
-        "confidence": 0.85,
-        "domain": "architecture",
-        "confirmation_count": 2,
-    }
-    promoted_hashes = set()
-    result = _try_promote_point(point, tmp_path, promoted_hashes)
-
-    assert result is not None
-    assert result.startswith("promoted_")
-    assert result.endswith(".md")
-    assert (tmp_path / result).exists()
-
-    content = (tmp_path / result).read_text()
-    assert "architecture" in content
-    assert "0.85" in content
-    assert len(promoted_hashes) == 1
-
-
-# ---------------------------------------------------------------------------
-# demote_stale_memories
-# ---------------------------------------------------------------------------
-
-
-def test_demote_stale_memories_only_promotes(tmp_path):
-    """Manual memory files should never be demoted."""
+def test_demote_never_touches_hand_written_files(tmp_path):
     memory_dir = tmp_path / "memory"
     memory_dir.mkdir()
     (memory_dir / "manual_note.md").write_text("manual content")
     (memory_dir / "MEMORY.md").write_text("# Memory\n")
-
     with patch("empirica.core.memory_manager.get_memory_dir", return_value=memory_dir):
-        result = demote_stale_memories(stale_days=0)
-
-    assert result == []
+        assert demote_stale_memories(stale_days=0) == []
     assert (memory_dir / "manual_note.md").exists()
 
 
-def test_demote_stale_promoted_file(tmp_path):
-    """Stale promoted files should be archived."""
-    import time
-
+def test_demote_archives_an_old_promoted_file(tmp_path):
     memory_dir = tmp_path / "memory"
     memory_dir.mkdir()
     promoted = memory_dir / "promoted_old_fact.md"
     promoted.write_text("old content")
     (memory_dir / "MEMORY.md").write_text("# Memory\n- [Old](promoted_old_fact.md)\n")
-
-    # Make the file look old
-    import os
-
-    old_time = time.time() - (31 * 86400)
-    os.utime(promoted, (old_time, old_time))
-
+    old = time.time() - 31 * 86400
+    os.utime(promoted, (old, old))
     with patch("empirica.core.memory_manager.get_memory_dir", return_value=memory_dir):
-        result = demote_stale_memories(stale_days=30)
-
-    assert "promoted_old_fact.md" in result
-    assert not promoted.exists()
+        assert demote_stale_memories(stale_days=30) == ["promoted_old_fact.md"]
     assert (memory_dir / "_archive" / "promoted_old_fact.md").exists()
+    assert "(promoted_old_fact.md)" not in (memory_dir / "MEMORY.md").read_text()
 
 
-# ---------------------------------------------------------------------------
-# enforce_memory_md_cap
-# ---------------------------------------------------------------------------
-
-
-def test_enforce_cap_under_limit(tmp_path):
+def test_removing_an_index_line_leaves_lines_that_merely_mention_the_name(tmp_path):
     memory_dir = tmp_path / "memory"
     memory_dir.mkdir()
-    _write_memory_md(memory_dir, "short content\n" * 10)
-
-    with patch("empirica.core.memory_manager.get_memory_md_path", return_value=memory_dir / "MEMORY.md"):
-        evicted = enforce_memory_md_cap(max_total_lines=180)
-    assert evicted == 0
-
-
-def test_enforce_cap_strips_blank_runs(tmp_path):
-    memory_dir = tmp_path / "memory"
-    memory_dir.mkdir()
-    content = "manual\n" + "\n" * 200 + f"{MEMORY_AUTO_START}\nauto\n"
-    _write_memory_md(memory_dir, content)
-
-    with patch("empirica.core.memory_manager.get_memory_md_path", return_value=memory_dir / "MEMORY.md"):
-        enforce_memory_md_cap(max_total_lines=180)
-
-    result = (memory_dir / "MEMORY.md").read_text()
-    assert "\n\n\n\n" not in result
-
-
-# ---------------------------------------------------------------------------
-# _remove_from_memory_index — substring safety
-# ---------------------------------------------------------------------------
-
-
-def test_remove_from_index_only_removes_links(tmp_path):
-    """Should not remove lines that happen to contain the filename as substring."""
-    memory_dir = tmp_path / "memory"
-    memory_dir.mkdir()
-    content = "# Memory\n\n- [Link](promoted_test.md) — auto\n- Test results show improvement\n"
-    _write_memory_md(memory_dir, content)
-
+    (memory_dir / "MEMORY.md").write_text(
+        "# Memory\n\n- [Link](promoted_test.md) — auto\n- Test results show improvement\n"
+    )
     _remove_from_memory_index(memory_dir, ["promoted_test.md"])
-
     result = (memory_dir / "MEMORY.md").read_text()
     assert "Test results show improvement" in result
     assert "(promoted_test.md)" not in result
-
-
-# ---------------------------------------------------------------------------
-# File locking smoke test
-# ---------------------------------------------------------------------------
-
-
-def test_update_hot_cache_uses_lock_file(tmp_path):
-    """Verify the lock file is created during update."""
-    memory_dir = tmp_path / "memory"
-    memory_dir.mkdir()
-    _write_memory_md(memory_dir, "# Memory\n")
-
-    with (
-        patch("empirica.core.memory_manager.get_memory_md_path", return_value=memory_dir / "MEMORY.md"),
-        patch(
-            "empirica.core.memory_manager.fetch_ranked_artifacts",
-            return_value={
-                "findings": [],
-                "unknowns": [],
-                "dead_ends": [],
-                "goals": [],
-                "mistakes": [],
-            },
-        ),
-    ):
-        update_hot_cache("test-session")
-
-    assert (memory_dir / ".memory_lock").exists()

@@ -133,12 +133,11 @@ Empirica uses a **project-local primary** architecture:
 - `<project>/.empirica/lessons/*.yaml` - Project-specific lessons
 - `<project>/.git/refs/notes/empirica/` - Git-attached checkpoints
 
-### Layer 5: BRIDGE (Claude Code MEMORY.md)
-- `~/.claude/projects/{key}/memory/MEMORY.md` - Epistemically-curated hot cache
-- Auto-curated at session end from SQLite + Qdrant
-- Top 12 artifacts ranked by `impact × type_confidence × recency_decay`
+### Layer 5: BRIDGE (session-start context)
+- Built from the project's SQLite at session start and after compaction, injected as hook context; nothing on disk
+- Goals, findings, unknowns, decisions, assumptions, mistakes, dead ends and links, each with an id, within a token budget
 - Project-scoped (queries filter by `project_id`)
-- Claude Code auto-loads first 200 lines at session start
+- Claude Code's own `~/.claude/projects/{key}/memory/MEMORY.md` is left to Claude Code
 - **Key derivation:** `{key}` = absolute project path with `/` → `-` (e.g., `/home/user/myapp` → `-home-user-myapp`)
 
 ---
@@ -319,39 +318,36 @@ Qdrant runs as separate service for semantic memory.
 | Git checkpoints | `<repo>/.git/refs/notes/empirica/` | - |
 | Config | `<repo>/.empirica/config.yaml` | `~/.empirica/config.yaml` |
 | Credentials | - | `~/.empirica/credentials.yaml` (always global) |
-| MEMORY.md hot cache | - | `~/.claude/projects/{key}/memory/MEMORY.md` (per-project) |
 
 **Resolution order:** Project-local `.empirica/` is checked first. Falls back to `~/.empirica/` only if local dir doesn't exist.
 
 **Always Global:** Qdrant vectors and credentials are always stored globally because they span multiple projects. CRM identity is not in core's stores (see `crm-mcp`).
 
-**Per-Project (Claude Code):** MEMORY.md is keyed by project path, ensuring project isolation. Multiple Claude instances on the same project share one MEMORY.md file.
+**Per-Project (Claude Code):** the session-start picture is built from the project's own database, so instances on one project see the same artifacts and other projects' stay out.
 
 ---
 
 ---
 
-## Swarm Learning via MEMORY.md
+## Swarm Learning via the project database
 
-Multiple Claude Code instances working on the same project share one MEMORY.md file
-(keyed by git repo path). This creates emergent swarm learning:
+Multiple Claude Code instances working on the same project read one project database at session start. This creates
+emergent swarm learning:
 
 ```
-Agent A: discovers dead-end → logs it → session ends → MEMORY.md updated
-Agent B: starts → loads MEMORY.md → sees dead-end → avoids it → finds solution
-Agent B: session ends → MEMORY.md updated with A's dead-end + B's finding
+Agent A: discovers dead-end → logs it → it is in the project database at once
+Agent B: starts → its session-start picture includes A's dead-end → avoids it → finds solution
 Agent C: starts → gets combined epistemic state of A + B
 ```
 
 **Properties:**
-- **No explicit coordination** — agents share via the memory file
-- **Confidence-ranked** — not all-or-nothing, weighted by epistemic quality
-- **Project-isolated** — scoped by project path, no cross-project bleeding
-- **Recency-aware** — old noise decays, recent insights surface
+- **No explicit coordination** — agents share via the project's artifacts
+- **Ranked** — by impact, type and recency, within a token budget
+- **Project-isolated** — scoped by project_id, no cross-project bleeding
+- **Correctable** — a retracted or resolved artifact leaves every agent's picture
 - **Cumulative** — knowledge accumulates across agents and sessions
-- **Self-correcting** — cognitive immune system reduces confidence of contradicted findings
 
-The Qdrant layer adds depth: MEMORY.md is the hot cache (12 items),
+The Qdrant layer adds depth: the session-start picture is what fits the budget,
 `project-search` gives semantic access to the full history.
 
 **See also:** [claude-code-symbiosis.md](./claude-code-symbiosis.md) for the full integration architecture.

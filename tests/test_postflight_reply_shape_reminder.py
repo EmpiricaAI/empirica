@@ -8,14 +8,7 @@ string: no I/O on the hot path.
 
 from __future__ import annotations
 
-import pytest
-
 import empirica.cli.command_handlers._workflow_postflight as wp
-
-
-@pytest.fixture(autouse=True)
-def _quiet(monkeypatch):
-    monkeypatch.setattr(wp, "_postflight_update_memory_hot_cache", lambda *a, **k: None)
 
 
 def _build(**kw):

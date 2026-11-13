@@ -511,16 +511,17 @@ submitted.
 CC's auto-memory instructs you to write `memory/*.md` files directly. With Empirica
 active, the boundary is:
 
-| Memory Type | Who Writes | How |
-|-------------|-----------|-----|
-| **user** (preferences, role) | You (manual) | Write to memory when user states preferences |
-| **feedback** (corrections, guidance) | You (manual) | Write to memory when user corrects approach |
-| **project** (discoveries, state) | Pipeline (automatic) | Use `finding-log` → Qdrant → auto-promotion |
-| **reference** (external pointers) | Pipeline (automatic) | Use `finding-log` or `source-add` → auto-promotion |
+| Memory Type | Where it goes |
+|-------------|---------------|
+| **user** (preferences, role) | CC memory: write it when the user states a preference |
+| **feedback** (corrections, guidance) | CC memory: write it when the user corrects or confirms an approach |
+| **project** (discoveries, state) | `finding-log`, `decision-log` and the other artifact verbs, not memory |
+| **reference** (external pointers) | `source-add`, not memory |
 
-**Do NOT manually write project/reference memories.** Log them as findings/decisions
-instead. The POSTFLIGHT pipeline promotes high-confidence eidetic facts to `promoted_*.md`
-files automatically (confidence >= 0.7, max 3 per POSTFLIGHT, hash-deduped).
+**Do NOT write project/reference memories.** A memory file cannot be retracted or
+resolved, so a stale one keeps coming back as current; an artifact can be, and session
+start shows you the live ones. Empirica writes nothing to the memory folder: MEMORY.md
+is Claude Code's and yours.
 
 **Reading** from memory is always fine — CC loads relevant files into context.
 

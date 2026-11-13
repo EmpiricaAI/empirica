@@ -164,24 +164,11 @@ class TestBuildPostflightResultCoverage:
     def test_coverage_omitted_when_none(self, monkeypatch):
         from empirica.cli.command_handlers import workflow_commands
 
-        # Skip the memory-cache side effect to keep the unit test pure
-        monkeypatch.setattr(
-            workflow_commands,
-            "_postflight_update_memory_hot_cache",
-            lambda *a, **kw: None,
-        )
-
         result = workflow_commands._build_postflight_result(**self._kwargs())
         assert "coverage" not in result
 
     def test_coverage_echoed_when_present(self, monkeypatch):
         from empirica.cli.command_handlers import workflow_commands
-
-        monkeypatch.setattr(
-            workflow_commands,
-            "_postflight_update_memory_hot_cache",
-            lambda *a, **kw: None,
-        )
 
         cov = {"files_inspected": 12, "files_relevant": 491, "scalar": 0.024}
         result = workflow_commands._build_postflight_result(
@@ -193,12 +180,6 @@ class TestBuildPostflightResultCoverage:
     def test_coverage_falsy_does_not_echo(self, monkeypatch):
         """Empty dict is logically 'no coverage reported' — don't surface it."""
         from empirica.cli.command_handlers import workflow_commands
-
-        monkeypatch.setattr(
-            workflow_commands,
-            "_postflight_update_memory_hot_cache",
-            lambda *a, **kw: None,
-        )
 
         result = workflow_commands._build_postflight_result(
             **self._kwargs(),

@@ -403,18 +403,15 @@ def _run_postflight_storage_pipeline(
     project_path: str | None = None,
 ) -> None:
     """Run all POSTFLIGHT storage operations: Qdrant embedding, Cortex push,
-    trajectory, episodic memory, auto-embed, workspace index, decay, snapshot,
-    then the MEMORY.md hot cache.
+    trajectory, episodic memory, auto-embed, workspace index, decay, snapshot.
 
-    All operations are non-fatal — failures are logged and skipped. The hot cache
-    ran inline on the response path (~0.65 s in a fresh process, goal eb8e1029)
-    for writes nothing in the response reads; it runs here, after the stages, and
-    whatever they did, as it ran inline whatever the session lookup said.
+    All operations are non-fatal — failures are logged and skipped. Nothing here
+    writes Claude Code's MEMORY.md or memory folder: the focus block it kept there
+    duplicated the session-start block, and the promoted fact files were never
+    indexed, so never loaded (goal ea3335ec). ``project_path`` is accepted for
+    payloads staged by older versions.
     """
-    try:
-        _run_storage_stages(session_id, vectors, deltas, reasoning, grounded_verification, checkpoint_id)
-    finally:
-        _postflight_update_memory_hot_cache(session_id, project_path)
+    _run_storage_stages(session_id, vectors, deltas, reasoning, grounded_verification, checkpoint_id)
 
 
 def _run_storage_stages(
@@ -1393,44 +1390,6 @@ def _postflight_add_compliance_block(result, compliance_result, compliance_error
     result["compliance"] = compliance_dict
 
 
-def _postflight_update_memory_hot_cache(session_id, resolved_project_path):
-    """Update MEMORY.md hot cache, promote/demote eidetic facts. Non-fatal."""
-
-    try:
-        from empirica.core.memory_manager import update_hot_cache
-
-        _mem_updated = update_hot_cache(
-            session_id,
-            project_path=resolved_project_path,
-            db_path=str(Path(resolved_project_path) / ".empirica" / "sessions" / "sessions.db")
-            if resolved_project_path
-            else None,
-        )
-        if _mem_updated:
-            logger.debug("Updated MEMORY.md hot cache at POSTFLIGHT")
-
-        from empirica.core.memory_manager import promote_eidetic_to_memory
-
-        _promo_db = _get_db_for_session(session_id)
-        _promo_session = _promo_db.get_session(session_id)
-        _promo_pid = _promo_session.get("project_id") if _promo_session else None
-        _promo_db.close()
-        _promoted = promote_eidetic_to_memory(project_id=_promo_pid, project_path=resolved_project_path)
-        if _promoted:
-            logger.debug(f"Promoted {len(_promoted)} eidetic facts to memory: {_promoted}")
-
-        from empirica.core.memory_manager import demote_stale_memories, enforce_memory_md_cap
-
-        _demoted = demote_stale_memories(project_path=resolved_project_path)
-        if _demoted:
-            logger.debug(f"Demoted {len(_demoted)} stale memory files: {_demoted}")
-        _evicted = enforce_memory_md_cap(project_path=resolved_project_path)
-        if _evicted:
-            logger.debug(f"Evicted {_evicted} lines from MEMORY.md")
-    except Exception as e:
-        logger.debug(f"MEMORY.md hot cache update skipped: {e}")
-
-
 # The moment the reply gets written passes through here. /reporting-discipline was loaded 3 times against ~4,970 POSTFLIGHTs when
 # its trigger was "notice you are about to report"; a static line in the response costs nothing and cannot be missed.
 _REPLY_SHAPE = (
@@ -1476,7 +1435,7 @@ def _build_postflight_result(
     postflight_coverage=None,
     goal_criteria=None,
 ):
-    """Build the postflight result dict including compliance, three-vector, memory hot-cache.
+    """Build the postflight result dict including compliance and three-vector.
 
     Returns result dict.
     """

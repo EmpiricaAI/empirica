@@ -107,61 +107,60 @@ This is where the symbiosis becomes concrete.
 ### How It Works
 
 ```
-POSTFLIGHT, and again when the session ends
+Session start, and again after every compaction
   |
   v
-Empirica fetches project-scoped artifacts from SQLite
+The hook builds the project's bootstrap picture from SQLite
+  (goals, findings, unknowns, decisions, assumptions, mistakes, dead ends, links)
   |
   v
-Ranked by impact x type_confidence x (relevance and recency, above)
+Each item with an 8-character id, taking turns until a token budget is spent,
+with a coverage line per category: shown out of how many, or why none
   |
   v
-Written into Claude Code's MEMORY.md as an auto section
-  (manual content around it is preserved)
+Injected into the conversation as hook context
   |
   v
-Next session auto-loads MEMORY.md (first 200 lines)
-  |
-  v
-Agent starts with epistemically-ranked context, not raw history
+Agent starts with the project's current epistemic state, not raw history
 ```
 
-Two writers keep that section, each with its own markers. At POSTFLIGHT, `memory_manager` writes an
-`## EPISTEMIC FOCUS (Confidence-Ranked)` block, capped at 100 lines so manual notes keep room under Claude Code's
-200-line load, and promotes the most confident facts into their own memory files. At session end, a hook writes the top 12
-artifacts between `<!-- empirica-auto-start -->` and `<!-- empirica-auto-end -->` comments.
+The picture is rebuilt from the database each time, so it is never staler than the last artifact logged, and a
+retracted or resolved artifact leaves it at once. `project-search` reaches the rest of the history on demand.
+
+Claude Code's own `MEMORY.md` is left to Claude Code. The user and feedback memories it keeps there are guidance about
+how to work, which the epistemic graph does not hold. Until 1.16.3 Empirica also wrote a ranked block into that file at
+POSTFLIGHT; it duplicated the session-start picture with no ids and no way to retract an entry, and `setup-claude-code`
+now removes it.
 
 ### What This Means
 
-Claude Code's MEMORY.md becomes an **epistemically curated hot cache**:
+- High-impact findings, open unknowns and the latest decisions are in front of the agent from its first turn
+- Dead-ends and mistakes, with their prevention, are surfaced to prevent re-exploration
+- What was retracted or resolved does not come back as if it were current
+- Claude Code's own memory stays the agent's and the user's
 
-- High-impact findings float to the top
-- Dead-ends are surfaced to prevent re-exploration
-- Stale items fall out of the capped auto section as fresher, more relevant ones rank above them
-- Manual notes are preserved alongside auto-generated content
-
-Empirica doesn't replace MEMORY.md. It makes it *intelligent*.
+Empirica doesn't replace MEMORY.md. It works beside it.
 
 ## Swarm Learning (Emergent Property)
 
-Multiple Claude Code instances on the same project share one MEMORY.md
-(keyed by git repo path). This creates emergent swarm learning:
+Multiple Claude Code instances on the same project share one project database, and each one's session start reads
+it. This creates emergent swarm learning:
 
 ```
-Agent A: discovers dead-end -> logs it -> session ends -> MEMORY.md updated
-Agent B: starts -> loads MEMORY.md -> sees dead-end -> avoids it -> finds solution
-Agent B: session ends -> MEMORY.md updated with A's dead-end + B's finding
-Agent C: starts -> gets combined epistemic state of A + B
+Agent A: discovers dead-end -> logs it -> it is in the project database at once
+Agent B: starts -> its session-start picture includes A's dead-end -> avoids it -> finds solution
+Agent B: logs the finding
+Agent C: starts -> gets the combined epistemic state of A + B
 ```
 
 Properties:
-- **No explicit coordination required** - agents share via the memory file
-- **Confidence-ranked** - not all-or-nothing, weighted by epistemic quality
+- **No explicit coordination required** - agents share via the project's artifacts
+- **Ranked** - by impact, type and recency, within a token budget
 - **Project-isolated** - scoped by project_id, no cross-project bleeding
-- **Recency-aware** - old noise decays, recent insights surface
+- **Correctable** - a retracted or resolved artifact leaves every agent's picture
 - **Cumulative** - knowledge accumulates across agents and sessions
 
-The Qdrant layer adds depth: MEMORY.md is the hot cache (12 items),
+The Qdrant layer adds depth: the session-start picture is what fits the budget,
 `project-search` gives semantic access to the full history.
 
 ## Correcting Shared Memory
@@ -191,9 +190,9 @@ Plan Mode                   <-->   Noetic Phase
   |                                  |
   | Permission gate                  | Epistemic gate (Sentinel)
   v                                  v
-MEMORY.md (hot, 200 lines)  <--   Qdrant + SQLite (warm/search)
+Session-start context       <--   SQLite (+ Qdrant search)
   |                                  |
-  | Auto-loaded per session          | Curated at POSTFLIGHT and session end
+  | Injected per session             | Rebuilt at session start and compaction
   v                                  v
 Compaction (silent)         -->    POSTFLIGHT (measured)
   |                                  |

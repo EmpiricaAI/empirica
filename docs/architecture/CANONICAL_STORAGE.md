@@ -170,7 +170,7 @@ There is no git pre-commit installer in this module.
 | Checkpoint JSON | `.empirica_reflex_logs/checkpoints/<session_id>/` | Per-checkpoint audit files |
 | Lessons | `.empirica/lessons/` (YAML cold storage) | Lesson files |
 | Qdrant | `EMPIRICA_QDRANT_URL`, else `localhost:6333`, unless a URL resolver is installed | Semantic search |
-| MEMORY.md | `~/.claude/projects/{key}/memory/MEMORY.md` | Claude Code hot cache |
+| MEMORY.md | `~/.claude/projects/{key}/memory/MEMORY.md` | Claude Code's own memory; Empirica does not write it (setup removes the old focus block) |
 
 MEMORY.md key derivation: `{key}` is the absolute project path with `/` replaced by `-`; `/home/user/code/myapp` becomes `-home-user-code-myapp`.
 
@@ -227,13 +227,11 @@ Other modules: `eidetic.py`, `episodic.py`, `global_sync.py` (cross-project sync
 
 ---
 
-## Claude Code Bridge (MEMORY.md Hot Cache)
+## Claude Code Bridge
 
-At session end, the `session-end-postflight` hook curates the top epistemic artifacts (max 12, project-scoped, ranked by `impact × type_confidence × recency_decay`) into Claude Code's `~/.claude/projects/{key}/memory/MEMORY.md`, preserving manual content between `<!-- empirica-auto-start -->` and `<!-- empirica-auto-end -->`. Several Claude instances on one project share the file.
-
-The data-flow diagram and the ranking breakdown are in [STORAGE_ARCHITECTURE_COMPLETE.md § Layer 5](./STORAGE_ARCHITECTURE_COMPLETE.md#layer-5-claude-code-bridge-memorymd-hot-cache).
-
-**Source:** `empirica/plugins/claude-code-integration/hooks/session-end-postflight.py`
+What Claude Code starts with is built from the project's database by the session-start and post-compact hooks and
+injected as hook context; nothing is written to disk. Claude Code's own `~/.claude/projects/{key}/memory/MEMORY.md` is
+left to Claude Code. The data flow is in [STORAGE_ARCHITECTURE_COMPLETE.md § Layer 5](./STORAGE_ARCHITECTURE_COMPLETE.md#layer-5-claude-code-bridge-session-start-context).
 
 ---
 

@@ -102,7 +102,7 @@
 
 **Modular Architecture:** APIs organized in logical modules that can be used independently while maintaining consistency.
 
-**Storage Architecture:** Data flows through SQLite (hot), Git Notes (warm), JSON Logs (audit), Qdrant (search), and MEMORY.md (Claude Code bridge).
+**Storage Architecture:** Data flows through SQLite (hot), Git Notes (warm), JSON Logs (audit), Qdrant (search), and the session-start hook (Claude Code bridge).
 
 ---
 

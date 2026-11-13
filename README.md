@@ -206,7 +206,7 @@ Plan
       └── ...
 ```
 
-**Plans** decompose into **transactions** — one per goal or Claude Code task. Each transaction is a **noetic-praxic loop**: investigate first (noetic), then act (praxic), with the Sentinel gating the transition. Along the way, the AI collects and reads **artifacts** (findings, unknowns, assumptions, dead-ends, decisions, mistakes, falsifiers) while using **semantic search** to surface relevant epistemic patterns and anti-patterns from the project's history. Top artifacts are ranked by confidence and fed into each project's **MEMORY.md** as a hot cache.
+**Plans** decompose into **transactions** — one per goal or Claude Code task. Each transaction is a **noetic-praxic loop**: investigate first (noetic), then act (praxic), with the Sentinel gating the transition. Along the way, the AI collects and reads **artifacts** (findings, unknowns, assumptions, dead-ends, decisions, mistakes, falsifiers) while using **semantic search** to surface relevant epistemic patterns and anti-patterns from the project's history. Each session starts with the project's current artifacts, ranked and within a token budget, injected by the session-start hook.
 
 ### The Epistemic Transaction Cycle
 
@@ -287,7 +287,7 @@ Empirica doesn't replace or reinvent anything Claude Code already does. Claude C
 |-----------------|--------------|
 | Task management | Epistemic goals with measurable completion |
 | Plan mode | Investigation phase with Sentinel gating — no edits until understanding is verified |
-| MEMORY.md | Auto-curated hot cache ranked by epistemic confidence |
+| MEMORY.md | Left to Claude Code; beside it, a ranked picture of the project's artifacts at session start and after compaction |
 | Context window | 4-layer memory that survives compaction and persists across sessions |
 | Code editing | Grounded calibration — was the AI's confidence justified by test results? |
 | Subagent spawning | Bounded autonomy with delegated work counting and budget tracking |

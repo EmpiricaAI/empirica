@@ -26,7 +26,7 @@ This guide provides a comprehensive and visual explanation of Empirica's **four-
 
 **Key Takeaways:**
 1.  **Four-layer storage + bridge** ensures data redundancy, semantic search, and optimized access patterns.
-2.  **Different storage for different use cases:** SQLite for fast SQL queries, Git Notes for compressed and distributed state, JSON Logs for full audit and debugging, Qdrant for semantic retrieval, MEMORY.md for Claude Code hot cache.
+2.  **Different storage for different use cases:** SQLite for fast SQL queries, Git Notes for compressed and distributed state, JSON Logs for full audit and debugging, Qdrant for semantic retrieval, and the session-start hook as the bridge into Claude Code.
 3.  **Significant token reduction** (e.g., 15,000 tokens → 450 tokens, 97% reduction) for efficient storage and transfer of epistemic state.
 
 ---
@@ -88,7 +88,7 @@ This guide provides a comprehensive and visual explanation of Empirica's **four-
 | **Git Notes** (WARM) | `refs/notes/empirica/session/...` | 450 tokens | Distributed, signed, compressed | Git commands |
 | **JSON Logs** (AUDIT) | `.empirica_reflex_logs/...` | 6,500 tokens | Full audit, debugging | File read |
 | **Qdrant** (SEARCH) | `localhost:6333` | 1024-dim vectors | Semantic search, pattern retrieval | Vector similarity |
-| **MEMORY.md** (BRIDGE) | `~/.claude/projects/{key}/memory/` | ~12 items | Claude Code hot cache, swarm learning | Auto-loaded |
+| **Session start** (BRIDGE) | hook context, rebuilt from SQLite | ~1,800 tokens | What Claude Code starts with, swarm learning | Injected at session start and after compaction |
 
 ### Token Compression Levels
 
@@ -1002,47 +1002,36 @@ def get_low_confidence_sessions(project_id: str) -> List[Dict]:
 
 ---
 
-## Layer 5: Claude Code Bridge (MEMORY.md Hot Cache)
+## Layer 5: Claude Code Bridge (session-start context)
 
-**Purpose:** Epistemically-curated hot cache that bridges Empirica's storage layers into Claude Code's native memory system.
+**Purpose:** Put the project's current epistemic state in front of Claude Code at the start of every session and after
+every compaction.
 
-**Location:** `~/.claude/projects/{key}/memory/MEMORY.md`
-
-**Key derivation:** Absolute project path with `/` → `-` (e.g., `/home/user/myapp` → `-home-user-myapp`)
+**Source:** the session-start and post-compact hooks, building from `empirica.core.bootstrap`.
 
 **Data Flow:**
 ```
-Session ends (session-end-postflight hook)
+Session start, or a compaction
   │
   ▼
-Fetch project-scoped breadcrumbs from SQLite
-  (project_findings, project_unknowns, project_dead_ends, goals, mistakes_made)
+Bootstrap picture built from SQLite
+  (goals, findings, unknowns, decisions, assumptions, mistakes, dead ends, links)
   │
   ▼
-Epistemic summarizer ranks by: impact × type_confidence × recency_decay
+Items taken in turns, each with an 8-character id, until a token budget is spent
+  (EMPIRICA_HOOK_CONTEXT_TOKENS, default 1,800), with a coverage line per category
   │
   ▼
-Top 12 artifacts written to MEMORY.md
-  (preserving manual content via <!-- empirica-auto-start/end --> delimiters)
-  │
-  ▼
-Next session auto-loads MEMORY.md (first 200 lines)
-  │
-  ▼
-Agent starts with epistemically-ranked context, not raw history
+Injected as hook context; nothing is written to disk
 ```
 
-**Ranking Formula:**
-```
-weight = impact × type_confidence × recency_decay
+**Not MEMORY.md.** Claude Code's `~/.claude/projects/{key}/memory/MEMORY.md` belongs to Claude Code. Until 1.16.3
+Empirica wrote a ranked block there at POSTFLIGHT and promoted facts into `promoted_*.md` files; the block duplicated this
+layer, and no MEMORY.md indexed the promoted files, so Claude Code never loaded them. `setup-claude-code` removes the old
+block; `profile-prune --scope memory` archives the promoted files left behind.
 
-type_confidence: finding(0.9) > dead_end(0.85) > mistake(0.85) > goal(0.75) > unknown(0.6)
-recency_decay:   exp(-0.029 × age_hours)  # 24-hour half-life
-```
-
-**Swarm Learning:** Multiple Claude instances on the same project share one MEMORY.md.
-Agent A's findings become Agent B's starting context. Dead-ends are surfaced to prevent
-re-exploration. The cognitive immune system self-corrects contradicted findings.
+**Swarm Learning:** Multiple Claude instances on the same project read one project database, so Agent A's findings are
+in Agent B's starting context. A retracted or resolved artifact leaves every agent's picture.
 
 **See also:** [claude-code-symbiosis.md](./claude-code-symbiosis.md)
 

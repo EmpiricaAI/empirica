@@ -219,23 +219,13 @@ warnings = check_against_patterns(
 
 ---
 
-## Claude Code Bridge (MEMORY.md Hot Cache)
+## Claude Code Bridge
 
-Qdrant data feeds into Claude Code's native `MEMORY.md` via the epistemic summarizer
-at session end. This creates an auto-curated hot cache:
+Qdrant is reached on demand through `project-search`; what Claude Code starts with comes from SQLite. The session-start
+and post-compact hooks build the project's bootstrap picture (goals, findings, unknowns, decisions, assumptions,
+mistakes, dead ends, links, each with an id, within a token budget) and inject it as hook context. Nothing is written
+to Claude Code's `MEMORY.md`, which Claude Code owns.
 
-```
-Session end hook
-  → _fetch_breadcrumbs() queries SQLite (project-scoped)
-  → epistemic_summarizer.rank_items() ranks by impact × type_confidence × recency_decay
-  → Top 12 items written to ~/.claude/projects/{key}/memory/MEMORY.md
-  → Next Claude Code session auto-loads first 200 lines
-```
-
-The hot cache is complementary to Qdrant — MEMORY.md holds the top 12 items (auto-loaded),
-while `project-search` provides semantic access to the full Qdrant store on demand.
-
-**Source:** `plugins/claude-code-integration/hooks/session-end-postflight.py`
 **See also:** [claude-code-symbiosis.md](../../architecture/claude-code-symbiosis.md)
 
 ---

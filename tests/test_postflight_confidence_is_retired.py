@@ -82,7 +82,6 @@ def _result(**kw):
 
 
 def test_the_result_carries_internal_consistency_and_its_basis_but_no_postflight_confidence(monkeypatch):
-    monkeypatch.setattr(wp, "_postflight_update_memory_hot_cache", lambda *a, **k: None)
     result = _result()
     assert "postflight_confidence" not in result
     assert result["internal_consistency"] == "good"

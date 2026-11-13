@@ -225,10 +225,9 @@ repo.add_epistemic_source(project_id, source_type, title, ...)
 
 ## Claude Code Bridge
 
-Breadcrumb data (findings, unknowns, dead-ends, goals, mistakes) feeds into Claude Code's
-`MEMORY.md` hot cache at session end via the epistemic summarizer. This means breadcrumbs
-logged via this API are automatically surfaced in the next Claude Code session, ranked by
-`impact × type_confidence × recency_decay`.
+Artifacts logged through this API (findings, unknowns, dead-ends, goals, mistakes, decisions, assumptions) are in the
+next Claude Code session's starting context: the session-start and post-compact hooks build the project's bootstrap
+picture from the database, each item with an id, within a token budget. Claude Code's own `MEMORY.md` is not written.
 
 **Source:** `plugins/claude-code-integration/hooks/session-end-postflight.py` → `update_memory_hot_cache()`
 **See also:** [claude-code-symbiosis.md](../../architecture/claude-code-symbiosis.md)
