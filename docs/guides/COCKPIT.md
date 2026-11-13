@@ -58,6 +58,26 @@ empirica cockpit launch
 ```
 
 Each pane starts `claude` in its project directory. Click a pane to focus it.
+
+For a large screen, `split: grid` lays a group out in rows. Six panes with `rows: 2` are three over three, in the order
+the panes are listed:
+
+```yaml
+groups:
+  - name: wall
+    split: grid
+    rows: 2               # default 2; columns = panes / rows, rounded up
+    panes:
+      - {project: my-api}
+      - {project: my-docs}
+      - {project: my-web}
+      - {project: my-infra}
+      - {command: "empirica tui", label: tui}
+      - {command: bash, label: spare}
+```
+
+tmux's own `tiled` (also accepted as `split: tiled`) adds rows first, so it would give the same six panes three rows of
+two. A pane added back to an existing grid window by `refresh` is placed with `tiled`.
 When there are several groups, each is a tab in the status line; click a tab to
 switch (mouse support is on by default).
 
@@ -299,7 +319,8 @@ projects:                      # everything a pane may reference
 
 groups:                        # one tmux window per group
   - name: core
-    split: horizontal          # horizontal = side by side, vertical = stacked
+    split: horizontal          # horizontal = side by side, vertical = stacked, tiled = tmux's tiling,
+                               # grid = `rows` rows filled in order (columns = panes / rows, rounded up)
     panes:
       - {project: empirica}                           # a practice
       - {command: "empirica tui", label: tui}         # any command

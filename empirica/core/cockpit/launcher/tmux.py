@@ -621,6 +621,73 @@ def _incomplete(group: GroupSpec, failures: list[str], attempted: int) -> str | 
     return f"{len(failures)} of {attempted} pane(s) in {group.name!r} not created: {failures[0]}"
 
 
+def _split_style(split: str) -> tuple[str, str]:
+    """The split-window flag and the layout re-applied after adding panes, for a group's ``split``.
+
+    ``grid`` is built by ``_build_grid`` when the window is created; panes added back to an existing grid window fall back
+    to ``tiled``, the nearest preset (tmux has no rows-by-columns preset: its ``tiled`` grows rows first, so six panes come
+    out three rows of two).
+    """
+    if split == "horizontal":
+        return "-h", "even-horizontal"
+    if split in ("tiled", "grid"):
+        return "-v", "tiled"
+    return "-v", "even-vertical"
+
+
+def _build_grid(
+    group: GroupSpec,
+    keyed: list,
+    first_pane_id: str,
+    config: LauncherConfig,
+    identities: dict[str, str],
+    opened: list[dict] | None,
+) -> tuple[int, list[str]]:
+    """Split the window's first pane into ``group.rows`` rows (default 2), then each row into its columns, filling the
+    cells in config order, row by row. Each split takes the share that leaves the cells even (``-l <n>%``).
+
+    Returns ``(panes in the window, failures)``. A row whose first pane did not come up is skipped with its columns.
+    """
+    n = len(keyed)
+    rows = max(1, min(group.rows or 2, n))
+    cols = -(-n // rows)
+    row_cells = [keyed[r * cols : (r + 1) * cols] for r in range(rows)]
+    row_cells = [cells for cells in row_cells if cells]
+    created, failures = 1, []
+
+    heads = [first_pane_id]
+    for r in range(1, len(row_cells)):
+        remaining = len(row_cells) - r
+        key, pane = row_cells[r][0]
+        size = f"{100 * remaining // (remaining + 1)}%"
+        result = _open_pane(["split-window", "-t", heads[-1], "-v", "-l", size], pane, key, config, identities, opened)
+        if result.returncode != 0:
+            failures.append(_why(result))
+            failures += ["row not started"] * (len(row_cells[r]) - 1)
+            heads.append("")
+            continue
+        created += 1
+        heads.append(result.stdout.strip())
+
+    for head, cells in zip(heads, row_cells):
+        current = head
+        for c in range(1, len(cells)):
+            if not current:
+                break
+            remaining = len(cells) - c
+            key, pane = cells[c]
+            size = f"{100 * remaining // (remaining + 1)}%"
+            result = _open_pane(
+                ["split-window", "-t", current, "-h", "-l", size], pane, key, config, identities, opened
+            )
+            if result.returncode != 0:
+                failures.append(_why(result))
+                continue
+            created += 1
+            current = result.stdout.strip()
+    return created, failures
+
+
 def _create_group_window(
     group: GroupSpec,
     config: LauncherConfig,
@@ -648,8 +715,7 @@ def _create_group_window(
     """
     identities = identities or {}
     window_target = _window(session_name, group.name)
-    split_flag = "-h" if group.split == "horizontal" else "-v"
-    layout = "even-horizontal" if group.split == "horizontal" else "even-vertical"
+    split_flag, layout = _split_style(group.split)
     keyed = [(f"{group.name}/{i}", pane) for i, pane in enumerate(group.panes)]
 
     listing = _tmux("list-panes", "-t", window_target, "-F", "#{pane_id}\t#{@empirica_pane}")
@@ -692,10 +758,16 @@ def _create_group_window(
 
     panes_created = 1
     failures = []
+    if group.split == "grid":
+        panes_created, failures = _build_grid(group, keyed, result.stdout.strip(), config, identities, opened)
+        return True, panes_created, _incomplete(group, failures, len(keyed) - 1)
     for key, pane in keyed[1:]:
         result = _open_pane(["split-window", "-t", window_target, split_flag], pane, key, config, identities, opened)
         if result.returncode == 0:
             panes_created += 1
+            # Re-level after every split: each split halves the active pane, so without it a detached 80x24 window runs
+            # out of room ("no space for new pane") long before the panes would fit evenly (six tiled panes stopped at 4).
+            _tmux("select-layout", "-t", window_target, layout)
         else:
             failures.append(_why(result))
 

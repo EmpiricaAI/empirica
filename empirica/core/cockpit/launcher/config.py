@@ -75,7 +75,10 @@ class GroupSpec:
 
     name: str
     panes: list[PaneSpec] = field(default_factory=list)
-    split: str = "horizontal"  # 'horizontal' (left/right) | 'vertical' (top/bottom)
+    # 'horizontal' (side by side) | 'vertical' (stacked) | 'tiled' (tmux's own tiling) | 'grid' (``rows`` rows filled
+    # in config order, columns = ceil(panes / rows); six panes in two rows are three over three)
+    split: str = "horizontal"
+    rows: int | None = None  # grid only; default 2
 
 
 @dataclass
@@ -215,6 +218,15 @@ def _as_list(value: object) -> list:
     return value if isinstance(value, list) else []
 
 
+def _positive_int(value: object) -> int | None:
+    """A whole number above zero, else None (a bad ``rows`` falls back to the default rather than failing the load)."""
+    try:
+        n = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 and not isinstance(value, bool) else None
+
+
 def _parse_groups(raw_groups: list) -> list[GroupSpec]:
     """Parse the optional ``groups:`` section of the launcher YAML."""
     groups: list[GroupSpec] = []
@@ -247,6 +259,7 @@ def _parse_groups(raw_groups: list) -> list[GroupSpec]:
                 name=str(gname),
                 panes=panes,
                 split=str(entry.get("split") or "horizontal"),
+                rows=_positive_int(entry.get("rows")),
             )
         )
     return groups
@@ -350,6 +363,7 @@ def _serialize(config: LauncherConfig) -> dict[str, Any]:
             {
                 "name": g.name,
                 "split": g.split,
+                **({"rows": g.rows} if g.rows else {}),
                 "panes": [
                     {
                         k: v
