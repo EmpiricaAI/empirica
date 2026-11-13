@@ -180,17 +180,10 @@ def handle_entity_list_command(args):
 
 
 def _slugify(text: str) -> str:
-    """Lowercase, non-alphanumerics → '-', collapsed and trimmed."""
-    out = []
-    prev_dash = False
-    for ch in text.lower():
-        if ch.isalnum():
-            out.append(ch)
-            prev_dash = False
-        elif not prev_dash:
-            out.append("-")
-            prev_dash = True
-    return "".join(out).strip("-")
+    """The shared entity slug (empirica.core.entity_ids.entity_slug): one definition with workspace (goal 279032c1)."""
+    from empirica.core.entity_ids import entity_slug
+
+    return entity_slug(text)
 
 
 def mint_contact(

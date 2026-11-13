@@ -44,8 +44,9 @@ def repo(tmp_path):
 
 
 def test_slugify_basic():
-    # isalnum() keeps unicode letters — readable ids survive umlauts
-    assert _slugify("Georg Müller") == "georg-müller"
+    # German letters are transliterated, so core and workspace mint one id for one name (goal 279032c1, 2026-11-13):
+    # this used to keep the umlaut (georg-müller) while workspace dropped it (georg-m-ller).
+    assert _slugify("Georg Müller") == "georg-mueller"
     assert _slugify("  ACME GmbH & Co. KG ") == "acme-gmbh-co-kg"
     assert _slugify("---") == ""
 
