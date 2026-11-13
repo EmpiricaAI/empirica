@@ -414,9 +414,25 @@ def _probe_default_server() -> bool:
     return answer
 
 
+#: Set when this process's embedding provider settled on the local server's model: its default store stays the local server's.
+_pin: dict[str, str] = {}
+
+
+def pin_store_to_local_server(url: str) -> None:
+    """Keep this process's default store (no explicit URL, resolver or env) on the local server's store from now on.
+
+    The embedding provider chooses the local server's 384-d model once per process, and only when the store is the local
+    server's; the store is re-probed later (6333 every 30 s here, every call in _get_qdrant_client), so a process that started
+    while 6333 was down wrote 384-d vectors into it once it came back (1.16.1 sweep, goal 5b9aa623). One decision per process:
+    the vectors and the store they belong to stay together."""
+    _pin["vectors"] = url
+
+
 def _default_store_url() -> str:
     """A Qdrant server on 6333 when one answers, else the local server's store when it holds one, else 6333 (to report)."""
     default_url = "http://localhost:6333"
+    if _pin.get("vectors"):
+        return _pin["vectors"]
     if _probe_default_server():
         return default_url
     return local_server_service("vectors") or default_url
@@ -580,7 +596,10 @@ def _get_qdrant_client(
     if url:
         return QdrantClient(url=url)
 
-    # Priority 4: Check if Qdrant server is running on localhost:6333
+    # Priority 4: Check if Qdrant server is running on localhost:6333 (unless this process's vectors belong to the local
+    # server's store: its provider chose that model, goal 5b9aa623)
+    if _pin.get("vectors"):
+        return QdrantClient(url=_pin["vectors"])
     default_url = "http://localhost:6333"
     try:
         import urllib.request

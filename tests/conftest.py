@@ -553,6 +553,7 @@ def reset_process_wide_caches():
 
         _qc._probe_cache.clear()
         _qc._local_service_cache.clear()
+        _qc._pin.clear()
     except Exception:
         pass
     yield

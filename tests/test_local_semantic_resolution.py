@@ -108,3 +108,37 @@ def test_per_org_routing_counts_as_a_configured_store(monkeypatch, no_6333):
     monkeypatch.setattr(emb, "_check_ollama_available", lambda url: False)
     monkeypatch.setattr(emb, "_load_config_file", lambda: {})
     assert emb.EmbeddingsProvider().model != "multilingual-e5-small"
+
+
+def test_once_the_local_model_is_chosen_6333_coming_back_does_not_take_its_vectors(monkeypatch, no_6333):
+    # The provider picks the local 384-d model once per process, while 6333 is down; the store was re-probed later, so the
+    # process wrote 384-d vectors into 6333's collections once it returned (1.16.1 sweep, goal 5b9aa623).
+    import empirica.core.qdrant.embeddings as emb
+
+    _health(monkeypatch, HEALTH)
+    monkeypatch.delenv("EMPIRICA_EMBEDDINGS_PROVIDER", raising=False)
+    monkeypatch.delenv("EMPIRICA_EMBEDDINGS_MODEL", raising=False)
+    monkeypatch.setattr(emb, "_check_ollama_available", lambda url: False)
+    monkeypatch.setattr(emb, "_load_config_file", lambda: {})
+    assert emb.EmbeddingsProvider().model == "multilingual-e5-small"
+
+    monkeypatch.setattr(qc, "_probe_default_server", lambda: True)  # 6333 is back
+
+    class Ok:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, *a, **k: Ok())
+    assert qc.store_url() == "http://127.0.0.1:8123/qdrant"
+    client = qc._get_qdrant_client()
+    assert "8123" in str(getattr(client._client, "rest_uri", ""))
+
+
+def test_without_the_local_model_6333_is_used_when_it_answers(monkeypatch, no_6333):
+    monkeypatch.setattr(qc, "_probe_default_server", lambda: True)
+    assert qc.store_url() == "http://localhost:6333"  # no pin: the configured server wins as before

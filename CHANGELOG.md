@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Vectors never land in a store of the wrong size.** A long-running process that started while Ollama and the configured Qdrant were both down chose the local server's smaller model for its whole life, but kept checking for Qdrant, and once Qdrant came back it wrote those vectors there. Once the local model is chosen, the process now keeps using the local server's store.
 - **A link deleted after it reached the git notes no longer comes back on a rebuild.** Deleting an artifact or a link, pruning or repairing a dangling link, and a source's id swap now mark the links' sources, and the next export rewrites their notes from what was committed. A link written in the same second as the last export, from a source that sorts first, is no longer skipped, and a full `doctor --reconcile-notes --apply` clears the notes of sources that have no links left.
 
 ## [1.16.1] - 2026-11-12

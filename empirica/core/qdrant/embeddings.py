@@ -279,6 +279,9 @@ class EmbeddingsProvider:
                     local = None
                 if local:
                     self.provider, self.ollama_url, served_locally = "ollama", local, True
+                    from empirica.core.qdrant.connection import pin_store_to_local_server
+
+                    pin_store_to_local_server(local_server_service("vectors") or "")
                 else:
                     self._auto_fallback = True
         else:
