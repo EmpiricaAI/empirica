@@ -258,3 +258,18 @@ def test_read_full_explicit_cc_not_overridden_by_self_source(tmp_path, monkeypat
     monkeypatch.setattr(sr, "get_active_project_path", lambda cc=None: str(proj))
     data = sr.read_active_transaction_full(claude_session_id="cc-mine")
     assert data is not None and data["transaction_id"] == "tx-mine"
+
+
+def test_an_abandoned_open_transaction_does_not_outrank_a_newer_closed_one(tmp_path):
+    """One Claude Code session runs one transaction at a time, so for the same cc the most recent file is the truth.
+
+    Ranking open before recent returned a transaction left open 45 days earlier (abandoned across a compaction) whenever the
+    session's current transaction was closed: the decision record named it for every out-of-loop act (2026-11-13)."""
+    hook = _load_hook_module()
+    ed = tmp_path / ".empirica"
+    _write_tx(ed, "_tmux_6", transaction_id="T-ABANDONED", claude_session_id="cc-1", status="open", updated_at=100.0)
+    newer = _write_tx(
+        ed, "_empirica", transaction_id="T-LATEST", claude_session_id="cc-1", status="closed", updated_at=900.0
+    )
+    assert _find_transaction_file(ed, "_tmux_9", None, "cc-1") == newer
+    assert hook._find_transaction_file(ed, "_tmux_9", None, "cc-1") == newer

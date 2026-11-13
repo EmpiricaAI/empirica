@@ -1610,7 +1610,11 @@ def _find_transaction_file(
             sess_match = bool(session_id and tx_data.get("session_id") == session_id)
             if not (cc_match or sess_match):
                 continue
-            rank = (cc_match, tx_data.get("status") == "open", tx_data.get("updated_at") or 0.0)
+            # Most recent first, then open: one Claude Code session runs one transaction at a time, so a newer closed file
+            # means an older open one was abandoned (left open across a compaction); open-first returned a 45-day-old
+            # transaction whenever the current one was closed (2026-11-13). Open still breaks a tie, as for files with
+            # no updated_at.
+            rank = (cc_match, tx_data.get("updated_at") or 0.0, tx_data.get("status") == "open")
             if best_rank is None or rank > best_rank:
                 best_rank, best_file = rank, tx_file
     except Exception:
