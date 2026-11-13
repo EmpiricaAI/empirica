@@ -59,18 +59,6 @@
       "decided_by": "empirica (2026-10-30, pre-publish sweep T7; claims audited by a read-only reviewer against HEAD, not independently re-verified by me)",
       "review_by": "2027-01-31"
     },
-    "docs/reference/api/config_profiles.md": {
-      "status": "pending_review",
-      "reason": "STALE and MISLEADING, audited 2026-10-30: about 45 claims, about 36 hold. WRONG: InvestigationProfile.from_yaml(path) does not exist (loading is ProfileLoader.load_profile(name), profile_loader.py:390); GoalScopeLoader.get_recommendations(vectors) is get_scope_recommendations(epistemic_vectors, context=None) (goal_scope_loader.py:123); validate_scope(scope, vectors) is validate_scope_coherence(scope_vector) (:279); the example output of breadth 0.3 / duration 0.2 / coordination 0.1 is wrong (a run gave 0.7 / 0.6 / 0.4 plus pattern, match_score, rationale, context_applied); empirica/config/mco/ does not hold the profile YAML (it is empirica/config/investigation_profiles.yaml). Undocumented: encourage_experimentation, TuningParameters, StrategyConfig, LearningConfig, UniversalConstraints, ProfileLoader. Rewrite tracked in a goal; do not renew a third time.",
-      "decided_by": "empirica (2026-10-30, pre-publish sweep T7; claims audited by a read-only reviewer against HEAD, not independently re-verified by me)",
-      "review_by": "2026-11-30"
-    },
-    "docs/reference/api/identity_persona.md": {
-      "status": "pending_review",
-      "reason": "STALE and MISLEADING, the worst of the four, audited 2026-10-30: about 40 claims, about 22 hold. WRONG: the AIIdentity(...) example raises TypeError (the constructor is AIIdentity(ai_id, identity_dir=None), ai_identity.py:73); sign takes and returns bytes (:267); verify is a staticmethod verify(signature, message, public_key_bytes) (:285); a keypair must be created or loaded first (generate_keypair :98, load_keypair :199) or signing raises RuntimeError (:281); PersonaMetadata fields are wrong (persona_profile.py:141-152: created_by, created_at str, modified_at, description, tags, parent_persona, derived_from, verified_sessions). Undocumented: IdentityManager, export_public_key, create_eep1_payload, sign_assessment, verify_eep1_payload, PersonaProfile, SentinelConfig, SigningIdentityConfig, PersonaManager. Rewrite tracked in a goal; do not renew a third time.",
-      "decided_by": "empirica (2026-10-30, pre-publish sweep T7; claims audited by a read-only reviewer against HEAD, not independently re-verified by me)",
-      "review_by": "2026-11-30"
-    },
     "docs/reference/api/qdrant.md": {
       "status": "pending_review",
       "reason": "Subject live but the page has at least two phantom symbols: of 8 functions checked, delete_memory and rank_items have no definition anywhere under empirica/core/qdrant/. The other 6 do exist. NOTE for whoever reviews: a top-level hasattr on the package reports ALL 11 missing because the __init__ does not re-export them — that reading is an artifact, not absence. Start from the two named above.",
@@ -167,12 +155,6 @@
       "reason": "Read in full on 2026-10-12. Principles I and III-IX still describe the code (phase-aware calibration, earned autonomy, honest over accurate, fail-open measurement, human authority). Principle II (measurement opacity: the system prompt must not expose scoring mechanics) is in tension with the current lean system prompt, which publishes the work_type calibration weights and frames measurement as collaborative; whether II stands, is amended, or the prompt is wrong is David's ruling, not edited here. Authors are David and Claude Code, so the principles are not rewritten unasked. Further check 2026-10-13: the work_type weights have been in the agent-facing lean system prompt since commit d106cd0c3 (2026-04-13, five weeks after this document) and in the public guide docs/human/end-users/05_EPISTEMIC_VECTORS_EXPLAINED.md; no amendment decision was logged; SENTINEL_GATE_REFERENCE.md line 5 still cites Principle II as its audience rule; and CHECK ADVISORY messages with K/U thresholds now reach the model. The contradiction is three documents and two delivery channels wide, not one prompt line. Amend or reaffirm Principle II (David).",
       "decided_by": "empirica (2026-10-12, CI gate)",
       "review_by": "2026-11-15"
-    },
-    "docs/architecture/claude-code-symbiosis.md": {
-      "status": "pending_review",
-      "reason": "STALE in five places, audited 2026-10-30 (17 of about 24 claims hold): (1) the retrieval weight omits the relevance blend: it is impact x type_confidence x (0.65 x relevance + 0.35 x recency), and without task context or Qdrant impact x type_confidence x recency (epistemic_summarizer.py:56-57,133-147); (2) the type-confidence order omits subtask (finding 0.9, dead_end 0.85, mistake 0.85, subtask 0.80, goal 0.75, unknown 0.6), and decay.py has a different table; (3) the cognitive immune system section describes behaviour that is DISABLED (artifact_log_commands.py:1243-1275 return [], disabled 2026-05-28, retired in 1.13.27); (4) MEMORY.md is also refreshed at POSTFLIGHT, not only at session end; (5) there are two writers with different markers (hook HTML comments vs memory_manager headings), capped at 100 lines of auto content. Rewrite tracked in a goal.",
-      "decided_by": "empirica (2026-10-30, pre-publish sweep T7; claims audited by a read-only reviewer against HEAD, not independently re-verified by me)",
-      "review_by": "2026-11-30"
     },
     "docs/architecture/UNIVERSAL_GOVERNANCE_PATTERN.md": {
       "status": "pending_review",

@@ -1,136 +1,129 @@
 # Identity & Persona API
 
-**Module:** `empirica.core.identity`, `empirica.core.persona`
-**Category:** AI Configuration
+**Modules:** `empirica.core.identity`, `empirica.core.persona`
 **Stability:** Beta
 
----
+An **identity** is an Ed25519 keypair an AI signs with, so what it wrote can be attributed to it. A **persona** is a named
+configuration for an AI working in one domain: its starting (prior) vectors, its thresholds and weights, what it may do,
+and when the Sentinel should step in. Every persona is tied to a signing identity by its public key.
 
-## Overview
-
-Identity and Persona systems configure AI behavior, epistemic priors, and capability boundaries.
+From the command line: `empirica identity-create --ai-id <name>`, `empirica identity-list`, `empirica identity-export
+--ai-id <name>`. Keys live under `.empirica/identity/` in the practice.
 
 ---
 
 ## AIIdentity
 
-Cryptographic identity for AI agents (signing, attribution).
-
 ```python
 from empirica.core.identity.ai_identity import AIIdentity
 
-identity = AIIdentity(
-    ai_id="claude-code",
-    model="claude-opus-4-5-20251101",
-    public_key="ed25519:...",
-    capabilities=["read", "write", "execute"],
-    trust_level=0.9
-)
+identity = AIIdentity(ai_id="claude-code", identity_dir="/tmp/empirica-doc/identity")
+identity.generate_keypair()
+identity.save_keypair(overwrite=True)  # <identity_dir>/claude-code.key and .pub
 
-# Sign a checkpoint
-signature = identity.sign(checkpoint_data)
+message = b"checkpoint 42"
+signature = identity.sign(message)  # bytes in, bytes out
 
-# Verify attribution
-is_valid = identity.verify(checkpoint_data, signature)
+public_key = bytes.fromhex(identity.public_key_hex())
+assert AIIdentity.verify(signature, message, public_key)  # static: (signature, message, public key bytes)
+assert not AIIdentity.verify(signature, b"tampered", public_key)
+
+exported = identity.export_public_key()  # {"ai_id", "created_at", "public_key", "metadata"}
 ```
 
----
+`sign` raises `RuntimeError` until a key is generated or loaded. To use a saved key: `AIIdentity(ai_id).load_keypair()`.
+With `EMPIRICA_IDENTITY_PASSWORD` set, `save_keypair` encrypts the private key and `load_keypair` needs the same password.
 
-## PersonaMetadata
+`IdentityManager(identity_dir=None)` wraps the directory: `create_identity(ai_id, overwrite=False)`,
+`load_identity(ai_id)`, `identity_exists(ai_id)` and `list_identities()`.
 
-Metadata describing an AI persona's configuration.
+### Signed assessments (EEP-1)
+
+`empirica.core.identity.signature` signs an output together with the vectors it was produced under, so a reader can check
+both who made it and that neither was changed afterwards.
 
 ```python
-from empirica.core.persona.persona_profile import PersonaMetadata
+from empirica.core.identity.ai_identity import AIIdentity
+from empirica.core.identity.signature import sign_assessment, verify_eep1_payload, verify_signature
 
-@dataclass
-class PersonaMetadata:
-    name: str                    # e.g., "Implementation Lead"
-    ai_id: str                   # e.g., "claude-code"
-    version: str
-    created_at: datetime
-    updated_at: datetime
-    author: str                  # Human who created the persona
-    description: str
-    use_cases: List[str]         # When to use this persona
+identity = AIIdentity(ai_id="claude-code", identity_dir="/tmp/empirica-doc/identity")
+identity.generate_keypair()
+
+package = sign_assessment("the final answer", {"know": 0.9, "uncertainty": 0.1}, identity, model_id="claude-opus")
+assert verify_signature(package)  # the public key travels in the package as creator_id
+
+report = verify_eep1_payload(package, content="the final answer")  # signature, content hash, timestamp
+print(report)
 ```
+
+`create_eep1_payload(content, epistemic_state, ai_id, ...)` builds the unsigned payload, and
+`compute_cascade_trace_hash(git_log)` gives the hash to pass as `cascade_trace_hash`.
 
 ---
 
-## EpistemicConfig
+## PersonaProfile
 
-Epistemic configuration for a persona - priors, thresholds, weights.
+A persona is one `PersonaProfile`. The parts:
+
+| Part | Holds |
+|---|---|
+| `SigningIdentityConfig` | `user_id`, `identity_name`, `public_key` (64 hex characters), `reputation_score` (default 0.5) |
+| `EpistemicConfig` | `priors` (all 13 vectors, each 0 to 1), `thresholds`, `weights` (must sum to 1), `focus_domains` |
+| `CapabilitiesConfig` | `can_spawn_subpersonas`, `can_call_external_tools`, `can_modify_code`, `can_read_files`, `requires_human_approval`, `max_investigation_depth`, `restricted_operations` |
+| `SentinelConfig` | `reporting_frequency`, `escalation_triggers` (a list of `EscalationTrigger`), `timeout_minutes`, `max_cost_usd`, `requires_sentinel_approval_before_act` |
+| `PersonaMetadata` | `created_by`, `created_at`, `modified_at`, `description`, `tags`, `parent_persona`, `derived_from`, `verified_sessions` |
 
 ```python
-from empirica.core.persona.persona_profile import EpistemicConfig
-
-config = EpistemicConfig(
-    priors={
-        "engagement": 0.8, "know": 0.5, "do": 0.6, "context": 0.4,
-        "clarity": 0.5, "coherence": 0.5, "signal": 0.6, "density": 0.5,
-        "state": 0.5, "change": 0.5, "completion": 0.2, "impact": 0.5,
-        "uncertainty": 0.6
-    },
-    thresholds={
-        "uncertainty_trigger": 0.4,    # When to investigate
-        "confidence_to_proceed": 0.75, # When to act
-        "signal_quality_min": 0.6,     # Minimum signal
-        "engagement_gate": 0.6         # Minimum engagement
-    },
-    weights={
-        "foundation": 0.35,    # know, do, context
-        "comprehension": 0.25, # clarity, coherence, signal, density
-        "execution": 0.25,     # state, change, completion, impact
-        "engagement": 0.15     # engagement
-    },
-    focus_domains=["software-development", "documentation"]
+from empirica.core.identity.ai_identity import AIIdentity
+from empirica.core.persona.persona_profile import (
+    CapabilitiesConfig,
+    EpistemicConfig,
+    EscalationTrigger,
+    PersonaProfile,
+    SentinelConfig,
+    SigningIdentityConfig,
 )
+
+key = AIIdentity(ai_id="security-lead", identity_dir="/tmp/empirica-doc/identity")
+key.generate_keypair()
+
+VECTORS = ["engagement", "know", "do", "context", "clarity", "coherence", "signal", "density",
+           "state", "change", "completion", "impact", "uncertainty"]
+priors = dict.fromkeys(VECTORS, 0.6) | {"completion": 0.05, "uncertainty": 0.2}
+
+profile = PersonaProfile(
+    persona_id="security-lead",          # lowercase letters, digits, _ and -
+    name="Security Lead",
+    version="1.0.0",                     # semantic version
+    signing_identity=SigningIdentityConfig(
+        user_id="david", identity_name="security-lead", public_key=key.public_key_hex()
+    ),
+    epistemic_config=EpistemicConfig(
+        priors=priors,
+        thresholds={"uncertainty_trigger": 0.3, "confidence_to_proceed": 0.85},
+        focus_domains=["security", "authentication"],
+    ),
+    capabilities=CapabilitiesConfig(restricted_operations=["push_to_main"]),
+    sentinel_config=SentinelConfig(
+        escalation_triggers=[EscalationTrigger(condition="uncertainty > 0.8", action="escalate", priority="high")]
+    ),
+)
+
+assert profile.get_type() == "security"  # from the focus domains
+assert PersonaProfile.from_dict(profile.to_dict()).persona_id == "security-lead"
 ```
 
----
+Construction validates: a missing or out-of-range prior, weights that do not sum to 1, a malformed `persona_id` or
+version, or a public key that is not 64 hex characters raise `ValueError`.
 
-## CapabilitiesConfig
-
-What a persona can and cannot do.
-
-```python
-from empirica.core.persona.persona_profile import CapabilitiesConfig
-
-capabilities = CapabilitiesConfig(
-    can_spawn_subpersonas=False,
-    can_call_external_tools=True,
-    can_modify_code=True,
-    can_read_files=True,
-    requires_human_approval=False,
-    max_investigation_depth=5,
-    restricted_operations=["delete_files", "push_to_main"]
-)
-```
+`PersonaManager(personas_dir=None)` stores profiles as files (default `.empirica/personas/`):
+`create_persona(persona_id, name, ...)`, `save_persona(profile, overwrite=False)`, `load_persona(persona_id)`,
+`list_personas()`, `delete_persona(persona_id)`.
 
 ---
 
-## EscalationTrigger
+## Implementation files
 
-Conditions that trigger Sentinel intervention.
-
-```python
-from empirica.core.persona.persona_profile import EscalationTrigger
-
-trigger = EscalationTrigger(
-    condition="uncertainty > 0.8",
-    action="escalate",  # notify, pause, handoff, escalate, terminate
-    priority="high"     # low, medium, high, critical
-)
-```
-
----
-
-## Implementation Files
-
-- `empirica/core/identity/ai_identity.py` - AIIdentity (cryptographic identity)
-- `empirica/core/persona/persona_profile.py` - PersonaMetadata, EpistemicConfig, CapabilitiesConfig, EscalationTrigger
-
----
-
-**API Stability:** Beta
-**Last Updated:** 2026-01-09
+- `empirica/core/identity/ai_identity.py`: `AIIdentity`, `IdentityManager`
+- `empirica/core/persona/persona_profile.py`: `PersonaProfile` and its parts
+- `empirica/core/persona/persona_manager.py`: `PersonaManager`

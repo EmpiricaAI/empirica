@@ -1,146 +1,96 @@
-# Configuration & Profiles API
+# Investigation Profiles & Goal Scope API
 
-**Module:** `empirica.config`
-**Category:** Investigation Configuration
-**Stability:** Production Ready
+**Modules:** `empirica.config.profile_loader`, `empirica.config.goal_scope_loader`
+**Stability:** Beta
 
----
-
-## Overview
-
-Configuration modules control how the Sentinel gates investigation, how goals are scoped, and how the epistemic workflow adapts to different domains and investigation styles.
+Two advisory configurations. An **investigation profile** holds the thresholds and styles for one way of working (how much
+to investigate, when to proceed, how to reassess). A **goal scope recommendation** turns a vector reading into a suggested
+breadth, duration and coordination for a goal. Neither decides anything on its own: the AI and the Sentinel can override.
 
 ---
 
-## InvestigationProfile
+## Investigation profiles
 
-**Module:** `empirica.config.profile_loader`
-
-Complete investigation profile aggregating all configuration objects.
-
-### Dataclass Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | `str` | Profile name (e.g., "default", "deep_investigation") |
-| `description` | `str` | Human-readable description |
-| `investigation` | `InvestigationConstraints` | Phase constraints |
-| `action_thresholds` | `ActionThresholds` | Sentinel gate thresholds |
-| `tuning` | `TuningParameters` | Confidence calculation weights |
-| `strategy` | `StrategyConfig` | Domain detection and tool selection |
-| `learning` | `LearningConfig` | Postflight mode and validation |
-
-### Methods
-
-- `to_dict() -> Dict` - Serialize to dictionary
-- `from_yaml(path) -> InvestigationProfile` - Load from YAML config
-
----
-
-## InvestigationConstraints
-
-**Module:** `empirica.config.profile_loader`
-
-Controls investigation phase limits used by the Sentinel.
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `max_rounds` | `Optional[int]` | `None` | Max investigation rounds (None = unlimited) |
-| `confidence_threshold` | `float` | `0.65` | Min confidence to proceed |
-| `confidence_threshold_dynamic` | `bool` | `False` | Adapt threshold based on history |
-| `tool_suggestion_mode` | `ToolSuggestionMode` | `SUGGESTIVE` | How tools are suggested |
-| `allow_novel_approaches` | `bool` | `True` | Allow AI to try new approaches |
-| `require_tool_approval` | `bool` | `False` | Require approval before tool use |
-
----
-
-## ActionThresholds
-
-**Module:** `empirica.config.profile_loader`
-
-Thresholds used by the Sentinel to determine proceed vs. investigate.
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `uncertainty_high` | `float` | `0.75` | Uncertainty above this triggers investigation |
-| `clarity_low` | `float` | `0.45` | Clarity below this triggers investigation |
-| `foundation_low` | `float` | `0.45` | Foundation below this triggers investigation |
-| `confidence_proceed_min` | `float` | `0.65` | Minimum confidence to proceed |
-| `override_allowed` | `bool` | `True` | Allow AI to override thresholds |
-| `escalate_on_uncertainty` | `bool` | `False` | Escalate when uncertainty is high |
-
----
-
-## Enums
-
-### ToolSuggestionMode
-
-| Value | Description |
-|-------|-------------|
-| `LIGHT` | Minimal suggestions, AI explores freely |
-| `SUGGESTIVE` | Suggestions provided, AI decides |
-| `GUIDED` | Strong guidance, AI follows |
-| `PRESCRIBED` | Specific tools required |
-| `INSPIRATIONAL` | Spark ideas for exploration |
-
-### DomainDetection
-
-| Value | Description |
-|-------|-------------|
-| `REASONING` | AI reasons about domain |
-| `PLUGIN_ASSISTED` | Plugins provide hints |
-| `HYBRID` | Mix of reasoning + plugins |
-| `DECLARED` | User declares domain |
-| `EMERGENT` | Discover through exploration |
-
-### PostflightMode
-
-| Value | Description |
-|-------|-------------|
-| `GENUINE_REASSESSMENT` | AI genuinely reassesses vectors |
-| `COMPARATIVE_ASSESSMENT` | Compare pre/post explicitly |
-| `FULL_AUDIT_TRAIL` | Complete audit of changes |
-| `REFLECTION` | Focus on learning takeaways |
-
----
-
-## GoalScopeLoader
-
-**Module:** `empirica.config.goal_scope_loader`
-
-Maps epistemic vector patterns to recommended goal scope vectors. Advisory only — AI and Sentinel can override.
-
-### Constructor
+Profiles are read from `empirica/config/investigation_profiles.yaml`. It ships five: `high_reasoning_collaborative`,
+`autonomous_agent`, `critical_domain`, `exploratory` and `balanced`.
 
 ```python
-loader = GoalScopeLoader(config_path=None)  # Uses default goal_scopes.yaml
+from empirica.config.profile_loader import get_profile_loader, load_profile, select_profile
+
+loader = get_profile_loader()  # one ProfileLoader per process, reading investigation_profiles.yaml
+print(loader.list_profiles())
+
+profile = load_profile("balanced")  # ValueError if there is no such profile
+print(profile.action_thresholds.confidence_proceed_min, profile.investigation.max_rounds)
+
+chosen = select_profile(domain="medical")  # by explicit name, then domain, then model, else the default
+print(chosen.name)
 ```
 
-### Key Methods
+`ProfileLoader(config_path=None)` also offers `get_profile(name)` (None when missing), `validate_constraints(profile)`
+(a list of problems), `export_profile(name, path)` and `import_profile(path, name=None)`.
 
-- `get_recommendations(vectors: Dict[str, float]) -> Dict` - Get scope recommendations
-- `validate_scope(scope: Dict, vectors: Dict) -> Dict` - Check scope coherence
+### InvestigationProfile
 
-### Example
+| Field | Type |
+|---|---|
+| `name`, `description` | `str` |
+| `investigation` | `InvestigationConstraints` |
+| `action_thresholds` | `ActionThresholds` |
+| `tuning` | `TuningParameters` |
+| `strategy` | `StrategyConfig` |
+| `learning` | `LearningConfig` |
+
+`to_dict()` serialises it, enums as their values.
+
+### The parts, with their defaults
+
+| Class | Fields (default) |
+|---|---|
+| `InvestigationConstraints` | `max_rounds` (None, no limit), `confidence_threshold` (0.65), `confidence_threshold_dynamic` (False), `tool_suggestion_mode` (`SUGGESTIVE`), `allow_novel_approaches` (True), `require_tool_approval` (False), `encourage_experimentation` (False) |
+| `ActionThresholds` | `uncertainty_high` (0.75), `clarity_low` (0.45), `foundation_low` (0.45), `confidence_proceed_min` (0.65), `override_allowed` (True), `escalate_on_uncertainty` (False) |
+| `TuningParameters` | `confidence_weight`, `foundation_weight`, `comprehension_weight`, `execution_weight`, `uncertainty_weight` (all 1.0) |
+| `StrategyConfig` | `domain_detection` (`HYBRID`), `tool_selection` ("ai_guided"), `gap_prioritization` ("balanced") |
+| `LearningConfig` | `postflight_mode` (`GENUINE_REASSESSMENT`), `confidence_gain_calculation` ("evidence_based"), `require_validation` (False) |
+| `UniversalConstraints` (all profiles) | `engagement_gate` (0.60), `coherence_min` (0.50), `density_max` (0.90), `change_min` (0.50), `max_tool_calls_per_round` (10), `investigation_timeout_seconds` (3600), `log_all_assessments`, `log_tool_calls` (True) |
+
+A profile in the YAML overrides these; `load_profile("balanced")` shows the values actually in force.
+
+### Enums
+
+- `ToolSuggestionMode`: `LIGHT`, `SUGGESTIVE`, `GUIDED`, `PRESCRIBED`, `INSPIRATIONAL`
+- `DomainDetection`: `REASONING`, `PLUGIN_ASSISTED`, `HYBRID`, `DECLARED`, `EMERGENT`
+- `PostflightMode`: `GENUINE_REASSESSMENT`, `COMPARATIVE_ASSESSMENT`, `FULL_AUDIT_TRAIL`, `REFLECTION`
+
+---
+
+## Goal scope recommendations
+
+Patterns are read from `empirica/config/mco/goal_scopes.yaml`: a vector reading is matched to the closest pattern
+(`knowledge_leader`, `learning_mode`, `complexity_signals`, `coordination_heavy`, `rapid_iteration`, `production_focused`,
+`web_project_design`, `session_continuation`).
 
 ```python
-from empirica.config.goal_scope_loader import get_scope_recommendations
+from empirica.config.goal_scope_loader import get_scope_recommendations, validate_scope_coherence
 
-recommendations = get_scope_recommendations(
-    epistemic_vectors={"know": 0.85, "uncertainty": 0.3, "clarity": 0.80}
-)
-# Returns: {"breadth": 0.3, "duration": 0.2, "coordination": 0.1}
+rec = get_scope_recommendations({"know": 0.85, "uncertainty": 0.3, "clarity": 0.80})
+print(rec)
+# {'breadth': 0.7, 'duration': 0.6, 'coordination': 0.4, 'pattern': 'knowledge_leader', 'match_score': 1.0,
+#  'rationale': 'High knowledge + confidence enables broader scope work', 'context_applied': False}
+
+print(validate_scope_coherence({"breadth": 0.9, "duration": 0.1, "coordination": 0.5}))
+# {'coherent': True, 'warnings': [], 'suggestions': [], 'severity': 'none'}
 ```
 
----
-
-## Implementation Files
-
-- `empirica/config/profile_loader.py` - InvestigationProfile, constraints, thresholds
-- `empirica/config/goal_scope_loader.py` - GoalScopeLoader, scope recommendations
-- `empirica/config/mco/` - YAML configuration files
+`get_scope_recommendations(epistemic_vectors, context=None)` returns None when no pattern matches; `context` adjusts the
+result (and sets `context_applied`). `GoalScopeLoader(config_path=None)` exposes the same two calls as methods, plus
+`list_available_patterns()` (pattern name to description).
 
 ---
 
-**API Stability:** Stable
-**Last Updated:** 2026-03-04
+## Implementation files
+
+- `empirica/config/profile_loader.py`: the profile classes, `ProfileLoader` and the module functions
+- `empirica/config/investigation_profiles.yaml`: the shipped profiles
+- `empirica/config/goal_scope_loader.py`: `GoalScopeLoader` and the module functions
+- `empirica/config/mco/goal_scopes.yaml`: the scope patterns

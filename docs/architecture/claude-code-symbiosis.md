@@ -31,7 +31,7 @@ Claude Code has no self-awareness infrastructure:
 | No uncertainty quantification | Cannot distinguish high-confidence facts from guesses |
 | No grounded verification | Cannot compare beliefs against deterministic service observations |
 | No dead-end memory | Cannot prevent re-exploring failed approaches |
-| No cognitive immune system | Cannot decay stale beliefs or strengthen confirmed ones |
+| No way to retract a belief | Cannot mark what it once wrote as wrong, or keep a refutation test open |
 | No transaction measurement | Cannot capture learning deltas across work sessions |
 
 Claude Code's memory is flat text. Every fact has equal weight. There is no
@@ -69,24 +69,26 @@ the AI from gaming its own assessment.
 Not just "search memory" but retrieval weighted by epistemic quality:
 
 ```
-weight = impact x type_confidence x recency_decay
+weight = impact x type_confidence x (0.65 x relevance + 0.35 x recency)
 
 where:
-  type_confidence = finding(0.9) > dead_end(0.85) > mistake(0.85) > goal(0.75) > unknown(0.6)
-  recency_decay = exp(-0.029 x age_hours)  # 24-hour half-life
+  type_confidence = finding(0.9) > dead_end(0.85) = mistake(0.85) > subtask(0.80) > goal(0.75) > unknown(0.6)
+  relevance       = semantic match to the current task (Qdrant), 0 to 1
+  recency         = exp(-0.029 x age_hours)  # 24-hour half-life
 ```
 
-A high-impact recent finding ranks above an old low-confidence unknown.
-Dead-ends are surfaced to prevent re-exploration. This is semantically richer
-than flat text search.
+Relevance is added, not multiplied: a dead-end from months ago about exactly this task still surfaces, while old
+artifacts about something else stop crowding out today's. With no task to match, or no Qdrant, the weight falls back to
+`impact x type_confidence x recency`, and the output says so. Dead-ends are surfaced to prevent re-exploration.
 
 ### 4. The Sentinel (Epistemic Gating)
 
 Claude Code's plan mode is a binary permission gate: read-only or read-write.
 
-Empirica's Sentinel gates on *epistemic readiness*: have you investigated enough
-to act? This is measured via vectors, not permissions. The CHECK gate returns
-`proceed` or `investigate` based on the full vector space and calibration history.
+Empirica's Sentinel gates on *epistemic readiness*: have you said what the next change rests on? It is a discipline
+layer, not a security boundary. Reading is always free; a change waits until the transaction is certified, by the
+grounded claims declared at PREFLIGHT or by a CHECK, which returns `proceed` or `investigate` from the vectors and the
+calibration history. Outside a transaction, a small budget of project-local edits runs and is recorded.
 
 ### 5. Project Awareness
 
@@ -105,17 +107,17 @@ This is where the symbiosis becomes concrete.
 ### How It Works
 
 ```
-Session ends
+POSTFLIGHT, and again when the session ends
   |
   v
-Empirica fetches project-scoped breadcrumbs from SQLite
+Empirica fetches project-scoped artifacts from SQLite
   |
   v
-Epistemic summarizer ranks by: impact x type_confidence x recency
+Ranked by impact x type_confidence x (relevance and recency, above)
   |
   v
-Top 12 artifacts written to Claude Code's MEMORY.md
-  (preserving manual content via HTML comment delimiters)
+Written into Claude Code's MEMORY.md as an auto section
+  (manual content around it is preserved)
   |
   v
 Next session auto-loads MEMORY.md (first 200 lines)
@@ -124,13 +126,18 @@ Next session auto-loads MEMORY.md (first 200 lines)
 Agent starts with epistemically-ranked context, not raw history
 ```
 
+Two writers keep that section, each with its own markers. At POSTFLIGHT, `memory_manager` writes an
+`## EPISTEMIC FOCUS (Confidence-Ranked)` block, capped at 100 lines so manual notes keep room under Claude Code's
+200-line load, and promotes the most confident facts into their own memory files. At session end, a hook writes the top 12
+artifacts between `<!-- empirica-auto-start -->` and `<!-- empirica-auto-end -->` comments.
+
 ### What This Means
 
 Claude Code's MEMORY.md becomes an **epistemically curated hot cache**:
 
 - High-impact findings float to the top
 - Dead-ends are surfaced to prevent re-exploration
-- Stale items decay below the 200-line threshold
+- Stale items fall out of the capped auto section as fresher, more relevant ones rank above them
 - Manual notes are preserved alongside auto-generated content
 
 Empirica doesn't replace MEMORY.md. It makes it *intelligent*.
@@ -157,16 +164,19 @@ Properties:
 The Qdrant layer adds depth: MEMORY.md is the hot cache (12 items),
 `project-search` gives semantic access to the full history.
 
-## The Cognitive Immune System
+## Correcting Shared Memory
 
-When a new finding is logged:
-1. Keywords are extracted
-2. Related lessons have their confidence reduced
-3. Minimum confidence floor: 0.3 (lessons never fully die)
+Shared memory corrects itself through explicit acts, not keyword matching:
 
-This means the shared memory is self-correcting. If Agent A logged a finding
-that turns out to be wrong, Agent B's contradicting finding will reduce the
-original's confidence. The system converges on truth across agents.
+1. **Retraction.** A finding shown false is resolved with `finding-resolve --kind retracted`. It keeps its wording and
+   leaves live retrieval, and the graph records that it was wrong, not merely old (`stale`) or replaced (`superseded`).
+2. **Falsifiers.** A belief an agent acts on can carry the observation that would refute it. The falsifier outlives the
+   transaction and is raised at every later PREFLIGHT, in any agent's session, until someone adjudicates it.
+3. **Expiry.** An assumption nobody checked before its subject went away closes as `expired`, counted as neither
+   confirmation nor error.
+
+An earlier design lowered a lesson's confidence whenever a new finding shared keywords with it. It is retired: keyword
+overlap could not tell agreement from contradiction, so findings that confirmed a lesson eroded it.
 
 ## Integration Architecture
 
@@ -183,7 +193,7 @@ Plan Mode                   <-->   Noetic Phase
   v                                  v
 MEMORY.md (hot, 200 lines)  <--   Qdrant + SQLite (warm/search)
   |                                  |
-  | Auto-loaded per session          | Curated at session-end
+  | Auto-loaded per session          | Curated at POSTFLIGHT and session end
   v                                  v
 Compaction (silent)         -->    POSTFLIGHT (measured)
   |                                  |
