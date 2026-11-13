@@ -71,8 +71,8 @@ def _say_why_skipped(component: str) -> None:
         from empirica.core.mesh_endpoint import mesh_bearer
 
         say_suppressed(component, mesh_bearer().get("reason"))
-    except Exception:
-        pass
+    except Exception as e:  # naming the reason must never break a beat
+        logger.debug(f"{component}: could not read the credential reason: {e}")
 
 
 def _default_resolve_creds() -> tuple[str | None, str | None]:
