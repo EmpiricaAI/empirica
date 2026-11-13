@@ -2,10 +2,10 @@
 
 # Artifact graph
 
-**When to load:** Use when logging two or more artifacts at once, when unsure which type an observation is (finding, unknown, assumption, decision, mistake, dead end), when connecting artifacts with edges, or when a claim you logged turns out false and needs retracting rather than closing. Covers type collapse, split-before-you-log, provenance and visibility, orphan accumulation, the retraction table and the cognitive immune system. Triggers: 'which artifact type', 'retract', 'orphan', 'log-artifacts', 'type collapse'.
+**When to load:** Use when logging two or more artifacts at once, when unsure which type an observation is (finding, unknown, assumption, decision, mistake, dead end), when connecting artifacts with edges, when closing one (retract, expire, invalidate, assess), when deciding whether to share one beyond the practice, or when a claim you logged turns out false. Covers type collapse, split-before-you-log, the gaps every practice shares, lifecycles and their honest endings, what federates and what does not, use by practice type, orphans and the cognitive immune system. Triggers: 'which artifact type', 'retract', 'expire', 'share this', 'visibility', 'orphan', 'log-artifacts', 'type collapse'.
 
-The depth behind the prompt's artifact-type table and signal-to-action table: how to TYPE what you log, how to CONNECT it, and how to retire it honestly. Load it at the moment you are about to log a batch, hesitate over a type, or find that something you logged was false.
+The depth behind the prompt's artifact-type table, for the moment you log, connect, close or share. The full reference, with diagrams of every lifecycle and where each type is stored, is `docs/reference/ARTIFACT_GRAPH.md`. The vocabularies are the ones `empirica log-artifacts --schema` and `empirica resolve-artifacts --schema` print; when this skill and a schema disagree, the schema is right.
 
-Skill `artifact-graph` · version 1.0.0 · load with `/artifact-graph` in Claude Code.
+Skill `artifact-graph` · version 1.1.0 · load with `/artifact-graph` in Claude Code.
 
 Full skill: [SKILL.md](SKILL.md)

@@ -121,7 +121,8 @@ EOF
 A bug you found in the code is a `finding`; *you* shipping it is a `mistake`.
 Something you have not verified is an `assumption`; something you know you don't know
 is an `unknown`. Defaulting everything to `finding` is the most common way this layer
-degrades — `/artifact-graph` has the full table.
+degrades. `/artifact-graph` has the typing, lifecycle and sharing rules; `docs/reference/ARTIFACT_GRAPH.md` has the whole
+graph with diagrams.
 
 ```bash
 empirica log-artifacts - << 'EOF'

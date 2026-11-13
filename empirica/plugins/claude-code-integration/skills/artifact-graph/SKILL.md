@@ -1,126 +1,137 @@
 ---
 name: artifact-graph
-description: "Use when logging two or more artifacts at once, when unsure which type an observation is (finding, unknown, assumption, decision, mistake, dead end), when connecting artifacts with edges, or when a claim you logged turns out false and needs retracting rather than closing. Covers type collapse, split-before-you-log, provenance and visibility, orphan accumulation, the retraction table and the cognitive immune system. Triggers: 'which artifact type', 'retract', 'orphan', 'log-artifacts', 'type collapse'."
-version: 1.0.0
+description: "Use when logging two or more artifacts at once, when unsure which type an observation is (finding, unknown, assumption, decision, mistake, dead end), when connecting artifacts with edges, when closing one (retract, expire, invalidate, assess), when deciding whether to share one beyond the practice, or when a claim you logged turns out false. Covers type collapse, split-before-you-log, the gaps every practice shares, lifecycles and their honest endings, what federates and what does not, use by practice type, orphans and the cognitive immune system. Triggers: 'which artifact type', 'retract', 'expire', 'share this', 'visibility', 'orphan', 'log-artifacts', 'type collapse'."
+version: 1.1.0
 ---
 
 # Artifact graph
 
-The depth behind the prompt's artifact-type table and signal-to-action table: how to TYPE what you log, how to CONNECT it, and how to
-retire it honestly. Load it at the moment you are about to log a batch, hesitate over a type, or find that something you logged was
-false.
+The depth behind the prompt's artifact-type table, for the moment you log, connect, close or share. The full reference, with
+diagrams of every lifecycle and where each type is stored, is `docs/reference/ARTIFACT_GRAPH.md`. The vocabularies are the ones
+`empirica log-artifacts --schema` and `empirica resolve-artifacts --schema` print; when this skill and a schema disagree, the
+schema is right.
 
 ---
 
 ## The graph is the artifact
 
-The epistemic layer is a **typed graph**, and both words carry weight. Two failure
-modes degrade it, and both are silent — nothing errors, the graph simply stops
-being able to answer.
+The epistemic layer is a **typed graph**, and both words carry weight. Two failure modes degrade it, and both are silent: nothing
+errors, the graph simply stops being able to answer.
 
 ### Type collapse
 
-Every type answers a different question; flatten them and retrieval returns a pile you cannot reason over. The prompt's
-artifact-type table is the reference for the six everyday types. The seventh it does not carry: a **falsifier** answers "what
-OBSERVATION would refute a belief I am acting on?". It is registered before the evidence (the `falsifiers` array at
-PREFLIGHT/CHECK, naming its parent artifact) and, unlike a claim, outlives the transaction. The two confusions worth repeating: a
-defect in the code is a **finding** and *shipping* it is a **mistake**; something unverified is an **assumption** and something you
-know you don't know is an **unknown**.
+Every type answers a different question; flatten them and retrieval returns a pile you cannot reason over. The prompt's table is
+the reference for the six everyday types. The seventh, the **falsifier**, answers "what OBSERVATION would refute a belief I am
+acting on?". It is registered before the evidence (the `falsifiers` array at PREFLIGHT or CHECK, naming its parent artifact) and
+outlives the transaction. The two confusions worth repeating: a defect in the code is a **finding** and *shipping* it is a
+**mistake**; something unverified is an **assumption** and something you know you don't know is an **unknown**.
 
 **The symptom:** a session logs dozens of findings and no unknowns or assumptions while its vectors report uncertainty. The
-uncertainty was real; the typing was not done.
-**Vector uncertainty with no `unknown`/`assumption` behind it is an unsupported
-claim** — exactly the divergence calibration exists to surface.
+uncertainty was real; the typing was not done. **Vector uncertainty with no `unknown` or `assumption` behind it is an unsupported
+claim.**
 
 ### Split before you log
 
-Scan your own artifact for proper nouns,
-identities, versions, attributions — anything a reader could act on that you did
-not directly observe — and ask of each: did I *observe* this, or *supply* it?
-Supplied is an assumption however confident you are. Proper nouns bind hardest,
-because a name is what a reader can least check and is most likely to act on.
+Scan your artifact for proper nouns, identities, versions, attributions: anything a reader could act on that you did not
+directly observe. Of each, ask: did I *observe* this, or *supply* it? Supplied is an assumption however confident you are.
 
-An artifact is read as a unit, so a tag on the WHOLE of it cannot mark part of it:
-`epistemic_source`, a confidence, a caveat in the prose are all honest and none
-stops a reader lifting the name out of the sentence. Split, and the wrong half
-retracts without losing the right one. **The types already carry this** — when it
-goes wrong the typing failed, not the vocabulary, so the answer is gardening and
-never a new field.
+An artifact is read as a unit, so a tag on the whole cannot mark part of it: `epistemic_source`, a confidence and a caveat in the
+prose are all honest, and none stops a reader lifting the name out of the sentence. Split, and the wrong half retracts without
+losing the right one. **The types already carry this**: when it goes wrong the typing failed, not the vocabulary.
 
-### Provenance and visibility
+---
 
-`--epistemic-source {intuition|search|mixed}` on every `*-log` (and `data.epistemic_source` in `log-artifacts` payloads) tags how
-you arrived at the artifact; POSTFLIGHT's calibration reflection counts intuition against search per transaction. It is
-visibility only (no routing rule yet). Be honest: vectors asserted high while every artifact is intuition-tagged is the
-rubber-stamp CHECK pattern the substrate exists to expose.
+## The gaps every practice shares
 
-`--visibility {public,shared,local}` is the opt-in for being discoverable from other projects: `local` (default) stays in this
-project, `shared` is visible across the org's projects (Cortex tenancy), `public` to anyone with a Cortex account. The pull side
-is `empirica project-search --task "..." --global`, which searches the `global_learnings` collection (promoted shared/public
-artifacts) and this machine's other projects' collections. It stops at this machine: mesh-wide retrieval is the Cortex MCP tool `investigate`
-(`search_knowledge` for a plain search) when Cortex is connected; the `cortex` CLI has no such verb. Share liberally what
-has ecosystem-wide value (security patterns, cross-repo bugs, reusable lessons); keep tactical work `local`.
+Measured across 33 practices (2026-11-13), whatever their type:
 
-### Orphan accumulation
+| Gap | Measured | What to do at the moment |
+|---|---|---|
+| Assumptions are not typed | 1 to 4 per 100 findings everywhere | Before acting on something you did not check, log it as an assumption. If you register a falsifier, it needs a parent: this is it |
+| Decisions are never graded | outcomes recorded for 0 to 4% of decisions | When a choice has played out, assess it: `outcome` upheld, reversed or mixed |
+| Provenance is not linked | 14 `sourced_from` links across ~10,300 findings | A claim from outside the repo gets a source and a `sourced_from` edge, at logging time, not later |
 
-**An artifact connected to nothing is barely worth logging.** It cannot be swept,
-re-evaluated, or invalidated alongside its premises — which is what gardening and
-blindspot propagation operate on.
+These matter more than any context-specific advice below.
 
-A graph where most artifacts have no edge is a list wearing a graph's clothes.
+---
 
-- **Most edges should point at PRIOR artifacts**, not only within the batch you are
-  writing. All-internal edges build one disconnected island per transaction.
-- **Pick the relation that carries meaning** — `evidence`, `grounded_by`,
-  `caused_by`, `invalidates`, `resolves`, `sourced_from`. `related` asserts almost
-  nothing; reach for it last.
-- **`log-artifacts` / `resolve-artifacts` / `delete-artifacts` are the default path**
-  because they operate relationally. Single `*-log` verbs stay correct for one
-  genuinely standalone artifact — the exception, not the habit.
+## Connect it
 
-### Closing the loop, and the retraction gap
+**An artifact connected to nothing is barely worth logging.** It cannot be swept, re-evaluated, or invalidated alongside its
+premises.
 
-Resolve unknowns when answered. Invalidate what new evidence kills. Supersede what
-you replaced. **A graph that only grows is an archive, not a model of what you
-believe now** — and stale artifacts actively mis-steer retrieval rather than sitting
-inert, because what survives compaction is the graph, and the graph is what comes
-back to you.
+- **Most edges should point at PRIOR artifacts**, not only within the batch. All-internal edges build one island per
+  transaction.
+- **Pick the relation that carries meaning**: `evidence`, `grounded_by`, `raised_by`, `resolves`, `invalidates`,
+  `sourced_from`, `caused_by`, `prevents`. `related` asserts almost nothing; reach for it last. `attached_to` (artifact to goal)
+  is written for you.
+- **`log-artifacts` / `resolve-artifacts` / `delete-artifacts` are the default path** because they operate relationally. A single
+  `*-log` verb is right for one genuinely standalone artifact.
 
-**Retraction is the move practices reliably skip.** Closing what is *done* and
-retracting what was *wrong* feel similar and are not: the first records progress, the
-second records error.
+---
 
-| Kind | Means |
+## Close it honestly
+
+A graph that only grows is an archive, not a model of what you believe now, and stale artifacts mis-steer retrieval rather than
+sitting inert. Every ending below goes through `resolve-artifacts`; none deletes anything.
+
+| Type | Endings | The one to reach for when |
+|---|---|---|
+| finding | `stale`, `superseded` (name the successor), `retracted`, `mistyped` | **`retracted` when it was wrong.** `stale` only when it was true and aged |
+| unknown | answered | cite what answered it |
+| assumption | verified, falsified, **expired** | `expired` when nobody tested it before its subject went away: neither verified nor falsified |
+| decision | outcome `upheld`, `reversed`, `mixed`, optional `regret` | when the choice has played out |
+| dead end, mistake | invalidated | only when something showed the constraint false. Never for being old: they are meant to resurface |
+| falsifier | `tripped`, `survived`, `expired` | `survived` needs evidence that you looked at the population, or it records as `expired` |
+| lesson | superseded by a named successor | the only way a lesson retires |
+
+**Retraction is the move practices skip.** Closing what is *done* and retracting what was *wrong* feel the same and are not. A
+practice whose resolutions are almost all `stale` was not rarely wrong; it had no way to say so, and cannot calibrate on either.
+
+Correct the CLAIM by retracting it; correct the METADATA (impact, visibility, epistemic_source) with `update-artifacts`. Claim
+text is never edited. A tripped falsifier does not close its parent: invalidate or retract the parent in its own call.
+
+---
+
+## Share it, or don't
+
+| You want | Do |
 |---|---|
-| `stale` | it was true when written and has aged |
-| `superseded --superseded-by <id>` | a newer artifact replaced it |
-| `retracted` | **it was wrong** |
-| `mistyped` | it was another type wearing a finding's clothes |
+| Nothing to leave this practice | nothing: `local` is the default |
+| The organisation's practices to find it | `--visibility shared` (`public` for anyone with a Cortex account) |
+| A pattern another practice can act on | a **lesson** with `sharing_policy` `org` or `public` in the payload. Findings *describe*, lessons *transfer* |
+| Another practice to own the follow-up | log it there with `--project-id <practice>`, or ask over the mesh, and cite the original |
 
-Before `resolution_kind` existed, a practice's resolutions were free text with no way to record *wrong*, and nearly all read as
-staleness. An error rate near zero across thousands of claims is not plausible: errors were simply not being expressed. **A practice that cannot
-distinguish its ageing from its errors cannot calibrate on either.**
+What actually federates to `global_learnings`: unresolved findings with impact 0.7 or more that are shared or public; resolved
+unknowns that are shared or public; shared or public dead ends; lessons at `org` or `public`. **Assumptions and decisions accept
+`--visibility` and nothing federates them yet.** There is no verb that moves an existing artifact to another practice.
 
-Correct the CLAIM with `finding-resolve --kind retracted`; correct the METADATA
-(impact, visibility, epistemic_source) with `update-artifacts`. Claim text is
-immutable by design, so retraction preserves the original wording and records that
-it failed.
+`--epistemic-source {intuition|search|mixed}` says how you arrived at the artifact. Be honest: high vectors with every artifact
+tagged intuition is the rubber-stamp pattern.
 
-**The turtle check:** audit your own graph rather than assuming discipline
-held — count the types, count the orphan rate. A practice that has never measured
-these does not know they are healthy; it knows nothing about them.
+---
+
+## By practice type
+
+The mix differs a little by context. These are recommendations drawn from one or two practices per type; the universal gaps
+above come first.
+
+| Practice | Lean on |
+|---|---|
+| software | dead ends and mistakes with a real prevention; findings tied to commits |
+| content | a source and `sourced_from` for every claim from outside; decisions graded by how the piece landed |
+| engagement | assumptions about the client, verified or falsified with them; decisions that name the client's reversal conditions |
+| operations | mistakes whose prevention names the check; falsifiers on the state of running systems |
+| research | unknowns as research questions; assumptions as hypotheses; falsifiers registered before the experiment; lessons for what transfers |
 
 ---
 
 ## The cognitive immune system
 
-**Lessons are antibodies. Findings are antigens.**
+**Lessons are antibodies. Findings are antigens.** When `finding-log` fires, related lessons have their confidence reduced
+(floor 0.3, so lessons never fully die). If a finding contradicts a lesson you would expect to apply here, that lesson's
+confidence has already been adjusted. Trust the freshest evidence; reach for the lesson through `project-search` only when its
+confidence still clears the threshold.
 
-When `finding-log` fires, related lessons have their confidence mechanically
-reduced — floor 0.3, so lessons never fully die. Fresh evidence outranks stored
-knowledge without the history being lost.
-
-The discipline implication: if a finding contradicts a lesson you would expect to
-apply here, that lesson's confidence has *already* been adjusted. Trust the freshest
-evidence; reach for the lesson through `project-search` only when its
-decay-adjusted confidence still clears the threshold.
+**The turtle check:** audit your own graph rather than assuming discipline held. Count the types, the orphan rate, the
+retracted share. A practice that has never measured these knows nothing about them.
