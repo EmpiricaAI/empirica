@@ -1154,11 +1154,13 @@ def _show_grounded_calibration(args, ai_id: str, weeks: int, output_format: str,
                 result["disputed_vectors"] = {
                     v: {"reason": d["reason"], "expected": d["expected"]} for v, d in open_disputes.items()
                 }
+            result["out_of_loop"] = _out_of_loop_block(db, weeks)
             print(json.dumps(result, indent=2))
         else:
             print(
                 f"   ai_id: {ai_id} | window: all history (--weeks applies to --learning-trajectory and --trajectory only)"
             )
+            _print_out_of_loop(db, weeks)
             for item in exclusions_applied:
                 print(
                     f"   excluded as known-bad ({', '.join(item['vectors'])}, {item['observations']} observations): "
@@ -1526,6 +1528,36 @@ def _print_human_trajectory(
     print()
     print("Note: This shows learning trajectory (PREFLIGHT→POSTFLIGHT deltas).")
     print("      For actual calibration (grounded evidence), run without --learning-trajectory.")
+
+
+def _out_of_loop_block(db, weeks: int) -> dict:
+    """The share of changes made outside a transaction, over the last ``weeks``, from the practice's decision record
+    (goal 543fd1c6). The record sits beside the database: <root>/.empirica/decisions.jsonl."""
+    import time
+    from pathlib import Path
+
+    from empirica.core.decision_record import out_of_loop_share, record_path
+
+    db_path = getattr(db, "db_path", None)
+    root = str(Path(db_path).resolve().parents[2]) if db_path else None
+    out = out_of_loop_share(record_path(root), since=time.time() - weeks * 7 * 86400)
+    out["definition"] = (
+        "changes: allowed Edit/Write/MultiEdit/NotebookEdit/apply_patch, or allowed shell calls with inferred effects; "
+        "out of loop: decided by the discipline budget (no open transaction)"
+    )
+    out["window"] = {"requested_weeks": weeks, "applied": True}
+    return out
+
+
+def _print_out_of_loop(db, weeks: int) -> None:
+    ool = _out_of_loop_block(db, weeks)
+    if ool.get("share") is not None:
+        print(
+            f"   out of loop (last {weeks} week(s), this practice's decision record): {ool['out_of_loop']} of "
+            f"{ool['changes']} changes ({ool['share']:.0%}) made outside a transaction; {ool['refused_outside']} refused there"
+        )
+    else:
+        print(f"   out of loop: {ool.get('note') or 'no changes recorded in the window'}")
 
 
 def handle_calibration_report_command(args):

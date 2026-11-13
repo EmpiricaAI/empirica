@@ -134,6 +134,53 @@ def build(
     }
 
 
+#: Tools whose allowed call is a change by itself; a shell call counts when its inferred effects are not empty.
+CHANGE_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"})
+
+
+def out_of_loop_share(path: Path, since: float | None = None) -> dict:
+    """The share of allowed changes made outside a transaction, from a practice's decision record (goal 543fd1c6).
+
+    A change: an allowed call of a tool in CHANGE_TOOLS, or an allowed shell call with inferred effects. Out of loop: rule
+    ``discipline-budget``, which the gate sets only when it found no open transaction. ``refused_outside`` counts what the
+    budget refused there. ``share`` is None when there were no changes; a missing record says so rather than reading zero."""
+    out: dict = {
+        "changes": 0,
+        "out_of_loop": 0,
+        "refused_outside": 0,
+        "share": None,
+        "by_tool": {"edits": {"in": 0, "out": 0}, "commands": {"in": 0, "out": 0}},
+        "since": since,
+    }
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        out["note"] = f"no decision record at {path}"
+        return out
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict) or "decision" not in row or (since is not None and (row.get("ts") or 0) < since):
+            continue
+        outside = row.get("rule") == "discipline-budget"
+        if row["decision"] != "allow":
+            out["refused_outside"] += 1 if outside else 0
+            continue
+        kind = (
+            "edits" if row.get("tool") in CHANGE_TOOLS else "commands" if row.get("inferred_effect_classes") else None
+        )
+        if kind is None:
+            continue
+        out["changes"] += 1
+        out["out_of_loop"] += 1 if outside else 0
+        out["by_tool"][kind]["out" if outside else "in"] += 1
+    if out["changes"]:
+        out["share"] = round(out["out_of_loop"] / out["changes"], 3)
+    return out
+
+
 def record_path(project_path: str | None) -> Path:
     """The practice's file when the call is in a practice, else the seat's (``~/.empirica``), so no decision goes unrecorded."""
     if project_path:
