@@ -234,6 +234,40 @@ def write_setting(path: Path, *, mode: str | None = None, budget: int | None = N
     return {k: block[k] for k in ("mode", "max_act_without_gate") if k in block}
 
 
+def mode_report(
+    project_root: str | Path | None,
+    *,
+    pending: int | None,
+    written: Path | None = None,
+    written_keys: tuple[str, ...] = (),
+) -> dict:
+    """The answer `empirica sentinel mode` and the daemon's /api/v1/sentinel/mode both give: what is in force and why.
+
+    ``pending`` is the out-of-loop acts recorded since the last PREFLIGHT for one terminal instance; None when the caller
+    has no instance (the daemon), which says it was not counted rather than that there were none. ``not_in_force`` names
+    each value just written that a higher-precedence source (an environment variable, or the practice over the seat)
+    overrides, so a UI never shows a setting that is not in effect.
+    """
+    eff = effective(project_root)
+    sources = {"mode": eff["mode_source"], "max_act_without_gate": eff["budget_source"]}
+    not_in_force = [
+        f"{key}: written but not in force, {sources[key]} overrides"
+        for key in written_keys
+        if written is not None and not str(sources[key] or "").endswith(str(written))
+    ]
+    return {
+        "ok": True,
+        "mode": eff["mode"],
+        "mode_source": eff["mode_source"],
+        "max_act_without_gate": eff["budget"],
+        "max_act_without_gate_source": eff["budget_source"],
+        "ignored": eff["ignored"],
+        "out_of_loop_acts_pending": pending,
+        "written": str(written) if written is not None else None,
+        "not_in_force": not_in_force,
+    }
+
+
 # ── what an act is ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 

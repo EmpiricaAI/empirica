@@ -1886,27 +1886,20 @@ def handle_sentinel_mode_command(args) -> int:
             sd.write_setting(target, mode=value, budget=budget)
         except ValueError as e:
             return _emit(args, {"ok": False, "error": str(e)}, f"❌ {e}")
-        written = str(target)
-    eff = sd.effective(practice)
+        written = target
+    keys = tuple(k for k, v in (("mode", value), ("max_act_without_gate", budget)) if v is not None)
     pending = len(sd.ledger(_get_instance_suffix(), practice))
-    payload = {
-        "ok": True,
-        "mode": eff["mode"],
-        "mode_source": eff["mode_source"],
-        "max_act_without_gate": eff["budget"],
-        "max_act_without_gate_source": eff["budget_source"],
-        "ignored": eff["ignored"],
-        "out_of_loop_acts_pending": pending,
-        "written": written,
-    }
+    # One builder for this command and the daemon's /api/v1/sentinel/mode, so the two cannot drift.
+    payload = sd.mode_report(practice, pending=pending, written=written, written_keys=keys)
     lines = []
     if written:
         lines.append(f"✓ wrote {written}")
-    lines.append(f"mode: {eff['mode']}  ({eff['mode_source']})")
-    lines.append(f"max-act-without-gate: {eff['budget']}  ({eff['budget_source']})")
-    if eff["mode"] == "discipline":
+    lines.append(f"mode: {payload['mode']}  ({payload['mode_source']})")
+    lines.append(f"max-act-without-gate: {payload['max_act_without_gate']}  ({payload['max_act_without_gate_source']})")
+    if payload["mode"] == "discipline":
         lines.append(f"out-of-loop acts since the last PREFLIGHT, this instance: {pending}")
-    lines += [f"⚠ ignored: {i}" for i in eff["ignored"]]
+    lines += [f"⚠ {n}" for n in payload["not_in_force"]]
+    lines += [f"⚠ ignored: {i}" for i in payload["ignored"]]
     return _emit(args, payload, "\n".join(lines))
 
 

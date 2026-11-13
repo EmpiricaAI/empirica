@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Sentinel's mode and out-of-loop budget can be read and set through the local daemon.** `GET` and `PATCH /api/v1/sentinel/mode` give `empirica sentinel mode`'s answer (each value with where it came from), built by the same function, for clients that reach only the daemon. A write names any value it set that an environment variable or a higher-precedence file overrides (`not_in_force`), and the CLI now says so too.
 - **Empirica no longer writes Claude Code's memory folder.** POSTFLIGHT and session end kept a ranked block in each project's `MEMORY.md` and copied up to three confident facts into `promoted_*.md` files. The block repeated what session start already shows, without ids and with made-up weights, and no `MEMORY.md` on the measured machine linked a single promoted file (0 of 81), so Claude Code never loaded one. Both writes are gone, and with them a rewrite of the whole file at every POSTFLIGHT. `setup-claude-code` removes the old block once and keeps every other line; `profile-prune --scope memory` still archives the promoted files left behind. The system prompt now sends project and reference knowledge to artifacts, which can be retracted, and leaves `MEMORY.md` to Claude Code.
 
 ## [1.16.2] - 2026-11-13

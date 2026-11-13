@@ -407,6 +407,12 @@ def create_serve_app() -> FastAPI:
 
     app.include_router(calibration_router)
 
+    # The Sentinel's mode and out-of-loop budget, read and set with `empirica sentinel mode`'s semantics; the extension
+    # reaches only this daemon (prop_ycoxhq4nmzdrlhgjinyjei4sse).
+    from empirica.api.routes.sentinel import router as sentinel_router
+
+    app.include_router(sentinel_router)
+
     # Practice composition — what a practice is MADE OF (module, project prompt,
     # agents, skills, MCP servers). Extension is MV3 with no filesystem access, so
     # none of that was reachable to it before this route existed (prop_od4esudv).

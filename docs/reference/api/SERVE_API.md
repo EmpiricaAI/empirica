@@ -754,6 +754,44 @@ curl -X PATCH "$API/api/v1/calibration/config?scope=practice&practice_id=empiric
 
 ---
 
+## Sentinel Mode
+
+The Sentinel's mode (`strict`, `discipline`, `off`) and its out-of-loop budget (`max_act_without_gate`, 0 to 1000), with
+the semantics of `empirica sentinel mode`: both build their answer with `sentinel_discipline.mode_report`. Precedence is
+the environment (`EMPIRICA_SENTINEL_MODE`, `EMPIRICA_MAX_ACT_WITHOUT_GATE`), then the practice's `.empirica/config.yaml`,
+then `~/.empirica/config.yaml`, then the built-in values.
+
+### GET /api/v1/sentinel/mode
+
+Query: `project` (optional), a practice path or a registered id or ai_id. Without it, the seat and built-in values. A
+`project` that is not a practice → `404`.
+
+```jsonc
+{
+  "ok": true,
+  "mode": "discipline", "mode_source": "built-in",
+  "max_act_without_gate": 3, "max_act_without_gate_source": "practice /w/core/.empirica/config.yaml",
+  "ignored": [],                     // values set somewhere and not understood
+  "out_of_loop_acts_pending": null,  // per terminal instance; the daemon has none, so it is not counted here
+  "written": null,
+  "not_in_force": []
+}
+```
+
+### PATCH /api/v1/sentinel/mode
+
+Body: `{"mode"?, "max_act_without_gate"?, "scope": "practice"|"seat", "project"?}`. `practice` (the default) writes the
+practice's `.empirica/config.yaml` and needs `project`; `seat` writes `~/.empirica/config.yaml`. An unknown mode or a budget
+outside 0 to 1000 → `400` with the CLI's message, and nothing is written. Returns the same shape as GET with `written` set;
+`not_in_force` names each value just written that a higher-precedence source overrides.
+
+```bash
+curl -X PATCH "$API/api/v1/sentinel/mode" -H 'Content-Type: application/json' \
+  -d '{"max_act_without_gate": 5, "scope": "practice", "project": "empirica"}'
+```
+
+---
+
 ## ERM / CRM Surface (Entities + Engagements) (v1.12+)
 
 The daemon serves the workspace **entity registry** (`entity_registry` +
