@@ -721,16 +721,26 @@ def _classify_other(
     return {"unknown"}, True
 
 
+#: sort's options that take a value, so a value given as the next word is not read as a flag.
+_SORT_LONG_VALUES = {"--output", "--key", "--field-separator", "--buffer-size", "--temporary-directory"}
+
+
+def _flag_names(args: list[str], short_values: str, long_values: set[str]) -> set[str]:
+    """The flag names in ``args`` in every spelling, clusters included: ``sed -ni`` holds -i, ``sort -uo f`` and ``sort -of``
+    hold -o (spelling equivalence with the gate, goal 3fcde812 task 5). Long names keep no ``=value``."""
+    return {name for name, _ in _flags(args, short_values, long_values)}
+
+
 def _read_shaped(program: str, args: list[str], cwd: str | None, project_path: str | None) -> tuple[set[str], bool]:
     """The reading programs and the ones that read unless a flag makes them write."""
-    if program == "sed" and any(a == "-i" or a.startswith(("-i", "--in-place")) for a in args):
+    if program == "sed" and _flag_names(args, "ef", {"--expression", "--file"}) & {"-i", "--in-place"}:
         return _paths_written("sed", args, cwd, project_path), True
     if program == "find":
         if "-delete" in args:
             return {"delete_recursive"}, True
         if any(a in ("-exec", "-execdir", "-ok") for a in args):
             return {"unknown"}, True
-    if program == "sort" and any(a == "-o" or a.startswith("--output") for a in args):
+    if program == "sort" and _flag_names(args, "kotST", _SORT_LONG_VALUES) & {"-o", "--output"}:
         return {"unknown"}, True
     if program == "awk" and any("system(" in a or ">" in a or "|" in a for a in args):
         return {"unknown"}, False
