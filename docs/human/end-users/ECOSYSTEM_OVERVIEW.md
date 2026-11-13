@@ -191,3 +191,4 @@ outcomes. This means:
 - **Optional mesh layer setup:** [MESH_SETUP.md](MESH_SETUP.md)
 - **Cross-project search:** [../../reference/api/CROSS_PROJECT.md](../../reference/api/CROSS_PROJECT.md)
 - **Vocabulary:** [../../reference/TAXONOMY.md](../../reference/TAXONOMY.md)
+- **Artifact graph:** [../../reference/ARTIFACT_GRAPH.md](../../reference/ARTIFACT_GRAPH.md)

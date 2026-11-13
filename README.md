@@ -402,6 +402,7 @@ rather say so than let you find out mid-project.
 | **[CLI Reference](docs/human/developers/CLI_COMMANDS_UNIFIED.md)** | All 240+ commands documented |
 | **[Cockpit guide](docs/guides/COCKPIT.md)** | One command brings up a tmux layout of all your practices, keeps each one's identity, and restarts any that died. Covers profiles, SSH and two harnesses in one practice |
 | **[Vocabulary](docs/reference/TAXONOMY.md#46-what-a-project-is-and-what-work-is-being-done)** | Project type, domain, work type and criticality: what each means, where it is set and how long it lasts |
+| **[Artifact graph](docs/reference/ARTIFACT_GRAPH.md)** | Findings, unknowns, assumptions, decisions and the rest: how they link, how each changes state, where they are stored, who owns them and how they are shared, with diagrams |
 | **[Architecture](docs/architecture/)** | Technical reference for contributors |
 | **[Claude Code Setup](docs/human/developers/CLAUDE_CODE_SETUP.md)** | Install + system prompt + plugin wiring |
 | **[Changelog](CHANGELOG.md)** | Full release history — every version since 1.0 |
