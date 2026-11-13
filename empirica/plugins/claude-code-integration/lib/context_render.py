@@ -116,6 +116,8 @@ def _blindspots(breadcrumbs: dict) -> str | None:
         return None
     if status.get("error"):
         return f"Blindspots: not read ({status['error']})"
+    if status.get("source") == "unavailable":  # the producer's failed read has no error key (sweep A1)
+        return "Blindspots: not read (the blindspot store did not answer)"
     counts = ", ".join(
         f"{status[k]} {k}" for k in ("surfaced", "acknowledged", "dismissed", "regretted") if status.get(k)
     )

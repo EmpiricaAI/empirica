@@ -127,3 +127,15 @@ def test_post_compact_adds_the_contract_sections_its_focus_lacks():
     assert "**Decisions:**" in out and "**Mistakes to avoid:**" in out and "Coverage:" in out
     assert "**Findings:**" not in out
     assert mod._contract_section(None) == ""
+
+
+def test_an_unreadable_blindspot_store_is_not_read_never_none_recorded():
+    """The producer reports a failed read as source 'unavailable' with no error key; that read as 'none recorded'
+    (pre-publish sweep A1, goal 4c935e3b). Unavailable must never read as none."""
+    line = cr._blindspots({"blindspot_status": {"total": None, "last_event_at": None, "source": "unavailable"}})
+    assert line is not None and "not read" in line and "none recorded" not in line
+
+
+def test_an_empty_readable_store_still_says_none_recorded():
+    line = cr._blindspots({"blindspot_status": {"total": 0, "source": "sqlite"}})
+    assert line == "Blindspots: none recorded"
