@@ -64,6 +64,17 @@ def _default_post(url: str, body: bytes, headers: dict, timeout: float) -> int:
         return -1
 
 
+def _say_why_skipped(component: str) -> None:
+    """Name the reason a beat was skipped, once per change (a suppressed credential is not an unconfigured one; sweep D2)."""
+    try:
+        from empirica.core.auth.credential_health import say_suppressed
+        from empirica.core.mesh_endpoint import mesh_bearer
+
+        say_suppressed(component, mesh_bearer().get("reason"))
+    except Exception:
+        pass
+
+
 def _default_resolve_creds() -> tuple[str | None, str | None]:
     """Resolve Cortex URL + api_key from credentials_loader. Defensive — returns (None, None) on any failure."""
     try:
@@ -154,6 +165,7 @@ class HeartbeatEmitter:
         """
         url, api_key = self._resolve_creds_fn()
         if not url or not api_key:
+            _say_why_skipped("heartbeat")
             return 0  # SKIP — cortex not configured
         endpoint = f"{url.rstrip('/')}{_HEARTBEAT_ENDPOINT_PATH}"
         body = json.dumps(

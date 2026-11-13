@@ -163,7 +163,7 @@ class LivenessProbe:
     def _run(self) -> None:
         cortex = self._cortex_loader()
         if not cortex or not cortex.get("url") or not cortex.get("api_key"):
-            self._log("liveness probe inactive — no cortex credentials")
+            self._log(f"liveness probe inactive — {(cortex or {}).get('reason') or 'no cortex credentials'}")
             return
         cortex_url = cortex["url"]
         self._last_ok_at = self._now()
@@ -189,7 +189,10 @@ class LivenessProbe:
         cortex = self._cortex_loader()
         if not cortex or not cortex.get("url") or not cortex.get("api_key"):
             self._consecutive_failures += 1
-            self._log(f"liveness probe miss ({self._consecutive_failures} consecutive): no cortex credentials")
+            self._log(
+                f"liveness probe miss ({self._consecutive_failures} consecutive): "
+                f"{(cortex or {}).get('reason') or 'no cortex credentials'}"
+            )
             return
         self._do_probe(cortex["url"], cortex["api_key"], retry_on_401=True)
 
@@ -282,7 +285,8 @@ def _default_cortex_loader() -> dict[str, Any] | None:
 
         creds = cortex_bearer()
         if not creds.get("bearer"):
-            return None
+            # Keep the reason: a credential suppressed as dead must not read as one never configured (sweep D2).
+            return {"url": creds.get("url"), "api_key": None, "reason": creds.get("reason")}
         return {"url": creds.get("url"), "api_key": creds.get("bearer")}
     except Exception as e:
         logger.warning(f"liveness probe cortex loader failed: {e}")

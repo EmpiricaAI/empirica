@@ -54,6 +54,11 @@ REFRESHABLE = "expired_token"
 #: Statuses that mean: stop, this credential will never work again as-is.
 TERMINAL = frozenset({"missing_credential", "invalid_key", "invalid_token"})
 
+#: How long a terminal mark suppresses its credential. A cortex restart or a key-store hiccup can answer invalid_key or
+#: missing_credential once; without an expiry that locked the seat out until someone ran `auth login` (sweep D3). After this
+#: the credential gets one fresh attempt, and a terminal 401 marks it again. 24 hours, the OAuth token's own lifetime.
+MARK_TTL_SECONDS = 24 * 3600
+
 _HEALTH_FILE = "credential_health.json"
 
 
@@ -231,9 +236,16 @@ def dead_reason(secret: str | None) -> str | None:
     if not fp:
         return None
     entry = (_read().get("dead") or {}).get(fp)
-    if not isinstance(entry, dict):
+    if not isinstance(entry, dict) or _expired(entry):
         return None
     return entry.get("credential_status") or "unusable"
+
+
+def _expired(entry: dict[str, Any]) -> bool:
+    try:
+        return time.time() - float(entry.get("at") or 0.0) > MARK_TTL_SECONDS
+    except (TypeError, ValueError):
+        return False  # an unreadable time keeps the mark: suppressing a dead key is the safe side
 
 
 def dead_marks() -> list[dict[str, Any]]:
@@ -244,8 +256,26 @@ def dead_marks() -> list[dict[str, Any]]:
     return [
         {"fingerprint": fp, "credential_status": entry.get("credential_status"), "at": entry.get("at")}
         for fp, entry in (_read().get("dead") or {}).items()
-        if isinstance(entry, dict)
+        if isinstance(entry, dict) and not _expired(entry)
     ]
+
+
+_last_said: dict[str, str | None] = {}
+
+
+def say_suppressed(component: str, reason: str | None) -> None:
+    """Log why ``component`` has no usable Cortex credential, once per change, and once when it becomes usable again.
+
+    The liveness probe logged "no cortex credentials" and the heartbeats skipped silently, so a credential suppressed as dead
+    read in the loop logs exactly like one never configured; only `doctor` named it (sweep D2). Per change, not per beat."""
+    previous = _last_said.get(component)
+    if reason == previous:
+        return
+    _last_said[component] = reason
+    if reason:
+        logger.warning(f"{component}: no usable cortex credential: {reason}")
+    elif previous:
+        logger.warning(f"{component}: cortex credential usable again")
 
 
 def clear() -> None:
