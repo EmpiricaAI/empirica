@@ -1591,10 +1591,10 @@ def _find_transaction_file(
     # across the whole CC session, so many files (one per past transaction, each
     # POSTFLIGHT-closed) share it; returning the first would resolve a STALE
     # CLOSED transaction and make the firewall block praxic after a valid CHECK.
-    # Rank by (cc_match, is_open, updated_at) descending: prefer the durable
-    # claude_session_id over the (rotating) empirica session_id, an OPEN
-    # transaction over a closed one, and the most recent over the old. Either
-    # key scopes the scan to prevent cross-instance cross-talk.
+    # Rank by (cc_match, updated_at, is_open) descending (5fb3398cf; tests/test_copy_parity.py): prefer the durable
+    # claude_session_id over the (rotating) empirica session_id, then the most
+    # recent over the old, and an OPEN transaction over a closed one on a tie.
+    # Either key scopes the scan to prevent cross-instance cross-talk.
     if not claude_session_id and not session_id:
         return None
     best_rank: tuple | None = None
@@ -1622,7 +1622,7 @@ def _find_transaction_file(
     if best_file is not None:
         logger.debug(
             f"Transaction resolved by scan: expected suffix '{suffix}', "
-            f"found '{best_file.name}' (rank cc/open/recent={best_rank})"
+            f"found '{best_file.name}' (rank cc/recent/open={best_rank})"
         )
     return best_file
 

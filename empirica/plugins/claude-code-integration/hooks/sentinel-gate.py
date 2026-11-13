@@ -1695,8 +1695,8 @@ def _find_transaction_file(
     # whole CC session, so many files (one per past transaction, each
     # POSTFLIGHT-closed) share it; returning the first would resolve a STALE
     # CLOSED transaction and make this firewall block praxic after a valid CHECK.
-    # Rank by (cc_match, is_open, updated_at) descending. Kept in sync with
-    # empirica/utils/session_resolver.py:_find_transaction_file.
+    # Rank by (cc_match, updated_at, is_open) descending: the most recent wins, open breaks a tie (5fb3398cf). Kept in
+    # sync with empirica/utils/session_resolver.py:_find_transaction_file; tests/test_copy_parity.py holds the pair.
     if not claude_session_id and not session_id:
         return None
     best_rank = None
