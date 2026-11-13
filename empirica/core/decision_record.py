@@ -523,6 +523,10 @@ def _rewrites_worktree(verb: str, tail: list[str]) -> bool:
         return not any(a in ("--staged", "-S") for a in tail) or any(a in ("--worktree", "-W") for a in tail)
     if verb in ("rm", "apply"):
         return "--cached" not in tail
+    if verb in ("checkout", "switch") and _flag_names(tail, "", set()) & {"-b", "-B", "-c", "-C"}:
+        return (
+            len(_positional(tail)) > 1
+        )  # a new branch at HEAD changes no files; one from a start point does (sweep B3)
     if verb == "stash":  # bare, push, save, pop and apply touch the tree; drop, clear, branch-less bookkeeping do not
         sub = _positional(tail)[:1]
         return not sub or sub[0] in ("push", "save", "pop", "apply")
@@ -556,6 +560,8 @@ def _git(args: list[str]) -> set[str]:
         return {"vcs_local"} | worktree
     if verb == "config" and any(a.startswith("--get") or a == "--list" or a == "-l" for a in tail):
         return set()
+    if verb == "clean" and _flag_names(tail, "e", {"--exclude"}) & {"-n", "--dry-run"}:
+        return set()  # a dry run lists, it removes nothing (sweep B3)
     if (
         verb == "apply"
         and "--apply" not in tail
@@ -708,6 +714,8 @@ def _classify_other(
         words = _positional(args)
         if not words or empirica_is_read("empirica " + " ".join(words[:2])):
             return set(), True
+        if words[0] in ("setup", "setup-claude-code") and {"--help", "-h", "--dry-run"} & set(args):
+            return set(), True  # help and a dry run write nothing (sweep B3)
         if words[0] in ("setup", "setup-claude-code"):  # writes the harness's settings: observed config_write (task 6)
             return {"config_write", "empirica_state"}, True
         return {"empirica_state"}, True

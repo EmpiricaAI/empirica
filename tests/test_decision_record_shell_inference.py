@@ -224,3 +224,24 @@ def test_empirica_setup_writes_harness_config(verb):
 
 def test_another_empirica_verb_is_still_empirica_state_only():
     assert infer("empirica goals-create --objective x")["classes"] == ["empirica_state"]
+
+
+@pytest.mark.parametrize(
+    "command, classes",
+    [
+        ("git clean -n", []),
+        ("git clean -fdn", []),
+        ("git clean --dry-run", []),
+        ("git checkout -b feat", ["vcs_local"]),
+        ("git switch -c feat", ["vcs_local"]),
+        ("empirica setup --help", []),
+        ("empirica setup-claude-code --dry-run", []),
+        # their writing twins stay writes
+        ("git clean -fd", ["project_write", "vcs_local"]),
+        ("git checkout -b feat origin/feat", ["project_write", "vcs_local"]),
+        ("empirica setup --force", ["config_write", "empirica_state"]),
+    ],
+)
+def test_dry_runs_help_and_branch_creation_are_not_writes(command, classes):
+    # pre-publish sweep B3 (goal 4c935e3b): each read as a write, with reliable=True.
+    assert infer(command)["classes"] == classes
