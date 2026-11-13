@@ -71,3 +71,17 @@ def test_force_overrides_the_declaration_too(monkeypatch):
     monkeypatch.setattr(sc, "_get_remote_url", lambda remote: "https://git.example.org/r.git")
     monkeypatch.setattr(sc, "_load_sync_config", lambda: {**sc.DEFAULT_SYNC_CONFIG, "visibility": "public"})
     assert not sc._refuse_public_notes_remote("origin", force=True, output_format="json")
+
+
+@pytest.mark.parametrize(
+    "url", ["git@github.com-work:org/r.git", "git@gitlab.com_personal:org/r.git", "ssh://git@codeberg.org-alt/o/r.git"]
+)
+def test_an_ssh_alias_of_a_public_host_is_public(url):
+    # A common ~/.ssh/config pattern names a second key's host 'github.com-work'; the old substring check caught it, the
+    # host check let it through (pre-publish sweep B2, goal 4c935e3b).
+    assert sc._public_host(url)
+
+
+def test_a_private_host_that_merely_starts_with_a_public_name_is_not_public():
+    assert not sc._public_host("git@github.company.internal:org/r.git")
+    assert not sc._public_host("https://gitlab.common-corp.example/org/r.git")

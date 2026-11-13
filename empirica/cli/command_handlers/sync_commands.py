@@ -503,7 +503,10 @@ def _public_host(remote_url: str) -> str | None:
     host = _remote_host(remote_url)
     if not host:
         return None
-    return next((h for h in _PUBLIC_HOSTS if host == h or host.endswith("." + h)), None)
+    # host, a subdomain of it, or an SSH config alias of it ('github.com-work', 'gitlab.com_personal': sweep B2)
+    return next(
+        (h for h in _PUBLIC_HOSTS if host == h or host.endswith("." + h) or host.startswith((h + "-", h + "_"))), None
+    )
 
 
 def _refuse_public_notes_remote(remote: str, force: bool, output_format: str) -> bool:
