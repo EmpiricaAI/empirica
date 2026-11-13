@@ -189,6 +189,25 @@ Each practice is also created with what the interview learned about it, so nobod
 | What it is for, in one sentence | `--description "<sentence>"` |
 | Its domain (research, operations, consulting, marketing, docs, cybersec, ...) | `--domain <name>`; an unknown name is refused, so leave it out rather than guess |
 
+**Which model each practice runs.** Ask per practice, with the harness default as the first option: a practice
+that does heavy reasoning (research, architecture) may want a stronger model than one that runs routine operations.
+The choice rides in the launch command, and nothing else stores it:
+
+| Answer | Flag |
+|---|---|
+| Harness default | nothing to add |
+| A model in Claude Code | `--launch "claude --model <model>"` |
+| A model in ecodex | `--launch "ecodex --model <model>"`, or `--second-pane "ecodex --model <model>"` when both run |
+
+**Which skills each practice gets.** Suggest per practice, by its type, and never install anything unread:
+
+1. Installed skills that fit the practice's type: list what the harness has, propose the ones that match.
+2. Published skills: name them with their source; install only after reading every `SKILL.md` and script in them,
+   and only with the person's yes for that download. `empirica source-add --title "<skill>" --url <url>` records where each came from.
+3. Skills worth writing for this practice: create them as planned goals in it,
+   `empirica goals-create --project-id <practice> --status planned --objective "Skill: ..."`, so its own practitioner
+   writes them with the person.
+
 **Report per practice what actually happened** — provisioned, already existed,
 or failed and why. A rollup "done!" over a partial failure is the shape this
 whole system exists to prevent.
