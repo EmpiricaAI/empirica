@@ -278,7 +278,8 @@ not what each context needs.
 
 - Assumptions are 1 to 4 per 100 findings everywhere. Most uncertainty is never typed.
 - Decision outcomes are recorded for 0 to 4% of decisions. Choices are logged and never graded.
-- Provenance is almost unused: 14 `sourced_from` links across about 10,300 findings.
+- Provenance is almost unused: 70 `sourced_from` links across 15,462 findings in the 14 practices with 100 or more,
+  27 of them in one practice (`scripts/measure_artifact_mix.py` reproduces every number in this section).
 
 These are the first gaps to close in any practice.
 

@@ -112,7 +112,7 @@ _DEFAULT_WORK_FRAME: dict[str, tuple[str, str]] = {
 
 #: How a practice uses its artifacts, generated into every practice's practice-facts.md (goal dd6dcbd2, David 2026-11-13).
 #: ARTIFACT_GAPS hold everywhere: measured across 33 practices, assumptions ran 1 to 4 per 100 findings, decision outcomes were
-#: recorded for 0 to 4% of decisions and 14 sourced_from links existed across about 10,300 findings, whatever the type.
+#: recorded for 0 to 4% of decisions and 70 sourced_from links existed across 15,462 findings, whatever the type.
 #: The per-family lines are recommendations (one or two practices per type were measured), not measurements.
 ARTIFACT_GAPS: tuple[str, ...] = (
     "Log an assumption before acting on something you did not check; a falsifier needs one as its parent.",

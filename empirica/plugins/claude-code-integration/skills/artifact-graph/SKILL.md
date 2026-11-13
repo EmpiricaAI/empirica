@@ -49,7 +49,7 @@ Measured across 33 practices (2026-11-13), whatever their type:
 |---|---|---|
 | Assumptions are not typed | 1 to 4 per 100 findings everywhere | Before acting on something you did not check, log it as an assumption. If you register a falsifier, it needs a parent: this is it |
 | Decisions are never graded | outcomes recorded for 0 to 4% of decisions | When a choice has played out, assess it: `outcome` upheld, reversed or mixed |
-| Provenance is not linked | 14 `sourced_from` links across ~10,300 findings | A claim from outside the repo gets a source and a `sourced_from` edge, at logging time, not later |
+| Provenance is not linked | 70 `sourced_from` links across 15,462 findings (27 in one practice) | A claim from outside the repo gets a source and a `sourced_from` edge, at logging time, not later |
 
 These matter more than any context-specific advice below.
 
