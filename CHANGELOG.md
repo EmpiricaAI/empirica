@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Pushing notes to a public host is refused by the remote's host.** The check matched names anywhere in the URL, so Codeberg, a public host, passed as a private Forgejo; it now reads the host itself and refuses GitHub, GitLab, Bitbucket and Codeberg (and their subdomains) unless `--force` is given.
 - **`sync` runs git in the project it reads its settings from.** Settings came from the active project (after `project-switch`), while every git call ran in the current directory, so a sync started elsewhere counted, pushed and fetched another repository's notes.
 - **A suppressed Cortex credential is named in the loop logs, and a suppression expires.** The liveness probe logged "no cortex credentials" and the heartbeats skipped silently when a credential had been marked dead, the same as when none was configured; they now say why, once per change. A mark now suppresses its credential for 24 hours; then it is tried once more, so a passing `invalid_key` from a restarting server no longer locks a seat out until `auth login`.
 - **A due condition that names no tag like the ones here says so.** `--due after:1.17.0` in a repository tagged `v1.16.1` used to wait silently forever; the response now notes that no tag looks like it, says when the tag already exists (due now), and refuses tag names git cannot create. `config <key> --output json` prints JSON.

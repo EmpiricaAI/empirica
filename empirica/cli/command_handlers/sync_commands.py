@@ -481,6 +481,31 @@ def _resolve_or_refuse(kind: str, sync_config: dict[str, Any], explicit: str | N
     return None
 
 
+#: Hosts where a repository is public by default or by common use. Judged by the remote's HOST: the substring classifier
+#: below read codeberg.org (public) as forgejo and let it through, and matched a public name anywhere in the URL.
+_PUBLIC_HOSTS = frozenset({"github.com", "gitlab.com", "bitbucket.org", "codeberg.org"})
+
+
+def _remote_host(remote_url: str) -> str | None:
+    """The host of a git remote URL (https://, ssh://, git://, or scp-like user@host:path), lower-cased; None for a path."""
+    import re
+    from urllib.parse import urlsplit
+
+    url = remote_url.strip()
+    if "://" in url:
+        return (urlsplit(url).hostname or "").lower() or None
+    scp = re.match(r"^(?:[^@/]+@)?([^:/]+):", url)
+    return scp.group(1).lower() if scp else None
+
+
+def _public_host(remote_url: str) -> str | None:
+    """The public host this remote points at (one of _PUBLIC_HOSTS, or a subdomain of one), or None."""
+    host = _remote_host(remote_url)
+    if not host:
+        return None
+    return next((h for h in _PUBLIC_HOSTS if host == h or host.endswith("." + h)), None)
+
+
 def _refuse_public_notes_remote(remote: str, force: bool, output_format: str) -> bool:
     """True (having printed) when `remote` is a public host and `--force` was not given.
 
@@ -488,9 +513,12 @@ def _refuse_public_notes_remote(remote: str, force: bool, output_format: str) ->
     point is that publishing them has to be an explicit act, not the result of a
     remote whose provider nobody looked at.
     """
+    if force:
+        return False
     remote_url = _get_remote_url(remote)
-    detected = _detect_provider(remote_url) if remote_url else "unknown"
-    if detected not in ("github", "gitlab", "bitbucket") or force:
+    # A remote whose URL cannot be read is one git cannot push to either: the push itself reports that failure.
+    detected = _public_host(remote_url) if remote_url else None
+    if not detected:
         return False
 
     configured = ", ".join(_list_remotes()) or "none"
