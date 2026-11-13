@@ -110,7 +110,7 @@ items:
     evidence: reported
     basis: Reported after a restart, 1 of about 12 resumed sessions armed its listener and another first armed 68 minutes after resume. As of 1.14.19 cockpit refresh wakes each resumed claude pane once it is idle, which gives it the turn that arms the listener; that is tested with fakes and has not been measured on a live cockpit. The one live restart measured since (0 of 6 resumed panes armed before a human prompt) was a kill-server then launch, so the refresh wake never ran, and the listener wake service was off on every unit, so it grades neither. Launch gets the same wake as refresh in 1.14.22, tested with fakes, not yet measured on a live cockpit.
     falsifier: After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later.
-    horizon: "1.17.0"
+    horizon: "1.16.2"
     steered: true
     status: predicted
     revisions:
@@ -138,6 +138,11 @@ items:
         from: 0.3
         to: 0.3
         reason: "Not worked on by its 1.16.1 horizon: cockpit work was paused until the 1.16 point releases are scoped, and 1.16.1 went to notes restoring links, sessions closing in the workspace registry, and a review sweep. The horizon moves to 1.17.0. The confidence holds this time: the miss is a decision to pause, not new evidence about the restart path, which still waits for its first measured restart."
+      - "on": "2026-11-13"
+        from: 0.3
+        to: 0.3
+        reason: "Horizon set back to 1.16.2 the day after it was moved: David's versioning rule (2026-11-13): patch releases by default; a minor only for a clear new feature or a change in how Empirica works. A rejoin fix is not one. The confidence holds; nothing about the restart path changed."
+
   - id: wake-default
     title: Wake service on by default
     prediction: The wake service stops being opt-in once a few weeks of live use show no wake into a busy pane.
@@ -241,9 +246,14 @@ items:
     evidence: measured
     basis: Links reach the notes since this cycle, written per source when a source gains a link. Reproduced in a scratch repository on 2026-11-12, a link deleted by delete-artifacts or a dangling-edge prune stays in its source's note, and an id swap (which updates the row without a new timestamp) is never re-exported, so a rebuild brings back the old link.
     falsifier: In a fresh practice, log two linked findings, delete the link with delete-artifacts, run doctor --reconcile-notes --apply, rebuild from the notes into an empty database, and find the deleted link there.
-    horizon: "1.17.0"
+    horizon: "1.16.2"
     steered: true
     status: predicted
+    revisions:
+      - "on": "2026-11-13"
+        from: 0.8
+        to: 0.8
+        reason: "Horizon moved from 1.17.0 to 1.16.2 the day it was published: David's versioning rule (2026-11-13): patch releases by default; a minor only for a clear new feature or a change in how Empirica works. This is a fix. The confidence holds."
 
   - id: one-embedding-decision
     title: Vectors never land in a store of the wrong size
@@ -252,20 +262,30 @@ items:
     evidence: reviewed
     basis: Read in the code on 2026-11-12. The embedding provider is chosen once per process, and with no Ollama and the configured Qdrant down at start it picks the local 384-dimension model; the store choice is probed again every 30 seconds, so the process can later write those vectors into the configured store. Not reproduced live.
     falsifier: Start a long-running Empirica process with Ollama absent and the configured Qdrant stopped, start Qdrant, log an artifact after 30 seconds, and find a 384-dimension point in a configured collection.
-    horizon: "1.17.0"
+    horizon: "1.16.2"
     steered: true
     status: predicted
+    revisions:
+      - "on": "2026-11-13"
+        from: 0.7
+        to: 0.7
+        reason: "Horizon moved from 1.17.0 to 1.16.2 the day it was published: David's versioning rule (2026-11-13): patch releases by default; a minor only for a clear new feature or a change in how Empirica works. This is a fix. The confidence holds."
 
   - id: due-uptake
     title: Planned work carries what brings it back
-    prediction: At least half of the planned goals created between 1.15.0 and 1.17.0 carry a due date or a release condition.
+    prediction: At least half of the planned goals created between the 1.15.0 release and 2026-12-10 carry a due date or a release condition.
     confidence: 0.55
     evidence: measured
     basis: Measured on this practice on 2026-11-12, two days after 1.15.0 added due dates, 3 of the 7 planned goals created since carry one. From 1.16.1 a goal can come back when a release is tagged, and the forecast pass proposes a date or a release for every planned goal it creates.
-    falsifier: Count planned goals created after the 1.15.0 tag and before the 1.17.0 tag in this practice, and find that fewer than half have a due_at.
-    horizon: "1.17.0"
+    falsifier: Count planned goals created after the 1.15.0 tag and before 2026-12-10 in this practice, and find that fewer than half have a due_at.
+    horizon: "1.16.3"
     steered: true
     status: predicted
+    revisions:
+      - "on": "2026-11-13"
+        from: 0.55
+        to: 0.55
+        reason: "The window becomes a date (2026-12-10, a month after 1.15.0, when the measurement falls due) and the horizon 1.16.3, the patch release expected by then: David's versioning rule (2026-11-13): patch releases by default; a minor only for a clear new feature or a change in how Empirica works. The prediction and falsifier name the date instead of the 1.17.0 tag. The confidence holds."
 
   - id: cortex-connect
     title: A local practice moves onto Cortex in one command
