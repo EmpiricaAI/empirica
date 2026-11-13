@@ -8,9 +8,9 @@ artifact type, the closed share of each lifecycle, and the sourced_from links. T
     python scripts/measure_artifact_mix.py                    # JSON, one object per practice
     python scripts/measure_artifact_mix.py --min-findings 100 # only practices with that many findings
 
-First run 2026-11-13 (33 practices with a store): assumptions 1 to 4 per 100 findings everywhere, decision outcomes recorded
-for 0 to 4% of decisions, 70 sourced_from links across 15,462 findings in the 14 practices with 100 or more (27 of them
-in the paper practice). Lifetime counts: compare rates over a window,
+First run 2026-11-13 (33 practices with a store): assumptions 0 to 5 per 100 findings in every practice, decision outcomes recorded
+for at most about 5% of decisions, 70 sourced_from links across 15,462 findings in the 14 practices with 100 or more (27 of them
+in one practice). Lifetime counts: compare rates over a window,
 not totals, when measuring a change.
 """
 

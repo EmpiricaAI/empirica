@@ -189,10 +189,10 @@ graph, from what is absent or inconsistent in the links between the other artifa
 flowchart LR
     subgraph today["Derived today"]
         T[open task] -.->|no finding, no unknown, no dead end| IG((intent gap))
+        O[open artifact] -->|grounded_by / caused_by / raised_by| R[retracted or superseded finding]
+        R -.-> BP((broken premise))
     end
     subgraph proposed["Proposed: derived from the links"]
-        O[open artifact] -->|grounded_by / caused_by| R[retracted or superseded finding]
-        R -.-> BP((broken premise))
         A[unverified assumption] -->|cited by open decisions| D[decision]
         A -.->|no falsifier, past due| LU((load-bearing, untested))
         G[goal or subject] -.->|many findings, no unknown or assumption| CD((confidence without doubt))
@@ -200,10 +200,12 @@ flowchart LR
     end
 ```
 
-Only the intent gap is built (`core/blindspots/intent_gap.py`, `empirica blindspot-scan`): an open task under an active goal
-with no covering finding, no acknowledging unknown and no attempt. The others are proposals. The first has been measured: on
-2026-11-13, 17 open artifacts in the core practice rested on a finding later retracted or superseded, and nothing surfaced them.
-Some were the refutation itself linked with `evidence` where `invalidates` belongs, so a detector has to weight the relations.
+Two are built, both reported by `empirica blindspot-scan`. The intent gap (`core/blindspots/intent_gap.py`): an open task
+under an active goal with no covering finding, no acknowledging unknown and no attempt. The broken premise
+(`core/blindspots/broken_premise.py`): an open artifact resting (grounded_by, caused_by, raised_by) on one since retracted,
+superseded, falsified or invalidated; `evidence` links are reported only as weak candidates, because they are often the
+refutation linked the wrong way. On its first hand-read (core, 2026-11-13), 5 of 7 strong candidates were real, after two rules:
+a mistake caused by a wrong belief still stands, and a premise's named successor does not rest on it. The others are proposals.
 
 A surfaced blindspot has its own lifecycle, recorded in `blindspot_events`:
 
@@ -270,14 +272,14 @@ with `--project-id` and cite the original.
 
 ## 8. Use by context
 
-Measured across 33 practices on one machine (2026-11-13), as ratios per 100 findings for the 13 practices with 100 or more
+Measured across 33 practices on one machine (2026-11-13), as ratios per 100 findings for the 14 practices with 100 or more
 findings. There are one or two practices per type, all running the same model and prompt, so the numbers describe current use,
 not what each context needs.
 
 **What every practice shares, whatever its type:**
 
-- Assumptions are 1 to 4 per 100 findings everywhere. Most uncertainty is never typed.
-- Decision outcomes are recorded for 0 to 4% of decisions. Choices are logged and never graded.
+- Assumptions are 0 to 5 per 100 findings in every practice measured. Most uncertainty is never typed.
+- Decision outcomes are recorded for at most about 5% of decisions. Choices are logged and rarely graded.
 - Provenance is almost unused: 70 `sourced_from` links across 15,462 findings in the 14 practices with 100 or more,
   27 of them in one practice (`scripts/measure_artifact_mix.py` reproduces every number in this section).
 
@@ -302,5 +304,5 @@ how evidence is weighted at POSTFLIGHT. It does not change which artifacts are a
 - Dead-end and mistake invalidations are not mirrored to git notes, so a `rebuild --from-notes` shows them valid again.
 - A retracted finding does not lower its source's accuracy.
 - Blindspot provenance (`derived_from`) has a column and a function, and nothing writes it.
-- Blindspots are derived from goal coverage only; none from the links between artifacts (section 4).
+- Of the link-derived blindspots in section 4, only the broken premise is built.
 - Assumptions and decisions accept `--visibility` and are never federated.

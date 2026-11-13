@@ -47,8 +47,8 @@ Measured across 33 practices (2026-11-13), whatever their type:
 
 | Gap | Measured | What to do at the moment |
 |---|---|---|
-| Assumptions are not typed | 1 to 4 per 100 findings everywhere | Before acting on something you did not check, log it as an assumption. If you register a falsifier, it needs a parent: this is it |
-| Decisions are never graded | outcomes recorded for 0 to 4% of decisions | When a choice has played out, assess it: `outcome` upheld, reversed or mixed |
+| Assumptions are not typed | 0 to 5 per 100 findings in every practice measured | Before acting on something you did not check, log it as an assumption. If you register a falsifier, it needs a parent: this is it |
+| Decisions are never graded | outcomes recorded for at most about 5% of decisions | When a choice has played out, assess it: `outcome` upheld, reversed or mixed |
 | Provenance is not linked | 70 `sourced_from` links across 15,462 findings (27 in one practice) | A claim from outside the repo gets a source and a `sourced_from` edge, at logging time, not later |
 
 These matter more than any context-specific advice below.
@@ -128,10 +128,10 @@ above come first.
 
 ## The cognitive immune system
 
-**Lessons are antibodies. Findings are antigens.** When `finding-log` fires, related lessons have their confidence reduced
-(floor 0.3, so lessons never fully die). If a finding contradicts a lesson you would expect to apply here, that lesson's
-confidence has already been adjusted. Trust the freshest evidence; reach for the lesson through `project-search` only when its
-confidence still clears the threshold.
+**Lessons are antibodies. Findings are antigens.** A finding that contradicts a lesson you would expect to apply here is
+evidence against the lesson: supersede the lesson with a named successor, or record why it still holds. Nothing lowers a
+lesson's confidence automatically (that decay was switched off in 2026-05), so the retirement is yours to make. Trust the
+freshest evidence.
 
 **The turtle check:** audit your own graph rather than assuming discipline held. Count the types, the orphan rate, the
 retracted share. A practice that has never measured these knows nothing about them.
