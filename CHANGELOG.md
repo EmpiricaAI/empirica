@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A session starts with the whole bootstrap picture, within a token budget.** Session start showed three goals and five findings and unknowns, cut at 100 characters and without ids. It now shows goals, findings, unknowns, decisions, assumptions, mistakes with their prevention, dead ends and links, each with an 8-character id, taking turns until a budget of 1,800 tokens is spent (`EMPIRICA_HOOK_CONTEXT_TOKENS` changes it), and a coverage line that says per category what was shown out of how many, or why nothing was: none logged, not returned, or a source that did not answer. After a compaction, the decisions, assumptions, mistakes and links are added beside the ranked focus. On this practice that is about 1,800 tokens at session start, against about 360 before.
+
 ### Fixed
 
 - **A due condition that names no tag like the ones here says so.** `--due after:1.17.0` in a repository tagged `v1.16.1` used to wait silently forever; the response now notes that no tag looks like it, says when the tag already exists (due now), and refuses tag names git cannot create. `config <key> --output json` prints JSON.

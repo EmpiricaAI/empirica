@@ -162,6 +162,9 @@ def _run_bootstrap(session_id: str, env: dict) -> tuple:
             "findings": (source.get("findings") or [])[:5],
             "unknowns": (source.get("unknowns") or [])[:5],
             "due": source.get("due") or [],
+            # The whole contract, rendered under a token budget by lib/context_render (goal 2e686e79): the three lists
+            # above are kept for the context budget and older callers.
+            "breadcrumbs": source,
         }
         return bootstrap_data, project_context
     except json.JSONDecodeError:
@@ -807,7 +810,7 @@ def format_context(ctx: dict) -> str:
         return "  (No context available)"
 
     parts = []
-
+    due_head: list[str] = []
     if ctx.get("due"):
         try:  # the hook's interpreter can carry an older core than the `empirica` on PATH that produced ctx
             from empirica.data.due import ANSWERS, due_lines
@@ -823,6 +826,15 @@ def format_context(ctx: dict) -> str:
                 if isinstance(i, dict)
             ]
         parts.append("")
+        due_head = list(parts)
+
+    if isinstance(ctx.get("breadcrumbs"), dict):
+        try:  # one renderer for the whole bootstrap contract, under a token budget (goal 2e686e79)
+            from context_render import render
+
+            return render(ctx["breadcrumbs"], head=due_head)
+        except Exception:
+            pass  # an older lib beside a newer hook: the short form below still reads
 
     if ctx.get("goals"):
         parts.append("**Active Goals:**")
