@@ -861,3 +861,13 @@ def test_the_gate_spends_the_budget_on_an_apply_patch_and_refuses_a_delete(gate,
     delete = gate._handle_no_preflight("apply_patch", _patch("*** Delete File: notes/new.md"), "s-1", "")
     assert first[0] == "allow" and "act 1 of 2" in first[1], first
     assert delete[0] == "deny" and "deletes or moves" in delete[1], delete
+
+
+def test_an_out_of_loop_decision_is_recorded_as_outside_any_transaction(gate, home, monkeypatch):
+    # The record's transaction fields came from a lookup that can fall back to another pane's stale file: on the empirica
+    # practice every discipline row named a transaction left open 45 days earlier, tx_status "open" (2026-11-13).
+    monkeypatch.setenv(sd.ENV_MODE, "discipline")
+    gate._tx_meta.update(transaction_id="stale-tx-from-another-pane", tx_status="open")
+    decision, _ = gate._handle_no_preflight("Edit", _edit(home[1]), "s-1", "")
+    assert decision == "allow" and gate._decision_rule == "discipline-budget"
+    assert gate._tx_meta == {"transaction_id": None, "tx_status": "none"}

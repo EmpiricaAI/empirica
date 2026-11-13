@@ -5882,6 +5882,10 @@ def _discipline_answer(tool_name: str, tool_input) -> tuple | None:
         )
         if answer is not None:
             _decision_rule = "discipline-budget"
+            # This branch runs only when the gate found no open transaction. The record's transaction fields came from
+            # _peek_work_type's lookup, which can fall back to another pane's stale file: on this practice every such row
+            # named a transaction left open 45 days earlier, tx_status "open" (2026-11-13, unknown 63877174).
+            _tx_meta.update(transaction_id=None, tx_status="none")
         return answer
     except Exception:
         return None
