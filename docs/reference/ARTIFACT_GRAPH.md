@@ -180,7 +180,46 @@ stateDiagram-v2
 A falsifier outlives its transaction and resurfaces at every PREFLIGHT until it is adjudicated. A `survived` verdict without
 evidence that the population was examined is recorded as `expired`.
 
-## 4. Ownership
+## 4. Blindspots: what the graph does not say
+
+A blindspot is an unknown unknown. You cannot log one: if you can name it, it is an `unknown`. It has to be **derived** from the
+graph, from what is absent or inconsistent in the links between the other artifacts, and surfaced back to the practitioner.
+
+```mermaid
+flowchart LR
+    subgraph today["Derived today"]
+        T[open task] -.->|no finding, no unknown, no dead end| IG((intent gap))
+    end
+    subgraph proposed["Proposed: derived from the links"]
+        O[open artifact] -->|grounded_by / caused_by| R[retracted or superseded finding]
+        R -.-> BP((broken premise))
+        A[unverified assumption] -->|cited by open decisions| D[decision]
+        A -.->|no falsifier, past due| LU((load-bearing, untested))
+        G[goal or subject] -.->|many findings, no unknown or assumption| CD((confidence without doubt))
+        E[edited files] -.->|named by no artifact| CK((change without knowledge))
+    end
+```
+
+Only the intent gap is built (`core/blindspots/intent_gap.py`, `empirica blindspot-scan`): an open task under an active goal
+with no covering finding, no acknowledging unknown and no attempt. The others are proposals. The first has been measured: on
+2026-11-13, 17 open artifacts in the core practice rested on a finding later retracted or superseded, and nothing surfaced them.
+Some were the refutation itself linked with `evidence` where `invalidates` belongs, so a detector has to weight the relations.
+
+A surfaced blindspot has its own lifecycle, recorded in `blindspot_events`:
+
+```mermaid
+stateDiagram-v2
+    [*] --> surfaced: a detector finds it, CHECK shows it
+    surfaced --> acknowledged: the flagged work was taken up
+    surfaced --> dismissed: the goal closed with the gap ignored
+    dismissed --> regretted: it later became a mistake or dead end
+```
+
+`regretted` is the label that says a detector was right when the practitioner was not. A blindspot also inherits the fate of
+its premises: `derived_from` records the artifacts it was inferred from, so when they are invalidated it can be re-derived. The
+column exists; no detector writes it yet.
+
+## 5. Ownership
 
 | Field | Means |
 |---|---|
@@ -192,7 +231,7 @@ evidence that the population was examined is recorded as `expired`.
 `--project-id <name or uuid>` on the log verbs, `log-artifacts` and `goals-create` writes into another practice. That is how a
 practice sends a question to the research practice, for example.
 
-## 5. Where they live
+## 6. Where they live
 
 ```mermaid
 flowchart LR
@@ -210,7 +249,7 @@ flowchart LR
   SQLite.
 - **Cortex** receives a POSTFLIGHT's artifacts when the practice is registered there.
 
-## 6. Sharing
+## 7. Sharing
 
 | Mechanism | What it does | Who sees it |
 |---|---|---|
@@ -229,7 +268,7 @@ federate. Assumptions and decisions accept `--visibility`, but nothing federates
 There is no verb that **moves** an existing artifact to another practice. Share it, or log the follow-up into the other practice
 with `--project-id` and cite the original.
 
-## 7. Use by context
+## 8. Use by context
 
 Measured across 33 practices on one machine (2026-11-13), as ratios per 100 findings for the 13 practices with 100 or more
 findings. There are one or two practices per type, all running the same model and prompt, so the numbers describe current use,
@@ -256,10 +295,11 @@ These are the first gaps to close in any practice.
 A transaction's `work_type` (code, research, docs, debug, infra, release, remote-ops, config, data, comms, design, audit) changes
 how evidence is weighted at POSTFLIGHT. It does not change which artifacts are available.
 
-## 8. Known gaps
+## 9. Known gaps
 
 - Adjudicating a falsifier `tripped` does not invalidate its parent artifact; that takes a separate `resolve-artifacts` call.
 - Dead-end and mistake invalidations are not mirrored to git notes, so a `rebuild --from-notes` shows them valid again.
 - A retracted finding does not lower its source's accuracy.
 - Blindspot provenance (`derived_from`) has a column and a function, and nothing writes it.
+- Blindspots are derived from goal coverage only; none from the links between artifacts (section 4).
 - Assumptions and decisions accept `--visibility` and are never federated.
