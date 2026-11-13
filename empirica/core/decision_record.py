@@ -878,8 +878,18 @@ def observed_effects(before: dict, after: dict, project_path: str | None) -> lis
     classes: set[str] = set()
     b_status, a_status = before.get("status", {}), after.get("status", {})
     for path in set(b_status) | set(a_status):
-        if b_status.get(path) != a_status.get(path):
-            classes.add(path_effect(os.path.join(project_path or "", path), project_path))
+        b, a = b_status.get(path), a_status.get(path)
+        if b == a:
+            continue
+        # A status code that moves while the file stays as it was is the index moving: `git add`, a commit, an unstage. Read
+        # as project_write, every commit chain observed a write no inference predicted (unknown a1ac63b8). A path that left
+        # the list is compared with the file as it is now: committed, it is unchanged; discarded, it is not.
+        if b is not None:
+            now = a[1] if a is not None else (_stat(Path(project_path) / path) if project_path else None)
+            if now is not None and now == b[1]:
+                classes.add("vcs_local")
+                continue
+        classes.add(path_effect(os.path.join(project_path or "", path), project_path))
     b_refs, a_refs = before.get("refs", {}), after.get("refs", {})
     for name in set(b_refs) | set(a_refs):
         if b_refs.get(name) != a_refs.get(name):

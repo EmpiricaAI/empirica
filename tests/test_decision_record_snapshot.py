@@ -179,3 +179,33 @@ def test_an_unsampled_shell_call_still_says_its_effect_was_not_observed(practice
     )
 
     assert rec["effect_classes"] is None and rec["observed"] is False and rec["sampled"] is False
+
+
+# ── staging and committing move the index, not the files (unknown a1ac63b8, goal 3fcde812) ────────────────────────────────
+# Any change to a path's status code read as project_write, so `git add` and `git commit` chains observed a project write
+# that no inference predicted: two of the five reliable misses in the 2026-11-13 precision measurement.
+
+
+def _commit(proj: Path, *paths: str) -> None:
+    _git(proj, "add", *paths)
+    _git(proj, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "c")
+
+
+def test_staging_a_modified_file_is_an_index_change(practice):
+    (practice / "a.txt").write_text("changed\n")
+    assert _observe(practice, lambda: _git(practice, "add", "a.txt")) == ["vcs_local"]
+
+
+def test_committing_a_modified_file_is_not_a_project_write(practice):
+    (practice / "a.txt").write_text("changed\n")
+    assert _observe(practice, lambda: _commit(practice, "a.txt")) == ["vcs_local"]
+
+
+def test_discarding_a_change_still_writes_the_project(practice):
+    (practice / "a.txt").write_text("changed\n")
+    assert "project_write" in _observe(practice, lambda: _git(practice, "checkout", "--", "a.txt"))
+
+
+def test_editing_an_already_modified_file_still_writes_the_project(practice):
+    (practice / "a.txt").write_text("changed\n")
+    assert _observe(practice, lambda: (practice / "a.txt").write_text("changed again, longer\n")) == ["project_write"]
