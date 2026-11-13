@@ -5,7 +5,13 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.16.2] - 2026-11-13
+
+### Highlights
+
+- **A session starts with the whole bootstrap picture.** Goals, findings, unknowns, decisions, assumptions, mistakes, dead ends and links, each with a short id, within a token budget, and a line per category saying what was shown out of how many, or why nothing was.
+- **`blindspot-scan` finds broken premises:** open artifacts that still rest on one that was since retracted, superseded or falsified.
+- **POSTFLIGHT is faster and an unreachable Ollama costs 3 seconds, not 20.** The MEMORY.md refresh moved off the response path, and connecting to Ollama has its own short timeout.
 
 ### Changed
 
@@ -31,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`epistemics` search fills its limit when a filter is selective.** It read one window of nearest trajectories and filtered it, so matches ranked below that window were dropped and the search came back short with nothing to say so. It now widens the window until the limit fills, the store runs out, or 1,000 trajectories have been read.
 - **An unreachable Ollama host costs 3 seconds, not 20.** The embed timeout covered connecting as well as waiting for a cold model, so with the host down every command that embeds waited the full 20 s before giving up: most of a 24.7 s POSTFLIGHT. Connecting now has its own timeout (`EMPIRICA_EMBED_CONNECT_TIMEOUT`, default 3 s); the read timeouts that let a cold model load are unchanged.
 - **`sync-config visibility public` now does something.** The setting was stored, checked and printed, and nothing read it. Set to `public`, it refuses to push notes to the remote whatever its host, which covers a self-hosted public instance the list of public hosts cannot know; `--force` still overrides. `private`, the default, changes nothing: a public host is refused either way.
-- **Pushing notes to a public host is refused by the remote's host.** The check matched names anywhere in the URL, so Codeberg, a public host, passed as a private Forgejo; it now reads the host itself and refuses GitHub, GitLab, Bitbucket and Codeberg (and their subdomains) unless `--force` is given.
+- **Pushing notes to a public host is refused by the remote's host.** The check matched names anywhere in the URL, so Codeberg, a public host, passed as a private Forgejo; it now reads the host itself and refuses GitHub, GitLab, Bitbucket and Codeberg (their subdomains, and SSH config aliases such as `github.com-work`) unless `--force` is given.
 - **`sync` runs git in the project it reads its settings from.** Settings came from the active project (after `project-switch`), while every git call ran in the current directory, so a sync started elsewhere counted, pushed and fetched another repository's notes.
 - **A suppressed Cortex credential is named in the loop logs, and a suppression expires.** The liveness probe logged "no cortex credentials" and the heartbeats skipped silently when a credential had been marked dead, the same as when none was configured; they now say why, once per change. A mark now suppresses its credential for 24 hours; then it is tried once more, so a passing `invalid_key` from a restarting server no longer locks a seat out until `auth login`.
 - **A due condition that names no tag like the ones here says so.** `--due after:1.17.0` in a repository tagged `v1.16.1` used to wait silently forever; the response now notes that no tag looks like it, says when the tag already exists (due now), and refuses tag names git cannot create. `config <key> --output json` prints JSON.
