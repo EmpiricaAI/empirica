@@ -1,7 +1,7 @@
 ---
 name: eat-the-broccoli
 description: "Use when the user says '/eat-the-broccoli', 'eat the broccoli', 'full quality sweep', 'pre-release audit', 'run the deep tests', or asks to hunt for gaps / membrane misses / stubs / dead code / silent failures / the bugs that pass tests but are still broken. A tiered quality-and-pattern audit: deterministic tooling (lint, types, tests, deps, dead-code, silent-failure) PLUS a learned-pattern hunt for the hard, judgment-requiring failure classes that tools can't catch. Works in any repo or stack. Levels: quick / standard / deep. Scope: changed / module / repo."
-version: 2.11.0
+version: 2.12.0
 ---
 
 <!-- Vendored from https://github.com/EmpiricaAI/broccoli — edit upstream, not here. -->
@@ -136,6 +136,7 @@ it logged a warning and returned `[]` as a *documented* degraded mode →
 | Smell | ✅ by design if | ❌ broken if |
 |---|---|---|
 | **Classifier blind spot / membrane miss** — a matcher on crossing data | it sees through wrappers / chains / quotes / encodings | a wrapped or chained variant slips a start-anchored match |
+| **Near-miss firing** — a keyword, substring, prefix or regex matcher that decides something (a gate, a hint, a router, a classifier) | a test holds the text it must NOT fire on beside its positive case, and that test was shown failing on the old code | only positive cases exist, so it fires on a word containing the keyword, the same flag in another spelling, the keyword quoted in source or prose, or a field of one item read as a field of the whole response. A hand probe of 12 matchers in one codebase found 8 firing on near misses, every one with positive tests only; a truncation notice fired on its own test file. *The mirror of the row above: that one misses what it should catch, this one catches what it should leave. A matcher is tested by what it refuses. Ask for the nearest text that should not match, and keep it beside the case that should.* |
 | **Encoding / quoting mangle** — data crossing CLI↔shell, JSON↔DB, wire↔local | the boundary escapes / validates explicitly | it assumes clean input (quotes, newlines, unicode, `"0.7"` vs `0.7`) |
 | **Schema drift** — code assumes a shape the migration didn't produce | the unused shape is intentionally deprecated-but-kept | the code path is silently dead against the real schema |
 | **One predicate, two questions** — a check written for one question reused for a second that *looks* identical | both questions genuinely have the same answer for every state, including the edge ones | they diverge on a state neither caller thought about — "what may I delete?" and "what exists?" agree everywhere except on things that are **archived**, so an existence test borrowed from a deletion allow-list judged every archived referent missing and a routine prune destroyed live links |
