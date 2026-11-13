@@ -40,6 +40,9 @@ def repo(tmp_path, monkeypatch):
     _git(tmp_path, "add", "f")
     _git(tmp_path, "commit", "-q", "-m", "c")
     monkeypatch.chdir(tmp_path)
+    # Sync's git runs in the workspace root (695ab93b0), not the cwd: on a box with a configured workspace the chdir alone
+    # counted that workspace's real notes.
+    monkeypatch.setattr(sc, "_get_workspace_root", lambda: str(tmp_path))
     return tmp_path
 
 
