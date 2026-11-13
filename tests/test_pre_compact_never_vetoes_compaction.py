@@ -99,7 +99,7 @@ def test_a_failing_bootstrap_degrades_the_snapshot_and_lets_compaction_proceed(h
 
     assert code == 0, "a context-capture failure must not veto compaction"
     out = capsys.readouterr().out
-    assert "stopReason" not in out and "systemMessage" in json.loads(out)
+    assert "stopReason" not in out and "DEGRADED" in out
     snap = _snapshot(practice)
     assert snap["capture_status"] == "degraded"
     assert "no remote 'origin'" in snap["bootstrap_error"], (
@@ -151,8 +151,8 @@ def test_an_unexpected_error_in_the_hook_body_still_exits_zero(hook, practice, m
     monkeypatch.setattr(hook, "_build_compact_guidance", _boom)
 
     assert _run(hook, practice) == 0
-    out = json.loads(capsys.readouterr().out)
-    assert "stopReason" not in out and "guidance exploded" in out["systemMessage"]
+    out = capsys.readouterr().out
+    assert "stopReason" not in out and "guidance exploded" in out
 
 
 def test_a_successful_capture_is_marked_complete(hook, practice, monkeypatch):
@@ -273,7 +273,7 @@ def test_input_the_hook_cannot_read_still_does_not_veto(tmp_path, stdin):
     json.loads(done.stdout or "{}")
 
 
-def test_a_failing_stderr_banner_cannot_corrupt_the_json_on_stdout(hook, practice, monkeypatch, capsys):
+def test_a_failing_stderr_banner_cannot_corrupt_the_guidance_on_stdout(hook, practice, monkeypatch, capsys):
     _stub_the_rest(hook, monkeypatch)
     monkeypatch.setattr(hook.subprocess, "run", _fake_run(lambda c, k: _completed(0, _bootstrap_json())))
 
@@ -288,7 +288,7 @@ def test_a_failing_stderr_banner_cannot_corrupt_the_json_on_stdout(hook, practic
 
     assert _run(hook, practice) == 0
     out = capsys.readouterr().out
-    assert len(json.loads(out)) == 1 and "systemMessage" in json.loads(out)
+    assert out.strip() and "{" not in out.splitlines()[0], "the guidance, once, as text"
 
 
 def test_the_budget_counts_from_process_start_not_from_the_guard(hook, practice, monkeypatch):
@@ -302,3 +302,20 @@ def test_the_budget_counts_from_process_start_not_from_the_guard(hook, practice,
     assert _run(hook, practice) == 0
     assert calls == [], "bootstrap ran although the hook had already used its whole budget before the guard"
     assert "budget" in _snapshot(practice)["bootstrap_error"]
+
+
+# ── the guidance reaches the summary: plain stdout, not a systemMessage (goal ba49c036) ──────────────────────────────────
+# The Claude Code hooks docs (PreCompact): stdout on exit 0 is used as instructions for the compaction summary, and
+# systemMessage is discarded. The hook printed its guidance as {"systemMessage": ...}, so it never reached the summary.
+
+
+def test_the_guidance_is_plain_text_the_summarizer_reads(hook, practice, monkeypatch, capsys):
+    _stub_the_rest(hook, monkeypatch)
+    monkeypatch.setattr(hook.subprocess, "run", _fake_run(lambda c, k: _completed(0, _bootstrap_json())))
+
+    assert _run(hook, practice) == 0
+    out = capsys.readouterr().out
+    assert out.strip(), "the summary gets instructions"
+    with pytest.raises(ValueError):
+        json.loads(out)  # a JSON document is parsed as hook output, and PreCompact drops its systemMessage
+    assert "systemMessage" not in out

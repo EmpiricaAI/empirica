@@ -492,8 +492,7 @@ def main():
     project_root = find_project_root(claude_session_id=claude_session_id)
     if project_root is None:
         _trace("no_project_root", trigger=trigger, claude_session_id=claude_session_id)
-        print(json.dumps({}), file=sys.stdout)
-        sys.exit(0)
+        sys.exit(0)  # nothing on stdout: PreCompact reads it as summary instructions
     os.chdir(project_root)
 
     # STEP -1: restore a stash an OLDER version of this hook left behind (it used to stash the tree and pop it
@@ -512,8 +511,7 @@ def main():
     empirica_session = _detect_empirica_session(claude_session_id)
     if not empirica_session:
         _trace("no_empirica_session", trigger=trigger, claude_session_id=claude_session_id, project_root=project_root)
-        print(json.dumps({}), file=sys.stdout)
-        sys.exit(0)
+        sys.exit(0)  # nothing on stdout: PreCompact reads it as summary instructions
 
     # STEP 0.5-0.8: Pre-compaction housekeeping.
     # NOTE: goals are deliberately NOT touched here. Goals are the durable
@@ -647,7 +645,7 @@ def _main_guarded(
             f"Empirica pre-compact capture failed ({type(e).__name__}: {str(e)[:200]}). Goals, artifacts and git notes "
             "persist; in the summary, preserve the current task, decisions made and open questions."
         )
-        print(json.dumps({"systemMessage": message}), file=sys.stdout)
+        print(message, file=sys.stdout)  # plain text: PreCompact discards a systemMessage (goal ba49c036)
     sys.exit(0)
 
 
@@ -745,10 +743,12 @@ def _capture_and_report(
             "preserve the current task, decisions made and open questions in the summary."
         )
 
-    print(json.dumps({"systemMessage": compact_guidance}), file=sys.stdout)
+    # Plain text, not {"systemMessage": ...}: on exit 0 Claude Code uses PreCompact's stdout as instructions for the
+    # compaction summary and discards a systemMessage (code.claude.com/docs/en/hooks, PreCompact; goal ba49c036).
+    print(compact_guidance, file=sys.stdout)
 
     # The banner is cosmetic and goes to stderr. If stderr is closed or its reader is gone, the write must not fall into the
-    # guard, which would print a SECOND JSON document after the one already on stdout.
+    # guard, which would print the guidance a second time after the copy already on stdout.
     try:
         _print_banner(
             breadcrumbs=breadcrumbs,
