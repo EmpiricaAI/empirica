@@ -86,6 +86,48 @@ def _ensure_global_projects(cursor: sqlite3.Cursor) -> None:
     for name, type_and_default, _create_only in GLOBAL_PROJECTS_COLUMNS:
         if name not in existing:
             cursor.execute(f"ALTER TABLE global_projects ADD COLUMN {name} {type_and_default}")
+    _drop_project_type_default(cursor)
+
+
+def _drop_project_type_default(cursor: sqlite3.Cursor) -> None:
+    """Rebuild ``global_projects`` once when its ``project_type`` carries a default (goal f09ee70a).
+
+    empirica-workspace also created this table, with ``project_type TEXT DEFAULT 'product'``; where its definition ran first,
+    a row inserted without a type got that legacy value. Workspace no longer defines the table (2026-11-13), but SQLite cannot
+    change a column default in place, so the table is rebuilt from its own CREATE with that one default removed: every column
+    and row is kept, and ``_ensure_workspace_schema`` recreates the indexes. A table without the default is left alone, so
+    after the first run this costs one PRAGMA.
+    """
+    import re
+
+    defaults = {row[1]: row[4] for row in cursor.execute("PRAGMA table_info(global_projects)").fetchall()}
+    if defaults.get("project_type") is None:
+        return
+    create_sql = cursor.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'global_projects'"
+    ).fetchone()[0]
+    new_sql, n = re.subn(r"(\bproject_type\s+TEXT)\s+DEFAULT\s+('[^']*'|\S+)", r"\1", create_sql, count=1, flags=re.I)
+    if n != 1:
+        return  # an unexpected definition: leave it, rather than guess at its shape
+    new_sql = re.sub(
+        r"^\s*CREATE TABLE\s+(IF NOT EXISTS\s+)?global_projects",
+        "CREATE TABLE global_projects_rebuild",
+        new_sql,
+        count=1,
+        flags=re.I,
+    )
+    columns = ", ".join(f'"{row[1]}"' for row in cursor.execute("PRAGMA table_info(global_projects)").fetchall())
+    cursor.execute("SAVEPOINT drop_project_type_default")
+    try:
+        cursor.execute(new_sql)
+        cursor.execute(f"INSERT INTO global_projects_rebuild ({columns}) SELECT {columns} FROM global_projects")
+        cursor.execute("DROP TABLE global_projects")
+        cursor.execute("ALTER TABLE global_projects_rebuild RENAME TO global_projects")
+        cursor.execute("RELEASE SAVEPOINT drop_project_type_default")
+    except sqlite3.Error:
+        cursor.execute("ROLLBACK TO SAVEPOINT drop_project_type_default")
+        cursor.execute("RELEASE SAVEPOINT drop_project_type_default")
+        raise
 
 
 def _ensure_workspace_schema(conn: sqlite3.Connection) -> None:

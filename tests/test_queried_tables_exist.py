@@ -39,7 +39,11 @@ def _inventory() -> tuple[set[str], set[str]]:
         text = path.read_text(errors="replace")
         created |= set(re.findall(r"CREATE (?:VIRTUAL )?TABLE(?: IF NOT EXISTS)? [\"`]?(\w+)", text))
         created |= set(re.findall(r"CREATE (?:TEMP(?:ORARY)? )?VIEW(?: IF NOT EXISTS)? [\"`]?(\w+)", text))
-        dropped |= set(re.findall(r"DROP TABLE(?: IF EXISTS)? [\"`]?(\w+)", text))
+        for m in re.finditer(r"DROP TABLE(?: IF EXISTS)? [\"`]?(\w+)", text):
+            # A rebuild in the same file (drop the original, rename the copy into place) leaves the table live, as in
+            # migrations.py below (workspace_db._drop_project_type_default, goal f09ee70a).
+            if not re.search(rf"RENAME TO [\"`]?{m.group(1)}\b", text[m.end() :]):
+                dropped.add(m.group(1))
     migrations = (SRC / "data" / "migrations" / "migrations.py").read_text()
     for block in re.findall(r"(?:tables_to_drop|LEGACY_TABLES_\d+)\s*=\s*[\[(](.*?)[\])]", migrations, re.S):
         dropped |= set(re.findall(r'"(\w+)"', block))
