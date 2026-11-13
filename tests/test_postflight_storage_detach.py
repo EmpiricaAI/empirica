@@ -126,3 +126,69 @@ def test_worker_unreadable_payload_is_noop():
     with patch.object(wf, "_run_postflight_storage_pipeline") as pipe:
         worker.main("/nonexistent/path/payload.json")
     pipe.assert_not_called()
+
+
+# ── the MEMORY.md hot cache rides the detached pipeline (goal eb8e1029) ────────────────────────────────────────────────
+# Measured in fresh processes: ~0.65 s on the POSTFLIGHT response path, for writes nothing in the response reads.
+
+
+def test_the_result_builder_no_longer_updates_the_hot_cache(monkeypatch):
+    calls = []
+    monkeypatch.setattr(wf, "_postflight_update_memory_hot_cache", lambda *a, **k: calls.append(a))
+    wf._build_postflight_result(
+        session_id="sid-r",
+        internal_consistency={},
+        deltas={},
+        trajectory_issues=[],
+        grounded_verification=None,
+        compliance_result=None,
+        compliance_error=None,
+        postflight_grounded_vectors=None,
+        postflight_grounded_rationale=None,
+        vectors={"know": 0.9},
+        resolved_project_path="/proj",
+    )
+    assert calls == []
+
+
+def test_the_spawn_stages_the_project_path_for_the_worker():
+    seen = {}
+
+    def fake_popen(args, **kwargs):
+        with open(args[-1], "rb") as pf:
+            seen["payload"] = pickle.load(pf)  # noqa: S301
+        return MagicMock()
+
+    with patch("subprocess.Popen", side_effect=fake_popen), patch.object(wf, "_run_postflight_storage_pipeline"):
+        wf._spawn_detached_storage_pipeline("sid-p", _V, {}, "why", None, None, project_path="/proj")
+    assert seen["payload"]["project_path"] == "/proj"
+
+
+def test_the_inline_fallback_passes_the_project_path():
+    with (
+        patch("tempfile.mkstemp", side_effect=OSError("disk full")),
+        patch.object(wf, "_run_postflight_storage_pipeline") as inline,
+    ):
+        wf._spawn_detached_storage_pipeline("sid-f", _V, {}, "why", None, None, project_path="/proj")
+    assert inline.call_args.kwargs["project_path"] == "/proj"
+
+
+def test_the_worker_passes_the_project_path_and_tolerates_an_old_payload():
+    for payload, expected in (({"project_path": "/proj"}, "/proj"), ({}, None)):
+        fd, path = tempfile.mkstemp(suffix=".pkl")
+        base = {"session_id": "s", "vectors": _V, "deltas": {}, "reasoning": "r", "grounded_verification": None}
+        with os.fdopen(fd, "wb") as f:
+            pickle.dump({**base, "checkpoint_id": None, **payload}, f)
+        with patch.object(wf, "_run_postflight_storage_pipeline") as pipe:
+            worker.main(path)
+        assert pipe.call_args.kwargs["project_path"] == expected
+
+
+def test_the_pipeline_updates_the_hot_cache_even_when_the_session_is_unreadable(monkeypatch):
+    """The inline step ran whatever the session lookup said; the pipeline returns early without a project id, and the
+    hot cache must not go with it."""
+    calls = []
+    monkeypatch.setattr(wf, "_postflight_update_memory_hot_cache", lambda sid, path: calls.append((sid, path)))
+    monkeypatch.setattr(wf, "_get_db_for_session", MagicMock(side_effect=RuntimeError("no db")))
+    wf._run_postflight_storage_pipeline("sid-h", _V, {}, "r", None, None, project_path="/proj")
+    assert calls == [("sid-h", "/proj")]

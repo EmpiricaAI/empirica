@@ -400,12 +400,31 @@ def _run_postflight_storage_pipeline(
     reasoning: str,
     grounded_verification: dict | None,
     checkpoint_id: str | None,
+    project_path: str | None = None,
 ) -> None:
     """Run all POSTFLIGHT storage operations: Qdrant embedding, Cortex push,
-    trajectory, episodic memory, auto-embed, workspace index, decay, snapshot.
+    trajectory, episodic memory, auto-embed, workspace index, decay, snapshot,
+    then the MEMORY.md hot cache.
 
-    All operations are non-fatal — failures are logged and skipped.
+    All operations are non-fatal — failures are logged and skipped. The hot cache
+    ran inline on the response path (~0.65 s in a fresh process, goal eb8e1029)
+    for writes nothing in the response reads; it runs here, after the stages, and
+    whatever they did, as it ran inline whatever the session lookup said.
     """
+    try:
+        _run_storage_stages(session_id, vectors, deltas, reasoning, grounded_verification, checkpoint_id)
+    finally:
+        _postflight_update_memory_hot_cache(session_id, project_path)
+
+
+def _run_storage_stages(
+    session_id: str,
+    vectors: dict,
+    deltas: dict,
+    reasoning: str,
+    grounded_verification: dict | None,
+    checkpoint_id: str | None,
+) -> None:
 
     # Get session context (shared across all stages)
     try:
@@ -488,6 +507,7 @@ def _spawn_detached_storage_pipeline(
     reasoning: str,
     grounded_verification: dict | None,
     checkpoint_id: str | None,
+    project_path: str | None = None,
 ) -> None:
     """Run the storage pipeline OFF the POSTFLIGHT response critical path.
 
@@ -508,6 +528,7 @@ def _spawn_detached_storage_pipeline(
             reasoning=reasoning,
             grounded_verification=grounded_verification,
             checkpoint_id=checkpoint_id,
+            project_path=project_path,
         )
 
     payload = {
@@ -517,6 +538,7 @@ def _spawn_detached_storage_pipeline(
         "reasoning": reasoning,
         "grounded_verification": grounded_verification,
         "checkpoint_id": checkpoint_id,
+        "project_path": project_path,
     }
     # pickle, not json: grounded_verification is an EvidenceBundle object (+
     # other rich values) that json can't serialize — json.dump would fail on
@@ -1501,8 +1523,6 @@ def _build_postflight_result(
     if goal_criteria:
         result["goal_criteria"] = goal_criteria
 
-    _postflight_update_memory_hot_cache(session_id, resolved_project_path)
-
     return result
 
 
@@ -2409,6 +2429,7 @@ def handle_postflight_submit_command(args):
                 reasoning=reasoning,
                 grounded_verification=grounded_verification,
                 checkpoint_id=checkpoint_id,
+                project_path=resolved_project_path,
             )
 
             # Stage 7: Compliance + Result

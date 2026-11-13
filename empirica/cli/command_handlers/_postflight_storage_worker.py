@@ -45,6 +45,7 @@ def main(payload_path: str) -> None:
         reasoning=payload["reasoning"],
         grounded_verification=payload["grounded_verification"],
         checkpoint_id=payload["checkpoint_id"],
+        project_path=payload.get("project_path"),  # absent in a payload staged before 1.16.2
     )
 
 
