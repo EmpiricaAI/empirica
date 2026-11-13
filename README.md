@@ -439,18 +439,18 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.16.1
+## What's New in 1.16.2
 
-- **Links, falsifiers and lessons reach the git notes, so a rebuild restores the whole graph.** They are exported at each POSTFLIGHT, a bounded batch at a time, and in full by `doctor --reconcile-notes --apply`. A link deleted after it was exported can still come back on a rebuild; that is next.
-- **Sessions close in the workspace registry.** Nearly every session ever started was still listed as active. A session now closes there when it ends, and `doctor --reconcile-sessions` closes the rows left behind.
-- **Planned work can wait for a release, and an assumption can expire.** `--due after:v1.17.0` brings a goal, unknown or assumption back once that tag exists, and an assumption whose subject went away before anyone checked it closes as `expired`, counted as neither confirmation nor error.
+- **A session starts with the whole bootstrap picture.** Goals, findings, unknowns, decisions, assumptions, mistakes, dead ends and links, each with a short id, within a token budget, and a line per category saying what was shown out of how many, or why nothing was.
+- **`blindspot-scan` finds broken premises:** open artifacts that still rest on one that was since retracted, superseded or falsified.
+- **POSTFLIGHT is faster and an unreachable Ollama costs 3 seconds, not 20.** The MEMORY.md refresh moved off the response path, and connecting to Ollama has its own short timeout.
 
-All 16 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 27 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.16.1** — Links, falsifiers and lessons reach the git notes, so a rebuild restores the whole graph. They are exported at each POSTFLIGHT, a bounded batch at a time,…
 - **1.16.0** — Semantic search on a machine with no Cortex, Qdrant or Ollama. The local server now holds the vector store and a multilingual embedding model (they come wi…
-- **1.15.1** — Several practices on one machine, with no Cortex and nothing to configure. With no Cortex set up, the mailbox, project registration, heartbeats and session…
 
 ## What's Coming
 
