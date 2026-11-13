@@ -81,3 +81,45 @@ def test_a_core_table_is_never_rebuilt(tmp_path):
     _ensure_workspace_schema(con)
     assert con.execute("SELECT sql FROM sqlite_master WHERE name = 'global_projects'").fetchone()[0] == before
     assert _default(con, "project_type") is None
+
+
+# ── shapes the rebuild must survive (pre-publish sweep B1, goal 4c935e3b) ──────────────────────────────────────────────
+
+
+def _shaped(tmp_path, create_sql):
+    con = sqlite3.connect(tmp_path / "workspace.db")
+    con.execute(create_sql)
+    con.execute(
+        "INSERT INTO global_projects (id, name, trajectory_path, created_timestamp, updated_timestamp)"
+        " VALUES ('p1', 'core', '/w/core/.empirica', 1, 2)"
+    )
+    con.commit()
+    return con
+
+
+_COLS = (
+    "(id TEXT PRIMARY KEY, name TEXT NOT NULL, trajectory_path TEXT NOT NULL UNIQUE, status TEXT DEFAULT 'active',"
+    " project_type TEXT {default}, created_timestamp REAL NOT NULL, updated_timestamp REAL NOT NULL)"
+)
+
+
+def test_a_quoted_table_name_is_rebuilt(tmp_path):
+    con = _shaped(tmp_path, 'CREATE TABLE "global_projects" ' + _COLS.format(default="DEFAULT 'product'"))
+    _ensure_workspace_schema(con)
+    assert _default(con, "project_type") is None
+    assert con.execute("SELECT id, status FROM global_projects").fetchall() == [("p1", "active")]
+
+
+def test_a_default_null_or_parenthesised_default_never_breaks_the_table(tmp_path):
+    for i, default in enumerate(("DEFAULT NULL", "DEFAULT ('product')")):
+        sub = tmp_path / str(i)
+        sub.mkdir()
+        con = _shaped(sub, "CREATE TABLE global_projects " + _COLS.format(default=default))
+        _ensure_workspace_schema(con)  # must not raise
+        assert con.execute("SELECT id, status FROM global_projects").fetchall() == [("p1", "active")]
+
+
+def test_a_shape_it_cannot_parse_is_left_alone_not_raised(tmp_path):
+    con = _shaped(tmp_path, "CREATE TABLE global_projects " + _COLS.format(default="DEFAULT 'product' COLLATE NOCASE"))
+    _ensure_workspace_schema(con)  # must not raise, whatever it decides
+    assert con.execute("SELECT count(*) FROM global_projects").fetchone() == (1,)

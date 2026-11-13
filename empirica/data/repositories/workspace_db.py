@@ -106,16 +106,21 @@ def _drop_project_type_default(cursor: sqlite3.Cursor) -> None:
     create_sql = cursor.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'global_projects'"
     ).fetchone()[0]
-    new_sql, n = re.subn(r"(\bproject_type\s+TEXT)\s+DEFAULT\s+('[^']*'|\S+)", r"\1", create_sql, count=1, flags=re.I)
-    if n != 1:
-        return  # an unexpected definition: leave it, rather than guess at its shape
-    new_sql = re.sub(
-        r"^\s*CREATE TABLE\s+(IF NOT EXISTS\s+)?global_projects",
+    # A default is a quoted string, a parenthesised expression, or one bare token (never the comma that ends the column).
+    new_sql, n_default = re.subn(
+        r"(\bproject_type\s+TEXT)\s+DEFAULT\s+('[^']*'|\([^)]*\)|[^\s,)]+)", r"\1", create_sql, count=1, flags=re.I
+    )
+    # SQLite may store the name quoted ("global_projects", `global_projects`, [global_projects]) after a rename.
+    new_sql, n_name = re.subn(
+        r"^\s*CREATE TABLE\s+(IF NOT EXISTS\s+)?[\"`\[]?global_projects[\"`\]]?",
         "CREATE TABLE global_projects_rebuild",
         new_sql,
         count=1,
         flags=re.I,
     )
+    if n_default != 1 or n_name != 1:
+        logger.warning("global_projects: project_type default not removed; table definition not recognised")
+        return  # an unexpected definition: leave it, rather than guess at its shape
     columns = ", ".join(f'"{row[1]}"' for row in cursor.execute("PRAGMA table_info(global_projects)").fetchall())
     cursor.execute("SAVEPOINT drop_project_type_default")
     try:
@@ -124,10 +129,11 @@ def _drop_project_type_default(cursor: sqlite3.Cursor) -> None:
         cursor.execute("DROP TABLE global_projects")
         cursor.execute("ALTER TABLE global_projects_rebuild RENAME TO global_projects")
         cursor.execute("RELEASE SAVEPOINT drop_project_type_default")
-    except sqlite3.Error:
+    except sqlite3.Error as exc:
+        # Never break every connection over a one-time cleanup: undo, say so, and keep the old table.
         cursor.execute("ROLLBACK TO SAVEPOINT drop_project_type_default")
         cursor.execute("RELEASE SAVEPOINT drop_project_type_default")
-        raise
+        logger.warning(f"global_projects: project_type default not removed ({exc}); table kept as it was")
 
 
 def _ensure_workspace_schema(conn: sqlite3.Connection) -> None:
