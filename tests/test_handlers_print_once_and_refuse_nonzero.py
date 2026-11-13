@@ -324,3 +324,12 @@ def test_config_output_json_prints_one_document(tmp_path):
 
     assert proc.returncode == 0, proc.stderr
     assert len(_documents(proc.stdout)) == 1
+
+
+def test_config_key_output_json_prints_one_document(tmp_path):
+    missing = _cli(tmp_path, "config", "no.such.key", "--output", "json")
+    assert missing.returncode == 1 and _documents(missing.stdout) == [
+        {"ok": False, "error": "Configuration key not found: no.such.key"}
+    ]
+    found = _cli(tmp_path, "config", "personas", "--output", "json")
+    assert found.returncode == 0 and _documents(found.stdout)[0]["ok"] is True

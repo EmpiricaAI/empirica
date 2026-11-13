@@ -107,3 +107,31 @@ def test_bootstrap_fires_a_release_condition_from_the_project_root(repo, monkeyp
     finally:
         db.close()
     assert [i["id"] for i in out["due"]] == ["g-rel"]
+
+
+@pytest.mark.parametrize("text", ["after:v1.0+build.1", "after:release/v2"])
+def test_valid_git_tag_names_are_accepted(text):
+    assert parse_due(text, today=TODAY) == text
+
+
+@pytest.mark.parametrize("text", ["after:a//b", "after:x.lock", "after:rel/.hidden"])
+def test_names_git_cannot_create_are_refused(text):
+    with pytest.raises(DueDateError):
+        parse_due(text, today=TODAY)
+
+
+def test_a_tag_nothing_resembles_gets_a_note_and_an_existing_one_says_due(repo, monkeypatch):
+    from empirica.data.due import condition_note
+    from empirica.data.session_database import SessionDatabase
+
+    db_path = repo / ".empirica" / "sessions" / "sessions.db"
+    db_path.parent.mkdir(parents=True)
+    subprocess.run(["git", "tag", "v1.16.1"], cwd=repo, check=True)
+    db = SessionDatabase(db_path=str(db_path))
+    try:
+        assert "no tag here looks like '1.17.0'" in condition_note(db.conn, "after:1.17.0")
+        assert condition_note(db.conn, "after:v1.17.0") is None  # looks like the others: fine
+        assert "due now" in condition_note(db.conn, "after:v1.16.1")
+        assert condition_note(db.conn, "2026-12-01") is None
+    finally:
+        db.close()

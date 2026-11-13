@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A due condition that names no tag like the ones here says so.** `--due after:1.17.0` in a repository tagged `v1.16.1` used to wait silently forever; the response now notes that no tag looks like it, says when the tag already exists (due now), and refuses tag names git cannot create. `config <key> --output json` prints JSON.
 - **A local embedding model that failed to load says so.** Its health and the semantic-search status read "has not loaded yet" after a failed download; they now say it failed, with the reason, and that the next request tries again.
 - **`mesh on` and `mesh restart` say when they could not tell.** When launchctl does not answer, they report that the state could not be confirmed instead of reporting a failure to start.
 - **Vectors never land in a store of the wrong size.** A long-running process that started while Ollama and the configured Qdrant were both down chose the local server's smaller model for its whole life, but kept checking for Qdrant, and once Qdrant came back it wrote those vectors there. Once the local model is chosen, the process now keeps using the local server's store.

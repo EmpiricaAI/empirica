@@ -29,7 +29,7 @@ DUE_TABLES: dict[str, tuple[str, str]] = {
 _TEXT_COLUMN = {"goal": "objective", "unknown": "unknown", "assumption": "assumption"}
 _OFFSET = re.compile(r"^\+(\d{1,4})([dw])$")
 #: A release tag a git ref can carry: no leading dash (it would read as a flag), no "..", no spaces.
-_AFTER = re.compile(r"^after:([A-Za-z0-9][A-Za-z0-9._/-]*)$")
+_AFTER = re.compile(r"^after:([A-Za-z0-9][A-Za-z0-9._/+-]*)$")
 AFTER_PREFIX = "after:"
 FORMAT_HELP = "a date YYYY-MM-DD, an offset from today (+7d, +2w), or after:<release tag>"
 logger = logging.getLogger(__name__)
@@ -45,7 +45,15 @@ def parse_due(text: str, *, today: date | None = None) -> str:
     value = (text or "").strip()
     if value.startswith(AFTER_PREFIX):
         tag = _AFTER.match(value)
-        if not tag or ".." in value or value.endswith((".", "/")):
+        name = tag.group(1) if tag else ""
+        # The rules git applies to a tag name it can create (git check-ref-format): a name it refuses would wait forever.
+        if (
+            not tag
+            or ".." in name
+            or "//" in name
+            or name.endswith((".", "/", ".lock"))
+            or any(part.startswith(".") or part.endswith(".lock") for part in name.split("/"))
+        ):
             raise DueDateError(f"due condition {value!r} does not name a release tag (after:v1.17.0)")
         return value
     offset = _OFFSET.match(value)
@@ -164,8 +172,35 @@ def stamp_due(conn: sqlite3.Connection, artifact_type: str, artifact_id: str, du
         return {"due_note": f"this matches a closed {artifact_type} ({artifact_id[:8]}): no due date set"}
     if due_at:
         set_due(conn, artifact_type, artifact_id, due_at)
-        return {"due_at": due_at}
+        note = condition_note(conn, due_at)
+        return {"due_at": due_at, "due_note": note} if note else {"due_at": due_at}
     return {"due_at": row[0]} if row is not None and row[0] else {}
+
+
+def condition_note(conn: sqlite3.Connection, due_at: str | None) -> str | None:
+    """What to tell the writer of an ``after:<tag>`` condition: that the tag exists already, or that no tag in this repository
+    looks like it (``after:1.17.0`` where tags are ``v1.17.0`` would wait silently forever; 1.16.1 sweep). None otherwise."""
+    if not due_at or not str(due_at).startswith(AFTER_PREFIX):
+        return None
+    try:
+        from empirica.core.canonical.empirica_git.goal_note_state import _project_root
+
+        root = _project_root(conn)
+    except Exception:
+        root = None
+    if not root:
+        return None
+    tag = str(due_at)[len(AFTER_PREFIX) :]
+    tags = _release_tags(root)
+    if tag in tags:
+        return f"{tag} is already tagged ({tags[tag]}): this is due now"
+    if not tags:
+        return f"this repository has no tags yet; it comes back when {tag} is created"
+    prefix = re.match(r"\D*", tag).group(0)  # pyright: ignore[reportOptionalMemberAccess]
+    if not any(re.match(r"\D*", t).group(0) == prefix for t in tags):  # pyright: ignore[reportOptionalMemberAccess]
+        newest = max(tags, key=lambda t: tags[t])
+        return f"no tag here looks like {tag!r} (the newest is {newest!r}); check the name, or it never comes back"
+    return None
 
 
 def due_fields(artifact_type: str, stamped: dict | str | None, *, hint: bool) -> dict:

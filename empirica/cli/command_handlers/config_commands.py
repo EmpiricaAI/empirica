@@ -239,6 +239,7 @@ def handle_config_get_command(args):
             "protocols": mco.protocols,
         }
 
+        as_json = getattr(args, "output", None) == "json"  # read like config show (1.16.1 sweep: this path ignored it)
         # Navigate to value using dot notation
         keys = key.split(".")
         value = config
@@ -246,10 +247,17 @@ def handle_config_get_command(args):
             if isinstance(value, dict) and k in value:
                 value = value[k]
             else:
-                print(f"❌ Configuration key not found: {key}")
+                if as_json:
+                    print(json.dumps({"ok": False, "error": f"Configuration key not found: {key}"}))
+                else:
+                    print(f"❌ Configuration key not found: {key}")
                 return 1
 
-        print(f"✅ {key}: {value}")
+        if as_json:
+            print(json.dumps({"ok": True, "key": key, "value": value}, default=str))
+        else:
+            print(f"✅ {key}: {value}")
+        return 0
 
     except Exception as e:
         handle_cli_error(e, "Config Get", getattr(args, "verbose", False))
