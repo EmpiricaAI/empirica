@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Security floors.** `soupsieve>=4.0` (CVE-2026-126190 to 126193, through beautifulsoup4) and, in the `api` extra, `opentelemetry-api>=1.45.2` (CVE-2026-126360, through FastAPI).
 - **The practice registry has one definition.** The workspace CRM also created the registry table, with a default type of `product`, a legacy value; on machines where its definition came first, a practice registered without a type got `product`. The CRM no longer creates it, and an existing table is rebuilt once without that default, keeping every row.
 - **Mailbox requests no longer carry the Cortex key in their body.** `mailbox reply`, `send` and `archive` sent the key twice: as the Authorization header and in the JSON body. Cortex reads only the header, so the body copy was a second place the secret could be logged; it is gone.
 - **One id for one name, here and in the workspace CRM.** Organization, engagement and contact ids made from a name kept letters like ö here and dropped them in the workspace CRM, so one name could get two ids. Both now use `empirica.core.entity_ids.entity_slug`: German letters become ae, oe, ue and ss, other accents are dropped, and a long name is cut between words. Ids that already exist do not change.
