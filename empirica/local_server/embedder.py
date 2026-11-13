@@ -74,6 +74,7 @@ class Embedder:
     def __init__(self, load=None):
         self._load = load or _load_fastembed
         self._embed: Any = None
+        self._error: str | None = None  # why the last load failed; cleared by the next attempt
         self._lock = threading.Lock()
         self._loading = threading.Lock()
 
@@ -82,7 +83,15 @@ class Embedder:
         """``ready`` (loaded), ``loading`` (a load, on a fresh machine a download, is under way) or ``idle`` (not asked yet)."""
         if self._embed is not None:
             return "ready"
-        return "loading" if self._loading.locked() else "idle"
+        if self._loading.locked():
+            return "loading"
+        # A failed load used to read as idle ("loads on first use"), the same as a model nobody had asked for (1.16.1 sweep).
+        return "failed" if self._error else "idle"
+
+    @property
+    def error(self) -> str | None:
+        """Why the last load failed, while it is the latest word (``state == "failed"``)."""
+        return self._error if self.state == "failed" else None
 
     def __call__(self, texts: list[str]) -> list[list[float]]:
         if self._embed is None:
@@ -90,7 +99,12 @@ class Embedder:
                 raise ModelLoading("the embedding model is still loading")
             try:
                 if self._embed is None:
-                    self._embed = self._load()
+                    self._error = None
+                    try:
+                        self._embed = self._load()
+                    except Exception as e:
+                        self._error = f"{type(e).__name__}: {e}"
+                        raise
             finally:
                 self._loading.release()
         with self._lock:
@@ -110,6 +124,11 @@ def default_embedder() -> Embedder:
 def default_state() -> str:
     """The state of serve's model (see :attr:`Embedder.state`), for the health document."""
     return default_embedder().state
+
+
+def default_error() -> str | None:
+    """Why serve's model failed to load, when it did (see :attr:`Embedder.error`)."""
+    return default_embedder().error
 
 
 def warm_in_background(embedder: Embedder | None = None) -> threading.Thread:

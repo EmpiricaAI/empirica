@@ -76,6 +76,7 @@ def _services() -> dict:
         "embeddings": "/ollama" if embedder.available() else None,
         # Whether the model has loaded: until it has, every embed fails and search is not semantic yet (1.16.0 sweep).
         "embeddings_state": embedder.default_state() if embedder.available() else None,
+        "embeddings_error": embedder.default_error() if embedder.available() else None,
     }
 
 

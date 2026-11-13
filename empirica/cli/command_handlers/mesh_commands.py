@@ -837,6 +837,9 @@ def handle_mesh_restart_command(args) -> int:
 
     time.sleep(2)
     new_state = listener_status_for(ai_id)
+    if getattr(new_state, "uncertain", False):  # launchctl did not answer: not "did not become active" (1.16.1 sweep)
+        sys.stderr.write("could not confirm the service state after restart (launchctl did not answer)\n")
+        return 1
     if not new_state.active:
         sys.stderr.write("service did not become active after restart\n")
         return 1
@@ -874,6 +877,11 @@ def handle_mesh_on_command(args) -> int:
             return 1
     start_listener_for(ai_id)  # systemd and launchd alike (launchd had no branch)
     new_state = listener_status_for(ai_id)
+    if getattr(new_state, "uncertain", False):  # launchctl did not answer: not "failed to activate" (1.16.1 sweep)
+        sys.stderr.write(
+            f"could not confirm the {ai_id} listener's state (launchctl did not answer); check again shortly\n"
+        )
+        return 1
     if new_state.active:
         print(f"OK -- {ai_id} listener active.")
         return 0

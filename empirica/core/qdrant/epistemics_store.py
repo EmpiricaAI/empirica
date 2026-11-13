@@ -67,11 +67,12 @@ def _point_id(item_id) -> int | str:
 def search_epistemics(project_id: str, query_text: str, filters: dict | None = None, limit: int = 5) -> list[dict]:
     """
     Search epistemic learning trajectories by semantic similarity, keeping only results that match ``filters``: each key a
-    payload path ("deltas.know"), each value either the exact value or ``{"$gte": n}`` / ``{"$lte": n}``. The filters were
+    payload path ("deltas.know"), each value either the exact value or a range ``{"$gte"|"$lte"|"$gt"|"$lt": n}`` (any other operator is refused). The filters were
     accepted and never applied (1.16.x); they are applied to the results, over-fetching so the limit still fills, which
     works the same on the client and the REST path.
     Returns empty list if Qdrant not available.
     """
+    _check_filters(filters)  # an operator it does not know used to be ignored and matched everything (1.16.1 sweep)
     if not _check_qdrant_available():
         return []
 
@@ -102,6 +103,18 @@ def search_epistemics(project_id: str, query_text: str, filters: dict | None = N
         return []
 
 
+_OPERATORS = ("$gte", "$lte", "$gt", "$lt")
+
+
+def _check_filters(filters: dict | None) -> None:
+    """Refuse a range operator this module does not apply, rather than ignore it."""
+    for path, want in (filters or {}).items():
+        if isinstance(want, dict):
+            unknown = [k for k in want if k not in _OPERATORS]
+            if unknown:
+                raise ValueError(f"filter {path!r}: unsupported operator(s) {unknown}; use {', '.join(_OPERATORS)}")
+
+
 def _matches(payload: dict, filters: dict | None) -> bool:
     """Whether a result's payload satisfies every filter (see search_epistemics). A missing value does not match."""
     for path, want in (filters or {}).items():
@@ -114,6 +127,10 @@ def _matches(payload: dict, filters: dict | None) -> bool:
             if "$gte" in want and value < want["$gte"]:
                 return False
             if "$lte" in want and value > want["$lte"]:
+                return False
+            if "$gt" in want and value <= want["$gt"]:
+                return False
+            if "$lt" in want and value >= want["$lt"]:
                 return False
         elif value != want:
             return False

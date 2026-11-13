@@ -383,6 +383,10 @@ def _project_routes(r, ctx: _Ctx, auth) -> None:
         own_id = body.get("project_id") or body.get("id")  # Cortex accepts either key for the caller's id
         if own_id is not None and not (isinstance(own_id, str) and own_id.strip()):
             return refuse("project_id must be a non-empty string", 400)
+        if isinstance(own_id, str):
+            own_id = (
+                own_id.strip()
+            )  # " abc " was stored with its spaces, a second id for the same project (1.16.1 sweep)
         display, repo = (v if isinstance(v, str) else None for v in (body.get("display_name"), body.get("repo_url")))
         try:
             return ctx.registry().register(name, own_id, display, repo)

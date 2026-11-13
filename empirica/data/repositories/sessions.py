@@ -45,7 +45,10 @@ def _register_session_globally(
             VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
             ON CONFLICT(session_id) DO UPDATE SET
                 current_project_id = excluded.current_project_id,
-                last_activity = excluded.created_at
+                last_activity = excluded.created_at,
+                -- registering again means the session is live: a row closed by a mirror copy's end reopens (1.16.1 sweep)
+                status = 'active',
+                closed_at = NULL
         """,
             (session_id, ai_id, project_id, project_id, instance_id, time.time(), parent_session_id),
         )
@@ -257,6 +260,7 @@ class SessionRepository(BaseRepository):
         """,
             (datetime.utcnow().isoformat(), avg_confidence, drift_detected, notes, session_id),
         )
+        self.conn.commit()  # the practice records the end first: the registry must not say closed for a session it rolled back
         from empirica.data.global_sessions import close_global_sessions
 
         close_global_sessions([session_id])  # the registry row closes with the session (goal 119e2972)

@@ -512,11 +512,14 @@ def _local_model_not_ready() -> str | None:
             return None
         from empirica.core.mesh_endpoint import _probe_health, local_server_url
 
-        state = ((_probe_health(f"{local_server_url()}/v1/health") or {}).get("services") or {}).get("embeddings_state")
+        services = (_probe_health(f"{local_server_url()}/v1/health") or {}).get("services") or {}
+        state, error = services.get("embeddings_state"), services.get("embeddings_error")
     except Exception:
         return None
     if state in (None, "ready"):
         return None
+    if state == "failed":
+        return f"semantic search is not ready: the local embedding model failed to load ({error or 'no reason given'}); the next request tries again"
     return (
         "semantic search is not ready: the local embedding model is still loading (the first download is about 135 MB)"
         if state == "loading"
