@@ -389,11 +389,21 @@ def _clear_pane_waiting() -> None:
         pass
 
 
+#: How the harness opens a message it injects on its own behalf (a background task, a monitor event): not a person's prompt.
+_NOTIFICATION_STARTS = ("<task-notification>", "[SYSTEM NOTIFICATION")
+
+
 def main():
     _clear_pane_waiting()
     hook_input = json.loads(sys.stdin.read() or "{}")
     claude_session_id = hook_input.get("session_id")
-    _mark_plan_shaped(str(hook_input.get("prompt") or ""))
+    prompt = str(hook_input.get("prompt") or "")
+    # A task notification wakes the AI (so presence and the context gauge still apply) but nobody wrote it: it is not a
+    # context shift, not a plan, and not a turn for the artifact reminder. Counted as an unsolicited prompt it inflated
+    # the context-shift tally PREFLIGHT reports (goal 3fcde812: notifications outnumber prompts on this seat).
+    is_notification = prompt.lstrip().startswith(_NOTIFICATION_STARTS)
+    if not is_notification:
+        _mark_plan_shaped(prompt)
 
     # Keep practitioner presence fresh each turn (the mesh active-state signal) —
     # best-effort, non-blocking. See _refresh_presence.
@@ -401,6 +411,9 @@ def main():
 
     # Context window monitoring
     output = _build_context_usage_output(claude_session_id)
+    if is_notification:
+        print(json.dumps(output))
+        return
 
     tx_path = _find_transaction_file(claude_session_id)
     if not tx_path:

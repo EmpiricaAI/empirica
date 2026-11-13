@@ -23,6 +23,9 @@ NEAR_MISS_TESTS: dict[str, str] = {
     "empirica/plugins/claude-code-integration/hooks/tool-router.py:_NOTIFICATION_STARTS": (
         "tests/test_tool_router_skips_notifications.py::test_a_prompt_that_quotes_a_notification_is_still_a_prompt"
     ),
+    "empirica/plugins/claude-code-integration/hooks/context-shift-tracker.py:_NOTIFICATION_STARTS": (
+        "tests/test_context_shift_skips_notifications.py::test_a_person_prompt_is_still_counted"
+    ),
 }
 
 #: Matchers that existed when the inventory began (2026-11-13), without a near-miss test. Add one and move the entry to
