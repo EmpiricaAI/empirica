@@ -76,14 +76,23 @@ def _logs_dir() -> Path:
 
 
 def _systemctl(*args: str, check: bool = False) -> subprocess.CompletedProcess:
-    """Run `systemctl --user <args>` with a 5s timeout. Defensive, never raises unless `check=True`."""
-    return subprocess.run(
-        ["systemctl", "--user", *args],
-        capture_output=True,
-        text=True,
-        timeout=5,
-        check=check,
-    )
+    """Run `systemctl --user <args>` with a 5s timeout. Never raises unless `check=True`: a timeout or a missing systemctl
+    comes back as returncode ``LAUNCHCTL_TIMEOUT`` (the same not-a-real-exit code), which status() reads as uncertain
+    (sweep C2, goal 4c935e3b)."""
+    try:
+        return subprocess.run(
+            ["systemctl", "--user", *args],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=check,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        if check:
+            raise
+        return subprocess.CompletedProcess(
+            ["systemctl", "--user", *args], LAUNCHCTL_TIMEOUT, "", f"{type(e).__name__}: {e}"
+        )
 
 
 #: The return code _launchctl gives a call that timed out or could not run: the answer is unknown, not "not running".
@@ -524,6 +533,7 @@ class PersistentListenerService:
             if installed:
                 r = _systemctl("is-active", f"{_unit_name(ai_id)}.service")
                 active = (r.stdout or "").strip() == "active"
+                uncertain = r.returncode == LAUNCHCTL_TIMEOUT
         else:  # launchd
             # The RUNNING label is authoritative independent of where the plist
             # file lives. launchd can load a service from a domain/dir other than

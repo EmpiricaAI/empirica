@@ -656,3 +656,24 @@ def test_a_real_launchctl_exit_124_is_not_running_not_uncertain(monkeypatch, tmp
     monkeypatch.setattr(pl.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a[0], 124, "", ""))
     st = svc.status("x")
     assert st.active is False and st.uncertain is False
+
+
+def test_a_systemctl_timeout_is_a_result_and_status_reads_it_as_uncertain(monkeypatch, tmp_path):
+    # _systemctl said it never raised, but its 5 s timeout raised TimeoutExpired out of status() (sweep C2, goal 4c935e3b).
+    import subprocess
+
+    from empirica.core.loop_scheduler import persistent_listener as pl
+
+    def hang(*a, **k):
+        raise subprocess.TimeoutExpired(cmd="systemctl", timeout=5)
+
+    monkeypatch.setattr(pl.subprocess, "run", hang)
+    assert pl._systemctl("is-active", "x.service").returncode == pl.LAUNCHCTL_TIMEOUT
+    svc = pl.PersistentListenerService.__new__(pl.PersistentListenerService)
+    svc.backend = "systemd"
+    unit = tmp_path / "x.service"
+    unit.write_text("")
+    monkeypatch.setattr(svc, "unit_path", lambda ai_id: unit, raising=False)
+    monkeypatch.setattr(svc, "log_path", lambda ai_id: tmp_path / "x.log", raising=False)
+    st = svc.status("x")
+    assert st.active is False and st.uncertain is True
