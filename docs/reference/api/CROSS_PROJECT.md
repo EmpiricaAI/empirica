@@ -51,8 +51,8 @@ session-start / topic-start to find what other Claudes have learned.**
 Every `*-log` command accepts `--visibility {public,shared,local}`:
 
 ```bash
-# Local: machine-only — never syncs to Cortex (no-egress tier).
-# NOTE: the DEFAULT is 'shared' (which syncs), NOT local — pass --visibility local explicitly.
+# Local: machine-only, never syncs to Cortex (no-egress tier). The default: sharing is opt-in.
+# Rows written before the default changed may still read 'shared' (the old column default).
 empirica finding-log --finding "..." --impact 0.6 --visibility local
 
 # Shared: visible across projects in the same org/Cortex tenancy

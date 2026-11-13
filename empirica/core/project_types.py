@@ -110,6 +110,58 @@ _DEFAULT_WORK_FRAME: dict[str, tuple[str, str]] = {
 }
 
 
+#: How a practice uses its artifacts, generated into every practice's practice-facts.md (goal dd6dcbd2, David 2026-11-13).
+#: ARTIFACT_GAPS hold everywhere: measured across 33 practices, assumptions ran 1 to 4 per 100 findings, decision outcomes were
+#: recorded for 0 to 4% of decisions and 14 sourced_from links existed across about 10,300 findings, whatever the type.
+#: The per-family lines are recommendations (one or two practices per type were measured), not measurements.
+ARTIFACT_GAPS: tuple[str, ...] = (
+    "Log an assumption before acting on something you did not check; a falsifier needs one as its parent.",
+    "When a decision has played out, record its outcome: upheld, reversed or mixed.",
+    "A claim from outside the repository gets a source and a `sourced_from` link when it is logged, not later.",
+)
+_ARTIFACT_EMPHASIS: dict[str, tuple[str, ...]] = {
+    "software": (
+        "The weight is in dead ends and mistakes: give each mistake a prevention that names the check that would catch it.",
+        "Tie a finding to the commit or file it describes.",
+    ),
+    "content": (
+        "Every claim from outside gets a source and a `sourced_from` link: a piece is only as good as its sources.",
+        "Grade a decision by how the piece landed.",
+    ),
+    "research": (
+        "Log a research question as an unknown and a hypothesis as an assumption; resolve each against the experiment.",
+        "Register a falsifier before the experiment runs, naming the observation that would refute the hypothesis.",
+        "A failed approach is a result: log it as a dead end.",
+        "What another practice can use becomes a lesson with sharing_policy `org` or `public`.",
+    ),
+    "operations": (
+        "Give each mistake a prevention that names the check that would have caught it.",
+        "Register falsifiers on the state of running systems, each with a query someone else can re-run.",
+    ),
+    "engagement": (
+        "What you take for granted about the client is an assumption: verify or falsify it with the client.",
+        "A decision names the client's conditions for reversing it.",
+    ),
+    "general": (
+        "Type each artifact by the question it answers, and split an observation from what you supplied.",
+        "Link each artifact to an earlier one with a relation that means something.",
+    ),
+}
+_EMPHASIS_FAMILY: dict[str, str] = {
+    **dict.fromkeys(SOFTWARE_TYPES, "software"),
+    "content": "content",
+    "research": "research",
+    "data": "research",
+    "operations": "operations",
+    "engagement": "engagement",
+}
+
+
+def artifact_emphasis(project_type: str | None) -> tuple[str, ...]:
+    """The artifact guidance for a project type's family. Unset, legacy and unknown types get the general lines."""
+    return _ARTIFACT_EMPHASIS[_EMPHASIS_FAMILY.get(project_type or "", "general")]
+
+
 def accepted_types() -> tuple[str, ...]:
     """The values a row may hold today: the list, then the legacy ones still readable."""
     return PROJECT_TYPES + tuple(sorted(LEGACY_TYPES))

@@ -229,3 +229,71 @@ def test_the_block_opens_with_a_plain_line_for_the_banner(tmp_path, monkeypatch)
     first = pf.session_block(proj).splitlines()[0]
 
     assert first and not first.startswith(("<!--", "#"))
+
+
+# ── how this practice uses its artifacts, by type (goal dd6dcbd2, David 2026-11-13) ────────────────────────────────────────
+# Generated from one table in project_types.py, so every practice carries its context's artifact guidance from its first
+# project-update, and a change is made once.
+
+
+@pytest.mark.parametrize(
+    "project_type, expect",
+    [
+        ("research", "hypothes"),
+        ("cli", "dead end"),
+        ("content", "sourced_from"),
+        ("engagement", "client"),
+        ("operations", "running system"),
+    ],
+)
+def test_the_facts_say_how_this_kind_of_practice_uses_its_artifacts(tmp_path, monkeypatch, project_type, expect):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    text = pf.render(_practice(tmp_path, f"name: x\ntype: {project_type}\n"))
+    section = text.split("## How this practice uses its artifacts", 1)[1]
+    assert expect in section
+
+
+def test_every_practice_gets_the_gaps_every_practice_shares(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    from empirica.core.project_types import ARTIFACT_GAPS, PROJECT_TYPES
+
+    for project_type in (*PROJECT_TYPES, ""):
+        text = pf.render(
+            _practice(
+                tmp_path / project_type.replace("-", "_") if project_type else tmp_path / "unset",
+                f"name: x\ntype: {project_type}\n",
+            )
+        )
+        assert all(gap in text for gap in ARTIFACT_GAPS), project_type
+
+
+def test_every_project_type_has_artifact_emphasis():
+    from empirica.core.project_types import PROJECT_TYPES, artifact_emphasis
+
+    assert all(artifact_emphasis(t) for t in PROJECT_TYPES)
+    assert artifact_emphasis(None) and artifact_emphasis("not-a-type")  # unset or unknown: the general lines
+
+
+def test_a_bare_project_update_refreshes_the_facts(tmp_path, monkeypatch, capsys):
+    """The facts are rewritten only by project-update, so with nothing to change it must still refresh them: otherwise a
+    practice never sees a change to what is generated (the per-type artifact section reached no existing practice)."""
+    import subprocess
+    from types import SimpleNamespace
+
+    import empirica.cli.command_handlers.project_update as pu
+    import empirica.config.path_resolver as pr
+    import empirica.data.repositories.workspace_db as wdb
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    root = tmp_path / "co"
+    (root / ".empirica").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True, capture_output=True)
+    monkeypatch.chdir(root)
+    monkeypatch.setattr(pr, "get_git_root", lambda: root)
+    monkeypatch.setattr(wdb, "_get_workspace_db_path", lambda: tmp_path / "absent" / "workspace.db")
+    (root / ".empirica" / "project.yaml").write_text("project_id: p-x\nname: co\ntype: research\n")
+
+    assert pu.handle_project_update_command(SimpleNamespace(output="json")) == 0
+    facts = (root / ".empirica" / "practice-facts.md").read_text()
+    assert "## How this practice uses its artifacts" in facts
+    assert '"practice_facts": "refreshed"' in capsys.readouterr().out

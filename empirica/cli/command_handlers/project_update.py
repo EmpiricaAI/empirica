@@ -193,14 +193,16 @@ def _print_update_result(
             print(f"   ⚠️  {store} not updated: {result}")
 
 
-def _write_practice_facts(git_root) -> None:
-    """Refresh .empirica/practice-facts.md, the generated part of the practice's instructions. Never fails the update."""
+def _write_practice_facts(git_root) -> bool | None:
+    """Refresh .empirica/practice-facts.md, the generated part of the practice's instructions. Never fails the update.
+    True when rewritten, False when already current, None when it could not be written."""
     try:
         from empirica.core.practice_facts import write
 
-        write(git_root)
+        return write(git_root)
     except Exception as exc:  # the facts are derived; a failure here must not undo the update
         logger.warning("practice-facts not refreshed: %s", exc)
+        return None
 
 
 def handle_project_update_command(args):
@@ -257,10 +259,16 @@ def handle_project_update_command(args):
         changes.extend(_keep_free_text_domain_as_tag(config, free_text_domain))
 
         if not changes:
+            # Nothing to change in project.yaml, but the facts it generates may be out of date: this verb is the only
+            # writer, so a bare `project-update` is how a practice picks up a change to what is generated.
+            written = _write_practice_facts(git_root)
+            facts = {True: "refreshed", False: "current", None: "not written"}[written]
             if output_format == "json":
-                print(json.dumps({"ok": True, "changes": [], "message": "No changes specified"}))
+                print(
+                    json.dumps({"ok": True, "changes": [], "message": "No changes specified", "practice_facts": facts})
+                )
             else:
-                print("ℹ️  No changes specified. Use --help to see available options.")
+                print(f"ℹ️  No changes specified. Practice facts: {facts}. Use --help to see available options.")
             return 0
 
         # to_dict() carries only the keys ProjectConfig models. Writing it alone deleted every other

@@ -81,6 +81,13 @@ def render(project_path: Path | str) -> str:
             "No domain is set, so transactions start from the kind's default. Set one with"
             " `empirica project-update --domain NAME`."
         )
+    from empirica.core.project_types import ARTIFACT_GAPS, artifact_emphasis
+
+    out += ["", "## How this practice uses its artifacts", "", "In every practice:"]
+    out += [f"- {line}" for line in ARTIFACT_GAPS]
+    out += ["", "In this kind of practice:"]
+    out += [f"- {line}" for line in artifact_emphasis(project_type)]
+    out += ["", "The `/artifact-graph` skill has the lifecycles, links and sharing rules."]
     out += [
         "",
         "Calibration, due items and mail arrive at session start; they change every session and are not kept here.",
