@@ -402,7 +402,6 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
     # Step 1: cortex_propose
     propose_url = f"{cortex_url.rstrip('/')}/v1/orchestration/propose"
     propose_body = {
-        "api_key": api_key,
         "type": proposal_type,
         "title": title,
         "summary": summary,
@@ -542,7 +541,6 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
     if not no_close:
         complete_url = f"{cortex_url.rstrip('/')}/v1/orchestration/{parent_id}/complete"
         complete_body = {
-            "api_key": api_key,
             "result": getattr(args, "result", None) or "shipped",
             "note": f"Replied via {new_proposal_id}",
         }
@@ -609,7 +607,6 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
     if parent_acked and not no_archive:
         archive_url = f"{cortex_url.rstrip('/')}/v1/orchestration/{parent_id}/archive"
         archive_body = {
-            "api_key": api_key,
             "reason": f"auto-archived after mailbox reply (replied via {new_proposal_id})",
         }
         # Same requirement the standalone `archive` verb hit: cortex refuses to
@@ -1147,7 +1144,7 @@ def handle_mailbox_archive_command(
 
     archive_url = f"{cortex_url.rstrip('/')}/v1/orchestration/{proposal_id}/archive"
     reason = getattr(args, "reason", None) or "archived via empirica mailbox archive"
-    body: dict = {"api_key": api_key, "reason": reason}
+    body: dict = {"reason": reason}  # the key travels as the Bearer header only (goal 967f104c)
     # Omitted rather than sent as None when unresolvable: a null ai_id is not the
     # same request as an absent one, and single-participant archives must keep
     # working on a box that cannot reach the roster.
@@ -1274,7 +1271,7 @@ def handle_mailbox_send_command(
              "body_digest": _hl.sha256(summary.encode()).hexdigest()[:16],
              "payload_digest": _hl.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]},
         )  # fmt: skip
-    body = {"api_key": api_key, "type": proposal_type, "title": title[:200], "summary": summary,
+    body = {"type": proposal_type, "title": title[:200], "summary": summary,
             "target_claudes": targets, "source_claude": source, "payload": payload}  # fmt: skip
     url = f"{cortex_url.rstrip('/')}/v1/orchestration/propose"
     status, resp = _http_post(url, body, api_key, 20.0)

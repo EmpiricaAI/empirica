@@ -715,3 +715,33 @@ def test_a_manual_rerun_while_the_first_propose_is_in_flight_waits_for_it(capsys
         _fetch_parent=_fetch_parent(),
     )
     assert rc == 0 and json.loads(capsys.readouterr().out)["proposal_id"] == "prop_new_xyz"
+
+
+# ─── the credential travels in the header only (goal 967f104c) ─────────
+
+
+def test_no_request_body_carries_the_api_key(capsys):
+    """Cortex authenticates orchestration routes from the Authorization bearer only and proved it by running its
+    conformance suite with api_key removed from the bodies (cortex bd98b608). A key in the body was a second copy of the
+    secret in every request, logged wherever bodies are."""
+    calls, post = _record_post()
+    rc = handle_mailbox_reply_command(
+        _make_args(),
+        _resolve_cortex_creds=_creds(),
+        _resolve_ai_id=_ai_id(),
+        _http_post=post,
+        _fetch_parent=_fetch_parent(),
+    )
+    assert rc == 0 and calls
+    assert all("api_key" not in c["body"] for c in calls), [c["url"] for c in calls if "api_key" in c["body"]]
+    assert all(c["api_key"] == "ctx_test" for c in calls)  # still sent, as the Bearer header
+
+
+def test_no_mailbox_body_literal_names_the_api_key():
+    """The archive and send paths build their bodies the same way; none may add the key back."""
+    from pathlib import Path
+
+    import empirica.cli.command_handlers.mailbox_commands as mc
+
+    source = Path(mc.__file__).read_text()
+    assert '"api_key": api_key' not in source
