@@ -145,7 +145,9 @@ def _detect_provider(remote_url: str) -> str:
 def _get_remote_url(remote: str = "origin") -> str | None:
     """Get the URL for a remote"""
     try:
-        result = subprocess.run(["git", "remote", "get-url", remote], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(
+            ["git", "remote", "get-url", remote], capture_output=True, cwd=_get_workspace_root(), text=True, timeout=5
+        )
         if result.returncode == 0:
             return result.stdout.strip()
     except Exception:
@@ -156,7 +158,9 @@ def _get_remote_url(remote: str = "origin") -> str | None:
 def _list_remotes() -> dict[str, str]:
     """List all git remotes and their URLs"""
     try:
-        result = subprocess.run(["git", "remote", "-v"], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(
+            ["git", "remote", "-v"], capture_output=True, cwd=_get_workspace_root(), text=True, timeout=5
+        )
         if result.returncode != 0:
             return {}
 
@@ -223,7 +227,9 @@ def _get_workspace_root() -> str:
 def _check_remote(remote: str = "origin") -> bool:
     """Check if remote exists"""
     try:
-        result = subprocess.run(["git", "remote", "get-url", remote], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(
+            ["git", "remote", "get-url", remote], capture_output=True, cwd=_get_workspace_root(), text=True, timeout=5
+        )
         return result.returncode == 0
     except Exception:
         return False
@@ -248,7 +254,11 @@ def _count_local_notes() -> dict[str, int]:
     counts = dict.fromkeys(EMPIRICA_NOTES_REFS, 0)
     try:
         result = subprocess.run(
-            ["git", "for-each-ref", "--format=%(refname)", "refs/notes/"], capture_output=True, text=True, timeout=15
+            ["git", "for-each-ref", "--format=%(refname)", "refs/notes/"],
+            capture_output=True,
+            cwd=_get_workspace_root(),
+            text=True,
+            timeout=15,
         )
     except Exception:
         return counts
@@ -554,7 +564,11 @@ def _note_wildcard_batches(refspec: str) -> list[list[str]] | None:
     if not (source.startswith("refs/notes/") and source.endswith("*")):
         return None
     listing = subprocess.run(
-        ["git", "for-each-ref", "--format=%(refname)", source[:-1]], capture_output=True, text=True, timeout=30
+        ["git", "for-each-ref", "--format=%(refname)", source[:-1]],
+        capture_output=True,
+        cwd=_get_workspace_root(),
+        text=True,
+        timeout=30,
     )
     if listing.returncode != 0:
         # An empty listing read as 'nothing to push' and the namespace was reported pushed.
@@ -567,7 +581,9 @@ def _note_wildcard_batches(refspec: str) -> list[list[str]] | None:
 def _push_one(remote: str, specs: list[str], timeout: int) -> tuple[bool, str]:
     """One `git push`; (ok, error text). A timeout is an error here, not an exception for the caller."""
     try:
-        proc = subprocess.run(["git", "push", remote, *specs], capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(
+            ["git", "push", remote, *specs], capture_output=True, cwd=_get_workspace_root(), text=True, timeout=timeout
+        )
     except subprocess.TimeoutExpired:
         return False, f"timed out after {timeout}s"
     except Exception as e:
@@ -846,6 +862,7 @@ def handle_sync_pull_command(args):
             result = subprocess.run(
                 ["git", "fetch", remote, "refs/notes/empirica/*:refs/notes/empirica/*"],
                 capture_output=True,
+                cwd=_get_workspace_root(),
                 text=True,
                 timeout=60,
             )
@@ -864,6 +881,7 @@ def handle_sync_pull_command(args):
             result = subprocess.run(
                 ["git", "fetch", remote, "refs/notes/breadcrumbs:refs/notes/breadcrumbs"],
                 capture_output=True,
+                cwd=_get_workspace_root(),
                 text=True,
                 timeout=30,
             )
@@ -876,6 +894,7 @@ def handle_sync_pull_command(args):
             result = subprocess.run(
                 ["git", "fetch", remote, "refs/notes/empirica-precompact:refs/notes/empirica-precompact"],
                 capture_output=True,
+                cwd=_get_workspace_root(),
                 text=True,
                 timeout=30,
             )
@@ -963,6 +982,7 @@ def _count_all_local_note_refs() -> int | None:
         proc = subprocess.run(
             ["git", "for-each-ref", "--format=%(refname)", "refs/notes/"],
             capture_output=True,
+            cwd=_get_workspace_root(),
             text=True,
             timeout=15,
             check=False,
@@ -985,6 +1005,7 @@ def _list_local_note_refs() -> set[str] | None:
         proc = subprocess.run(
             ["git", "for-each-ref", "--format=%(refname)", "refs/notes/"],
             capture_output=True,
+            cwd=_get_workspace_root(),
             text=True,
             timeout=15,
             check=False,
@@ -1002,6 +1023,7 @@ def _list_remote_note_refs(remote: str, timeout: int = 20) -> set[str] | None:
         proc = subprocess.run(
             ["git", "ls-remote", remote, "refs/notes/*"],
             capture_output=True,
+            cwd=_get_workspace_root(),
             text=True,
             timeout=timeout,
             check=False,
@@ -1040,6 +1062,7 @@ def _count_remote_notes(remote: str, timeout: int = 20) -> tuple[int | None, str
         proc = subprocess.run(
             ["git", "ls-remote", remote, "refs/notes/*"],
             capture_output=True,
+            cwd=_get_workspace_root(),
             text=True,
             timeout=timeout,
             check=False,
