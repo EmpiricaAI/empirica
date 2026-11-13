@@ -437,8 +437,8 @@ def _apply_goal_reconciliation(raw_goals, live_map, completed_objectives=None):
         is_subtask = g.get("type") == "subtask"
         if gid and gid in live_map:
             status, is_completed = live_map[gid]
-            if is_completed or status == "completed":
-                continue  # drop: completed in SQLite, stale payload in Qdrant
+            if is_completed or status in ("completed", "abandoned"):
+                continue  # drop: ended in SQLite (abandoned too, as get_project_goals does), stale payload in Qdrant
             if not is_subtask and status and status != g.get("status"):
                 g = {**g, "status": status}  # correct stale status (goals only)
         elif not gid and not is_subtask and completed_objectives:

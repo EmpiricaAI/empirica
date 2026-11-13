@@ -313,3 +313,16 @@ def test_update_goal_status_normalizes_completed(monkeypatch):
     assert qg.update_goal_status("proj", "goal-abc", "completed") is True
     assert captured["payload"]["is_completed"] is True
     assert captured["payload"]["goal_id"] == "goal-abc"  # backfilled
+
+
+def test_an_abandoned_goal_is_dropped_like_a_completed_one():
+    # get_project_goals excludes abandoned goals (a037f55e5); related-goal retrieval surfaced them, labelled abandoned
+    # (967f104c A4).
+    from empirica.core.qdrant.pattern_retrieval import _apply_goal_reconciliation
+
+    raw = [
+        {"goal_id": "g-ab", "status": "in_progress", "objective": "x"},
+        {"goal_id": "g-live", "status": "in_progress"},
+    ]
+    live = {"g-ab": ("abandoned", 0), "g-live": ("in_progress", 0)}
+    assert [g["goal_id"] for g in _apply_goal_reconciliation(raw, live)] == ["g-live"]

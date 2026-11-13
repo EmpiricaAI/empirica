@@ -730,9 +730,17 @@ class GoalDataRepository(BaseRepository):
             cutoff = time.time() - older_than_days * 86400
             # A terminal goal ages from when it ended: completion time, or for an abandoned goal the abandoned_at stamp in goal_data,
             # falling back to creation for rows abandoned some other way. json_valid guards the query against a malformed goal_data.
+            # abandoned_at read as a time whatever its type: SQLite orders text above every number, so a string stamp was
+            # never older than the cutoff (967f104c A3). Numeric text is cast; an ISO date goes through strftime('%s').
+            stamp = "json_extract(goal_data, '$.abandoned_at')"
+            as_time = (
+                f"CASE WHEN typeof({stamp}) != 'text' THEN {stamp} "
+                f"WHEN {stamp} GLOB '[0-9]*' AND {stamp} NOT GLOB '*-*' THEN CAST({stamp} AS REAL) "
+                f"ELSE CAST(strftime('%s', {stamp}) AS REAL) END"
+            )
             ended = (
                 "COALESCE(completed_timestamp, CASE WHEN status = 'abandoned' THEN "
-                "COALESCE(CASE WHEN json_valid(goal_data) THEN json_extract(goal_data, '$.abandoned_at') END, created_timestamp) END)"
+                f"COALESCE(CASE WHEN json_valid(goal_data) THEN {as_time} END, created_timestamp) END)"
             )
             cursor = self._execute(
                 "SELECT id, objective, completed_timestamp FROM goals "

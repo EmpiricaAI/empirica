@@ -109,3 +109,23 @@ def test_reopen_unarchives():
     assert row[0] == "in_progress"
     assert row[1] == 0  # un-archived
     assert row[2] is None
+
+
+def test_an_abandoned_goal_ages_from_a_text_abandoned_at():
+    # SQLite orders text above every number, so a string abandoned_at was never "older" than the cutoff (967f104c A3).
+    import json
+
+    conn = _conn()
+    repo = GoalDataRepository(conn)
+    old = time.time() - 90 * 86400
+    ids = []
+    for stamp in (str(old), time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(old)), old):
+        gid = str(uuid.uuid4())
+        conn.execute(
+            "INSERT INTO goals (id, session_id, objective, scope, created_timestamp, is_completed, goal_data, status) "
+            "VALUES (?, ?, 'g', '{}', ?, 0, ?, 'abandoned')",
+            (gid, SESSION, time.time(), json.dumps({"abandoned_at": stamp})),
+        )
+        ids.append(gid)
+    conn.commit()
+    assert {r["id"] for r in repo.archive_stale_completed(older_than_days=30)} == set(ids)
