@@ -72,7 +72,8 @@ _VOCAB: dict[str, frozenset[str]] = {
     "work_type": frozenset(
         {"code", "research", "docs", "debug", "infra", "release", "remote-ops", "config", "data", "comms", "design", "audit"}
     ),
-    "consistency": frozenset({"good", "moderate", "poor", "not_assessed"}),  # not_assessed: completion or uncertainty was not supplied
+    "consistency": frozenset({"good", "moderate", "poor", "not_assessed"}),
+    "threshold_source": frozenset({"static", "dynamic"}),  # not_assessed: completion or uncertainty was not supplied
     "compliance": _compliance_values(),
     "source": frozenset(
         {
@@ -93,6 +94,12 @@ _REFLEX_FIELDS: dict[str, dict[str, str]] = {
         "auto_checkpoint": "bool",
         "git_commit_sha": "sha",
         "git_notes_ref": "ref",
+        # The gate the CHECK applied (goal ae8b676e); CHECKs before it carry none of these.
+        "threshold_used": "number",
+        "base_threshold": "number",
+        "threshold_source": "vocab:threshold_source",
+        "computed_decision": "vocab:decision",
+        "decision_overridden": "bool",
     },
     "POSTFLIGHT": {
         "work_type": "vocab:work_type",

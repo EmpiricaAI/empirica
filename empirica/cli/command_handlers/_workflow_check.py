@@ -1021,7 +1021,7 @@ def _check_surface_blindspots(result, session_id, transaction_id):
                 logger.debug("db close failed: %s", exc)
 
 
-def _check_store_and_publish(session_id, round_num, vectors, decision, reasoning, cycle):
+def _check_store_and_publish(session_id, round_num, vectors, decision, reasoning, cycle, gate: dict | None = None):
     """Store CHECK checkpoint (3-layer) and publish bus event.
 
     Returns (checkpoint_id, check_transaction_id, gaps). It no longer writes or returns a `confidence`: that was `1 - uncertainty`
@@ -1059,6 +1059,8 @@ def _check_store_and_publish(session_id, round_num, vectors, decision, reasoning
             "cycle": cycle,
             "round": round_num,
             "transaction_id": check_transaction_id,
+            # The gate this CHECK applied: printed under metacog, and stored so it can be read afterwards (goal ae8b676e).
+            **(gate or {}),
         },
     )
 
@@ -1402,8 +1404,23 @@ def handle_check_submit_command(args):
 
         # Stage 8: Store checkpoint + publish bus event (inner try for storage errors)
         try:
+            basis = (dynamic_thresholds_info or {}).get("basis")
+            basis = basis if isinstance(basis, dict) else {}
+            gate = {
+                "threshold_used": ready_uncertainty_threshold,
+                "base_threshold": basis.get("base_threshold"),
+                "threshold_source": basis.get("threshold_source"),
+                "computed_decision": computed_decision,
+                "decision_overridden": bool(computed_decision and decision != computed_decision),
+            }
             checkpoint_id, check_transaction_id, gaps = _check_store_and_publish(
-                session_id, round_num, vectors, decision, reasoning, cycle
+                session_id,
+                round_num,
+                vectors,
+                decision,
+                reasoning,
+                cycle,
+                gate={k: v for k, v in gate.items() if v is not None},
             )
 
             # NOTE: Bayesian belief updates during CHECK were REMOVED (2026-01-21)
