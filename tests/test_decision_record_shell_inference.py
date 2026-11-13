@@ -143,8 +143,8 @@ def test_the_gate_s_read_check_knows_the_reads_whose_names_do_not_say_so(command
 @pytest.mark.parametrize(
     "read, write, write_classes",
     [
-        ("git stash list", "git stash", ["vcs_local"]),  # bare stash saves and resets the working tree
-        ("git stash show -p", "git stash -u", ["vcs_local"]),
+        ("git stash list", "git stash", ["project_write", "vcs_local"]),  # bare stash saves and resets the working tree
+        ("git stash show -p", "git stash -u", ["project_write", "vcs_local"]),
         ("git tag -l 'v1*'", "git tag -a v1.0 -m 'release'", ["vcs_local"]),  # -a annotates here, it lists for branch
         ("git branch -a", "git branch list", ["vcs_local"]),  # creates a branch named "list"
         ("git branch -r", "git branch -r -d origin/old", ["vcs_local"]),
@@ -166,3 +166,61 @@ def test_a_near_miss_write_is_not_classed_as_its_read_twin(read, write, write_cl
     assert infer(read) == {"classes": [], "reliable": True}
     got = infer(write)
     assert got["classes"] == write_classes and got["reliable"] is True
+
+
+# ── git verbs that rewrite the working tree, and empirica's harness setup (goal 3fcde812, task 6) ──────────────────────────
+# Live precision, 2026-11-13: of 286 sampled calls whose inference was marked reliable, 281 agreed with the observed effect
+# on the classes the snapshot can see. Two of the five misses were these: `git revert --no-commit` (observed project_write,
+# inferred vcs_local only) and `empirica setup-claude-code --force` (observed config_write, inferred empirica_state only).
+
+
+@pytest.mark.parametrize(
+    "command, classes",
+    [
+        ("git revert --no-commit abc123", ["project_write", "vcs_local"]),
+        ("git revert abc123", ["project_write", "vcs_local"]),
+        ("git cherry-pick abc123", ["project_write", "vcs_local"]),
+        ("git merge feature", ["project_write", "vcs_local"]),
+        ("git rebase develop", ["project_write", "vcs_local"]),
+        ("git checkout develop", ["project_write", "vcs_local"]),
+        ("git checkout -- a.py", ["project_write", "vcs_local"]),
+        ("git switch develop", ["project_write", "vcs_local"]),
+        ("git restore a.py", ["project_write", "vcs_local"]),
+        ("git reset --hard HEAD~1", ["project_write", "vcs_local"]),
+        ("git pull --rebase", ["project_write", "vcs_local"]),
+        ("git stash pop", ["project_write", "vcs_local"]),
+        ("git apply fix.patch", ["project_write", "vcs_local"]),
+        ("git clean -fd", ["project_write", "vcs_local"]),
+        ("git mv a.py b.py", ["project_write", "vcs_local"]),
+        ("git rm a.py", ["project_write", "vcs_local"]),
+    ],
+)
+def test_git_verbs_that_rewrite_the_working_tree_write_the_project(command, classes):
+    assert infer(command)["classes"] == classes
+
+
+@pytest.mark.parametrize(
+    "command, classes",
+    [
+        ("git reset HEAD a.py", ["vcs_local"]),  # mixed reset: the index only
+        ("git reset --soft HEAD~1", ["vcs_local"]),
+        ("git restore --staged a.py", ["vcs_local"]),
+        ("git rm --cached a.py", ["vcs_local"]),
+        ("git apply --cached fix.patch", ["vcs_local"]),
+        ("git apply --check fix.patch", []),
+        ("git apply --stat fix.patch", []),
+        ("git stash drop", ["vcs_local"]),
+        ("git commit -m x", ["vcs_local"]),
+    ],
+)
+def test_their_index_only_and_read_twins_do_not(command, classes):
+    assert infer(command)["classes"] == classes
+
+
+@pytest.mark.parametrize("verb", ["setup", "setup-claude-code"])
+def test_empirica_setup_writes_harness_config(verb):
+    assert infer(f"empirica {verb} --force")["classes"] == ["config_write", "empirica_state"]
+
+
+def test_another_empirica_verb_is_still_empirica_state_only():
+    assert infer("empirica goals-create --objective x")["classes"] == ["empirica_state"]

@@ -505,6 +505,30 @@ _GIT_BRANCH_WRITE_FLAGS = {
 }
 
 
+#: Git verbs that rewrite working-tree files as well as the repository. The snapshot sees those writes as project_write, and
+#: the inference said vcs_local only: `git revert --no-commit` was one of five misses among 286 reliable inferences
+#: (goal 3fcde812, task 6). The flags that keep a verb to the index are read in _rewrites_worktree.
+_GIT_WORKTREE_VERBS = {
+    "revert", "cherry-pick", "merge", "rebase", "checkout", "switch", "restore", "pull", "am", "clean", "mv", "rm", "stash",
+    "reset", "apply",
+}  # fmt: skip
+
+
+def _rewrites_worktree(verb: str, tail: list[str]) -> bool:
+    if verb not in _GIT_WORKTREE_VERBS:
+        return False
+    if verb == "reset":  # a mixed or soft reset moves the index and HEAD only
+        return any(a in ("--hard", "--merge", "--keep") for a in tail)
+    if verb == "restore":
+        return not any(a in ("--staged", "-S") for a in tail) or any(a in ("--worktree", "-W") for a in tail)
+    if verb in ("rm", "apply"):
+        return "--cached" not in tail
+    if verb == "stash":  # bare, push, save, pop and apply touch the tree; drop, clear, branch-less bookkeeping do not
+        sub = _positional(tail)[:1]
+        return not sub or sub[0] in ("push", "save", "pop", "apply")
+    return True
+
+
 def _git(args: list[str]) -> set[str]:
     rest = list(args)
     while rest and rest[0].startswith("-"):
@@ -522,16 +546,23 @@ def _git(args: list[str]) -> set[str]:
         if not writes and (not _positional(tail) or any(a in _GIT_LISTING_FLAGS[verb] for a in tail)):
             return set()
         return {"vcs_local"}
+    worktree = {"project_write"} if _rewrites_worktree(verb, tail) else set()
     if verb in _GIT_READ_SUBCOMMANDS:
         sub = _positional(tail)[:1]
         if (sub and sub[0] in _GIT_READ_SUBCOMMANDS[verb]) or (not tail and verb != "stash"):
             return set()
         if verb == "remote" and tail and not sub and all(a in ("-v", "--verbose") for a in tail):
             return set()
-        return {"vcs_local"}
+        return {"vcs_local"} | worktree
     if verb == "config" and any(a.startswith("--get") or a == "--list" or a == "-l" for a in tail):
         return set()
-    return {"vcs_local"}
+    if (
+        verb == "apply"
+        and "--apply" not in tail
+        and any(a in ("--check", "--stat", "--numstat", "--summary") for a in tail)
+    ):
+        return set()  # reports on the patch without applying it
+    return {"vcs_local"} | worktree
 
 
 def _flags(args: list[str], short_values: str, long_values: set[str]) -> list[tuple[str, str]]:
@@ -677,6 +708,8 @@ def _classify_other(
         words = _positional(args)
         if not words or empirica_is_read("empirica " + " ".join(words[:2])):
             return set(), True
+        if words[0] in ("setup", "setup-claude-code"):  # writes the harness's settings: observed config_write (task 6)
+            return {"config_write", "empirica_state"}, True
         return {"empirica_state"}, True
     if program == "rm":
         recursive = any(
