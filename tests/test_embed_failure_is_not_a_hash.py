@@ -128,3 +128,38 @@ def test_an_unknown_model_whose_embed_fails_has_no_guessed_size(monkeypatch):
     monkeypatch.setattr(requests, "post", _post_raising(requests.exceptions.ConnectionError("refused"), []))
     with pytest.raises(RuntimeError):
         conn._get_vector_size()
+
+
+# ── a dead host fails at connect, not after the read timeout (goal eb8e1029) ───────────────────────────────────────────
+# Profiled 2026-11-13 with the Ollama host down: POSTFLIGHT spent 20.0 s of 24.7 in socket connect, inside the bus
+# observer's embed on the response path. The 20 s exists for a cold model load, which is a read-side wait; a live host
+# accepts the connection in milliseconds even when the model is cold.
+
+
+def _post_capturing(calls):
+    def post(*a, **k):
+        calls.append(k)
+        raise requests.exceptions.ConnectTimeout("down")
+
+    return post
+
+
+def test_single_embed_connects_with_a_short_timeout_and_reads_with_the_long_one(provider, monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(requests, "post", _post_capturing(calls))
+    with pytest.raises(embeddings.EmbeddingUnavailable):
+        provider.embed("hello")
+    connect, read = calls[0]["timeout"]
+    assert connect == embeddings._EMBED_CONNECT_TIMEOUT < read == embeddings._EMBED_TIMEOUT
+
+
+def test_batch_embed_connects_with_a_short_timeout_too(provider, monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(requests, "post", _post_capturing(calls))
+    provider.batch_embed(["a", "b"])
+    connect, read = calls[0]["timeout"]
+    assert connect == embeddings._EMBED_CONNECT_TIMEOUT < read == embeddings._EMBED_BATCH_TIMEOUT
+
+
+def test_the_connect_timeout_is_a_few_seconds_by_default():
+    assert 1 <= embeddings._EMBED_CONNECT_TIMEOUT <= 5

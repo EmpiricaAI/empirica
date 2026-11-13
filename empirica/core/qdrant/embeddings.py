@@ -96,6 +96,10 @@ def _parse_keep_alive(raw: str) -> int | str:
 _EMBED_KEEP_ALIVE = _parse_keep_alive(os.getenv("EMPIRICA_EMBED_KEEP_ALIVE", "-1"))
 _EMBED_TIMEOUT = float(os.getenv("EMPIRICA_EMBED_TIMEOUT", "20"))
 _EMBED_BATCH_TIMEOUT = float(os.getenv("EMPIRICA_EMBED_BATCH_TIMEOUT", "45"))
+#: Connecting is separate from reading: the 20 s and 45 s above wait for a cold model to load, which a live host does after
+#: accepting the connection in milliseconds. A down host failed only at the read timeout: 20 s of a 24.7 s POSTFLIGHT,
+#: profiled 2026-11-13, on the response path (goal eb8e1029). Generous for a tailnet link that has gone idle.
+_EMBED_CONNECT_TIMEOUT = float(os.getenv("EMPIRICA_EMBED_CONNECT_TIMEOUT", "3"))
 #: After a connection error or timeout, a provider is not asked again for this many seconds in the same process.
 _EMBED_BACKOFF = float(os.getenv("EMPIRICA_EMBED_BACKOFF", "30"))
 
@@ -396,7 +400,7 @@ class EmbeddingsProvider:
             }
 
             try:
-                resp = requests.post(url, json=payload, timeout=_EMBED_TIMEOUT)
+                resp = requests.post(url, json=payload, timeout=(_EMBED_CONNECT_TIMEOUT, _EMBED_TIMEOUT))
                 resp.raise_for_status()
                 data = resp.json()
                 embedding = data.get("embedding", [])
@@ -485,7 +489,7 @@ class EmbeddingsProvider:
                     "input": prepared,
                     "keep_alive": _EMBED_KEEP_ALIVE,  # self-heal residency — re-arm warmth every call
                 },
-                timeout=_EMBED_BATCH_TIMEOUT,
+                timeout=(_EMBED_CONNECT_TIMEOUT, _EMBED_BATCH_TIMEOUT),
             )
             resp.raise_for_status()
             data = resp.json()
