@@ -92,8 +92,9 @@ KNOWN_NO_OK_FIELD = {
 RUNNABLE_STATELESS = [cmd for cmd in STATELESS_COMMANDS if cmd in ALL_JSON_COMMANDS]
 
 
-def _run_empirica(*args, timeout=30):
-    """Run an empirica CLI command and return the CompletedProcess."""
+def _run_empirica(*args, timeout=30, practice: Path | None = None):
+    """Run an empirica CLI command and return the CompletedProcess. ``practice``: run inside that throwaway practice instead
+    of the checkout, for probes that fail on purpose (a failure is auto-captured as an issue into the practice's store)."""
     # These are read-only contract probes against the checkout's own store. The
     # suite pins EMPIRICA_SESSION_DB to an empty throwaway file (conftest), and
     # against that every probe here SKIPS as "no project" — eight contracts going
@@ -103,13 +104,29 @@ def _run_empirica(*args, timeout=30):
     # checkout the probes run in is declared the project. Without this, eight
     # probes skip as "no project" and the run stays green while checking nothing.
     env["EMPIRICA_CWD_RELIABLE"] = "true"
+    if practice is not None:
+        env["EMPIRICA_SESSION_DB"] = str(practice / ".empirica" / "sessions" / "sessions.db")
     return subprocess.run(
         [sys.executable, "-m", "empirica.cli", *args],
         capture_output=True,
         text=True,
         timeout=timeout,
         env=env,
+        cwd=practice,
     )
+
+
+@pytest.fixture
+def throwaway_practice(tmp_path):
+    """A practice of its own for the probes that fail on purpose: each failure is auto-captured as an issue into the store of
+    the practice it ran in, and against the checkout that wrote 344 'nonexistent-session-id' issues into the real one
+    (goal a1c1a245)."""
+    from empirica.data.session_database import SessionDatabase
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / ".empirica" / "sessions").mkdir(parents=True)
+    SessionDatabase(db_path=str(tmp_path / ".empirica" / "sessions" / "sessions.db")).close()
+    return tmp_path
 
 
 @pytest.fixture(scope="module")
@@ -331,9 +348,9 @@ class TestErrorFormat:
         VALID_SCENARIOS,
         ids=[s[0] for s in VALID_SCENARIOS],
     )
-    def test_error_response_structure(self, command, extra_args):
+    def test_error_response_structure(self, command, extra_args, throwaway_practice):
         """Error responses should be JSON with ok:false and an 'error' key."""
-        result = _run_empirica(command, *extra_args)
+        result = _run_empirica(command, *extra_args, practice=throwaway_practice)
 
         # Combine stdout and stderr; some commands write errors to either.
         combined = (result.stdout.strip() or "") + (result.stderr.strip() or "")
