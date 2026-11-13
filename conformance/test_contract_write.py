@@ -34,7 +34,7 @@ class Mail:
     def body(self, key=None, **over):
         marker = uuid.uuid4().hex[:12]
         body = {
-            "api_key": self.token, "type": "collab_brief", "title": f"conformance {marker}",
+            "type": "collab_brief", "title": f"conformance {marker}",
             "summary": "contract conformance probe, safe to archive",
             "source_claude": self.address, "target_claudes": [self.address],
             "payload": {"idempotency_key": key or f"conf-{marker}"},
@@ -50,11 +50,11 @@ class Mail:
 
     def archive(self, pid, reason="conformance cleanup"):
         return self.http.post(f"/v1/orchestration/{pid}/archive", headers=self.auth,
-                              json={"api_key": self.token, "reason": reason, "ai_id": self.address})
+                              json={"reason": reason, "ai_id": self.address})
 
     def complete(self, pid, result="shipped"):
         return self.http.post(f"/v1/orchestration/{pid}/complete", headers=self.auth,
-                              json={"api_key": self.token, "result": result, "note": "conformance",
+                              json={"result": result, "note": "conformance",
                                     "ai_id": self.address})
 
 
