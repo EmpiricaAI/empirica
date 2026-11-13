@@ -87,7 +87,8 @@ def _systemctl(*args: str, check: bool = False) -> subprocess.CompletedProcess:
 
 
 #: The return code _launchctl gives a call that timed out or could not run: the answer is unknown, not "not running".
-LAUNCHCTL_TIMEOUT = 124
+#: Neither an exit status (0-255) nor a signal (negative), so no launchctl run can return it; 124 could (goal 24979a81).
+LAUNCHCTL_TIMEOUT = 256
 
 
 def _launchctl(*args: str, check: bool = False) -> subprocess.CompletedProcess:

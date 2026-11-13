@@ -635,3 +635,24 @@ def test_mesh_off_cannot_claim_a_stop_it_could_not_confirm(monkeypatch, capsys):
     assert mc.handle_mesh_off_command(SimpleNamespace(instance="x", uninstall=False)) == 1
     out, err = capsys.readouterr()
     assert "listener stopped" not in out and "could not confirm" in err
+
+
+def test_the_timeout_code_is_one_no_process_can_return():
+    # 124 was a valid launchctl exit: one would have read as "could not tell" (goal 24979a81, matcher item).
+    from empirica.core.loop_scheduler import persistent_listener as pl
+
+    assert pl.LAUNCHCTL_TIMEOUT not in range(-64, 256)
+
+
+def test_a_real_launchctl_exit_124_is_not_running_not_uncertain(monkeypatch, tmp_path):
+    import subprocess
+
+    from empirica.core.loop_scheduler import persistent_listener as pl
+
+    svc = pl.PersistentListenerService.__new__(pl.PersistentListenerService)
+    svc.backend = "launchd"
+    monkeypatch.setattr(svc, "unit_path", lambda ai_id: tmp_path / "x.plist", raising=False)
+    monkeypatch.setattr(svc, "log_path", lambda ai_id: tmp_path / "x.log", raising=False)
+    monkeypatch.setattr(pl.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a[0], 124, "", ""))
+    st = svc.status("x")
+    assert st.active is False and st.uncertain is False
