@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`epistemics` search fills its limit when a filter is selective.** It read one window of nearest trajectories and filtered it, so matches ranked below that window were dropped and the search came back short with nothing to say so. It now widens the window until the limit fills, the store runs out, or 1,000 trajectories have been read.
 - **An unreachable Ollama host costs 3 seconds, not 20.** The embed timeout covered connecting as well as waiting for a cold model, so with the host down every command that embeds waited the full 20 s before giving up: most of a 24.7 s POSTFLIGHT. Connecting now has its own timeout (`EMPIRICA_EMBED_CONNECT_TIMEOUT`, default 3 s); the read timeouts that let a cold model load are unchanged.
 - **`sync-config visibility public` now does something.** The setting was stored, checked and printed, and nothing read it. Set to `public`, it refuses to push notes to the remote whatever its host, which covers a self-hosted public instance the list of public hosts cannot know; `--force` still overrides. `private`, the default, changes nothing: a public host is refused either way.
 - **Pushing notes to a public host is refused by the remote's host.** The check matched names anywhere in the URL, so Codeberg, a public host, passed as a private Forgejo; it now reads the host itself and refuses GitHub, GitLab, Bitbucket and Codeberg (and their subdomains) unless `--force` is given.

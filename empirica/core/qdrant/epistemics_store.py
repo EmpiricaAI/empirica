@@ -80,15 +80,33 @@ def search_epistemics(project_id: str, query_text: str, filters: dict | None = N
     if qvec is None:
         return []
     fetch = limit if not filters else max(limit * 4, limit + 20)
+    while True:
+        found = _fetch_nearest(project_id, qvec, fetch)
+        if found is None:
+            return []
+        kept = [r for r in found if _matches(r, filters)]
+        # A filter can reject the whole first window while matches rank further down (B8, 1.16.1 sweep): widen until the
+        # limit fills, the collection runs out, or the cap. Short of the limit then means there are no more matches
+        # among the _MAX_FETCH nearest.
+        if len(kept) >= limit or len(found) < fetch or fetch >= _MAX_FETCH:
+            return kept[:limit]
+        fetch = min(fetch * 4, _MAX_FETCH)
 
+
+#: The widest window search_epistemics reads when its filters keep fewer than the limit.
+_MAX_FETCH = 1000
+
+
+def _fetch_nearest(project_id: str, qvec: list[float], fetch: int) -> list[dict] | None:
+    """The ``fetch`` nearest trajectories as payload dicts with a score, by the client and then REST; None when neither
+    answered, [] when there is no client."""
     try:
         client = _get_qdrant_client(project_id=project_id)
         if client is None:
             return []
         coll = _epistemics_collection(project_id)
         results = client.query_points(collection_name=coll, query=qvec, limit=fetch, with_payload=True)
-        found = [{"score": getattr(r, "score", 0.0) or 0.0, **(r.payload or {})} for r in results.points]
-        return [r for r in found if _matches(r, filters)][:limit]
+        return [{"score": getattr(r, "score", 0.0) or 0.0, **(r.payload or {})} for r in results.points]
     except Exception as e:
         logger.debug(f"search_epistemics failed: {e}")
 
@@ -96,11 +114,10 @@ def search_epistemics(project_id: str, query_text: str, filters: dict | None = N
     try:
         coll = _epistemics_collection(project_id)
         rd = _rest_search(coll, qvec, fetch)
-        found = [{"score": d.get("score", 0.0), **(d.get("payload") or {})} for d in rd]
-        return [r for r in found if _matches(r, filters)][:limit]
+        return [{"score": d.get("score", 0.0), **(d.get("payload") or {})} for d in rd]
     except Exception as e:
         logger.debug(f"search_epistemics REST fallback failed: {e}")
-        return []
+        return None
 
 
 _OPERATORS = ("$gte", "$lte", "$gt", "$lt")

@@ -326,3 +326,27 @@ def test_doctors_semantic_check_asks_about_the_practices_store(monkeypatch, tmp_
     )
     doctor.check_semantic_layer()
     assert asked == ["p1"]
+
+
+def test_epistemics_search_fills_its_limit_past_the_first_fetch(monkeypatch):
+    # B8 (1.16.1 sweep): one over-fetch, then a client-side filter, so matches ranked below the window were silently dropped.
+    pytest.importorskip("qdrant_client")
+    from qdrant_client import QdrantClient
+
+    from empirica.core.qdrant import epistemics_store as es
+
+    client = QdrantClient(":memory:")
+    monkeypatch.setattr(es, "_check_qdrant_available", lambda *a, **k: True)
+    monkeypatch.setattr(es, "_get_qdrant_client", lambda *a, **k: client)
+    monkeypatch.setattr(
+        es, "_get_embedding_safe", lambda text: [1.0, 0.0, 0.0, 0.0] if text != "far" else [0.0, 1.0, 0.0, 0.0]
+    )
+    near = [
+        {"id": f"n{i}", "text": "near", "metadata": {"session_id": f"n{i}", "deltas": {"know": 0.0}}} for i in range(60)
+    ]
+    far = [
+        {"id": f"f{i}", "text": "far", "metadata": {"session_id": f"f{i}", "deltas": {"know": 0.5}}} for i in range(3)
+    ]
+    assert es.upsert_epistemics("p1", near + far) == 63
+    found = es.search_epistemics("p1", "q", filters={"deltas.know": {"$gte": 0.2}}, limit=3)
+    assert sorted(r["session_id"] for r in found) == ["f0", "f1", "f2"]
