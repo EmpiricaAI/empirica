@@ -778,6 +778,9 @@ def _swap_source_id(
             result["error"] = "local row not found (already swapped?)"
             return result
 
+        from empirica.core.canonical.empirica_git.graph_note_export import edge_sources_touching, mark_edges_dirty
+
+        touched = edge_sources_touching(db.conn, local_uuid)
         cursor.execute(
             "UPDATE artifact_edges SET from_id = ? WHERE from_id = ?",
             (cortex_uuid, local_uuid),
@@ -789,6 +792,9 @@ def _swap_source_id(
         )
         edges += cursor.rowcount
         result["edges"] = edges
+        if edges:
+            # The old id's note and every note that linked to it are rewritten at the next export (goal b29f37b0).
+            mark_edges_dirty(db.conn, touched | {cortex_uuid})
 
         cursor.execute(
             "UPDATE epistemic_sources SET archive_target_id = ? WHERE archive_target_id = ?",

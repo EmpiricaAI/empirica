@@ -56,37 +56,113 @@ def _write_note(root: str, ref: str, payload: dict) -> bool:
     return bool(done and done.returncode == 0)
 
 
-def export_edge_notes(conn, root: str, *, limit: int | None = DEFAULT_LIMIT, full: bool = False) -> dict:
-    """Write the edge notes of every source artifact with an edge newer than the watermark (all of them when ``full``).
-    Returns ``{"written", "failed", "remaining"}``; ``remaining`` is True when ``limit`` stopped the run early."""
-    mark = None if full else _watermarks(root).get("edges")
-    since_ts, since_id = (mark or ["", ""])[:2]
-    rows = conn.execute(
-        "SELECT from_id, MAX(created_at) AS newest FROM artifact_edges GROUP BY from_id "
-        "HAVING newest > ? OR (newest = ? AND from_id > ?) ORDER BY newest, from_id",
-        (since_ts, since_ts, since_id),
-    ).fetchall()
-    batch = rows if (full or limit is None) else rows[:limit]
-    written = failed = 0
-    last = None
-    for from_id, newest in batch:
-        edges = conn.execute(
-            "SELECT to_id, relation, created_at, metadata FROM artifact_edges WHERE from_id = ? ORDER BY created_at, to_id",
-            (from_id,),
+def mark_edges_dirty(conn, from_ids) -> None:
+    """Record sources whose links were deleted or rewritten, so the next export rewrites their notes from what is committed.
+
+    The export only reads sources that still have a link, ordered by when it was made, so a deleted link (and an id swapped in
+    place, which keeps its timestamp) stayed in its note and came back on a rebuild (goal b29f37b0). Callers mark after the
+    change; the note is rebuilt from the committed rows at export, so a rolled-back delete leaves the note as it was. Best
+    effort: a database outside a practice, or a file that cannot be written, marks nothing."""
+    ids = {i for i in from_ids if i}
+    if not ids:
+        return
+    try:
+        from empirica.core.canonical.empirica_git.goal_note_state import _project_root
+
+        root = _project_root(conn)
+    except Exception:
+        root = None
+    if not root:
+        return
+    _save_watermark(root, "edges_dirty", sorted(set(_watermarks(root).get("edges_dirty") or []) | ids))
+
+
+def edge_sources_touching(conn, artifact_id: str) -> set[str]:
+    """The sources whose notes change when every link from or to ``artifact_id`` goes: itself and whatever links to it."""
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT from_id FROM artifact_edges WHERE from_id = ? OR to_id = ?", (artifact_id, artifact_id)
         ).fetchall()
-        payload = {
-            "from_id": from_id,
-            "edges": [{"to_id": t, "relation": r, "created_at": c, "metadata": m} for t, r, c, m in edges],
-            "exported_at": datetime.now(timezone.utc).isoformat(),
-        }
-        if _write_note(root, f"{EDGE_PREFIX}/{from_id}", payload):
+    except Exception:
+        return set()
+    return {r[0] for r in rows}
+
+
+def _edge_payload(conn, from_id: str) -> dict:
+    edges = conn.execute(
+        "SELECT to_id, relation, created_at, metadata FROM artifact_edges WHERE from_id = ? ORDER BY created_at, to_id",
+        (from_id,),
+    ).fetchall()
+    return {
+        "from_id": from_id,
+        # Empty when every link went: the note says so, and a rebuild restores nothing for it.
+        "edges": [{"to_id": t, "relation": r, "created_at": c, "metadata": m} for t, r, c, m in edges],
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _noted_sources(root: str) -> set[str]:
+    refs = _git(["for-each-ref", "--format=%(refname)", f"refs/notes/{EDGE_PREFIX}/"], root)
+    prefix = f"refs/notes/{EDGE_PREFIX}/"
+    return {r.removeprefix(prefix) for r in (refs.stdout.split() if refs and refs.returncode == 0 else [])}
+
+
+def export_edge_notes(conn, root: str, *, limit: int | None = DEFAULT_LIMIT, full: bool = False) -> dict:
+    """Write the edge notes of every source artifact with an edge newer than the watermark (all of them when ``full``), and of
+    every source marked dirty since the last run. Returns ``{"written", "failed", "remaining"}``; ``remaining`` is True when
+    ``limit`` stopped the run early.
+
+    The watermark is the newest edge time exported and the sources already exported in that second: a link written later in
+    the same second, from a source that sorts first, used to be skipped (one-second timestamps)."""
+    marks = _watermarks(root)
+    written = failed = 0
+
+    # Sources whose links were deleted or rewritten: their notes are rewritten from the committed rows, all of them.
+    dirty = set(marks.get("edges_dirty") or [])
+    if full:
+        dirty |= _noted_sources(root) - {r[0] for r in conn.execute("SELECT DISTINCT from_id FROM artifact_edges")}
+    done = set()
+    for from_id in sorted(dirty):
+        if _write_note(root, f"{EDGE_PREFIX}/{from_id}", _edge_payload(conn, from_id)):
             written += 1
-            last = [newest, from_id]
+            done.add(from_id)
+        else:
+            failed += 1
+            break
+    if marks.get("edges_dirty") or done:
+        _save_watermark(root, "edges_dirty", sorted(set(_watermarks(root).get("edges_dirty") or []) - done))
+    if failed:
+        return {"written": written, "failed": failed, "remaining": True}
+
+    mark = None if full else marks.get("edges")
+    if isinstance(
+        mark, list
+    ):  # the older [time, id] form: re-read its second rather than skip what sorts before the id
+        mark = {"ts": mark[0], "ids": []}
+    since_ts = (mark or {}).get("ts") or ""
+    seen = set((mark or {}).get("ids") or [])
+    rows = [
+        (from_id, newest)
+        for from_id, newest in conn.execute(
+            "SELECT from_id, MAX(created_at) AS newest FROM artifact_edges GROUP BY from_id "
+            "HAVING newest >= ? ORDER BY newest, from_id",
+            (since_ts,),
+        ).fetchall()
+        if not (newest == since_ts and from_id in seen) and from_id not in done
+    ]
+    batch = rows if (full or limit is None) else rows[:limit]
+    last_ts, last_ids = since_ts, set(seen)
+    for from_id, newest in batch:
+        if _write_note(root, f"{EDGE_PREFIX}/{from_id}", _edge_payload(conn, from_id)):
+            written += 1
+            if newest != last_ts:
+                last_ts, last_ids = newest, set()
+            last_ids.add(from_id)
         else:
             failed += 1
             break  # resume from here next run rather than skip past a source whose note was not written
-    if last is not None:
-        _save_watermark(root, "edges", last)
+    if last_ts != since_ts or last_ids != seen:
+        _save_watermark(root, "edges", {"ts": last_ts, "ids": sorted(last_ids)})
     return {"written": written, "failed": failed, "remaining": len(batch) < len(rows) or failed > 0}
 
 

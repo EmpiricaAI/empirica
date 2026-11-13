@@ -183,3 +183,111 @@ def test_doctor_reconcile_lists_and_exports_the_graph_notes(practice):
     finally:
         db.close()
     assert out["edges"]["written"] == 1 and out["falsifiers"]["written"] == 0 and out["lessons"]["written"] == 0
+
+
+# ── deletions, id swaps and same-second ties (goal b29f37b0, 1.16.1 sweep A1-A3) ──────────────────────────────────────
+
+
+def _rebuilt_edges(tmp_path, practice):
+    fresh = SessionDatabase(db_path=str(tmp_path / "fresh.db"))
+    try:
+        _rebuild_edges(fresh, {}, str(practice))
+        return sorted(
+            tuple(r) for r in fresh.conn.execute("SELECT from_id, to_id, relation FROM artifact_edges").fetchall()
+        )
+    finally:
+        fresh.close()
+
+
+def test_a_deleted_link_does_not_come_back_on_rebuild(practice, tmp_path):
+    from empirica.cli.command_handlers.graph_commands import _delete_artifact_edges
+
+    db = SessionDatabase()
+    try:
+        _edge(db, "a", "x", "evidence", "2026-11-01 10:00:00")
+        _edge(db, "b", "x", "evidence", "2026-11-01 10:00:01")
+        _edge(db, "b", "y", "evidence", "2026-11-01 10:00:02")
+        assert gx.export_edge_notes(db.conn, str(practice))["written"] == 2
+        _delete_artifact_edges(db.conn.cursor(), "x")  # x deleted: a loses its only link, b keeps b->y
+        db.conn.commit()
+        gx.export_edge_notes(db.conn, str(practice))
+    finally:
+        db.close()
+    assert _rebuilt_edges(tmp_path, practice) == [("b", "y", "evidence")]
+
+
+def test_a_rolled_back_delete_leaves_the_note_as_it_was(practice, tmp_path):
+    from empirica.cli.command_handlers.graph_commands import _delete_artifact_edges
+
+    db = SessionDatabase()
+    try:
+        _edge(db, "a", "x", "evidence", "2026-11-01 10:00:00")
+        gx.export_edge_notes(db.conn, str(practice))
+        _delete_artifact_edges(db.conn.cursor(), "x")
+        db.conn.rollback()  # the delete never happened: the note is rewritten from what is committed
+        gx.export_edge_notes(db.conn, str(practice))
+    finally:
+        db.close()
+    assert _rebuilt_edges(tmp_path, practice) == [("a", "x", "evidence")]
+
+
+def test_a_swapped_id_is_re_exported(practice, tmp_path):
+    db = SessionDatabase()
+    try:
+        _edge(db, "f", "local-1", "sourced_from", "2026-11-01 10:00:00")
+        gx.export_edge_notes(db.conn, str(practice))
+        db.conn.execute("UPDATE artifact_edges SET to_id = 'cortex-1' WHERE to_id = 'local-1'")
+        db.conn.commit()
+        gx.mark_edges_dirty(db.conn, ["f"])
+        gx.export_edge_notes(db.conn, str(practice))
+    finally:
+        db.close()
+    assert _rebuilt_edges(tmp_path, practice) == [("f", "cortex-1", "sourced_from")]
+
+
+def test_a_link_in_the_watermarks_second_from_a_smaller_id_is_not_skipped(practice, tmp_path):
+    db = SessionDatabase()
+    try:
+        _edge(db, "m", "x", "evidence", "2026-11-01 10:00:00")
+        gx.export_edge_notes(db.conn, str(practice))  # watermark: 10:00:00, m
+        _edge(db, "a", "x", "evidence", "2026-11-01 10:00:00")  # same second, smaller id
+        assert gx.export_edge_notes(db.conn, str(practice))["written"] == 1
+        assert gx.export_edge_notes(db.conn, str(practice))["written"] == 0  # and not again
+    finally:
+        db.close()
+    assert _rebuilt_edges(tmp_path, practice) == [("a", "x", "evidence"), ("m", "x", "evidence")]
+
+
+def test_a_full_export_clears_the_note_of_a_source_that_lost_every_link(practice, tmp_path):
+    db = SessionDatabase()
+    try:
+        _edge(db, "a", "x", "evidence", "2026-11-01 10:00:00")
+        gx.export_edge_notes(db.conn, str(practice))
+        db.conn.execute("DELETE FROM artifact_edges")  # behind the marking, as an older version or a hand edit would
+        db.conn.commit()
+        gx.export_edge_notes(db.conn, str(practice), full=True)
+    finally:
+        db.close()
+    assert _rebuilt_edges(tmp_path, practice) == []
+
+
+def test_the_sources_reconcile_swap_marks_its_sources(practice, tmp_path, monkeypatch):
+    import time
+
+    from empirica.cli.command_handlers import sources_reconcile_commands as src
+
+    monkeypatch.setattr(src, "_swap_workspace_entity_links", lambda *a: "skipped")
+    db = SessionDatabase()
+    try:
+        db.conn.execute(
+            "INSERT INTO epistemic_sources (id, project_id, source_type, title, discovered_at, visibility) "
+            "VALUES ('local-1', 'p', 'url', 'RFC', ?, 'local')",
+            (time.time(),),
+        )
+        _edge(db, "f", "local-1", "sourced_from", "2026-11-01 10:00:00")
+        gx.export_edge_notes(db.conn, str(practice))
+        src._swap_source_id(db, "p", "local-1", "cortex-1")
+        gx.export_edge_notes(db.conn, str(practice))
+    finally:
+        db.close()
+    assert _rebuilt_edges(tmp_path, practice) == [("f", "cortex-1", "sourced_from")]

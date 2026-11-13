@@ -2173,11 +2173,17 @@ def _delete_artifact_edges(cursor, artifact_id: str) -> int:
     Returns the number of edge rows removed.
     """
     try:
+        from empirica.core.canonical.empirica_git.graph_note_export import edge_sources_touching, mark_edges_dirty
+
+        touched = edge_sources_touching(cursor.connection, artifact_id)
         cursor.execute(
             "DELETE FROM artifact_edges WHERE from_id = ? OR to_id = ?",
             (artifact_id, artifact_id),
         )
-        return cursor.rowcount
+        removed = cursor.rowcount
+        if removed:
+            mark_edges_dirty(cursor.connection, touched)  # their notes are rewritten at the next export (goal b29f37b0)
+        return removed
     except Exception as e:
         logger.debug(f"_delete_artifact_edges: failed for {artifact_id}: {e}")
         return 0
@@ -2371,6 +2377,9 @@ def _sweep_dangling_edges(db, cursor, repair: bool, dry_run: bool) -> tuple[int,
                         "INSERT OR IGNORE INTO artifact_edges (from_id, to_id, relation) VALUES (?, ?, ?)",
                         (new_frm, new_to, rel),
                     )
+                    from empirica.core.canonical.empirica_git.graph_note_export import mark_edges_dirty
+
+                    mark_edges_dirty(cursor.connection, [frm, new_frm])
                     repaired += 1
                     items.append(
                         {
@@ -2392,6 +2401,9 @@ def _sweep_dangling_edges(db, cursor, repair: bool, dry_run: bool) -> tuple[int,
                     "DELETE FROM artifact_edges WHERE from_id = ? AND to_id = ? AND relation = ?", (frm, to, rel)
                 )
                 removed += cursor.rowcount
+                from empirica.core.canonical.empirica_git.graph_note_export import mark_edges_dirty
+
+                mark_edges_dirty(cursor.connection, [frm])
                 items.append({"action": "pruned_dangling", "from": frm, "to": to, "relation": rel, "missing": missing})
     except Exception as e:
         errors.append(f"prune_dangling failed: {e}")
@@ -2444,6 +2456,9 @@ def _process_edge_deletions(db, data: dict, dry_run: bool) -> tuple[int, int, li
             else:
                 cursor.execute(f"DELETE FROM artifact_edges WHERE {where}", params)
                 removed += cursor.rowcount
+                from empirica.core.canonical.empirica_git.graph_note_export import mark_edges_dirty
+
+                mark_edges_dirty(cursor.connection, [frm])
                 items.append(
                     {"action": "deleted_edge", "from": frm, "to": to, "relation": rel, "count": cursor.rowcount}
                 )
