@@ -221,6 +221,11 @@ def _write_marker_files(
             except Exception:
                 pass
         tty_data.update({"project_path": project_path, "tty_key": tty_key, "instance_id": instance_id, "timestamp": ts})
+        # The ids follow the switch: left behind, they pointed the pane at the previous practice's session (goal 8c0b1cd2).
+        if empirica_session_id:
+            tty_data["empirica_session_id"] = empirica_session_id
+        if claude_session_id:
+            tty_data["claude_session_id"] = claude_session_id
         with open(tty_session_file, "w") as f:
             json.dump(tty_data, f, indent=2)
         logger.debug(f"Updated TTY session project_path: {folder_name}")
@@ -568,7 +573,33 @@ def _resolve_project_path(trajectory_path):
     return traj
 
 
-def _attach_session_from_global_registry(project_id, project_path, output_format):
+def _caller_claude_session_id(args) -> str | None:
+    """The calling conversation: --claude-session-id, else CLAUDE_CODE_SESSION_ID, which Claude Code exports to every
+    command its Bash tool runs. Without it the switch borrowed another conversation's id by reverse lookup and stamped
+    it into the pane's files (goal 8c0b1cd2)."""
+    import os
+
+    return getattr(args, "claude_session_id", None) or os.environ.get("CLAUDE_CODE_SESSION_ID") or None
+
+
+def _own_active_session(cursor, claude_session_id: str | None) -> "sqlite3.Row | None":
+    """The calling conversation's own Empirica session (its active_work file), if the registry still has it active."""
+    if not claude_session_id:
+        return None
+    try:
+        aw = json.loads((Path.home() / ".empirica" / f"active_work_{claude_session_id}.json").read_text())
+    except (OSError, ValueError):
+        return None
+    sid = aw.get("empirica_session_id") if isinstance(aw, dict) else None
+    if not sid:
+        return None
+    cursor.execute(
+        "SELECT session_id, ai_id, created_at FROM global_sessions WHERE session_id = ? AND status = 'active'", (sid,)
+    )
+    return cursor.fetchone()
+
+
+def _attach_session_from_global_registry(project_id, project_path, output_format, claude_session_id=None):
     """Update global session registry with new project and mirror session to target DB.
 
     Sessions are per-conversation (global), not per-project.
@@ -593,14 +624,21 @@ def _attach_session_from_global_registry(project_id, project_path, output_format
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
+    # The calling conversation's own session first; the pane's registry rows only when it has none (goal 8c0b1cd2).
+    own = _own_active_session(cursor, claude_session_id)
+
     # Find active session for this instance
-    if current_instance_id:
+    if own is not None:
+        cursor.execute(
+            "SELECT session_id, ai_id, created_at FROM global_sessions WHERE session_id = ?", (own["session_id"],)
+        )
+    elif current_instance_id:
         cursor.execute(
             """
             SELECT session_id, ai_id, created_at
             FROM global_sessions
             WHERE instance_id = ? AND status = 'active'
-            ORDER BY last_activity DESC NULLS LAST, created_at DESC
+            ORDER BY COALESCE(last_activity, created_at) DESC
             LIMIT 1
         """,
             (current_instance_id,),
@@ -610,7 +648,7 @@ def _attach_session_from_global_registry(project_id, project_path, output_format
             SELECT session_id, ai_id, created_at
             FROM global_sessions
             WHERE status = 'active'
-            ORDER BY last_activity DESC NULLS LAST, created_at DESC
+            ORDER BY COALESCE(last_activity, created_at) DESC
             LIMIT 1
         """)
 
@@ -962,7 +1000,7 @@ def handle_project_switch_command(args):
     try:
         project_identifier = args.project_identifier
         output_format = getattr(args, "output", "human")
-        cli_claude_session_id = getattr(args, "claude_session_id", None)
+        cli_claude_session_id = _caller_claude_session_id(args)
 
         # 1. Resolve project from workspace database
         project = resolve_workspace_project(project_identifier)
@@ -988,7 +1026,9 @@ def handle_project_switch_command(args):
         # 4. Session continuity: attach from global registry
         attached_session = None
         try:
-            attached_session = _attach_session_from_global_registry(project_id, project_path, output_format)
+            attached_session = _attach_session_from_global_registry(
+                project_id, project_path, output_format, claude_session_id=cli_claude_session_id
+            )
         except Exception as e:
             logger.debug(f"Session continuity update failed (non-fatal): {e}")
 
