@@ -15,6 +15,17 @@ import pytest
 
 import empirica.cli.command_handlers.sync_commands as sc
 
+
+@pytest.fixture(autouse=True)
+def _sync_git_runs_in_the_cwd(monkeypatch):
+    """Sync's git runs in _get_workspace_root(), which asks the active project first (695ab93b0). These tests chdir into a
+    scratch repo; on a box whose session state names a project, git ran there instead (13 tests, found by forcing the
+    resolver to a decoy)."""
+    import os
+
+    monkeypatch.setattr(sc, "_get_workspace_root", os.getcwd)
+
+
 _ENV_KEYS = {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
 
 
