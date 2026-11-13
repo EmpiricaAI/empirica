@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The prompt hook leaves task notifications alone.** A background task's notification arrives as a user-role message; the hook routed it to an agent, searched prior knowledge for it, added the pushback pointer, and reset the probe-first budget the person's last prompt had armed. Over this machine's transcripts there were more notifications (18,591) than prompts (14,723), and 1,431 of them got an agent recommendation. A message that opens as a notification now gets none of it.
 - **A session starts with the whole bootstrap picture, within a token budget.** Session start showed three goals and five findings and unknowns, cut at 100 characters and without ids. It now shows goals, findings, unknowns, decisions, assumptions, mistakes with their prevention, dead ends and links, each with an 8-character id, taking turns until a budget of 1,800 tokens is spent (`EMPIRICA_HOOK_CONTEXT_TOKENS` changes it), and a coverage line that says per category what was shown out of how many, or why nothing was: none logged, not returned, or a source that did not answer. After a compaction, the decisions, assumptions, mistakes and links are added beside the ranked focus. On this practice that is about 1,800 tokens at session start, against about 360 before.
 
 ### Fixed

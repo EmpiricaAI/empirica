@@ -19,7 +19,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "empirica"
 
 #: "<path relative to the repo>:<CONST>" -> "<test file>::<test name>" holding the text the matcher must NOT fire on.
-NEAR_MISS_TESTS: dict[str, str] = {}
+NEAR_MISS_TESTS: dict[str, str] = {
+    "empirica/plugins/claude-code-integration/hooks/tool-router.py:_NOTIFICATION_STARTS": (
+        "tests/test_tool_router_skips_notifications.py::test_a_prompt_that_quotes_a_notification_is_still_a_prompt"
+    ),
+}
 
 #: Matchers that existed when the inventory began (2026-11-13), without a near-miss test. Add one and move the entry to
 #: NEAR_MISS_TESTS; never add to this set. The Sentinel's lists are discipline, not security (David 2026-11-11): a near miss

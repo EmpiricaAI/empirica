@@ -1088,6 +1088,10 @@ def _wake_inbox_context() -> str:
     return f"{_wake_header()}\n{lead}" if lead else ""
 
 
+#: How the harness opens a message it injects on its own behalf (a background task, a monitor event).
+_NOTIFICATION_STARTS = ("<task-notification>", "[SYSTEM NOTIFICATION")
+
+
 def main():
     """Main hook handler."""
     try:
@@ -1096,6 +1100,14 @@ def main():
         input_data = {}
 
     prompt = input_data.get("prompt", "")
+
+    # A task notification arrives as a user-role message but nobody wrote it: route nothing, inject nothing, and leave the
+    # proportionality budget the person's last prompt armed. Replayed over this seat's transcripts (2026-11-13), they were
+    # 18,591 of 33,314 such messages and got an agent recommendation 1,431 times (goal 3fcde812). Anchored at the start: a
+    # person's prompt that mentions one mid-text is still a prompt.
+    if prompt.lstrip().startswith(_NOTIFICATION_STARTS):
+        print(json.dumps(_hook_output([])))
+        return
 
     # Every user prompt resets the proportionality budget, short ones and slash commands included; only a prompt that carries
     # a hypothesis re-arms it. This runs BEFORE the early return below, or "yes" / "go" would leave the old budget counting.
