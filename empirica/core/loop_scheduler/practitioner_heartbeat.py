@@ -85,6 +85,17 @@ def _say_why_skipped(component: str) -> None:
         logger.debug(f"{component}: could not read the credential reason: {e}")
 
 
+def _say_usable(component: str) -> None:
+    """Credentials are present: clear the remembered suppression reason, with no network call, so a recovery is logged
+    and a later death with the same reason is logged again (goal 4c935e3b, sweep C1)."""
+    try:
+        from empirica.core.auth.credential_health import say_suppressed
+
+        say_suppressed(component, None)
+    except Exception as exc:  # bookkeeping only: never fail a beat over it
+        logger.debug(f"say_suppressed reset failed: {exc}")
+
+
 def _default_resolve_creds() -> tuple[str | None, str | None]:
     """Resolve Cortex URL + api_key from credentials_loader. Defensive — returns (None, None) on any failure."""
     try:
@@ -270,6 +281,7 @@ def emit_practitioner_heartbeat(
     if not url or not api_key:
         _say_why_skipped("practitioner_heartbeat")
         return 0  # SKIP — cortex not configured
+    _say_usable("practitioner_heartbeat")
     canonical = resolve_canonical_ai_id(
         record.get("practice_ai_id"), resolve_creds_fn=resolve_creds_fn, get_fn=get_fn, timeout=timeout
     )
