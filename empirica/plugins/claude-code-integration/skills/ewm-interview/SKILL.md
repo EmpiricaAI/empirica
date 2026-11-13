@@ -208,6 +208,12 @@ The choice rides in the launch command, and nothing else stores it:
    `empirica goals-create --project-id <practice> --status planned --objective "Skill: ..."`, so its own practitioner
    writes them with the person.
 
+Where a practice's own skill goes depends on the harness that runs in it: Claude Code reads
+`<practice>/.claude/skills/<name>/SKILL.md`, ecodex reads `<practice>/.agents/skills/<name>/SKILL.md` (same format).
+A practice that runs both needs it in both places; a directory symlink from one to the other keeps one copy, so check
+in an ecodex pane that the skill appears. Neither harness gates a skill found in the repository, so reading it before
+install is the only check.
+
 **Report per practice what actually happened** — provisioned, already existed,
 or failed and why. A rollup "done!" over a partial failure is the shape this
 whole system exists to prevent.
