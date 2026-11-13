@@ -662,7 +662,7 @@ def _canonical_goal_id(goal_id: str, db) -> str:
     raise ValueError(f"goal_id '{goal_id}' is ambiguous: matches {', '.join(m[:13] for m in matches)}")
 
 
-def _resolve_goal_for_artifact(goal_id, session_id, db, transaction_id=None, project_id=None):
+def _resolve_goal_for_artifact(goal_id, session_id, db, transaction_id=None, project_id=None, bound_goal_ids=None):
     """Auto-link an artifact to the goal that owns the current work.
 
     Three tiers, most precise first. Session-only resolution was the 53%
@@ -674,6 +674,9 @@ def _resolve_goal_for_artifact(goal_id, session_id, db, transaction_id=None, pro
 
     1. The open goal bound to the CURRENT transaction (created or activated in
        this window — goals-create/goals-claim stamp transaction_id).
+    1b. The first still-open goal PREFLIGHT named in ``goal_ids``: a goal carried
+       across transactions (``bound_goal_ids``; read from the transaction file
+       when not given). A goal created in the window still comes first.
     2. The session's most recent open goal (original behavior).
     3. The project's most recent open in_progress goal — the cross-session
        tier. Excludes planned (queued, not being worked) and archived goals so
@@ -690,6 +693,16 @@ def _resolve_goal_for_artifact(goal_id, session_id, db, transaction_id=None, pro
                 (transaction_id,),
             )
         )
+        if bound_goal_ids is None:
+            bound_goal_ids = _bound_goal_ids(transaction_id)
+        for bound in bound_goal_ids or []:
+            tiers.append(
+                (
+                    "SELECT id FROM goals WHERE id = ? AND is_completed = 0 "
+                    "AND COALESCE(status, '') NOT IN ('abandoned', 'completed')",
+                    (bound,),
+                )
+            )
     if session_id:
         tiers.append(
             (
@@ -722,6 +735,17 @@ def _resolve_goal_for_artifact(goal_id, session_id, db, transaction_id=None, pro
                 f"goal auto-attach: tier query FAILED ({type(e).__name__}: {e}); artifact may log without a goal"
             )
     return None
+
+
+def _bound_goal_ids(transaction_id) -> list[str]:
+    """The goals PREFLIGHT named for this transaction (``goal_ids`` on the transaction file); [] for another window's file."""
+    try:
+        tx = R.transaction_read() or {}
+    except Exception:
+        return []
+    if tx.get("transaction_id") != transaction_id:
+        return []
+    return [g for g in tx.get("goal_ids") or [] if isinstance(g, str)]
 
 
 def _resolve_transaction_id_for_artifact():

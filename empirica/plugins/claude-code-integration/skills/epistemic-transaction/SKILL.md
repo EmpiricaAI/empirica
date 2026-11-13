@@ -89,6 +89,12 @@ EOF
 **PREFLIGHT declares scope.** If scope creeps, that is the signal to POSTFLIGHT and
 open a new transaction — not to quietly widen this one.
 
+**Carrying a goal from an earlier transaction:** name it in `"goal_ids": ["<id or
+unique prefix>"]`. The Sentinel counts it as in play from the first call, and
+artifacts logged without their own goal attach to it. PREFLIGHT refuses a goal
+that is completed, abandoned or another project's; the goal's own record of where
+it was created is not changed.
+
 **If you were already grounded before opening** — you read the files first, which is
 the normal order — declare `claims` here with grounding `read`, or `ran` with the
 `scope` it measured over and the `count` it returned (a number: `"count": 48`). One

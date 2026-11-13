@@ -210,6 +210,20 @@ class PreflightInput(BaseModel):
             "belongs to no engagement."
         ),
     )
+    goal_ids: list[str] | None = Field(
+        default=None,
+        max_length=10,
+        description=(
+            "The existing goals this transaction works on, by full id or unique "
+            "prefix, for a goal carried across transactions. Each must be open "
+            "and belong to this project, or PREFLIGHT is refused. The Sentinel "
+            "counts them as in play, and an artifact logged in the window "
+            "without its own goal attaches to the first one still open (a goal "
+            "created inside the window comes first). Stored on the transaction "
+            "file and the PREFLIGHT checkpoint; a goal's own transaction_id, "
+            "where it was created, is not changed."
+        ),
+    )
     current_phase: str | None = Field(
         default=None,
         description=(
@@ -230,6 +244,17 @@ class PreflightInput(BaseModel):
             "pattern retrieval (notes does not)."
         ),
     )
+
+    @field_validator("goal_ids")
+    @classmethod
+    def validate_goal_ids(cls, v: list[str] | None) -> list[str] | None:
+        """Each goal id is a non-empty id or prefix; whether it names an open goal is checked against the database."""
+        if v is None:
+            return None
+        cleaned = [g.strip() for g in v]
+        if any(not g or len(g) > 100 for g in cleaned):
+            raise ValueError("each goal_id must be a non-empty goal id or prefix of at most 100 characters")
+        return cleaned
 
     @field_validator("session_id")
     @classmethod

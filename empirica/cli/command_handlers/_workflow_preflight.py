@@ -68,6 +68,7 @@ def _preflight_parse_and_validate(args):
         claims = getattr(validated, "claims", None) or []
         falsifiers = getattr(validated, "falsifiers", None) or []
         engagement_id = getattr(validated, "engagement_id", None)
+        goal_ids = getattr(validated, "goal_ids", None) or []
     else:
         session_id = args.session_id
         vectors = parse_json_safely(args.vectors) if isinstance(args.vectors, str) else args.vectors
@@ -83,6 +84,7 @@ def _preflight_parse_and_validate(args):
         claims = []
         falsifiers = []
         engagement_id = None
+        goal_ids = []
 
         if not session_id or not vectors:
             print(
@@ -129,6 +131,7 @@ def _preflight_parse_and_validate(args):
         "claims": claims if isinstance(claims, list) else [],
         "falsifiers": falsifiers if isinstance(falsifiers, list) else [],
         "engagement_id": engagement_id,
+        "goal_ids": goal_ids,
         "output_format": output_format,
     }
 
@@ -380,7 +383,7 @@ def _preflight_check_project_matches_cwd():
         return {"skipped": f"{type(exc).__name__}: {exc}"}
 
 
-def _preflight_create_checkpoint(session_id, vectors, reasoning, transaction_id, task_context=None):
+def _preflight_create_checkpoint(session_id, vectors, reasoning, transaction_id, task_context=None, goal_ids=None):
     """Create GitEnhancedReflexLogger checkpoint for PREFLIGHT.
 
     Writes to ALL 3 storage layers (SQLite + Git Notes + JSON).
@@ -406,6 +409,8 @@ def _preflight_create_checkpoint(session_id, vectors, reasoning, transaction_id,
     }
     if task_context:
         metadata["task_context"] = task_context
+    if goal_ids:
+        metadata["goal_ids"] = list(goal_ids)  # the durable record of what the window worked on
     return logger_instance.add_checkpoint(
         phase="PREFLIGHT",
         vectors=vectors,
@@ -439,6 +444,62 @@ def _default_work_frame_of(project_path) -> tuple[str, str]:
     return _project_domain_of(project_path) or type_domain, criticality
 
 
+def _preflight_resolve_goal_ids(goal_ids, session_id, db=None) -> list[str]:
+    """The full ids of the goals PREFLIGHT names, in order and without repeats; ValueError for one that cannot be worked.
+
+    Each must exist (a full id or unique prefix), be neither completed nor abandoned, and belong to the session's project. A
+    planned goal is accepted: naming it is starting it.
+    """
+    if not goal_ids:
+        return []
+    from empirica.cli.command_handlers.artifact_log_commands import _canonical_goal_id
+
+    own = db is None
+    if own:
+        from empirica.data.session_database import SessionDatabase
+
+        db = SessionDatabase()
+    try:
+        cursor = db.conn.cursor()
+        cursor.execute("SELECT project_id FROM sessions WHERE session_id = ?", (session_id,))
+        row = cursor.fetchone()
+        project_id = (row[0] if row else None) or None
+        resolved: list[str] = []
+        for given in goal_ids:
+            gid = _canonical_goal_id(given, db)
+            cursor.execute("SELECT is_completed, status, project_id FROM goals WHERE id = ?", (gid,))
+            is_completed, status, goal_project = cursor.fetchone()
+            if is_completed or status == "completed":
+                raise ValueError(f"goal {gid[:8]} is completed: reopen it (goals-reopen) to work on it again")
+            if status == "abandoned":
+                raise ValueError(f"goal {gid[:8]} is abandoned")
+            if project_id and goal_project and goal_project != project_id:
+                raise ValueError(f"goal {gid[:8]} belongs to another project ({goal_project[:8]})")
+            if gid not in resolved:
+                resolved.append(gid)
+        return resolved
+    finally:
+        if own:
+            db.close()
+
+
+def _preflight_bind_goal_ids(parsed, session_id) -> dict | None:
+    """Resolve ``parsed["goal_ids"]`` to full ids in place; a refusal dict when one cannot be worked here, else None."""
+    if not parsed.get("goal_ids"):
+        return None
+    try:
+        parsed["goal_ids"] = _preflight_resolve_goal_ids(parsed["goal_ids"], session_id)
+    except ValueError as e:
+        return {"refuse": True, "message": f"goal_ids: {e}"}
+    return None
+
+
+def _attach_goal_ids(result: dict, parsed: dict) -> None:
+    """Echo the full ids PREFLIGHT bound, so a prefix the caller typed is confirmed against what was stored."""
+    if parsed.get("goal_ids"):
+        result["goal_ids"] = parsed["goal_ids"]
+
+
 def _preflight_enrich_transaction_file(resolved_project_path, parsed):
     """Inject work parameters and cascade profile into the transaction file. Non-fatal."""
     import json as _json
@@ -462,7 +523,15 @@ def _preflight_enrich_transaction_file(resolved_project_path, parsed):
     if not criticality and default_criticality != "medium":
         criticality = default_criticality
 
-    if not (work_context or work_type or domain or criticality or engagement_id or parsed.get("task_context")):
+    if not (
+        work_context
+        or work_type
+        or domain
+        or criticality
+        or engagement_id
+        or parsed.get("task_context")
+        or parsed.get("goal_ids")
+    ):
         return
 
     try:
@@ -489,6 +558,10 @@ def _preflight_enrich_transaction_file(resolved_project_path, parsed):
             # showed nobody runs. Core never interprets the id — engagement
             # semantics live in the workspace layer.
             ("engagement_id", engagement_id),
+            # The goals this transaction works on (PREFLIGHT goal_ids): the Sentinel counts them as in play and an
+            # artifact without its own goal attaches to the first one still open. goals.transaction_id is not
+            # rewritten, so where each goal was created stays recorded (prop_bb7zspcksngi5ismdssij3uq2i).
+            ("goal_ids", parsed.get("goal_ids")),
         ]:
             if val:
                 tx_d[key] = val
@@ -1465,7 +1538,13 @@ def handle_preflight_submit_command(args):
         # Stage 2c: is the store this would write to the project the caller stands in? A claude that
         # inherited another practice's instance id would otherwise open its window in that practice.
         project_mismatch = _preflight_check_project_matches_cwd()
-        refusal = next((w for w in (session_warning, project_mismatch) if w and w.get("refuse")), None)
+        # Stage 2d: the goals this transaction says it works on must be open goals of this project, refused before
+        # anything is written: a typo would otherwise bind nothing and the window would look goaled.
+        goal_refusal = _preflight_bind_goal_ids(parsed, session_id)
+        refusal = next(
+            (w for w in (session_warning, project_mismatch, goal_refusal) if w and w.get("refuse")),
+            None,
+        )
         if refusal:
             print(json.dumps({"ok": False, "error": refusal["message"], **refusal}, indent=2))
             return 1
@@ -1476,7 +1555,12 @@ def handle_preflight_submit_command(args):
 
             # Stage 3a: Write checkpoint to 3-layer storage
             checkpoint_id = _preflight_create_checkpoint(
-                session_id, vectors, reasoning, transaction_id, task_context=task_context
+                session_id,
+                vectors,
+                reasoning,
+                transaction_id,
+                task_context=task_context,
+                goal_ids=parsed.get("goal_ids"),
             )
 
             # Stage 3a-bis: Epistemic snapshot for PREFLIGHT.
@@ -1624,6 +1708,7 @@ def handle_preflight_submit_command(args):
                 result["open_falsifiers"] = open_falsifiers
             if preflight_falsifiers:
                 result["falsifiers"] = preflight_falsifiers
+            _attach_goal_ids(result, parsed)
 
             # Emitted only when the tail is SLOW: at normal speed (<5s) the field
             # is noise, and at 60-120s it is the diagnostic — the transaction is

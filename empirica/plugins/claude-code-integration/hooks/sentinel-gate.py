@@ -1971,6 +1971,7 @@ def _try_increment_tool_count(
             "transaction_id": tx.get("transaction_id"),
             "preflight_timestamp": tx.get("preflight_timestamp"),
             "db_path": tx_path.parent / "sessions" / "sessions.db",
+            "goal_ids": tx.get("goal_ids"),
         }
         avg = tx.get("avg_turns", 0)
 
@@ -5755,12 +5756,14 @@ def _goalless_from_counted_tx() -> str:
             f"goalless check could not run ({type(e).__name__}: {e}) - whether this transaction has a goal is UNKNOWN"
         )
     try:
-        return _check_goalless_work(conn.cursor(), "", tx["transaction_id"], tx.get("preflight_timestamp"))
+        return _check_goalless_work(
+            conn.cursor(), "", tx["transaction_id"], tx.get("preflight_timestamp"), goal_ids=tx.get("goal_ids")
+        )
     finally:
         conn.close()
 
 
-def _check_goalless_work(cursor, session_id: str, transaction_id, preflight_timestamp) -> str:
+def _check_goalless_work(cursor, session_id: str, transaction_id, preflight_timestamp, goal_ids=None) -> str:
     """Nudge when THIS transaction has done >=5 gated tool calls with no goal in play.
 
     "Gated" means the calls Sentinel sees: Bash and Edit|Write. Read, Grep and
@@ -5768,10 +5771,11 @@ def _check_goalless_work(cursor, session_id: str, transaction_id, preflight_time
     threshold is later for a practice that reads with those tools than for one
     that reads through Bash - the same number means different volumes of work.
 
-    "A goal in play" means any of: a goal created in this transaction
-    (goals.transaction_id), a task created or completed since PREFLIGHT (the
-    usual way work proceeds on an older goal), or a finding logged in this
-    transaction against a goal.
+    "A goal in play" means any of: a goal PREFLIGHT named in ``goal_ids`` (a goal
+    carried across transactions; checked open when PREFLIGHT accepted it), a goal
+    created in this transaction (goals.transaction_id), a task created or
+    completed since PREFLIGHT, or a finding logged in this transaction against a
+    goal.
 
     It used to ask whether the whole PROJECT had zero in_progress goals. Any
     practice with live multi-week work always has one, so the nudge was off
@@ -5781,7 +5785,7 @@ def _check_goalless_work(cursor, session_id: str, transaction_id, preflight_time
     """
     try:
         count = _tool_call_count or 0
-        if count < 5 or not transaction_id:
+        if count < 5 or not transaction_id or goal_ids:
             return ""
 
         cursor.execute("SELECT 1 FROM goals WHERE transaction_id = ? LIMIT 1", (transaction_id,))
@@ -5817,7 +5821,8 @@ def _check_goalless_work(cursor, session_id: str, transaction_id, preflight_time
             )
         return (
             f"DISCIPLINE: {count} gated tool calls in this transaction and no goal in play. "
-            f"Consider: empirica goals-create --objective '...' or goals-add-task on the goal you are working."
+            f"Consider: empirica goals-create --objective '...' or goals-add-task on the goal you are working "
+            f"(next time, name a carried goal in PREFLIGHT's goal_ids)."
         )
     except Exception as e:
         # Advisory only, so never fatal - but a failing check must not read as

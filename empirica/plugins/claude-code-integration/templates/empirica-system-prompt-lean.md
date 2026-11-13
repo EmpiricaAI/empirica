@@ -280,9 +280,10 @@ PREFLIGHT → [noetic: investigate] → CHECK → [praxic: implement] → POSTFL
   and anything outward still need a transaction, and so does
   everything once the work is plan-shaped. The `empirica` artifact verbs still run. Open the next transaction, with
   `claims`, before real work; `empirica sentinel mode` shows the mode and budget in force.
-- **The Sentinel counts a goal as in play** when it was created in this transaction, or a task was created or completed since
-  PREFLIGHT (`goals-add-task` / `goals-complete-task`), or a finding was logged against it. A goal that was only activated, or
-  created before PREFLIGHT, does not count; the nudge fires after 5 gated calls.
+- **The Sentinel counts a goal as in play** when PREFLIGHT named it in `goal_ids`, or it was created in this transaction, or a
+  task was created or completed since PREFLIGHT (`goals-add-task` / `goals-complete-task`), or a finding was logged against it.
+  A goal carried over from an earlier transaction counts only by one of those: name it in `goal_ids` (full id or unique
+  prefix) and artifacts logged in the window attach to it too. The nudge fires after 5 gated calls.
 
 **POSTFLIGHT when:** coherent chunk complete, confidence inflection, context shift,
 scope creep, or 10+ turns without measurement.
