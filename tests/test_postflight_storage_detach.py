@@ -15,10 +15,23 @@ import pickle
 import tempfile
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from empirica.cli.command_handlers import _postflight_storage_worker as worker
 from empirica.cli.command_handlers import _workflow_postflight as wf
 
 _V = {"know": 0.8, "do": 0.8, "context": 0.8, "clarity": 0.8}
+
+
+@pytest.fixture(autouse=True)
+def _payloads_stay_in_tmp_path(tmp_path, monkeypatch):
+    """A faked Popen never consumes the staged payload: written to the real temp dir, every run left files behind (385 in
+    /tmp by 2026-11-13, all from this module). mkstemp reads tempfile.tempdir first."""
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+
+
+def test_staged_payloads_land_in_the_test_dir(tmp_path):
+    assert tempfile.gettempdir() == str(tmp_path)
 
 
 class _NotJsonSerializable:
