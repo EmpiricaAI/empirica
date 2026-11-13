@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_SYNC_CONFIG = {
     "enabled": True,
     "remote": None,
-    "visibility": "private",  # 'private' or 'public' - determines warnings
+    "visibility": "private",  # 'public' refuses notes pushes to any host; 'private' loosens nothing
     "provider": "forgejo",  # 'github', 'gitlab', 'forgejo', 'bitbucket', 'auto'
     # Empty = off. Set via `empirica sync-config auto_push_on postflight`, which
     # validates; a hand-edit of an unsupported value is rejected at read time rather
@@ -518,6 +518,10 @@ def _refuse_public_notes_remote(remote: str, force: bool, output_format: str) ->
     remote_url = _get_remote_url(remote)
     # A remote whose URL cannot be read is one git cannot push to either: the push itself reports that failure.
     detected = _public_host(remote_url) if remote_url else None
+    if not detected and _load_sync_config().get("visibility") == "public":
+        # A self-hosted public instance is invisible to the host list; the owner's declaration covers it. `private`
+        # loosens nothing: a public host stays refused whatever the config says.
+        detected = "a remote declared public (sync-config visibility: public)"
     if not detected:
         return False
 

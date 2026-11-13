@@ -38,3 +38,36 @@ def test_public_hosts_are_public(url):
 )
 def test_near_misses_are_not_public(url):
     assert not sc._public_host(url)
+
+
+# ── `visibility: public` declares a remote public that the host list cannot know (goal d897e750) ──────────────────────
+# The key was stored, validated and printed, and nothing read it.
+
+
+def _refused(monkeypatch, capsys, url, visibility):
+    monkeypatch.setattr(sc, "_get_remote_url", lambda remote: url)
+    monkeypatch.setattr(sc, "_list_remotes", lambda: ["origin"])
+    monkeypatch.setattr(sc, "_load_sync_config", lambda: {**sc.DEFAULT_SYNC_CONFIG, "visibility": visibility})
+    refused = sc._refuse_public_notes_remote("origin", force=False, output_format="json")
+    return refused, capsys.readouterr().out
+
+
+def test_a_remote_declared_public_is_refused_whatever_its_host(monkeypatch, capsys):
+    refused, out = _refused(monkeypatch, capsys, "https://git.example.org/team/repo.git", "public")
+    assert refused and "visibility" in out
+
+
+def test_a_private_declaration_does_not_unlock_a_public_host(monkeypatch, capsys):
+    refused, _ = _refused(monkeypatch, capsys, "https://github.com/org/repo.git", "private")
+    assert refused
+
+
+def test_a_private_self_hosted_remote_still_pushes(monkeypatch, capsys):
+    refused, _ = _refused(monkeypatch, capsys, "https://git.example.org/team/repo.git", "private")
+    assert not refused
+
+
+def test_force_overrides_the_declaration_too(monkeypatch):
+    monkeypatch.setattr(sc, "_get_remote_url", lambda remote: "https://git.example.org/r.git")
+    monkeypatch.setattr(sc, "_load_sync_config", lambda: {**sc.DEFAULT_SYNC_CONFIG, "visibility": "public"})
+    assert not sc._refuse_public_notes_remote("origin", force=True, output_format="json")
