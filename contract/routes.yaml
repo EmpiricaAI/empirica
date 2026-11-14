@@ -31,6 +31,7 @@ capabilities:
   admin.projects: "create a project on behalf of another user"
   admin.ntfy: "apply ntfy ACL grants for a second user or module"
   forgejo.publish: "mint or rotate a Forgejo token for a project (credentials minted by the org)"
+  artifacts.import: "move a practice's artifact history into the org (`empirica mesh connect`): ids and dates kept, dry run, never overwrites"
   sources.shared: "shared and public sources catalogue, bodies and reconcile"
   orgs.agreements: "cross-org mesh sharing agreements"
   orchestration.cross_tenant: "propose with a target outside the caller's tenant"
@@ -148,7 +149,7 @@ group_a:
     capability: projects.registry
     auth: bearer
     core_call_sites:
-      - cli/command_handlers/projects_commands.py:1229    # bulk register: no project_id in the body
+      - cli/command_handlers/projects_commands.py:1256    # bulk register: no project_id in the body
       - cli/command_handlers/projects_commands.py:2045    # project-register: sends the local project_id and asks the server to adopt it
     request:
       name: string (required)
@@ -306,7 +307,7 @@ group_a:
     path: /v1/orchestration/propose
     capability: orchestration.mailbox
     auth: "bearer; api_key is ALSO sent in the JSON body"
-    core_call_sites: [cli/command_handlers/mailbox_commands.py:390]   # sent once, and once more on a transport failure
+    core_call_sites: [cli/command_handlers/mailbox_commands.py:403, cli/command_handlers/mailbox_commands.py:1276]   # sent once, and once more on a transport failure
     request:
       api_key: string
       type: string
@@ -470,16 +471,17 @@ group_a:
           the exception, so an unregistered project's sync drops silently.
 
 # ── group B: crosses an identity boundary. A one-person server answers 501 {capability}. ───────────────────
-group_b:
+group_b:   # call-site line numbers below are from core's own read at abe35c972 (prop_nuazmkysx5hfjcuq7reowod64u), not re-read by cortex
   - {id: admin_projects, method: POST, path: /v1/admin/projects, capability: admin.projects, why_identity_crossing: "creates a project for another user; core uses it only when register answers 404 or 405", core_call_sites: [cli/command_handlers/projects_commands.py:1229], local_status: 501}
   - {id: admin_ntfy_grants, method: POST, path: /v1/admin/ntfy/grants, capability: admin.ntfy, why_identity_crossing: "ACL grants for a second user or a module's subscriber", core_call_sites: [core/modules/executors.py:419], local_status: 501, notes: "core treats 207 with per-grant failures as partial"}
-  - {id: forgejo_publish, method: POST, path: "/v1/projects/{project_id}/forgejo-publish", capability: forgejo.publish, why_identity_crossing: "credentials minted by the org", core_call_sites: [cli/command_handlers/forgejo_commands.py:75], local_status: 501}
-  - {id: sources_register, method: POST, path: /v1/sources/register, capability: sources.shared, why_identity_crossing: "shared and public sources", core_call_sites: [cli/command_handlers/artifact_log_commands.py:3025], local_status: 501}
-  - {id: sources_body_upload, method: POST, path: "/v1/sources/{id}/body", capability: sources.shared, why_identity_crossing: "shared and public sources", core_call_sites: [cli/command_handlers/artifact_log_commands.py:2926, cli/command_handlers/sources_reconcile_commands.py:61], local_status: 501}
-  - {id: sources_raw, method: GET, path: "/v1/sources/{id}/raw", capability: sources.shared, why_identity_crossing: "shared and public sources", core_call_sites: [cli/command_handlers/artifact_log_commands.py:2854], local_status: 501}
-  - {id: sources_delete, method: DELETE, path: "/v1/sources/{id}", capability: sources.shared, why_identity_crossing: "shared and public sources; the DELETE carries a JSON body", core_call_sites: [cli/command_handlers/artifact_log_commands.py:3469], local_status: 501}
-  - {id: sources_catalogue, method: POST, path: /v1/sources/catalogue, capability: sources.shared, why_identity_crossing: "a lookup sent as POST (the docstring says GET)", core_call_sites: [cli/command_handlers/sources_reconcile_commands.py:642], local_status: 501}
-  - {id: sources_reconcile, method: POST, path: /v1/sources/reconcile, capability: sources.shared, why_identity_crossing: "read or write cannot be told from the client", core_call_sites: [cli/command_handlers/sources_reconcile_commands.py:690], local_status: 501}
+  - {id: forgejo_publish, method: POST, path: "/v1/projects/{project_id}/forgejo-publish", capability: forgejo.publish, why_identity_crossing: "credentials minted by the org", core_call_sites: [cli/command_handlers/forgejo_commands.py:78], local_status: 501}
+  - {id: artifacts_import, method: POST, path: /v1/artifacts/import, capability: artifacts.import, why_identity_crossing: "a practice's private history becomes org-visible; moves it into the org", core_call_sites: [core/mesh_connect.py], local_status: 501, notes: "request: project_id (REQUIRED, a project the caller registered), nodes (at most 500 per request, each with ref and id of 16-128 chars, optional created_at as epoch seconds or ISO, is_resolved ONLY on finding, unknown, dead_end and mistake), edges (relation from the served set, ends are batch refs or ids of 32+ chars), source {machine, practice, exported_at}, dry_run. data.visibility is project or org; any other value is stored as project. response: ok, dry_run, project_id, nodes_created and edges_wired (integers), created (object ref -> id, not a count), skipped_existing and would_create (lists of {ref, id}), refused (list of {ref, reason}), errors (list). core_call_sites names the file only: core's line numbers were not read by cortex"}
+  - {id: sources_register, method: POST, path: /v1/sources/register, capability: sources.shared, why_identity_crossing: "shared and public sources", core_call_sites: [cli/command_handlers/artifact_log_commands.py:3081], local_status: 501}
+  - {id: sources_body_upload, method: POST, path: "/v1/sources/{id}/body", capability: sources.shared, why_identity_crossing: "shared and public sources", core_call_sites: [cli/command_handlers/artifact_log_commands.py:2982, cli/command_handlers/sources_reconcile_commands.py:65], local_status: 501}
+  - {id: sources_raw, method: GET, path: "/v1/sources/{id}/raw", capability: sources.shared, why_identity_crossing: "shared and public sources", core_call_sites: [cli/command_handlers/artifact_log_commands.py:2910], local_status: 501}
+  - {id: sources_delete, method: DELETE, path: "/v1/sources/{id}", capability: sources.shared, why_identity_crossing: "shared and public sources; the DELETE carries a JSON body", core_call_sites: [cli/command_handlers/artifact_log_commands.py:3534], local_status: 501}
+  - {id: sources_catalogue, method: POST, path: /v1/sources/catalogue, capability: sources.shared, why_identity_crossing: "a lookup sent as POST (the docstring says GET)", core_call_sites: [cli/command_handlers/sources_reconcile_commands.py:646], local_status: 501}
+  - {id: sources_reconcile, method: POST, path: /v1/sources/reconcile, capability: sources.shared, why_identity_crossing: "read or write cannot be told from the client", core_call_sites: [cli/command_handlers/sources_reconcile_commands.py:694], local_status: 501}
   - id: orgs_mesh_sharing_agreements
     method: GET
     path: /v1/orgs/me/mesh_sharing_agreements

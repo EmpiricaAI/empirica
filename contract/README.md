@@ -39,7 +39,7 @@ needs core's sign-off first. Rows are added from a core call site, never from a 
 
 ## Drift found (cortex vs what core's code expects)
 
-All six are closed: D1 on cortex (v0.4.1+, 8ed927eb), D2-D6 in core's client (core develop, shipping with core's next release). The rows keep the original measurement as the record.
+All six are closed: D1 on cortex (v0.4.2+, 8ed927eb), D2-D6 in core's client (core develop, shipping with core's next release). The rows keep the original measurement as the record.
 
 Findings, not fixes: nothing was changed to make them disappear. C = read in code, M = measured live.
 

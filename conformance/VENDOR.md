@@ -1,7 +1,7 @@
 # Vendored from Cortex
 
-`conformance/` and `../contract/` are copied from the empirica-cortex repository at commit `b63fa50a` (2026-11-11; first vendored at `849e4ef1`);
-`conformance/test_contract_write.py` is from `bd98b608` (2026-11-13: bodies carry no api_key, the Bearer header authenticates). Cortex owns
+`conformance/` and `../contract/` are copied from the empirica-cortex repository at commit `e134aa21` (2026-11-14: the
+`artifacts.import` capability, its group_b row and four write-tier cases; first vendored at `849e4ef1`). Cortex owns
 the contract and this suite; core vendors them to test the local server (empirica-local, spec phase 1) against the same
 contract Cortex serves. Edit them in the cortex repo and copy them here again, never here alone, or the two halves drift.
 

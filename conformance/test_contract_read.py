@@ -206,14 +206,17 @@ _REFUSED = (400, 403, 415, 421)
 
 
 @pytest.fixture
-def local_probe(http, auth, server):
+def local_probe(http, token, server):
+    """The probe needs no credential of its own: a local server may run with auth off (the README's own example),
+    and a probe that skipped for want of a token would let an exposed server pass by being unconfigured."""
     if server["edition"] != "local":
         pytest.skip("browser-origin refusal is required of a local server; cortex authenticates with a bearer header")
     if "orchestration.mailbox" not in server["capabilities"]:
         pytest.skip("server lacks orchestration.mailbox")
+    bearer = {"Authorization": f"Bearer {token}"} if token else {}
 
     def post(headers=None, content=None):
-        h = {**auth, "Content-Type": "application/json", **(headers or {})}
+        h = {**bearer, "Content-Type": "application/json", **(headers or {})}
         return http.post(_PROBE, headers=h, content=content if content is not None else '{"reason": "probe"}')
 
     control = post()
@@ -226,13 +229,21 @@ def test_a_local_server_refuses_a_text_plain_post(local_probe):
     assert local_probe({"Content-Type": "text/plain"}).status_code in _REFUSED
 
 
-def test_a_local_server_refuses_a_foreign_origin(local_probe):
-    assert local_probe({"Origin": "http://evil.example"}).status_code in _REFUSED
+# A look-alike is the case a prefix or substring check lets through (DNS rebinding uses exactly such names).
+_FOREIGN_ORIGINS = ["http://evil.example", "http://127.0.0.1.evil.example", "http://localhost.evil.example", "null"]
+_FOREIGN_HOSTS = ["evil.example", "127.0.0.1.evil.example", "localhost.evil.example"]
 
 
-def test_a_local_server_accepts_a_loopback_origin(local_probe):
-    assert local_probe({"Origin": "http://127.0.0.1:1234"}).status_code not in _REFUSED
+@pytest.mark.parametrize("origin", _FOREIGN_ORIGINS)
+def test_a_local_server_refuses_a_foreign_origin(local_probe, origin):
+    assert local_probe({"Origin": origin}).status_code in _REFUSED
 
 
-def test_a_local_server_refuses_a_foreign_host(local_probe):
-    assert local_probe({"Host": "evil.example"}).status_code in _REFUSED
+@pytest.mark.parametrize("origin", ["http://127.0.0.1:1234", "http://localhost:1234"])
+def test_a_local_server_accepts_a_loopback_origin(local_probe, origin):
+    assert local_probe({"Origin": origin}).status_code not in _REFUSED
+
+
+@pytest.mark.parametrize("host", _FOREIGN_HOSTS)
+def test_a_local_server_refuses_a_foreign_host(local_probe, host):
+    assert local_probe({"Host": host}).status_code in _REFUSED
