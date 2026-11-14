@@ -405,12 +405,28 @@ def cortex_configured(loader=None) -> bool:
         return False
 
 
+#: The hosted Cortex. `auth login` uses it when neither --url nor credentials.yaml names one (doctor and setup-claude-code
+#: already default to it), so a machine that was never configured can still sign in (Philipp's Air, 2026-11-14).
+DEFAULT_CORTEX_URL = "https://cortex.getempirica.com"
+
+
+def resolve_cortex_url(loader, url: str | None = None) -> tuple[str, str]:
+    """(url, where it came from): the --url flag, then cortex.url in credentials.yaml, then the hosted default."""
+    if url:
+        return url.rstrip("/"), "flag"
+    configured = (loader.get_cortex_config() or {}).get("url")
+    if configured:
+        return configured.rstrip("/"), "config"
+    return DEFAULT_CORTEX_URL, "default"
+
+
 def login(
     *,
     loader=None,
     open_browser: Callable[[str], Any] | None = None,
     timeout_s: float = 300.0,
     http=_http_json,
+    url: str | None = None,
 ) -> dict[str, Any]:
     """Full authorization_code + PKCE login. Returns a status dict.
 
@@ -425,10 +441,7 @@ def login(
 
         loader = get_credentials_loader()
 
-    cfg = loader.get_cortex_config()
-    base_url = cfg.get("url")
-    if not base_url:
-        raise RuntimeError("no cortex url configured — set cortex.url in ~/.empirica/credentials.yaml first")
+    base_url, url_source = resolve_cortex_url(loader, url)
 
     disco = fetch_discovery(base_url, http=http)
     for required in ("authorization_endpoint", "token_endpoint", "registration_endpoint"):
@@ -538,6 +551,8 @@ def login(
         "has_refresh_token": bool(tokens.get("refresh_token")),
         "refresh_owner": owner,
         "authorize_url": authorize_url,
+        "cortex_url": base_url,
+        "url_source": url_source,
     }
 
 

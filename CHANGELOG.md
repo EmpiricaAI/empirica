@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`empirica auth login` works on a machine that was never configured.** It stopped with "no cortex url configured", so a new machine could neither sign in nor arm its listener. It now takes `--url`, else the configured URL, else the hosted Cortex (`https://cortex.getempirica.com`), says which it used, and saves the URL after a successful sign-in.
 - **Closing the terminal that launched the cockpit no longer kills every practice pane.** A tmux server lives in the systemd unit of whatever first started it, so a cockpit started from a terminal died with that terminal. When no server is running, `empirica cockpit launch` now starts it in its own user service (`empirica-tmux`, through `systemd-run --user`), with the launching environment minus its pane identity, and says which way it ran. A server already running is left alone; without a systemd user manager, or with `EMPIRICA_COCKPIT_SERVER_UNIT=off`, it starts as before and says so.
 
 ## [1.16.3] - 2026-11-14

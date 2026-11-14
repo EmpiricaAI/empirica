@@ -34,6 +34,11 @@ def add_auth_parsers(subparsers) -> None:
         default=300,
         help="Seconds to wait for the browser callback (optional, default: 300)",
     )
+    login.add_argument(
+        "--url",
+        help="The Cortex to sign in to (optional; default: cortex.url in credentials.yaml, else the hosted "
+        "https://cortex.getempirica.com). Saved after a successful sign-in.",
+    )
     login.add_argument("--output", choices=["human", "json"], default="human")
 
     token = actions.add_parser(

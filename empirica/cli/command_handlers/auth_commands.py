@@ -31,13 +31,23 @@ def handle_auth_login_command(args) -> int:
     output = getattr(args, "output", "human")
     timeout_s = float(getattr(args, "timeout", None) or 300)
     try:
-        result = login(timeout_s=timeout_s)
+        result = login(timeout_s=timeout_s, url=getattr(args, "url", None))
     except Exception as e:
         if output == "json":
             print(json.dumps({"ok": False, "error": str(e)}))
         else:
             print(f"❌ auth login failed: {e}")
         return 1
+
+    # A URL that came from --url or the hosted default is saved, so the listener and every later command find it.
+    if result.get("url_source") in ("flag", "default") and result.get("cortex_url"):
+        try:
+            from empirica.config.credentials_loader import get_credentials_loader
+
+            get_credentials_loader().save_cortex_config(url=result["cortex_url"])
+            result["cortex_url_saved"] = True
+        except Exception as e:  # the sign-in stands; say the URL was not kept
+            result["cortex_url_saved"] = f"not saved: {type(e).__name__}: {e}"
 
     # Rung 4 inline: the credential is proven by a real authenticated call
     # from this seat, not by the token existing.
@@ -48,7 +58,13 @@ def handle_auth_login_command(args) -> int:
     else:
         exp = result.get("expires_at")
         exp_s = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(exp)) if exp else "unknown"
-        print(f"✅ logged in (client {result['client_id'][:12]}…, token valid until {exp_s})")
+        print(
+            f"✅ logged in to {result.get('cortex_url')} (client {result['client_id'][:12]}…, token valid until {exp_s})"
+        )
+        if result.get("url_source") == "default":
+            print("   (the hosted Cortex: no URL was configured; pass --url for another one)")
+        if isinstance(result.get("cortex_url_saved"), str):
+            print(f"⚠️  Cortex URL {result['cortex_url_saved']}: set cortex.url in ~/.empirica/credentials.yaml")
         if not result.get("has_refresh_token"):
             print("⚠️  no refresh_token issued — token dies at expiry; api_key fallback covers")
         if verify is True:
