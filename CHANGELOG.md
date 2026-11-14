@@ -5,7 +5,13 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.16.3] - 2026-11-14
+
+### Highlights
+
+- **PREFLIGHT can name the goals a transaction works on.** A goal carried across transactions counts as in play from the first call, and what is logged in the window attaches to it.
+- **Empirica no longer writes Claude Code's memory folder.** Session start already shows the project's artifacts, with ids; `MEMORY.md` is left to Claude Code, and `setup-claude-code` removes the old block once.
+- **Hash vectors stand in for embeddings only out loud, and can be refused** with `EMPIRICA_EMBEDDINGS_STRICT=1`; a process that fell back moves to Ollama when it answers.
 
 ### Changed
 
