@@ -225,3 +225,23 @@ def test_a_source_goes_without_its_file(store):
     nodes, _ = mc.export_nodes(db.conn, PROJECT["project_id"])
     (src,) = [n for n in nodes if n["type"] == "source"]
     assert src["data"]["title"] == "RFC 7519" and "canonical_path" not in src["data"] and "/home/u" not in str(src)
+
+
+def test_the_command_refuses_outside_a_practice_and_reads_the_practice_it_is_in(tmp_path, monkeypatch, capsys):
+    import types
+
+    from empirica.cli.command_handlers import mesh_commands
+    from empirica.config import path_resolver
+
+    monkeypatch.setattr(path_resolver, "get_git_root", lambda: tmp_path)
+    args = types.SimpleNamespace(dry_run=True, output="json")
+    assert mesh_commands.handle_mesh_connect_command(args) == 1
+    assert "not inside a practice" in capsys.readouterr().out
+
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / "project.yaml").write_text(
+        "ai_id: alpha\nproject_id: 11111111-2222-4333-8444-555555555555\n"
+    )
+    assert mc.practice_of(str(tmp_path)) == {
+        "name": "alpha", "project_id": "11111111-2222-4333-8444-555555555555", "path": str(tmp_path)
+    }  # fmt: skip

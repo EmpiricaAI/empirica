@@ -1239,13 +1239,62 @@ _MESH_DISPATCH = {
     "off": handle_mesh_off_command,
     "tail": handle_mesh_tail_command,
     "migrate-topics": handle_mesh_migrate_topics_command,
+    "connect": lambda args: handle_mesh_connect_command(args),
 }
+
+
+def handle_mesh_connect_command(args) -> int:
+    """`empirica mesh connect`: sign in, register and import this practice into Cortex (goal 7377658d)."""
+    import json as _json
+
+    from empirica.config.path_resolver import get_git_root, get_session_db_path
+    from empirica.core.mesh_connect import connect, practice_of
+
+    root = get_git_root()
+    project = practice_of(str(root)) if root else None
+    if project is None:
+        msg = "not inside a practice (no .empirica/project.yaml with a project id at the git root)"
+        print(_json.dumps({"ok": False, "error": msg}) if args.output == "json" else f"❌ {msg}")
+        return 1
+    import sqlite3
+
+    conn = sqlite3.connect(str(get_session_db_path()))
+    try:
+        report = connect(project=project, conn=conn, dry_run=args.dry_run)
+    finally:
+        conn.close()
+    if args.output == "json":
+        print(_json.dumps(report, indent=2, default=str))
+        return 0 if report.get("ok") else 1
+    if not report.get("ok"):
+        print(f"❌ connect stopped at {report.get('step')}: {report.get('error')}")
+        return 1
+    verb = "would import" if report["dry_run"] else "imported"
+    print(
+        f"✅ {report['practice']} → Cortex ({report.get('org')}){' (dry run: nothing written)' if report['dry_run'] else ''}"
+    )
+    print(
+        f"   {report['nodes']} artifacts and {report['edges']} links {verb}; {report['to_team']} visible to the team, "
+        f"{report['to_project']} to this project only"
+    )
+    done = report.get("would_create") if report["dry_run"] else report.get("created")
+    print(
+        f"   Cortex: {done} new, {report.get('skipped_existing', 0)} already there, {report.get('refused', 0)} refused"
+    )
+    if report.get("links_kept_local"):
+        print(
+            f"   {report['links_kept_local']} links stay local (a relation Cortex does not take, or a goal at one end)"
+        )
+    print(f"   {report['note']}")
+    return 0
 
 
 def handle_mesh_group_command(args) -> int:
     action = getattr(args, "mesh_action", None)
     if not action:
-        sys.stderr.write("usage: empirica mesh <status|diagnose|restart|on|off|tail|migrate-topics> [args...]\n")
+        sys.stderr.write(
+            "usage: empirica mesh <status|diagnose|restart|on|off|tail|migrate-topics|connect> [args...]\n"
+        )
         return 2
     handler = _MESH_DISPATCH.get(action)
     if handler is None:
@@ -1255,6 +1304,7 @@ def handle_mesh_group_command(args) -> int:
 
 
 __all__ = [
+    "handle_mesh_connect_command",
     "handle_mesh_diagnose_command",
     "handle_mesh_group_command",
     "handle_mesh_migrate_topics_command",
