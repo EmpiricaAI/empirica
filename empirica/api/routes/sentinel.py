@@ -55,7 +55,9 @@ def _practice(project: str | None) -> Path | None:
     if not project:
         return None
     candidate = Path(project).expanduser()
-    if not candidate.is_dir():
+    if not candidate.is_absolute() or not candidate.is_dir():
+        # A relative path would resolve against the daemon's working directory: only an absolute one is a path here,
+        # anything else is a registered id or name (1.16.3 sweep).
         candidate = _resolve_registered(project) or Path("/nonexistent")
     if not (candidate / ".empirica" / "project.yaml").is_file():
         raise HTTPException(status_code=404, detail=f"not a practice: {project}")

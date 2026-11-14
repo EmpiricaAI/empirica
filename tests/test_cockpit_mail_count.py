@@ -79,3 +79,34 @@ def test_s_and_u_are_menu_only_and_the_inbox_key_is_retired():
     assert any(" chip S " in a for a in args), "S is still in the menu"
     assert not any(" chip I " in a for a in args)
     assert any(a.startswith("M  mail: wake it to read its mail") for a in args)
+
+
+def test_an_unreadable_or_cut_short_outbox_is_unknown_not_unanswered():
+    inbox = [{"id": "p1", "target_claudes": [ME], "created_at": "2026-11-14T00:00:00Z"}]
+
+    def outbox_fails(argv, **_kw):
+        if "--outbox" in argv:
+            return subprocess.CompletedProcess(argv, 1, "", "timeout")
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"proposals": inbox}), "")
+
+    assert bar.mail_count("empirica-web", "/x", run=outbox_fails) is None
+
+    def outbox_truncated(argv, **_kw):
+        body = {"proposals": [], "matched": 450} if "--outbox" in argv else {"proposals": inbox}
+        return subprocess.CompletedProcess(argv, 0, json.dumps(body), "")
+
+    assert bar.mail_count("empirica-web", "/x", run=outbox_truncated) is None
+
+
+def test_the_outbox_is_read_only_from_the_oldest_waiting_message():
+    seen = []
+    inbox = [{"id": "p1", "created_at": "2026-11-10T00:00:00Z"}, {"id": "p2", "created_at": "2026-11-12T00:00:00Z"}]
+
+    def run(argv, **_kw):
+        seen.append(argv)
+        body = {"proposals": []} if "--outbox" in argv else {"proposals": inbox}
+        return subprocess.CompletedProcess(argv, 0, json.dumps(body), "")
+
+    assert bar.mail_count("empirica-web", "/x", run=run) == 2
+    (outbox_call,) = [a for a in seen if "--outbox" in a]
+    assert outbox_call[outbox_call.index("--since") + 1] == "2026-11-10T00:00:00Z"

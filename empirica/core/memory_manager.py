@@ -25,9 +25,17 @@ logger = logging.getLogger(__name__)
 #: The header of the block POSTFLIGHT used to write into MEMORY.md.
 MEMORY_AUTO_START = "## EPISTEMIC FOCUS (Confidence-Ranked)"
 
-# A line of the old block: a sub-heading, a ranked item ("- [0.60] **Finding:** ..."), the footer ("📊 **55 items
-# ranked**", "- `empirica ...`", "- `git ...`") or a blank. An index line ("- [Title](file.md)") is not one.
-_BLOCK_LINE = re.compile(r"^(?:$|### |- \[\d|📊|- `empirica |- `git )")
+# A line of the old block, in the exact formats its writer used: one of its five sub-headings, a ranked item
+# ("- [0.60] **Finding:** ..."), the footer ("📊 **55 items ranked**" and its three command lines) or a blank. Anything a person
+# wrote, a "- [2026 plan](plan.md)" index line, a "### Notes" heading or a "- `git push` ..." tip, is not one (1.16.3 sweep).
+_BLOCK_LINE = re.compile(
+    r"^(?:$"
+    r"|### (?:Critical \(weight > 0\.7\)|Important \(weight 0\.4-0\.7\)|Dead-Ends \(avoid re-trying\)"
+    r"|Mistakes \(prevention strategies\)|Active Goals \(\d+\))$"
+    r"|- \[\d\.\d\d\] \*\*(?:Finding|Dead-End|Mistake|Goal):\*\* "
+    r"|📊 \*\*\d+ items ranked\*\*"
+    r"|- `empirica project-(?:bootstrap|search) |- `git notes show --ref=breadcrumbs HEAD`)"
+)
 
 
 def get_memory_dir(project_path: str | None = None) -> Path | None:
@@ -101,25 +109,26 @@ def get_memory_stats(project_path: str | None = None) -> dict:
 def _without_focus_block(text: str) -> str | None:
     """The text with the old block taken out, or None when it has none."""
     lines = text.split("\n")
+    bare = [line.rstrip() for line in lines]  # a CRLF file or a trailing space must not hide the block
     try:
-        start = lines.index(MEMORY_AUTO_START)
+        start = bare.index(MEMORY_AUTO_START)
     except ValueError:
         return None
 
     end = start + 1
     while end < len(lines):
-        line = lines[end]
+        line = bare[end]
         # The footer's rule ("---") belongs to the block only when the "📊" line follows it.
-        if line == "---" and end + 1 < len(lines) and lines[end + 1].startswith("📊"):
+        if line == "---" and end + 1 < len(lines) and bare[end + 1].startswith("📊"):
             end += 1
         elif not _BLOCK_LINE.match(line):
             break
         end += 1
     # Blank lines at the block's end separate it from what follows: give them back.
-    while end > start + 1 and lines[end - 1] == "":
+    while end > start + 1 and bare[end - 1] == "":
         end -= 1
     # Blank lines before the header were the block's own spacing.
-    while start > 0 and lines[start - 1] == "":
+    while start > 0 and bare[start - 1] == "":
         start -= 1
 
     kept = lines[:start] + lines[end:]

@@ -217,3 +217,18 @@ def test_a_refused_goal_is_returned_as_a_refusal_and_a_good_one_is_resolved_in_p
         "message": "goal_ids: goal_id 'nosuchgoal' matches no goal (full id or unique prefix required)",
     }
     assert wp._preflight_bind_goal_ids({}, world.sid) is None
+
+
+def test_a_wildcard_typed_as_a_prefix_matches_nothing_it_does_not_spell(world):
+    world.goal()
+    with pytest.raises(ValueError, match="matches no goal"):
+        wp._preflight_resolve_goal_ids(["%"], world.sid, world.db)
+    with pytest.raises(ValueError, match="matches no goal"):
+        wp._preflight_resolve_goal_ids(["g_al"], world.sid, world.db)  # "_" is not a one-character wildcard
+
+
+def test_an_ambiguous_prefix_is_refused(world):
+    world.goal()
+    world.goal()
+    with pytest.raises(ValueError, match="ambiguous"):
+        wp._preflight_resolve_goal_ids(["goal00"], world.sid, world.db)

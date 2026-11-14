@@ -92,3 +92,33 @@ def test_provider_info_reports_the_fallback(ollama, monkeypatch):
     monkeypatch.setattr(E, "_provider_singleton", None)
     info = E.get_provider_info()
     assert info["fallback"] is True and info["strict"] is False
+
+
+def test_the_switch_sizes_vectors_for_the_model_it_moves_to(ollama, monkeypatch):
+    # A config-file model whose dimensions differ from the default the hash vectors were sized to (1.16.3 sweep).
+    monkeypatch.setattr(E, "_load_config_file", lambda: {"model": "nomic-embed-text"})
+    p = E.EmbeddingsProvider()
+    assert p._vector_size == E.MODEL_DIMENSIONS[E.DEFAULT_MODELS["ollama"]]
+    ollama["v"] = True
+    p.embed("x")
+    assert p.model == "nomic-embed-text" and p._vector_size == E.MODEL_DIMENSIONS["nomic-embed-text"]
+
+
+@pytest.mark.parametrize(
+    ("env", "file", "strict"),
+    [
+        ("1", "", True),
+        ("enabled", "", True),  # not plainly off: on
+        ("0", "true", False),
+        ("off", "", False),
+        ("", "true", True),  # set but empty: the file decides
+        (None, "yes", True),
+        (None, "", False),
+    ],
+)
+def test_the_strict_switch_fails_closed(monkeypatch, env, file, strict):
+    if env is None:
+        monkeypatch.delenv("EMPIRICA_EMBEDDINGS_STRICT", raising=False)
+    else:
+        monkeypatch.setenv("EMPIRICA_EMBEDDINGS_STRICT", env)
+    assert E._strict_setting({"strict": file} if file else {}) is strict

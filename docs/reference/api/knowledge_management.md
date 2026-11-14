@@ -229,7 +229,7 @@ Artifacts logged through this API (findings, unknowns, dead-ends, goals, mistake
 next Claude Code session's starting context: the session-start and post-compact hooks build the project's bootstrap
 picture from the database, each item with an id, within a token budget. Claude Code's own `MEMORY.md` is not written.
 
-**Source:** `plugins/claude-code-integration/hooks/session-end-postflight.py` → `update_memory_hot_cache()`
+**Source:** the session-start and post-compact hooks (`empirica/core/bootstrap`).
 **See also:** [claude-code-symbiosis.md](../../architecture/claude-code-symbiosis.md)
 
 ---

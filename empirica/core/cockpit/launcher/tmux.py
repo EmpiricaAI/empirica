@@ -517,18 +517,24 @@ def _project_dir(config: LauncherConfig, pane: PaneSpec) -> str | None:
     return os.path.realpath(os.path.expanduser(proj.path)) if proj else None
 
 
-def _sits_in_another_slot(key: str, path: str, specs: dict[str, PaneSpec], config: LauncherConfig) -> bool:
-    """Whether a pane stamped ``key`` before identities existed sits in the directory of a DIFFERENT project configured
-    in the same group: the one sign that its position-based key now names someone else. An unknown directory, or one no
-    configured project owns (a pane that moved on), is no evidence, so the key stands."""
-    if not path:
-        return False
-    here = os.path.realpath(path)
+def _sits_in_another_slot(
+    key: str, path: str, specs: dict[str, PaneSpec], config: LauncherConfig, iid: str = ""
+) -> bool:
+    """Whether a pane stamped ``key`` before identities existed is really a DIFFERENT configured pane of its group: it sits in
+    that project's directory, or carries that pane's instance id. The id matters for a stopped pane, which reports no
+    directory (1.16.3 sweep). An unknown directory, or one no configured project owns, is no evidence, so the key stands."""
     group = key.rsplit("/", 1)[0]
-    own = _project_dir(config, specs[key])
-    return any(
-        k != key and k.rsplit("/", 1)[0] == group and _project_dir(config, p) == here != own for k, p in specs.items()
-    )
+    own_dir, own_id = _project_dir(config, specs[key]), _wanted_identity(specs[key], config)
+    here = os.path.realpath(path) if path else None
+    for k, p in specs.items():
+        if k == key or k.rsplit("/", 1)[0] != group:
+            continue
+        if here and _project_dir(config, p) == here != own_dir:
+            return True
+        other_id = _wanted_identity(p, config)
+        if iid and other_id and other_id != own_id and (iid == other_id or iid.startswith(other_id + "-")):
+            return True
+    return False
 
 
 def _rekey_rows(rows: list[dict], config: LauncherConfig) -> None:
@@ -547,7 +553,7 @@ def _rekey_rows(rows: list[dict], config: LauncherConfig) -> None:
         if row.get("ident"):
             new = by_ident.get((row["window"], row["ident"]), "")
         elif old and old.rsplit("/", 1)[0] == row["window"] and old in specs:
-            new = "" if _sits_in_another_slot(old, row.get("path", ""), specs, config) else old
+            new = "" if _sits_in_another_slot(old, row.get("path", ""), specs, config, row.get("iid", "")) else old
             if new:
                 row["ident"] = idents[new]
                 _set_pane_option(row["pane_id"], "@empirica_pane_ident", row["ident"])
@@ -821,10 +827,10 @@ def _create_group_window(
         "-t",
         window_target,
         "-F",
-        "#{pane_id}\t#{@empirica_pane}\t#{@empirica_pane_ident}\t#{pane_current_path}",
+        "#{pane_id}\t#{@empirica_pane}\t#{@empirica_pane_ident}\t#{pane_current_path}\t#{@empirica_instance_id}",
     )
     if listing.returncode == 0:
-        names = ("pane_id", "key", "ident", "path")
+        names = ("pane_id", "key", "ident", "path", "iid")
         rows = [
             dict(zip(names, line.split("\t"), strict=False)) for line in listing.stdout.splitlines() if line.strip()
         ]

@@ -60,8 +60,6 @@ MENU_ONLY = "US"
 RETIRED_KEYS = "I"
 #: Chips whose colour comes from options the background refresh sets. R and A are live tmux formats.
 STATE_CHIPS = "MUCSL"
-#: Chips whose state is per pane (its practice's), set as pane options; the others are this machine's, set per window.
-PANE_CHIPS = "M"
 #: Chips that change the machine or end sessions: they ask first.
 CONFIRM: dict[str, str] = {
     "U": "Update Empirica and its plugins on this machine?",
@@ -553,7 +551,8 @@ def _listener_chip(ai_id: str, workers: dict[str, int] | None = None) -> tuple[s
 
 
 def _poll(ai_id: str, path: str, run, *extra: str) -> list[dict] | None:
-    """One mailbox poll's proposals, or None when it could not be read."""
+    """One mailbox poll's proposals, or None when it could not be read or was cut short (``matched`` beyond what came back):
+    a partial outbox would drop the replies that answered older mail, and the count would grow (1.16.3 sweep)."""
     try:
         result = run(
             [*_empirica_argv(), "mailbox", "poll", "--ai-id", ai_id, *extra, "--limit", "200", "--output", "json"],
@@ -567,7 +566,12 @@ def _poll(ai_id: str, path: str, run, *extra: str) -> list[dict] | None:
     except Exception:
         return None
     proposals = payload.get("proposals") if isinstance(payload, dict) else None
-    return [p for p in proposals if isinstance(p, dict)] if isinstance(proposals, list) else None
+    if not isinstance(proposals, list):
+        return None
+    matched = payload.get("matched")
+    if payload.get("has_more") or (isinstance(matched, int) and matched > len(proposals)):
+        return None
+    return [p for p in proposals if isinstance(p, dict)]
 
 
 def _names(ai_id: str, wire: object) -> bool:
@@ -585,7 +589,13 @@ def mail_count(ai_id: str, path: str, run=subprocess.run) -> int | None:
     inbox = _poll(ai_id, path, run, "--status", "accepted")
     if inbox is None:
         return None
-    outbox = _poll(ai_id, path, run, "--outbox") or []
+    if not inbox:
+        return 0
+    # Only replies made since the oldest waiting message can answer one, which keeps the outbox read short.
+    oldest = min((str(p.get("created_at") or "") for p in inbox), default="")
+    outbox = _poll(ai_id, path, run, "--outbox", *(["--since", oldest] if oldest else []))
+    if outbox is None:
+        return None  # replies unreadable: unknown, never "nothing answered"
     answered = {p.get("parent_id") for p in outbox if p.get("parent_id")}
     count = 0
     for p in inbox:

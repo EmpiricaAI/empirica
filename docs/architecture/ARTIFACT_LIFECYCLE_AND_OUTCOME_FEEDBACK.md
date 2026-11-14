@@ -30,7 +30,7 @@ All transitions go through `empirica resolve-artifacts` (`empirica resolve-artif
 | decision | `resolve-artifacts` with `outcome` | `outcome` (`upheld`, `reversed`, `mixed`; required), `outcome_assessed_at`, `regret_score` | what the choice produced. `regret` is 0 to 1 and self-assessed, not derived from outcome and reversibility |
 | lesson | `resolve-artifacts` with `superseded_by` | supersession edge | a lesson is retired only by a named successor |
 
-Migration 060 (`migration_060_artifact_falsifiability`) added the invalidation columns to `project_dead_ends` and `mistakes_made`, a `domain` column on dead-ends (so staleness can be judged per domain, since a dead-end about a fast-moving dependency rots faster than one about arithmetic), and `derived_from` on `blindspot_events`. Retrieval over memory skips invalidated dead-ends and mistakes (`memory_manager.py`).
+Migration 060 (`migration_060_artifact_falsifiability`) added the invalidation columns to `project_dead_ends` and `mistakes_made`, a `domain` column on dead-ends (so staleness can be judged per domain, since a dead-end about a fast-moving dependency rots faster than one about arithmetic), and `derived_from` on `blindspot_events`. The session-start and post-compact pictures skip invalidated dead-ends and mistakes (`core/bootstrap/circles.py`, `hooks/post-compact.py`).
 
 ### Bulk mode for gardening
 

@@ -653,7 +653,9 @@ def _canonical_goal_id(goal_id: str, db) -> str:
     cursor.execute("SELECT id FROM goals WHERE id = ?", (goal_id,))
     if cursor.fetchone():
         return goal_id
-    cursor.execute("SELECT id FROM goals WHERE id LIKE ? LIMIT 4", (f"{goal_id}%",))
+    # Escape LIKE's wildcards: a "%" or "_" typed as a prefix must not match goals it does not spell (1.16.3 sweep).
+    escaped = goal_id.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    cursor.execute("SELECT id FROM goals WHERE id LIKE ? ESCAPE '\\' LIMIT 4", (f"{escaped}%",))
     matches = [r["id"] if hasattr(r, "keys") else r[0] for r in cursor.fetchall()]
     if len(matches) == 1:
         return matches[0]

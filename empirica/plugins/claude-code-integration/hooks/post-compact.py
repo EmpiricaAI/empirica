@@ -1038,9 +1038,13 @@ def _load_dynamic_context(session_id: str, ai_id: str, pre_snapshot: dict) -> di
             """
             SELECT approach, why_failed, created_timestamp, id
             FROM project_dead_ends
-            WHERE project_id = ?
+            WHERE project_id = ?{inval}
             ORDER BY created_timestamp DESC LIMIT 5
-        """,
+        """.format(
+                inval=" AND COALESCE(is_invalidated, 0) = 0"
+                if "is_invalidated" in {r[1] for r in cursor.execute("PRAGMA table_info(project_dead_ends)").fetchall()}
+                else ""
+            ),
             (project_id,),
         )
         for row in cursor.fetchall():

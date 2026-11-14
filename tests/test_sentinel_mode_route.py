@@ -124,3 +124,12 @@ def test_the_daemon_serves_both_methods_and_its_cors_lets_the_extension_send_the
         headers={"Origin": "chrome-extension://abc", "Access-Control-Request-Method": "PATCH"},
     )
     assert preflight.status_code == 200
+
+
+def test_a_relative_name_is_looked_up_not_read_against_the_daemon_s_directory(env, monkeypatch, tmp_path):
+    client, practice, _ = env
+    monkeypatch.chdir(practice.parent)  # "practice-A" now exists relative to the cwd
+    assert client.get("/api/v1/sentinel/mode", params={"project": "practice-A"}).status_code == 404
+    assert (
+        client.get("/api/v1/sentinel/mode", params={"project": "practice-a"}).status_code == 200
+    )  # the registered ai_id

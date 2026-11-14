@@ -59,6 +59,15 @@ def _safe_json(raw: Any) -> dict:
 # ── Circle 1: active state ──────────────────────────────────────────────
 
 
+def _not_invalidated(cur, table: str) -> str:
+    """The clause that drops invalidated rows, where the store has the column (migration 060); none on an older store."""
+    try:
+        columns = {row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()}
+    except Exception:
+        return ""
+    return " AND COALESCE(is_invalidated, 0) = 0" if "is_invalidated" in columns else ""
+
+
 def circle_1_active_state(
     project_path: Path | str,
     project_id: str,
@@ -243,7 +252,8 @@ def circle_1_active_state(
             "SELECT id, approach, why_failed, dead_end_data, impact, "
             "epistemic_source, session_id, goal_id, transaction_id, created_timestamp "
             "FROM project_dead_ends "
-            "WHERE project_id = ? AND created_timestamp >= ? "
+            # An invalidated dead end no longer constrains anything; it was skipped by the MEMORY.md block this replaces.
+            f"WHERE project_id = ? AND created_timestamp >= ?{_not_invalidated(cur, 'project_dead_ends')} "
             "ORDER BY created_timestamp DESC LIMIT ?",
             (project_id, cutoff_14d, cap("recent_dead_ends", 5)),
         )
@@ -272,7 +282,7 @@ def circle_1_active_state(
                 "SELECT id, mistake, why_wrong, prevention, mistake_data, "
                 "epistemic_source, session_id, goal_id, transaction_id, created_timestamp "
                 "FROM mistakes_made "
-                "WHERE project_id = ? AND created_timestamp >= ? "
+                f"WHERE project_id = ? AND created_timestamp >= ?{_not_invalidated(cur, 'mistakes_made')} "
                 "ORDER BY created_timestamp DESC LIMIT ?",
                 (project_id, cutoff_14d, cap("recent_mistakes", 5)),
             )

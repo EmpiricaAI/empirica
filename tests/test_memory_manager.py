@@ -13,6 +13,8 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 import empirica.core.memory_manager as mm
 from empirica.core.memory_manager import (
     _remove_from_memory_index,
@@ -186,3 +188,25 @@ def test_removing_an_index_line_leaves_lines_that_merely_mention_the_name(tmp_pa
     result = (memory_dir / "MEMORY.md").read_text()
     assert "Test results show improvement" in result
     assert "(promoted_test.md)" not in result
+
+
+@pytest.mark.parametrize(
+    "after",
+    [
+        "- [2026 roadmap](plan.md) — a title that starts with a digit\n",
+        "### My notes\n- mine\n",
+        "- `git push` needs the token first\n",
+        "---\nseparator a person wrote\n",
+    ],
+)
+def test_a_person_s_line_right_below_the_block_is_kept(tmp_path, after):
+    # Claude Code appends index lines at the end, where the old block also sat (1.16.3 sweep).
+    path = _memory(tmp_path, MANUAL_TOP + BLOCK + after)
+    strip_legacy_focus_block(path)
+    assert path.read_text() == MANUAL_TOP + after
+
+
+def test_a_crlf_file_still_loses_the_block(tmp_path):
+    path = _memory(tmp_path, (MANUAL_TOP + BLOCK).replace("\n", "\r\n"))
+    assert strip_legacy_focus_block(path) is True
+    assert "EPISTEMIC FOCUS" not in path.read_text() and "Patch releases" in path.read_text()

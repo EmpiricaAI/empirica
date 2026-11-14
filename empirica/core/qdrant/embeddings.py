@@ -185,9 +185,15 @@ _fallback_warned = False
 
 
 def _strict_setting(file_conf: dict) -> bool:
-    """EMPIRICA_EMBEDDINGS_STRICT, else ``strict`` in embeddings.conf: refuse the hash fallback (prop_tecek2mq5vgadcihzozgdihdla)."""
-    raw = os.getenv("EMPIRICA_EMBEDDINGS_STRICT", str(file_conf.get("strict", "")))
-    return raw.strip().lower() in ("1", "true", "yes", "on")
+    """EMPIRICA_EMBEDDINGS_STRICT, else ``strict`` in embeddings.conf: refuse the hash fallback (prop_tecek2mq5vgadcihzozgdihdla).
+
+    A safety switch fails closed: any value set that is not plainly off (``0``, ``false``, ``no``, ``off``) turns it on. An env var
+    set but empty counts as unset, so it does not override the file (1.16.3 sweep).
+    """
+    env = os.getenv("EMPIRICA_EMBEDDINGS_STRICT")
+    raw = env if env is not None and env.strip() else str(file_conf.get("strict", ""))
+    value = raw.strip().lower()
+    return bool(value) and value not in ("0", "false", "no", "off")
 
 
 def _resolve_auto_provider(ollama_url: str) -> str:
@@ -390,6 +396,9 @@ class EmbeddingsProvider:
         probe's verdict is cached (30 s after a failure), so this costs a dictionary lookup on most embeds."""
         if self.is_hash_fallback and _check_ollama_available(self.ollama_url):
             self.provider, self.model, self._auto_fallback = "ollama", self._ollama_model, False
+            # The hash vectors were sized from the env model or the default; the model moved to may differ (a config-file
+            # model): size from it, or from the first real embed (1.16.3 sweep).
+            self._vector_size = MODEL_DIMENSIONS.get(self.model)
             logger.warning(
                 f"Embeddings: Ollama answers at {self.ollama_url} again; using {self.model}, not hash vectors"
             )

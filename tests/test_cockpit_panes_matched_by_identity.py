@@ -118,3 +118,18 @@ def test_a_pane_stamped_before_identities_keeps_its_key_only_where_it_still_fits
 
     assert _create_group_window(group, cfg, "old", True, {}) == (False, 3, None)
     assert sorted(_panes("old")) == [("g/0", "alpha"), ("g/1", "gamma"), ("g/2", "beta")]
+
+
+def test_a_stopped_pre_identity_pane_is_known_by_its_instance_id(tmux_env):
+    # A stopped pane reports no directory; its instance id still says which practice it is (1.16.3 sweep).
+    from empirica.core.cockpit.launcher.tmux import _rekey_rows
+
+    projects = [ProjectSpec(name=n, path=str(d), launch="claude --continue") for n, d in tmux_env.items()]
+    group = GroupSpec(name="g", panes=[PaneSpec(project_ref=r) for r in ("gamma", "alpha", "beta")])
+    cfg = LauncherConfig(session_name="dead", projects=projects, groups=[group])  # claude panes carry instance ids
+    rows = [{"pane_id": "%999", "key": "g/0", "ident": "", "path": "", "iid": "alpha", "window": "g"}]
+    _rekey_rows(rows, cfg)  # the option writes go to a pane that does not exist and fail quietly
+    assert rows[0]["key"] == "", "alpha's stopped pane is not taken for gamma, whose slot g/0 now is"
+    rows = [{"pane_id": "%999", "key": "g/1", "ident": "", "path": "", "iid": "alpha", "window": "g"}]
+    _rekey_rows(rows, cfg)
+    assert rows[0]["key"] == "g/1", "control: in its own slot it keeps the key"

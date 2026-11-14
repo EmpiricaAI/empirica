@@ -448,7 +448,7 @@ def _preflight_resolve_goal_ids(goal_ids, session_id, db=None) -> list[str]:
     """The full ids of the goals PREFLIGHT names, in order and without repeats; ValueError for one that cannot be worked.
 
     Each must exist (a full id or unique prefix), be neither completed nor abandoned, and belong to the session's project. A
-    planned goal is accepted: naming it is starting it.
+    planned goal is accepted and stays planned: binding it does not change its status (goals-activate does).
     """
     if not goal_ids:
         return []
