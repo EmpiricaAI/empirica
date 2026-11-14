@@ -439,18 +439,18 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.16.2
+## What's New in 1.16.3
 
-- **A session starts with the whole bootstrap picture.** Goals, findings, unknowns, decisions, assumptions, mistakes, dead ends and links, each with a short id, within a token budget, and a line per category saying what was shown out of how many, or why nothing was.
-- **`blindspot-scan` finds broken premises:** open artifacts that still rest on one that was since retracted, superseded or falsified.
-- **POSTFLIGHT is faster and an unreachable Ollama costs 3 seconds, not 20.** The MEMORY.md refresh moved off the response path, and connecting to Ollama has its own short timeout.
+- **PREFLIGHT can name the goals a transaction works on.** A goal carried across transactions counts as in play from the first call, and what is logged in the window attaches to it.
+- **Empirica no longer writes Claude Code's memory folder.** Session start already shows the project's artifacts, with ids; `MEMORY.md` is left to Claude Code, and `setup-claude-code` removes the old block once.
+- **Hash vectors stand in for embeddings only out loud, and can be refused** with `EMPIRICA_EMBEDDINGS_STRICT=1`; a process that fell back moves to Ollama when it answers.
 
-All 27 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 10 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.16.2** — A session starts with the whole bootstrap picture. Goals, findings, unknowns, decisions, assumptions, mistakes, dead ends and links, each with a short id,…
 - **1.16.1** — Links, falsifiers and lessons reach the git notes, so a rebuild restores the whole graph. They are exported at each POSTFLIGHT, a bounded batch at a time,…
-- **1.16.0** — Semantic search on a machine with no Cortex, Qdrant or Ollama. The local server now holds the vector store and a multilingual embedding model (they come wi…
 
 ## What's Coming
 
