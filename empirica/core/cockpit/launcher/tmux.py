@@ -480,15 +480,99 @@ def _pane_keys(config: LauncherConfig) -> list[tuple[str, PaneSpec]]:
     return keys
 
 
+def _pane_ident(pane: PaneSpec) -> str:
+    """What a configured pane IS, independent of where it sits: its project, else its label, else its command."""
+    if pane.project_ref:
+        return f"project:{pane.project_ref}"
+    if pane.label:
+        return f"label:{pane.label}"
+    return f"command:{pane.inline_command or ''}"
+
+
+def _key_idents(config: LauncherConfig) -> dict[str, str]:
+    """``{pane key: identity}``, an ordinal (``#2``, ``#3``) added for a repeat of the same identity within a group.
+
+    The key says where a pane sits in the config and changes when a pane is inserted, removed or moved; the identity
+    does not, so a live pane is matched to its configured pane by identity (prop_6k4mvcdb7bb45orydga7ejexum).
+    """
+    out: dict[str, str] = {}
+    seen: dict[tuple[str, str], int] = {}
+    for key, pane in _pane_keys(config):
+        group = key.rsplit("/", 1)[0]
+        base = _pane_ident(pane)
+        n = seen[(group, base)] = seen.get((group, base), 0) + 1
+        out[key] = base if n == 1 else f"{base}#{n}"
+    return out
+
+
+def _set_pane_option(pane_id: str, name: str, value: str | None) -> None:
+    if value:
+        _tmux("set-option", "-p", "-t", pane_id, name, value)
+    else:
+        _tmux("set-option", "-p", "-u", "-t", pane_id, name)
+
+
+def _project_dir(config: LauncherConfig, pane: PaneSpec) -> str | None:
+    proj = config.project_by_name(pane.project_ref) if pane.project_ref else None
+    return os.path.realpath(os.path.expanduser(proj.path)) if proj else None
+
+
+def _sits_in_another_slot(key: str, path: str, specs: dict[str, PaneSpec], config: LauncherConfig) -> bool:
+    """Whether a pane stamped ``key`` before identities existed sits in the directory of a DIFFERENT project configured
+    in the same group: the one sign that its position-based key now names someone else. An unknown directory, or one no
+    configured project owns (a pane that moved on), is no evidence, so the key stands."""
+    if not path:
+        return False
+    here = os.path.realpath(path)
+    group = key.rsplit("/", 1)[0]
+    own = _project_dir(config, specs[key])
+    return any(
+        k != key and k.rsplit("/", 1)[0] == group and _project_dir(config, p) == here != own for k, p in specs.items()
+    )
+
+
+def _rekey_rows(rows: list[dict], config: LauncherConfig) -> None:
+    """Re-key live panes to the configured pane with the same identity, in place and on the panes.
+
+    A pane whose identity left the config loses its key. A pane stamped before identities existed keeps its key, and is
+    given that slot's identity, unless it sits in the directory of a different project configured in the same group;
+    then it loses the key and is left for adoption by directory. Each key goes to one pane.
+    """
+    idents = _key_idents(config)
+    by_ident = {(key.rsplit("/", 1)[0], ident): key for key, ident in idents.items()}
+    specs = dict(_pane_keys(config))
+    claimed: set[str] = set()
+    for row in rows:
+        old = row.get("key") or ""
+        if row.get("ident"):
+            new = by_ident.get((row["window"], row["ident"]), "")
+        elif old and old.rsplit("/", 1)[0] == row["window"] and old in specs:
+            new = "" if _sits_in_another_slot(old, row.get("path", ""), specs, config) else old
+            if new:
+                row["ident"] = idents[new]
+                _set_pane_option(row["pane_id"], "@empirica_pane_ident", row["ident"])
+        else:
+            new = ""
+        if new in claimed:
+            new = ""
+        if new != old:
+            _set_pane_option(row["pane_id"], "@empirica_pane", new)
+        row["key"] = new
+        if new:
+            claimed.add(new)
+
+
 def _identity_args(instance_id: str | None) -> list[str]:
     return ["-e", f"EMPIRICA_INSTANCE_ID={instance_id}"] if instance_id else []
 
 
-def _stamp_pane(pane_id: str, key: str, instance_id: str | None, remain: bool) -> None:
-    """Record which configured pane this is, and its identity, on the pane itself."""
+def _stamp_pane(pane_id: str, key: str, instance_id: str | None, remain: bool, ident: str | None = None) -> None:
+    """Record which configured pane this is (its key, and what it is), and its instance id, on the pane itself."""
     if not pane_id:
         return
     _tmux("set-option", "-p", "-t", pane_id, "@empirica_pane", key)
+    if ident:
+        _tmux("set-option", "-p", "-t", pane_id, "@empirica_pane_ident", ident)
     if instance_id:
         _tmux("set-option", "-p", "-t", pane_id, "@empirica_instance_id", instance_id)
     if remain:
@@ -597,7 +681,7 @@ def _open_pane(
     if result.returncode == 0:
         pane_id = result.stdout.strip()
         _set_pane_title(pane_id, _pane_title(pane))
-        _stamp_pane(pane_id, key, iid, remain=_keeps_on_exit(pane, iid, config))
+        _stamp_pane(pane_id, key, iid, remain=_keeps_on_exit(pane, iid, config), ident=_key_idents(config).get(key))
         if opened is not None:
             opened.append({"key": key, "pane_id": pane_id, "instance_id": iid, "command": cmd, "error": None})
         if base and base[0] == "new-session" and (session := _session_of(base)):
@@ -619,6 +703,20 @@ def _incomplete(group: GroupSpec, failures: list[str], attempted: int) -> str | 
     if not failures:
         return None
     return f"{len(failures)} of {attempted} pane(s) in {group.name!r} not created: {failures[0]}"
+
+
+def _split_beside(key: str, keyed: list, at: dict[str, str], window_target: str, split_flag: str) -> list[str]:
+    """The split-window command for a missing pane: after the live pane configured just before it, else before the one
+    just after it, else in the window. tmux places the new pane next to its target, so config order is kept."""
+    order = [k for k, _ in keyed]
+    i = order.index(key)
+    before = next((at[k] for k in reversed(order[:i]) if k in at), None)
+    if before:
+        return ["split-window", "-t", before, split_flag]
+    after = next((at[k] for k in order[i + 1 :] if k in at), None)
+    if after:
+        return ["split-window", "-b", "-t", after, split_flag]
+    return ["split-window", "-t", window_target, split_flag]
 
 
 def _split_style(split: str) -> tuple[str, str]:
@@ -718,27 +816,45 @@ def _create_group_window(
     split_flag, layout = _split_style(group.split)
     keyed = [(f"{group.name}/{i}", pane) for i, pane in enumerate(group.panes)]
 
-    listing = _tmux("list-panes", "-t", window_target, "-F", "#{pane_id}\t#{@empirica_pane}")
+    listing = _tmux(
+        "list-panes",
+        "-t",
+        window_target,
+        "-F",
+        "#{pane_id}\t#{@empirica_pane}\t#{@empirica_pane_ident}\t#{pane_current_path}",
+    )
     if listing.returncode == 0:
-        rows = [line.split("\t") for line in listing.stdout.splitlines() if line.strip()]
-        present = {r[1] for r in rows if len(r) > 1 and r[1]}
-        existing = len(rows)
-        if present:
-            missing = [(k, p) for k, p in keyed if k not in present]
+        names = ("pane_id", "key", "ident", "path")
+        rows = [
+            dict(zip(names, line.split("\t"), strict=False)) for line in listing.stdout.splitlines() if line.strip()
+        ]
+        for row in rows:
+            row["window"] = group.name
+        stamped = any(r.get("key") or r.get("ident") for r in rows)
+        if stamped:
+            # Match live panes to configured ones by what they are; a key alone shifts when a pane is inserted.
+            _rekey_rows(rows, config)
+            _adopt(rows, dict(keyed), config, identities)
+            at = {r["key"]: r["pane_id"] for r in rows if r.get("key")}
+            missing = [(k, p) for k, p in keyed if k not in at]
         else:
-            missing = keyed[existing:]  # unstamped window from an older launch
+            at = {}
+            missing = keyed[len(rows) :]  # unstamped window from an older launch
+        existing = len(rows)
         failures: list[str] = []
         for key, pane in missing:
             result = _open_pane(
-                ["split-window", "-t", window_target, split_flag], pane, key, config, identities, opened
+                _split_beside(key, keyed, at, window_target, split_flag), pane, key, config, identities, opened
             )
             if result.returncode == 0:
                 existing += 1
+                at[key] = result.stdout.strip()
             else:
                 failures.append(_why(result))
         if missing:
             _tmux("select-layout", "-t", window_target, layout)
-        return False, existing, _incomplete(group, failures, len(missing))
+        tracked = sum(1 for r in rows if r.get("key")) + (existing - len(rows)) if stamped else existing
+        return False, tracked, _incomplete(group, failures, len(missing))
 
     if not group.panes:
         return False, 0, f"group {group.name!r} has no panes"
@@ -1073,8 +1189,9 @@ def _adopt(
         row = rows[idx]
         key = candidates[0]
         iid = identities.get(key)
-        _stamp_pane(row["pane_id"], key, iid, remain=_keeps_on_exit(specs[key], iid, config))
-        row["key"], row["iid"] = key, iid or ""
+        ident = _key_idents(config).get(key)
+        _stamp_pane(row["pane_id"], key, iid, remain=_keeps_on_exit(specs[key], iid, config), ident=ident)
+        row["key"], row["iid"], row["ident"] = key, iid or "", ident or ""
         seen.add(key)
         adopted.append(key)
     return adopted
@@ -1128,6 +1245,16 @@ def _pane_session(proj, iid: str | None, pane_id: str, server_start: str | None)
     return None
 
 
+def _refresh_rows(stdout: str) -> list[dict]:
+    """refresh's list-panes rows as dicts. The identity column is newer; a row without it reads as a legacy pane."""
+    names = ("pane_id", "dead", "current", "key", "iid", "window", "path", "ident")
+    rows = [dict(zip(names, line.split("\t"), strict=False)) for line in stdout.splitlines() if line]
+    rows = [r for r in rows if len(r) >= len(names) - 1]
+    for r in rows:
+        r.setdefault("ident", "")
+    return rows
+
+
 def refresh_cockpit(
     config: LauncherConfig, only_pane: str | None = None, restart_running: bool = False
 ) -> RefreshResult:
@@ -1162,18 +1289,19 @@ def refresh_cockpit(
 
     fmt = (
         "#{pane_id}\t#{pane_dead}\t#{pane_current_command}\t#{@empirica_pane}\t"
-        "#{@empirica_instance_id}\t#{window_name}\t#{pane_current_path}"
+        "#{@empirica_instance_id}\t#{window_name}\t#{pane_current_path}\t#{@empirica_pane_ident}"
     )
     listing = _tmux("list-panes", "-s", "-t", exact_session(session_name), "-F", fmt)
     if listing.returncode != 0:
         out.error = f"tmux list-panes failed: {listing.stderr.strip()}"
         return out
-    names = ("pane_id", "dead", "current", "key", "iid", "window", "path")
     server_start = _tmux("display", "-p", "#{start_time}").stdout.strip() or None  # guards ecodex's pane records
-    rows = [dict(zip(names, line.split("\t"), strict=False)) for line in listing.stdout.splitlines() if line]
-    rows = [r for r in rows if len(r) == len(names)]
+    rows = _refresh_rows(listing.stdout)
 
     specs = dict(_pane_keys(config))
+    # A key says where a pane sat when it was stamped; re-key by identity first, so a group whose panes were inserted,
+    # removed or moved since does not respawn one practitioner as another (prop_6k4mvcdb7bb45orydga7ejexum).
+    _rekey_rows(rows, config)
     out.adopted = _adopt(rows, specs, config, assign_identities(config, session_name))
     seen = {r["key"] for r in rows if r["key"]}
     if only_pane is not None:
