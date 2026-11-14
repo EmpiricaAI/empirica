@@ -371,7 +371,8 @@ def test_install_puts_practices_on_top_and_the_commands_under_every_pane(tmux_en
 
     screen = Client("b1").lines()
     assert "alpha" in screen[0] and "beta" in screen[0], "practices are on the first row"
-    assert "R restart" in screen[-1] and "? help" in screen[-1], "commands are on the last row"
+    assert "☰ commands" in screen[-1] and "? help" in screen[-1], "commands are on the last row"
+    assert "R restart" not in screen[-1], "a chip with nothing to say is not on the line (David, 2026-11-14)"
 
 
 def test_the_commands_sit_in_their_own_key_table_behind_prefix_e(tmux_env):
@@ -484,11 +485,15 @@ def test_a_stopped_pane_turns_r_and_a_red_under_it_and_marks_its_tab_with_no_ref
     screen = Client("b8").lines(colours=True)
 
     assert "<48;5;160> R restart " in screen[-1].replace("<1><38;5;231>", ""), "R is red under the pane that stopped"
-    assert "A refresh 1 " in screen[-1] and "<48;5;237> M listener " in screen[-1].replace("<38;5;244>", "")
+    assert "A refresh 1 " in screen[-1] and " M " not in screen[-1], "M has nothing to say, so it is not shown"
     assert "✗" in screen[0] and "beta" in screen[0], "the stopped practice is marked on the top row"
 
 
-def test_waiting_mail_turns_that_practice_s_inbox_chip_orange_and_only_that_one(tmux_env, monkeypatch):
+def _pane_opt(target: str, name: str) -> str:
+    return _tmux("show-option", "-p", "-t", target, "-qv", name).stdout.strip()
+
+
+def test_mail_turns_that_practice_s_m_chip_orange_and_only_that_one(tmux_env, monkeypatch):
     from empirica.core.cockpit.launcher import state
 
     cfg, config_path = _cockpit(tmux_env, "b9")
@@ -497,25 +502,47 @@ def test_waiting_mail_turns_that_practice_s_inbox_chip_orange_and_only_that_one(
 
     out = bar.refresh_state(
         "b9",
-        inbox=lambda ai_id, _path: ("orange", "inbox 2") if ai_id == "beta" else ("", bar.INBOX_UNKNOWN),
+        mail=lambda ai_id, _path: 2 if ai_id == "beta" else None,
         listener=lambda ai_id: ("red", "listener down", True) if ai_id == "alpha" else ("", "", False),
     )
 
     assert out["ok"] is True and out["practices"] == 2
-    assert (_window_opt("=b9:beta", "@empirica_chip_I"), _window_opt("=b9:beta", "@empirica_label_I")) == (
+    assert (_pane_opt("=b9:beta", "@empirica_chip_M"), _pane_opt("=b9:beta", "@empirica_label_M")) == (
         "orange",
-        "inbox 2",
+        "mail 2",
     )
-    assert _window_opt("=b9:alpha", "@empirica_label_I") == "inbox ?", (
-        "a poll that failed on a mesh practice shows as unknown"
-    )
-    assert _window_opt("=b9:alpha", "@empirica_chip_M") == "red"
+    assert (_pane_opt("=b9:alpha", "@empirica_chip_M"), _pane_opt("=b9:alpha", "@empirica_label_M")) == (
+        "red",
+        "listener down · mail ?",
+    ), "a mailbox that could not be read on a practice on the mesh says so"
+    assert _pane_opt("=b9:beta", "@empirica_practice") == "beta"
     assert (state.COCKPIT_DIR / "bar_state_b9.stamp").exists(), "the stamp stops the status line starting it again"
     _tmux("select-window", "-t", "=b9:beta")
-    assert "<48;5;208> I inbox 2 " in Client("b9").lines(colours=True)[-1].replace("<1><38;5;16>", "")
+    line = Client("b9").lines(colours=True)[-1]
+    assert "<48;5;208> M mail 2 " in line.replace("<1><38;5;16>", "")
+    assert line.index("beta") < line.index("M mail 2") < line.index("commands"), "practice first, then chips, then menu"
 
-    bar.refresh_state("b9", inbox=lambda _a, _p: ("", bar.INBOX_UNKNOWN), listener=lambda _a: ("", "", False))
-    assert _window_opt("=b9:beta", "@empirica_chip_I") == "" and _window_opt("=b9:beta", "@empirica_label_I") == ""
+    bar.refresh_state("b9", mail=lambda _a, _p: 0, listener=lambda _a: ("", "", False))
+    assert _pane_opt("=b9:beta", "@empirica_chip_M") == "" and _pane_opt("=b9:beta", "@empirica_label_M") == ""
+
+
+def test_two_practices_in_one_window_each_show_their_own_mail(tmux_env, monkeypatch):
+    """The grid window: state was per window, from its first pane, so every pane showed that practice's count."""
+    cfg, config_path = _cockpit(
+        tmux_env,
+        "b10",
+        groups=[{"name": "wall", "split": "horizontal", "panes": [{"project": "alpha"}, {"project": "beta"}]}],
+    )
+    bar.install(cfg, "b10", config_path=config_path, profile=None)
+    monkeypatch.setattr(bar, "read_ecosystem_state", dict)
+    _tmux("set-option", "-w", "-t", "=b10:wall", "@empirica_chip_M", "orange")  # left by an earlier, per-window version
+
+    bar.refresh_state("b10", mail=lambda ai_id, _p: {"alpha": 0, "beta": 3}[ai_id], listener=lambda _a: ("", "", True))
+
+    panes = _tmux("list-panes", "-t", "=b10:wall", "-F", "#{pane_id}").stdout.split()
+    got = {_pane_opt(p, "@empirica_practice"): _pane_opt(p, "@empirica_label_M") for p in panes}
+    assert got == {"alpha": "", "beta": "mail 3"}
+    assert _window_opt("=b10:wall", "@empirica_chip_M") == "", "the per-window leftover is cleared"
 
 
 def test_health_moves_to_its_own_line_when_the_practices_do_not_fit(tmux_env):

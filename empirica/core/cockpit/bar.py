@@ -48,17 +48,20 @@ from empirica.core.cockpit.launcher.tmux import _sess_at, _tmux, cockpit_session
 CHIPS: tuple[tuple[str, str], ...] = (
     ("R", "restart"),
     ("A", "refresh"),
-    ("M", "listener"),
-    ("I", "inbox"),
+    ("M", "mail"),
     ("C", "claude"),
-    ("S", "sessions"),
     ("L", "login"),
 )
 #: Commands reached only through the menu: no chip and no key, so nobody starts them by accident.
-#: U is here because updating the whole ecosystem from a click is too easy to start and too hard to follow (David, 2026-11-06).
-MENU_ONLY = "U"
+#: U is here because updating the whole ecosystem from a click is too easy to start and too hard to follow (David, 2026-11-06);
+#: S, restarting every running session, joined it on 2026-11-14 (David's rulings, prop_vc67kjtw4vfj3b5uavfqyjsycu).
+MENU_ONLY = "US"
+#: Keys an earlier version bound that no longer exist: I (inbox) is now part of M, which wakes the practice to read its mail.
+RETIRED_KEYS = "I"
 #: Chips whose colour comes from options the background refresh sets. R and A are live tmux formats.
-STATE_CHIPS = "MIUCSL"
+STATE_CHIPS = "MUCSL"
+#: Chips whose state is per pane (its practice's), set as pane options; the others are this machine's, set per window.
+PANE_CHIPS = "M"
 #: Chips that change the machine or end sessions: they ask first.
 CONFIRM: dict[str, str] = {
     "U": "Update Empirica and its plugins on this machine?",
@@ -68,7 +71,7 @@ CONFIRM: dict[str, str] = {
 KEY_TABLE = "empirica"
 STATE_MAX_AGE_MINUTES = 5
 POPUP_WIDTH = "100"
-INBOX_UNKNOWN = "inbox ?"
+MAIL_UNKNOWN = "mail ?"
 
 _RED = "#[bg=colour160 fg=colour231 bold]"
 _ORANGE = "#[bg=colour208 fg=colour16 bold]"
@@ -92,16 +95,37 @@ def _style(state: str) -> str:
     return f"#{{?#{{==:{state},red}},{_RED},#{{?#{{==:{state},orange}},{_ORANGE},{_DIM}}}}}"
 
 
+def _chip_state(key: str) -> str:
+    """The format that expands to a chip's state: `red`, `orange` or nothing."""
+    if key == "R":
+        return "#{?pane_dead,red,}"
+    if key == "A":
+        return f"#{{?{_DEAD},red,}}"
+    return f"#{{@empirica_chip_{key}}}"
+
+
 def chip_format(key: str, label: str) -> str:
     """One chip: a style from its state, the letter and a label. Evaluated per pane, so R is about the pane it sits under."""
-    if key == "R":
-        state, text = "#{?pane_dead,red,}", label
-    elif key == "A":
-        state, text = f"#{{?{_DEAD},red,}}", f"#{{?{_DEAD},{label} #{{n:{_DEAD}}},{label}}}"
+    if key == "A":
+        text = f"#{{?{_DEAD},{label} #{{n:{_DEAD}}},{label}}}"
+    elif key == "R":
+        text = label
     else:
-        state = f"#{{@empirica_chip_{key}}}"
         text = f"#{{?#{{@empirica_label_{key}}},#{{@empirica_label_{key}}},{label}}}"
-    return f"{_style(state)} {key} {text} #[default] "
+    return f"{_style(_chip_state(key))} {key} {text} #[default] "
+
+
+def shown_chip_format(key: str, label: str) -> str:
+    """The chip only while it is orange or red: the line under a pane shows what needs attention, nothing dim."""
+    state, chip = _chip_state(key), chip_format(key, label)
+    return f"#{{?#{{==:{state},red}},{chip},#{{?#{{==:{state},orange}},{chip},}}}}"
+
+
+#: The practice's name, first on the line, as a coloured block: side-by-side panes are told apart at a glance. The refresh sets
+#: the pane's practice; until it has, the directory's name stands in.
+PRACTICE_BLOCK = (
+    "#[bg=colour31 fg=colour231 bold] #{?@empirica_practice,#{@empirica_practice},#{b:pane_current_path}} #[default] "
+)
 
 
 def tabs_format() -> str:
@@ -154,14 +178,15 @@ def top_lines(session_name: str, one_line: bool) -> list[str]:
 
 
 def commands_format() -> str:
-    """The line under each pane: the command chips, coloured by state. The whole line is one button that opens the menu.
+    """The line under each pane: the practice's name, then only the chips that are orange or red, then the menu and help.
 
-    tmux reports which pane's line was clicked but not where on it, so the chips here show state and the menu takes the click.
+    The whole line is one button that opens the menu: tmux reports which pane's line was clicked but not where on it, so the chips
+    here show state and the menu takes the click (David's layout, 2026-11-14).
     """
     button = "#[bg=colour25 fg=colour231 bold] ☰ commands #[default] "
-    chips = "".join(chip_format(key, label) for key, label in CHIPS)
+    chips = "".join(shown_chip_format(key, label) for key, label in CHIPS)
     waiting = f"#{{?@empirica_waiting,{_ORANGE} waiting: #{{@empirica_waiting}} #[default] ,}}"
-    return f" {waiting}{button}{chips}#[bg=colour25 fg=colour231 bold] ? help #[default] "
+    return f"{PRACTICE_BLOCK}{waiting}{chips}{button}#[bg=colour25 fg=colour231 bold] ? help #[default] "
 
 
 # ── layout ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -267,10 +292,10 @@ def menu_args(position: str) -> list[str]:
     items = [
         ("R  restart this pane#{?pane_dead, · it has stopped,}", "r", "R"),
         (f"A  restart every stopped pane#{{?{_DEAD}, · #{{n:{_DEAD}}} stopped,}}", "a", "A"),
-        ("M  wake it: read mail, re-arm the listener" + wait % ("M", "M"), "m", "M"),
-        ("I  inbox" + wait % ("I", "I"), "i", "I"),
+        ("M  mail: wake it to read its mail and re-arm its listener" + wait % ("M", "M"), "m", "M"),
         None,
         ("C  update the AI client" + wait % ("C", "C"), "c", "C"),
+        # Menu only, no chip and no key: it ends every running session (David, 2026-11-14).
         ("S  restart the running sessions" + wait % ("S", "S"), "s", "S"),
         ("L  log in to Cortex" + wait % ("L", "L"), "l", "L"),
         None,
@@ -323,7 +348,7 @@ def install_bindings(mouse: bool = True) -> dict[str, Any]:
         )
     for key, _label in CHIPS:
         _tmux("bind-key", "-T", KEY_TABLE, key, *shlex.split(_action_command("chip", key)))
-    for key in MENU_ONLY:
+    for key in MENU_ONLY + RETIRED_KEYS:
         _tmux("unbind-key", "-q", "-T", KEY_TABLE, key)  # an earlier version bound it
     _tmux("bind-key", "-T", KEY_TABLE, "?", *shlex.split(_action_command("chip", "help")))
     _tmux("bind-key", "-T", KEY_TABLE, "Space", *menu_args("P"))
@@ -527,11 +552,11 @@ def _listener_chip(ai_id: str, workers: dict[str, int] | None = None) -> tuple[s
     return "", "", bool(status.installed) or running > 0
 
 
-def _inbox_chip(ai_id: str, path: str, run=subprocess.run) -> tuple[str, str]:
-    """Orange with a count when accepted mail is waiting. A poll that fails shows `inbox ?`, never a clean chip."""
+def _poll(ai_id: str, path: str, run, *extra: str) -> list[dict] | None:
+    """One mailbox poll's proposals, or None when it could not be read."""
     try:
         result = run(
-            [*_empirica_argv(), "mailbox", "poll", "--ai-id", ai_id, "--status", "accepted", "--output", "json"],
+            [*_empirica_argv(), "mailbox", "poll", "--ai-id", ai_id, *extra, "--limit", "200", "--output", "json"],
             cwd=path,
             capture_output=True,
             text=True,
@@ -540,27 +565,73 @@ def _inbox_chip(ai_id: str, path: str, run=subprocess.run) -> tuple[str, str]:
         )
         payload = json.loads(result.stdout) if result.returncode == 0 and result.stdout.strip() else None
     except Exception:
-        payload = None
-    if not isinstance(payload, dict):
-        return "", INBOX_UNKNOWN
-    proposals = payload.get("proposals") or []
-    matched = payload.get("matched")
-    count = matched if isinstance(matched, int) and matched >= len(proposals) else len(proposals)
-    return ("orange", f"inbox {count}") if count else ("", "")
+        return None
+    proposals = payload.get("proposals") if isinstance(payload, dict) else None
+    return [p for p in proposals if isinstance(p, dict)] if isinstance(proposals, list) else None
 
 
-def _set_chip(window_id: str, key: str, state: str, label: str) -> None:
+def _names(ai_id: str, wire: object) -> bool:
+    """Whether a wire address (``org.tenant.project``) or a bare name is this practice."""
+    return isinstance(wire, str) and (wire == ai_id or wire.endswith("." + ai_id))
+
+
+def mail_count(ai_id: str, path: str, run=subprocess.run) -> int | None:
+    """Mail addressed to this practice that still needs its reply; None when the mailbox could not be read.
+
+    Accepted and not archived, still pending for this practice when it was sent to several (its ack not given), and not
+    answered by a message from this practice in reply to it (parent_id). Everything accepted and never archived only ever grew
+    (outreach read 108, most of it answered or for other targets: prop_xlduifbf5vdenieiq2hrbk4jk4).
+    """
+    inbox = _poll(ai_id, path, run, "--status", "accepted")
+    if inbox is None:
+        return None
+    outbox = _poll(ai_id, path, run, "--outbox") or []
+    answered = {p.get("parent_id") for p in outbox if p.get("parent_id")}
+    count = 0
+    for p in inbox:
+        if p.get("is_archived") or p.get("id") in answered:
+            continue
+        pending = p.get("pending_targets") or []
+        if pending and not any(_names(ai_id, w) for w in pending):
+            continue  # sent to several, and this practice has acked its part
+        count += 1
+    return count
+
+
+def mail_chip(listener_state: tuple[str, str, bool], count: int | None) -> tuple[str, str]:
+    """M's (state, label): red when the listener is down, orange for a duplicate listener or mail waiting, else nothing.
+
+    A count that could not be read shows `mail ?` on a practice on the mesh (it is dim, so only the menu shows it).
+    """
+    m_state, m_label, on_mesh = listener_state
+    mail = f"mail {count}" if count else (MAIL_UNKNOWN if count is None and on_mesh else "")
+    label = " · ".join(x for x in (m_label, mail) if x)
+    if m_state:
+        return m_state, label
+    return ("orange", label) if count else ("", label)
+
+
+def _set_option(scope: str, target: str, name: str, value: str) -> None:
+    if value:
+        _tmux("set-option", scope, "-t", target, name, value)
+    else:
+        _tmux("set-option", scope, "-u", "-t", target, name)
+
+
+def _set_chip(target: str, key: str, state: str, label: str, scope: str = "-w") -> None:
+    """A chip's state and label: per window (``-w``) for this machine's chips, per pane (``-p``) for the practice's."""
     for name, value in ((f"@empirica_chip_{key}", state), (f"@empirica_label_{key}", label)):
-        if value:
-            _tmux("set-option", "-w", "-t", window_id, name, value)
-        else:
-            _tmux("set-option", "-w", "-u", "-t", window_id, name)
+        _set_option(scope, target, name, value)
 
 
 def refresh_state(
-    session_name: str, *, state_dir: Path | None = None, inbox=_inbox_chip, listener=_listener_chip
+    session_name: str, *, state_dir: Path | None = None, mail=mail_count, listener=_listener_chip
 ) -> dict[str, Any]:
-    """Set every practice window's chip state, then re-fit the layout. Run detached; touches the stamp first."""
+    """Set every pane's practice and M chip, and every window's machine chips, then re-fit the layout. Run detached.
+
+    Per pane, not per window: a grid window holds several practices, and taking the first pane's state showed one practice's
+    mail under all of them (prop_vc67kjtw4vfj3b5uavfqyjsycu). Each practice is checked once however many panes it has.
+    """
     stamp = stamp_path(session_name, state_dir)
     try:
         stamp.parent.mkdir(parents=True, exist_ok=True)
@@ -570,44 +641,44 @@ def refresh_state(
     target = _sess_at(session_name)
     if _option(["-t", target], "@empirica_bar") != "1":
         return {"ok": False, "detail": "no bar on this session"}
-    rows = _tmux("list-panes", "-s", "-t", exact_session(session_name), "-F", "#{window_id}\t#{pane_current_path}")
-    practices: dict[str, tuple[str, str]] = {}  # window id -> (ai_id, directory)
+    rows = _tmux(
+        "list-panes", "-s", "-t", exact_session(session_name), "-F", "#{pane_id}\t#{window_id}\t#{pane_current_path}"
+    )
+    panes: list[tuple[str, str, str | None]] = []  # (pane id, window id, practice)
     windows: list[str] = []
+    paths: dict[str, str] = {}  # practice -> a directory to poll from
     for line in rows.stdout.splitlines():
-        window_id, _, path = line.partition("\t")
-        if window_id and window_id not in windows:
+        pane_id, window_id, path = (line.split("\t") + ["", ""])[:3]
+        if not pane_id:
+            continue
+        if window_id not in windows:
             windows.append(window_id)
-        if window_id and window_id not in practices:
-            ai_id = _practice_of(path)
-            if ai_id:
-                practices[window_id] = (ai_id, path)
-
-    def one(item: tuple[str, tuple[str, str]]) -> tuple[str, tuple[str, str], tuple[str, str]]:
-        window_id, (ai_id, path) = item
-        m_state, m_label, on_mesh = listener(ai_id)
-        i_state, i_label = inbox(ai_id, path)
-        if i_label == INBOX_UNKNOWN and not on_mesh:
-            i_label = ""  # a practice that is not on the mesh has no inbox to fail to read
-        return window_id, (m_state, m_label), (i_state, i_label)
+        ai_id = _practice_of(path)
+        panes.append((pane_id, window_id, ai_id))
+        if ai_id:
+            paths.setdefault(ai_id, path)
 
     if listener is _listener_chip:
         # One process walk for the whole refresh, not one per practice.
         listener = partial(_listener_chip, workers=listener_worker_counts())
 
+    def one(ai_id: str) -> tuple[str, tuple[str, str]]:
+        return ai_id, mail_chip(listener(ai_id), mail(ai_id, paths[ai_id]))
+
     with ThreadPoolExecutor(max_workers=8) as pool:
-        results = list(pool.map(one, practices.items()))
+        chips = dict(pool.map(one, paths))
     machine = read_ecosystem_state()
     for window_id in windows:
         for chip in "UCSL":
             entry = machine.get(chip, {})
             _set_chip(window_id, chip, entry.get("state", ""), entry.get("label", ""))
-        if window_id not in practices:
-            _set_chip(window_id, "M", "", "")
-            _set_chip(window_id, "I", "", "")
-    for window_id, (m_state, m_label), (i_state, i_label) in results:
-        _set_chip(window_id, "M", m_state, m_label)
-        _set_chip(window_id, "I", i_state, i_label)
-    return {"ok": True, "windows": len(windows), "practices": len(practices), "lines": layout(session_name)}
+        for chip in ("M", "I"):  # earlier versions kept these per window, where every pane in it inherited them
+            _set_chip(window_id, chip, "", "")
+    for pane_id, _window_id, ai_id in panes:
+        _set_option("-p", pane_id, "@empirica_practice", ai_id or "")
+        state, label = chips.get(ai_id, ("", "")) if ai_id else ("", "")
+        _set_chip(pane_id, "M", state, label, scope="-p")
+    return {"ok": True, "windows": len(windows), "practices": len(paths), "lines": layout(session_name)}
 
 
 # ── actions ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -658,7 +729,7 @@ def _restart(session: str, pane: str | None, client: str | None, running_too: bo
 
 
 def _wake(pane: str | None, client: str | None) -> None:
-    """M: give this pane a wake turn, which reads its mail and re-arms its listener."""
+    """M (mail): give this pane a wake turn, in which the practice reads its own mail and re-arms its listener."""
     from empirica.core.cockpit.instance_actions import wake_instance
 
     if not pane:
@@ -684,16 +755,6 @@ def _window(session: str, name: str, command: str) -> None:
     """Run something that prints or asks questions in a window of its own: its tab is the way out, and it closes when done."""
     shown = f"{command}; echo; printf 'finished - this window closes in 10 seconds '; sleep 10"
     _tmux("new-window", "-t", _sess_at(session), "-n", name, shown)
-
-
-def _inbox(pane: str | None, client: str | None) -> None:
-    """I: this practice's unanswered mail in the viewer."""
-    directory = _show(pane, "#{pane_current_path}") if pane else ""
-    ai_id = _practice_of(directory) if directory else None
-    if not ai_id:
-        _say(client, "inbox: this pane is not in a practice directory")
-        return
-    _popup(client, f"{_self_command()} inbox-view --ai-id {shlex.quote(ai_id)}", directory=directory)
 
 
 def _login(session: str) -> None:
@@ -776,27 +837,6 @@ def help_view() -> int:
     return bar_pager.run(path, "Empirica cockpit help")
 
 
-def inbox_view(ai_id: str, run=subprocess.run) -> int:
-    """What the inbox popup runs: poll this practice's accepted mail, then show it in the viewer."""
-    from empirica.core.cockpit import bar_pager
-
-    try:
-        result = run(
-            [*_empirica_argv(), "mailbox", "poll", "--ai-id", ai_id, "--status", "accepted"],
-            capture_output=True,
-            text=True,
-            timeout=20,
-            check=False,
-        )
-        text = (result.stdout or "") + (result.stderr or "")
-    except Exception as e:
-        text = f"The inbox could not be read: {type(e).__name__}: {e}"
-    path = launcher_state.COCKPIT_DIR / "bar_inbox.txt"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text.strip() + "\n" if text.strip() else "No unanswered mail.\n")
-    return bar_pager.run(path, f"Inbox of {ai_id}")
-
-
 def run_chip(
     key: str, session: str, pane: str | None, client: str | None, confirmed: bool = False, expect: str | None = None
 ) -> None:
@@ -809,10 +849,8 @@ def run_chip(
         _restart(session, pane, client)
     elif key == "A":
         _restart(session, None, client)
-    elif key == "M":
+    elif key in ("M", "I"):  # I was the inbox; M's wake makes the practice read its own mail (David, 2026-11-14)
         _wake(pane, client)
-    elif key == "I":
-        _inbox(pane, client)
     elif key == "L":
         _login(session)
     elif key in CONFIRM:
@@ -840,15 +878,12 @@ def main(argv: list[str] | None = None) -> int:
     tick.add_argument("session")
     tick.add_argument("--state-dir")
     sub.add_parser("help-view")
-    sub.add_parser("inbox-view").add_argument("--ai-id", required=True)
     args = parser.parse_args(argv)
     if args.verb == "tick":
         refresh_state(args.session, state_dir=Path(args.state_dir) if args.state_dir else None)
         return 0
     if args.verb == "help-view":
         return help_view()
-    if args.verb == "inbox-view":
-        return inbox_view(args.ai_id)
     try:
         run_chip(args.key, args.session, args.pane or None, args.client or None, confirmed=args.yes, expect=args.expect)
     except Exception as e:  # a command must answer in the message line, not with a traceback nobody sees
