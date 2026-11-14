@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.16.3
-**Generated:** 2026-11-14 02:16:46 UTC
+**Framework version:** 1.17.0
+**Generated:** 2026-11-14 20:18:20 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -3816,6 +3816,8 @@ Authorization_code + PKCE browser flow; stores the token set under cortex.oauth 
 
 - `--timeout` — optional · type=`float` · default=`300`
   Seconds to wait for the browser callback (optional, default: 300)
+- `--url` — optional
+  The Cortex to sign in to (optional; default: cortex.url in credentials.yaml, else the hosted https://cortex.getempirica.com). Saved after a successful sign-in.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
 
 
@@ -5173,6 +5175,19 @@ Migrate legacy per-practice + retired bare ntfy topics to the per-tenant canonic
 
 - `--apply` — optional · flag
   Actually rewrite credentials.yaml + listener_active markers (default: dry-run reports what would change)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+
+
+##### `empirica mesh connect`
+
+Move this practice onto Cortex: sign in, register it, import its artifacts
+
+**Arguments:**
+
+- `--dry-run` — optional · flag
+  Report what would be registered and imported; write nothing
+- `--yes` — optional · flag
+  Import even though some artifacts become visible to the whole team (without it, connect stops and asks)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
 
 

@@ -439,18 +439,18 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.16.3
+## What's New in 1.17.0
 
-- **PREFLIGHT can name the goals a transaction works on.** A goal carried across transactions counts as in play from the first call, and what is logged in the window attaches to it.
-- **Empirica no longer writes Claude Code's memory folder.** Session start already shows the project's artifacts, with ids; `MEMORY.md` is left to Claude Code, and `setup-claude-code` removes the old block once.
-- **Hash vectors stand in for embeddings only out loud, and can be refused** with `EMPIRICA_EMBEDDINGS_STRICT=1`; a process that fell back moves to Ollama when it answers.
+- **`empirica mesh connect` moves a practice that has run without Cortex onto Cortex**, with its artifacts' ids, dates and links. It asks before anything becomes visible to the team, and keeps raw files and local paths on the machine.
+- **`empirica auth login` works on a machine that was never configured**: it uses the hosted Cortex unless told otherwise, and remembers it.
+- **Closing the terminal that launched the cockpit no longer kills every practice pane**: the tmux server runs in its own user service.
 
-All 10 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 3 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.16.3** — PREFLIGHT can name the goals a transaction works on. A goal carried across transactions counts as in play from the first call, and what is logged in the wi…
 - **1.16.2** — A session starts with the whole bootstrap picture. Goals, findings, unknowns, decisions, assumptions, mistakes, dead ends and links, each with a short id,…
-- **1.16.1** — Links, falsifiers and lessons reach the git notes, so a rebuild restores the whole graph. They are exported at each POSTFLIGHT, a bounded batch at a time,…
 
 ## What's Coming
 
