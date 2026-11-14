@@ -80,16 +80,14 @@ class FakeCortex:
             return (401, {}) if self.me == "401" else (200, self.me)
         if self.import_body is not None:
             return self.import_status, self.import_body
-        n = len(body["nodes"])
-        key = "would_create" if body["dry_run"] else "created"
-        return 200, {
-            "ok": True,
-            "dry_run": body["dry_run"],
-            key: n,
-            "skipped_existing": 0,
-            "refused": [],
-            "edges_wired": len(body["edges"]),
-        }
+        # Cortex's own shapes: created {ref: id} (empty on a dry run), would_create / skipped_existing lists of {ref, id},
+        # refused a list of {ref, reason}, nodes_created and edges_wired counts.
+        refs = [{"ref": n["ref"], "id": n["id"]} for n in body["nodes"]]
+        if body["dry_run"]:
+            return 200, {"ok": True, "dry_run": True, "created": {}, "nodes_created": 0, "would_create": refs,
+                         "skipped_existing": [], "refused": [], "edges_wired": 0}  # fmt: skip
+        return 200, {"ok": True, "dry_run": False, "created": {r["ref"]: r["id"] for r in refs}, "nodes_created": len(refs),
+                     "would_create": [], "skipped_existing": [], "refused": [], "edges_wired": len(body["edges"])}  # fmt: skip
 
     def imports(self):
         return [c[2] for c in self.calls if c[1] == "artifacts/import"]
@@ -135,14 +133,6 @@ def test_a_practice_is_signed_in_registered_and_imported_with_its_ids_dates_and_
     assert report["created"] == len(body["nodes"]) and "Raw source files stay on this machine" in report["note"]
 
 
-def test_no_team_stops_before_anything_is_written(store):
-    db, _ = store
-    cortex = FakeCortex(me={"org_id": "", "user_id": "u"})
-    report = mc.connect(project=PROJECT, conn=db.conn, credential=_signed_in, http=cortex, register=pytest.fail)
-    assert (report["ok"], report["step"]) == (False, "team") and report["error"] == mc.NO_TEAM
-    assert cortex.imports() == []
-
-
 @pytest.mark.parametrize(("cred", "me"), [({}, None), (_signed_in(), "401")])
 def test_no_credential_or_a_rejected_one_stops_at_sign_in(store, cred, me):
     db, _ = store
@@ -185,7 +175,14 @@ def test_an_import_cortex_refuses_is_reported_with_its_errors(store):
 def test_refused_nodes_are_counted_and_the_rest_still_import(store):
     db, _ = store
     cortex = FakeCortex(
-        import_body={"ok": True, "created": 5, "refused": ["n1", "n2"], "skipped_existing": 1, "edges_wired": 1}
+        import_body={
+            "ok": True,
+            "created": {"a": "1"},
+            "nodes_created": 5,
+            "refused": [{"ref": "n1", "reason": "credential"}, {"ref": "n2", "reason": "credential"}],
+            "skipped_existing": [{"ref": "s", "id": "s"}],
+            "edges_wired": 1,
+        }
     )
     report = mc.connect(
         project=PROJECT, conn=db.conn, credential=_signed_in, http=cortex, register=_registered, confirm_team=True
@@ -260,3 +257,15 @@ def test_nothing_goes_to_the_team_without_a_yes(store):
     report = mc.connect(project=PROJECT, conn=db.conn, credential=_signed_in, http=cortex, register=pytest.fail)
     assert (report["ok"], report["step"]) == (False, "confirm") and "--yes" in report["error"]
     assert str(report["to_team"]) in report["error"] and cortex.imports() == []
+
+
+def test_is_resolved_rides_only_on_the_types_cortex_takes_it_on(store):
+    """On an assumption, decision or source it would refuse the WHOLE batch (cortex prop_osmlid2vrvfzpfcd6vbcjpvi74)."""
+    db, ids = store
+    db.conn.execute("UPDATE assumptions SET status = 'verified' WHERE id = ?", (ids["assumption"],))
+    db.conn.commit()
+    nodes, _ = mc.export_nodes(db.conn, PROJECT["project_id"])
+    by_id = {n["id"]: n for n in nodes}
+    assert "is_resolved" not in by_id[ids["assumption"]] and by_id[ids["assumption"]]["data"]["status"] == "verified"
+    assert all("is_resolved" not in n for n in nodes if n["type"] not in ("finding", "unknown", "dead_end", "mistake"))
+    assert by_id[ids["old_finding"]]["is_resolved"] is True

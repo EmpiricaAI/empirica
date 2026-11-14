@@ -129,7 +129,7 @@ def add_mesh_parsers(subparsers) -> None:
         help="Move this practice onto Cortex: sign in, register it, import its artifacts",
         description=(
             "Takes a practice that has run without Cortex onto it: checks the Cortex sign-in (`empirica auth login` "
-            "first) and that the account belongs to a team, registers the practice under its own id, then imports its "
+            "first), registers the practice under its own id, then imports its "
             "findings, unknowns, dead ends, mistakes, assumptions, decisions and sources with their ids, dates and links. "
             "Visibility maps local to project and shared or public to the team. Raw source files stay on this machine. "
             "Run with --dry-run first to see what would go where."

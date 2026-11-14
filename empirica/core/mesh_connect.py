@@ -2,8 +2,8 @@
 
 Three steps, each one Cortex's contract, none of them new on the server:
 
-1. **Sign in.** The Cortex credential `auth login` stores (OAuth first, the api_key as a fallback). Cortex is team-first, with no
-   personal orgs: a user whose ``GET /v1/users/me`` names no org is told to create a team or ask a team admin, and connect stops.
+1. **Sign in.** The Cortex credential `auth login` stores (OAuth first, the api_key as a fallback). Every Cortex user belongs to an org
+   (a company or a team; there are no personal orgs), and ``GET /v1/users/me`` names the one the credential acts in.
 2. **Register** the practice under its own project id (``POST /v1/projects/register``, the same call `projects-register` makes).
    A 409 ``slug_taken`` is reported with the id Cortex already holds and its suggestion.
 3. **Import** its artifacts (``POST /v1/artifacts/import``, import mode): findings, unknowns, dead ends, mistakes, assumptions,
@@ -42,10 +42,8 @@ EDGE_RELATIONS = frozenset(
     }
 )
 VISIBILITY = {"local": "project", "shared": "org", "public": "org"}
-NO_TEAM = (
-    "Cortex is for working with others, and this account belongs to no team yet. Create a team, or ask a team admin to "
-    "add you, then run `empirica mesh connect` again."
-)
+#: Cortex takes is_resolved on these only; on another type it refuses the whole batch (cortex prop_osmlid2vrvfzpfcd6vbcjpvi74).
+_RESOLVABLE = frozenset({"finding", "unknown", "dead_end", "mistake"})
 
 # (type, table, the columns that become data, the column that says it is closed, the test on it). Column names are core's own.
 _TYPES: tuple[tuple[str, str, tuple[str, ...], str | None, str], ...] = (
@@ -68,9 +66,9 @@ _TYPES: tuple[tuple[str, str, tuple[str, ...], str | None, str], ...] = (
     (
         "assumption",
         "assumptions",
-        ("assumption", "confidence", "description"),
-        "status",
-        "status IN ('verified', 'falsified', 'expired')",
+        ("assumption", "confidence", "description", "status"),  # its state rides in data.status, not is_resolved
+        None,
+        "0",
     ),
     ("decision", "decisions", ("choice", "rationale", "reversibility", "description"), None, "0"),
 )
@@ -115,7 +113,7 @@ def export_nodes(conn: sqlite3.Connection, project_id: str) -> tuple[list[dict],
             node = {"ref": values["id"], "type": node_type, "id": values["id"], "data": data}
             if values.get("created_timestamp") is not None:
                 node["created_at"] = values["created_timestamp"]
-            if values.get("_resolved"):
+            if values.get("_resolved") and node_type in _RESOLVABLE:
                 node["is_resolved"] = True
             nodes.append(node)
     nodes.extend(_source_nodes(conn, project_id))
@@ -219,8 +217,8 @@ def connect(
         }
     if status >= 300:
         return {**report, "step": "sign-in", "error": f"could not read the account ({status})"}
-    if not me.get("org_id"):
-        return {**report, "step": "team", "error": NO_TEAM}
+    # Every Cortex user belongs to an org (a company or a team, no personal org), so there is no "no team" case to stop on
+    # (cortex prop_osmlid2vrvfzpfcd6vbcjpvi74); the org the credential acts in is reported.
     report["org"] = me.get("org_name") or me.get("org_id")
 
     nodes, counts = export_nodes(conn, project["project_id"])
@@ -267,9 +265,13 @@ def connect(
                 **report, **totals, "step": "import", "batch": i,
                 "error": f"import answered {status}: {(out.get('errors') or [out.get('error')])[:3]}",
             }  # fmt: skip
+        # created comes as {ref: id}, skipped_existing / would_create / refused as lists, nodes_created and edges_wired as
+        # counts (cortex prop_osmlid2vrvfzpfcd6vbcjpvi74).
+        if isinstance(out.get("nodes_created"), int):
+            out = {**out, "created": out["nodes_created"]}
         for key in totals:
             value = out.get(key)
-            totals[key] += len(value) if isinstance(value, list) else int(value or 0)
+            totals[key] += len(value) if isinstance(value, (list, dict)) else int(value or 0)
         errors.extend(out.get("errors") or [])
     report.update(totals, errors=errors[:20], ok=True, step="done")
     report["note"] = "Raw source files stay on this machine; Cortex holds each source's title, type and address."

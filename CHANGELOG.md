@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`empirica mesh connect` moves a practice that has run without Cortex onto Cortex.** It checks the Cortex sign-in and that the account belongs to a team (Cortex is team-first: with no team it says to create one or ask a team admin, and stops), registers the practice under its own id, then imports its findings, unknowns, dead ends, mistakes, assumptions, decisions and sources with the ids, dates, resolution and links they have, 500 a request. Visibility maps local to project and shared or public to the team; when anything would become visible to the team, connect stops before registering and says how many, and imports only with `--yes`. `--dry-run` writes nothing. Cortex embeds what it receives, so nothing is re-embedded here; what it already holds is skipped. Raw source files stay on this machine.
+- **`empirica mesh connect` moves a practice that has run without Cortex onto Cortex.** It checks the Cortex sign-in, registers the practice under its own id, then imports its findings, unknowns, dead ends, mistakes, assumptions, decisions and sources with the ids, dates, resolution and links they have, 500 a request. Visibility maps local to project and shared or public to the team; when anything would become visible to the team, connect stops before registering and says how many, and imports only with `--yes`. `--dry-run` writes nothing. Cortex embeds what it receives, so nothing is re-embedded here; what it already holds is skipped. Raw source files stay on this machine.
 
 ## [1.16.3] - 2026-11-14
 
