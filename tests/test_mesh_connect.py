@@ -70,7 +70,9 @@ def store(tmp_path, monkeypatch):
 
 class FakeCortex:
     def __init__(self, me=None, import_status=200, import_body=None):
-        self.me = {"org_id": "org-1", "org_name": "Team One"} if me is None else me
+        self.me = (
+            {"org_id": "org-1", "org_name": "Team One", "project_ids": [PROJECT["project_id"]]} if me is None else me
+        )
         self.import_status, self.import_body = import_status, import_body
         self.calls: list[tuple] = []
 
@@ -130,7 +132,7 @@ def test_a_practice_is_signed_in_registered_and_imported_with_its_ids_dates_and_
     assert report["to_team"] + report["to_project"] == len(body["nodes"]) and report["to_project"] >= 1
     assert body["edges"] == [{"from": ids["decision"], "to": ids["finding"], "relation": "evidence"}]
     assert report["links_kept_local"] == 2, "a 'related' link and a link to a goal stay local"
-    assert report["created"] == len(body["nodes"]) and "Raw source files stay on this machine" in report["note"]
+    assert report["created"] == len(body["nodes"]) and "local paths stay on this machine" in report["note"]
 
 
 @pytest.mark.parametrize(("cred", "me"), [({}, None), (_signed_in(), "401")])
@@ -269,3 +271,50 @@ def test_is_resolved_rides_only_on_the_types_cortex_takes_it_on(store):
     assert "is_resolved" not in by_id[ids["assumption"]] and by_id[ids["assumption"]]["data"]["status"] == "verified"
     assert all("is_resolved" not in n for n in nodes if n["type"] not in ("finding", "unknown", "dead_end", "mistake"))
     assert by_id[ids["old_finding"]]["is_resolved"] is True
+
+
+def test_a_dry_run_for_a_practice_not_yet_on_cortex_reports_local_counts_without_asking_cortex(store):
+    """Cortex's import dry run answers 404 for a project it does not hold, and a dry run registers nothing (1.17.0 sweep)."""
+    db, _ = store
+    cortex = FakeCortex(me={"org_id": "org-1", "project_ids": []})
+    report = mc.connect(
+        project=PROJECT, conn=db.conn, credential=_signed_in, http=cortex, register=pytest.fail, dry_run=True
+    )
+    assert report["ok"] is True and report["registered"] is False and report["nodes"] >= 7
+    assert cortex.imports() == [] and "Not registered on Cortex yet" in report["note"]
+
+
+def test_a_local_path_never_leaves_as_a_source_address(store):
+    db, _ = store
+    cols = {r[1] for r in db.conn.execute("PRAGMA table_info(epistemic_sources)")}
+    for addr in ("file:///home/u/notes.md", "/home/u/private/plan.pdf", "https://example.test/paper"):
+        row = {
+            "id": str(uuid.uuid4()),
+            "project_id": PROJECT["project_id"],
+            "source_type": "doc",
+            "title": addr,
+            "source_url": addr,
+        }
+        for _cid, name, ctype, notnull, default, _pk in db.conn.execute(
+            "PRAGMA table_info(epistemic_sources)"
+        ).fetchall():
+            if notnull and default is None and name not in row and name in cols:
+                row[name] = 0 if any(x in (ctype or "").upper() for x in ("INT", "REAL")) else "x"
+        db.conn.execute(
+            f"INSERT INTO epistemic_sources ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})", list(row.values())
+        )
+    db.conn.commit()
+    nodes, _ = mc.export_nodes(db.conn, PROJECT["project_id"])
+    addresses = {n["data"]["title"]: n["data"].get("source_url") for n in nodes if n["type"] == "source"}
+    assert addresses["https://example.test/paper"] == "https://example.test/paper"
+    assert addresses["file:///home/u/notes.md"] is None and addresses["/home/u/private/plan.pdf"] is None
+
+
+def test_an_artifact_missing_a_field_cortex_requires_stays_local_instead_of_refusing_the_batch(store):
+    db, ids = store
+    db.conn.execute("UPDATE decisions SET rationale = '' WHERE id = ?", (ids["decision"],))
+    db.conn.commit()
+    nodes, counts = mc.export_nodes(db.conn, PROJECT["project_id"])
+    assert ids["decision"] not in {n["id"] for n in nodes} and counts["incomplete_kept_local"] == 1
+    edges, _ = mc.export_edges(db.conn, {n["id"] for n in nodes})
+    assert all(ids["decision"] not in (e["from"], e["to"]) for e in edges), "a link to it stays local too"

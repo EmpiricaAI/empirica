@@ -460,7 +460,10 @@ def login(
     # theirs.
     oauth = loader.get_cortex_oauth()
     owner = (oauth.get("refresh_owner") or "").lower()
-    client_id = oauth.get("client_id") if owner in ("cli", "daemon") else None
+    same_cortex = oauth.get("token_endpoint") in (None, "", disco["token_endpoint"])
+    # A client registered on ANOTHER Cortex is unknown here: reusing it left the browser on an error and the login waiting
+    # out its timeout (1.17.0 sweep).
+    client_id = oauth.get("client_id") if owner in ("cli", "daemon") and same_cortex else None
     if not client_id:
         client_id = register_client(disco["registration_endpoint"], http=http)["client_id"]
 

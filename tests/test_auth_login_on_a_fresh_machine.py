@@ -98,3 +98,25 @@ def test_the_command_takes_url():
     add_auth_parsers(parser.add_subparsers(dest="command"))
     args = parser.parse_args(["auth", "login", "--url", "https://cortex.example.test"])
     assert args.url == "https://cortex.example.test"
+
+
+def test_a_client_registered_on_another_cortex_is_not_reused(monkeypatch):
+    """Reusing it left the browser on an error and the login waiting out its timeout (1.17.0 sweep)."""
+    registered = []
+
+    class Stored(Loader):
+        def get_cortex_oauth(self):
+            return {"client_id": "old-client", "refresh_owner": "cli", "token_endpoint": "https://old.test/oauth/token"}
+
+    monkeypatch.setattr(co, "fetch_discovery", lambda base_url, http=None: {
+        "authorization_endpoint": f"{base_url}/authorize", "token_endpoint": f"{base_url}/oauth/token",
+        "registration_endpoint": f"{base_url}/register"})  # fmt: skip
+
+    def register(endpoint, http=None):
+        registered.append(endpoint)
+        raise Stop
+
+    monkeypatch.setattr(co, "register_client", register)
+    with pytest.raises(Stop):
+        co.login(loader=Stored(), url="https://new.test")
+    assert registered == ["https://new.test/register"], "a new client for the new Cortex"

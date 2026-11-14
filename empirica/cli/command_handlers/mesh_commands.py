@@ -1246,8 +1246,9 @@ _MESH_DISPATCH = {
 def handle_mesh_connect_command(args) -> int:
     """`empirica mesh connect`: sign in, register and import this practice into Cortex (goal 7377658d)."""
     import json as _json
+    from pathlib import Path
 
-    from empirica.config.path_resolver import get_git_root, get_session_db_path
+    from empirica.config.path_resolver import get_git_root
     from empirica.core.mesh_connect import connect, practice_of
 
     root = get_git_root()
@@ -1258,7 +1259,14 @@ def handle_mesh_connect_command(args) -> int:
         return 1
     import sqlite3
 
-    conn = sqlite3.connect(str(get_session_db_path()))
+    # The practice's own store, read-only: the resolved session DB can be another practice's while that one has a
+    # transaction open (1.17.0 sweep).
+    db_file = Path(project["path"]) / ".empirica" / "sessions" / "sessions.db"
+    if not db_file.is_file():
+        msg = f"no session store at {db_file}"
+        print(_json.dumps({"ok": False, "error": msg}) if args.output == "json" else f"❌ {msg}")
+        return 1
+    conn = sqlite3.connect(f"file:{db_file}?mode=ro", uri=True)
     try:
         report = connect(project=project, conn=conn, dry_run=args.dry_run, confirm_team=getattr(args, "yes", False))
     finally:
@@ -1268,6 +1276,9 @@ def handle_mesh_connect_command(args) -> int:
         return 0 if report.get("ok") else 1
     if not report.get("ok"):
         print(f"❌ connect stopped at {report.get('step')}: {report.get('error')}")
+        if report.get("step") == "import":
+            print(f"   batches before {report.get('batch')} were imported: {report.get('created', 0)} new artifacts "
+                  "are on Cortex; running connect again skips them")  # fmt: skip
         return 1
     verb = "would import" if report["dry_run"] else "imported"
     print(
@@ -1281,6 +1292,8 @@ def handle_mesh_connect_command(args) -> int:
     print(
         f"   Cortex: {done} new, {report.get('skipped_existing', 0)} already there, {report.get('refused', 0)} refused"
     )
+    if report.get("incomplete_kept_local"):
+        print(f"   {report['incomplete_kept_local']} artifacts stay local: a field Cortex requires is empty")
     if report.get("links_kept_local"):
         print(
             f"   {report['links_kept_local']} links stay local (a relation Cortex does not take, or a goal at one end)"

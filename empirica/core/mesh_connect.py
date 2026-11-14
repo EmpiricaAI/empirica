@@ -42,6 +42,12 @@ EDGE_RELATIONS = frozenset(
     }
 )
 VISIBILITY = {"local": "project", "shared": "org", "public": "org"}
+#: Cortex's REQUIRED_FIELDS per type: a node missing one refuses the WHOLE batch, so it stays local and is counted.
+REQUIRED = {
+    "finding": ("finding",), "unknown": ("unknown",), "dead_end": ("approach", "why_failed"),
+    "mistake": ("mistake", "why_wrong"), "assumption": ("assumption",), "decision": ("choice", "rationale"),
+    "source": ("title", "source_type"),
+}  # fmt: skip
 #: Cortex takes is_resolved on these only; on another type it refuses the whole batch (cortex prop_osmlid2vrvfzpfcd6vbcjpvi74).
 _RESOLVABLE = frozenset({"finding", "unknown", "dead_end", "mistake"})
 
@@ -117,9 +123,17 @@ def export_nodes(conn: sqlite3.Connection, project_id: str) -> tuple[list[dict],
                 node["is_resolved"] = True
             nodes.append(node)
     nodes.extend(_source_nodes(conn, project_id))
+    complete = [n for n in nodes if all(n["data"].get(f) not in (None, "") for f in REQUIRED.get(n["type"], ()))]
+    incomplete = len(nodes) - len(complete)
+    nodes = complete
     to_org = sum(1 for n in nodes if n["data"].get("visibility") == "org")
     # Said before anything moves: what the practice marked shared or public becomes visible to the whole team.
-    return nodes, {"public_as_org": public, "to_team": to_org, "to_project": len(nodes) - to_org}
+    return nodes, {
+        "public_as_org": public,
+        "to_team": to_org,
+        "to_project": len(nodes) - to_org,
+        "incomplete_kept_local": incomplete,
+    }
 
 
 def _source_nodes(conn: sqlite3.Connection, project_id: str) -> list[dict]:
@@ -138,6 +152,9 @@ def _source_nodes(conn: sqlite3.Connection, project_id: str) -> list[dict]:
     for row in rows:
         values = dict(zip(["id", *keep, "visibility"], row, strict=False))
         data = {k: values[k] for k in keep if values.get(k) not in (None, "")}
+        if not str(data.get("source_url", "")).lower().startswith(("http://", "https://")):
+            # source_url also holds local paths (file:///home/..., /home/...): an address on this machine stays here.
+            data.pop("source_url", None)
         data["visibility"] = VISIBILITY.get((values.get("visibility") or "local").lower(), "project")
         out.append({"ref": values["id"], "type": "source", "id": values["id"], "data": data})
     return out
@@ -246,6 +263,15 @@ def connect(
                 "error": reg.get("reason") or f"register answered {reg.get('status')}",
             }
 
+    if dry_run and project["project_id"] not in (me.get("project_ids") or []):
+        # Cortex's import dry run needs the practice registered (404 otherwise), and a dry run registers nothing.
+        report.update(ok=True, step="done", registered=False)
+        report["note"] = (
+            "Not registered on Cortex yet, so Cortex was not asked: the counts above are what this practice holds. "
+            "Raw source files and local paths stay on this machine."
+        )
+        return report
+
     totals = {"created": 0, "skipped_existing": 0, "refused": 0, "would_create": 0, "edges_wired": 0}
     errors: list = []
     source = {"machine": socket.gethostname(), "practice": project.get("name"), "exported_at": time.time()}
@@ -274,7 +300,9 @@ def connect(
             totals[key] += len(value) if isinstance(value, (list, dict)) else int(value or 0)
         errors.extend(out.get("errors") or [])
     report.update(totals, errors=errors[:20], ok=True, step="done")
-    report["note"] = "Raw source files stay on this machine; Cortex holds each source's title, type and address."
+    report["note"] = (
+        "Raw source files and local paths stay on this machine; Cortex holds each source's title, type and web address."
+    )
     return report
 
 
