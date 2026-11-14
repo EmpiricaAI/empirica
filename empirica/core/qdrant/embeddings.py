@@ -181,6 +181,15 @@ def _check_ollama_available(ollama_url: str = "http://localhost:11434") -> bool:
         return _remember_ollama(ollama_url, False)
 
 
+_fallback_warned = False
+
+
+def _strict_setting(file_conf: dict) -> bool:
+    """EMPIRICA_EMBEDDINGS_STRICT, else ``strict`` in embeddings.conf: refuse the hash fallback (prop_tecek2mq5vgadcihzozgdihdla)."""
+    raw = os.getenv("EMPIRICA_EMBEDDINGS_STRICT", str(file_conf.get("strict", "")))
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 def _resolve_auto_provider(ollama_url: str) -> str:
     """Resolve 'auto' provider to actual provider based on availability."""
     if _check_ollama_available(ollama_url):
@@ -268,6 +277,7 @@ class EmbeddingsProvider:
 
         # Resolve "auto" to actual provider, tracking if we fell back
         self._auto_fallback = False
+        self.strict = _strict_setting(file_conf)
         served_locally = False
         if provider_env == "auto":
             self.provider = _resolve_auto_provider(self.ollama_url)
@@ -286,6 +296,10 @@ class EmbeddingsProvider:
                     from empirica.core.qdrant.connection import pin_store_to_local_server
 
                     pin_store_to_local_server(local_server_service("vectors") or "")
+                elif self.strict:
+                    # Strict: no hash vectors. Embeds raise EmbeddingUnavailable until Ollama answers, so a store that must
+                    # hold semantic vectors (hosted Cortex) never fills with ones that only look right.
+                    self.provider = "ollama"
                 else:
                     self._auto_fallback = True
         else:
@@ -297,6 +311,9 @@ class EmbeddingsProvider:
             if served_locally
             else file_conf.get("model", DEFAULT_MODELS.get(self.provider, "qwen3-embedding")),
         )
+        # The model to move to when a process on the hash fallback finds Ollama answering again.
+        self._ollama_model = os.getenv("EMPIRICA_EMBEDDINGS_MODEL", file_conf.get("model", DEFAULT_MODELS["ollama"]))
+        self._warn_fallback_once()
         self._client = None
         self._vector_size: int | None = None
         self._down_until = 0.0  # monotonic time until which a down provider is not asked again
@@ -352,9 +369,35 @@ class EmbeddingsProvider:
 
         logger.debug(f"Embeddings provider: {self.provider}, model: {self.model}")
 
+    def _warn_fallback_once(self) -> None:
+        """Say once per process that ``auto`` fell back to hash vectors: the writes succeed, so nothing else would."""
+        global _fallback_warned
+        if self._auto_fallback and not _fallback_warned:
+            _fallback_warned = True
+            logger.warning(
+                f"Embeddings: no embedder answered at {self.ollama_url}; using hash vectors, which are not semantic "
+                "(search over them will miss). Set EMPIRICA_EMBEDDINGS_STRICT=1 to refuse them instead; this process "
+                "moves to Ollama when it answers."
+            )
+
+    @property
+    def is_hash_fallback(self) -> bool:
+        """True while ``auto`` is using hash vectors because no embedder answered (not for an explicit provider=local)."""
+        return self.provider == "local" and self._auto_fallback
+
+    def _leave_fallback_if_ollama_answers(self) -> None:
+        """A process that started while Ollama was down used hash vectors for its whole life (hosted Cortex: 15 hours). The
+        probe's verdict is cached (30 s after a failure), so this costs a dictionary lookup on most embeds."""
+        if self.is_hash_fallback and _check_ollama_available(self.ollama_url):
+            self.provider, self.model, self._auto_fallback = "ollama", self._ollama_model, False
+            logger.warning(
+                f"Embeddings: Ollama answers at {self.ollama_url} again; using {self.model}, not hash vectors"
+            )
+
     def embed(self, text: str) -> list[float]:
         """Generate embedding vector for the given text using configured provider."""
         text = text or ""
+        self._leave_fallback_if_ollama_answers()
 
         if self.provider != "local" and time.monotonic() < self._down_until:
             raise EmbeddingUnavailable(
@@ -702,4 +745,6 @@ def get_provider_info() -> dict:
         "provider": _provider_singleton.provider,
         "model": _provider_singleton.model,
         "vector_size": _provider_singleton.vector_size,
+        "fallback": _provider_singleton.is_hash_fallback,  # hash vectors because no embedder answered: not semantic
+        "strict": _provider_singleton.strict,
     }
