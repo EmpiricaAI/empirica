@@ -93,8 +93,9 @@ def _say_tmux_server(server: dict | None) -> None:
         print(
             f"  ▸ tmux server started in its own user service ({server.get('unit')}): closing this terminal keeps the cockpit"
         )
-    else:
-        print(f"  ⚠ tmux server runs inside this terminal ({server.get('detail')}): closing it ends every pane")
+    elif server.get("risky"):
+        # Only where systemd would kill it with the terminal's unit; elsewhere tmux runs as its own daemon.
+        print(f"  ⚠ tmux server runs inside this terminal's unit ({server.get('detail')}): closing it ends every pane")
 
 
 def _install_bar(config, session_name: str, args, *, human: bool) -> dict:
@@ -315,6 +316,7 @@ def _handle_groups_in_terminal(config, output: str, no_attach: bool, args=None) 
                     "windows": windows,
                     "bar": bar,
                     "wake": wake,
+                    "tmux_server": result.server,
                 }
             )
         )
@@ -329,6 +331,7 @@ def _handle_groups_in_terminal(config, output: str, no_attach: bool, args=None) 
     if no_attach or not config.attach_on_launch:
         if output == "human":
             print(f"✅ Cockpit ready: {result.session_name} — attach with: tmux attach -t {result.session_name}")
+            _say_tmux_server(result.server)
         return 0
     if os.environ.get("TMUX"):
         # Already inside tmux: attaching would nest. Move this client instead.

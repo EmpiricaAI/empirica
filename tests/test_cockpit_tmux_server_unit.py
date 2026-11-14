@@ -50,8 +50,9 @@ def env(monkeypatch):
     monkeypatch.setenv("INVOCATION_ID", "unit-of-the-terminal")
 
 
-def _ensure(monkeypatch, box, systemd=True):
+def _ensure(monkeypatch, box, systemd=True, version="tmux 3.6"):
     monkeypatch.setattr(T, "_tmux", box.tmux)
+    monkeypatch.setattr(T, "_tmux_version", lambda: version)
     return T.ensure_server(
         run=box.run, which=lambda name: "/usr/bin/systemd-run" if systemd else None, sleep=lambda _s: None
     )
@@ -107,3 +108,29 @@ def test_the_switch_turns_it_off(env, monkeypatch):
     monkeypatch.setenv("EMPIRICA_COCKPIT_SERVER_UNIT", "off")
     box = Box()
     assert _ensure(monkeypatch, box)["mode"] == "inline" and box.runs == []
+
+
+def test_without_systemd_the_inline_server_is_not_reported_as_at_risk(env, monkeypatch):
+    out = _ensure(monkeypatch, Box(), systemd=False)
+    assert out["mode"] == "inline" and out["risky"] is False, (
+        "tmux daemonises on its own there and outlives the terminal"
+    )
+
+
+def test_an_old_tmux_without_minus_d_falls_back_at_once(env, monkeypatch):
+    box = Box()
+    out = _ensure(monkeypatch, box, version="tmux 3.1c")
+    assert out["mode"] == "inline" and "3.1" in out["detail"] and box.runs == []
+
+
+def test_a_server_that_never_answers_has_its_unit_stopped(env, monkeypatch):
+    box = Box(comes_up_after=10_000)
+    _ensure(monkeypatch, box)
+    assert box.runs[-1][:3] == ["systemctl", "--user", "stop"], "the unit must not block every later start"
+
+
+def test_an_environment_name_systemd_refuses_is_left_out(env, monkeypatch):
+    monkeypatch.setenv("BASH_FUNC_x%%", "() { :; }")
+    box = Box(comes_up_after=1)
+    _ensure(monkeypatch, box)
+    assert not any("BASH_FUNC" in a for a in box.runs[0])

@@ -120,6 +120,25 @@ _SERVER_ENV_DROP = frozenset(
 )
 
 
+#: systemd-run refuses an environment name outside this, and every start would then fall back.
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _utf8(value: str) -> bool:
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def _tmux_version() -> str:
+    try:
+        return subprocess.run(["tmux", "-V"], capture_output=True, text=True, timeout=5, check=False).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
 def _server_answers() -> bool:
     return _tmux("display-message", "-p", "#{pid}").returncode == 0
 
@@ -141,32 +160,39 @@ def ensure_server(run=subprocess.run, which=shutil.which, sleep=None) -> dict:
 
     if _server_answers():
         return {"mode": "existing"}
-    if os.environ.get("EMPIRICA_COCKPIT_SERVER_UNIT", "").strip().lower() in ("off", "0", "false", "no"):
-        return {"mode": "inline", "detail": "EMPIRICA_COCKPIT_SERVER_UNIT=off"}
     if not which("systemd-run") or not os.environ.get("XDG_RUNTIME_DIR"):
-        return {
-            "mode": "inline",
-            "detail": "no systemd user manager here; the server starts inside this terminal's unit",
-        }
+        # No systemd user manager: tmux daemonises on its own and outlives the terminal, so nothing is at risk.
+        return {"mode": "inline", "risky": False, "detail": "no systemd user manager"}
+    if os.environ.get("EMPIRICA_COCKPIT_SERVER_UNIT", "").strip().lower() in ("off", "0", "false", "no"):
+        return {"mode": "inline", "risky": True, "detail": "EMPIRICA_COCKPIT_SERVER_UNIT=off"}
+    version = re.search(r"(\d+)\.(\d+)", _tmux_version())
+    if version and (int(version.group(1)), int(version.group(2))) < (3, 2):
+        return {"mode": "inline", "risky": True, "detail": f"tmux {version.group(0)} has no -D (needs 3.2)"}
     env = [
         f"--setenv={k}={v}"
         for k, v in os.environ.items()
-        if k not in _SERVER_ENV_DROP and not k.startswith("CLAUDE") and "\n" not in v
+        if k not in _SERVER_ENV_DROP and not k.startswith("CLAUDE") and _ENV_NAME.match(k) and _utf8(v)
     ]
     argv = ["systemd-run", "--user", f"--unit={SERVER_UNIT}", "--collect", "--quiet", *env, "tmux", "-D"]
     try:
         started = run(argv, capture_output=True, text=True, timeout=15, check=False)
     except (OSError, subprocess.TimeoutExpired) as e:
-        return {"mode": "inline", "detail": f"systemd-run failed ({type(e).__name__}: {e})"}
+        return {"mode": "inline", "risky": True, "detail": f"systemd-run failed ({type(e).__name__}: {e})"}
     if started.returncode != 0:
         why = (started.stderr or started.stdout or f"exit {started.returncode}").strip()
-        return {"mode": "inline", "detail": f"systemd-run refused: {why}"}
+        return {"mode": "inline", "risky": True, "detail": f"systemd-run refused: {why}"}
     pause = sleep or time.sleep
     for _ in range(50):  # up to ~5 s for the server to open its socket
         if _server_answers():
             return {"mode": "systemd", "unit": SERVER_UNIT}
         pause(0.1)
-    return {"mode": "inline", "detail": f"the server in {SERVER_UNIT} did not answer within 5 s"}
+    # Stop what was started, so a server nobody can reach does not hold the unit name for every later launch.
+    run(["systemctl", "--user", "stop", SERVER_UNIT], capture_output=True, text=True, timeout=15, check=False)
+    return {
+        "mode": "inline",
+        "risky": True,
+        "detail": f"the server in {SERVER_UNIT} did not answer within 5 s (unit stopped)",
+    }
 
 
 def cockpit_session_exists(session_name: str) -> bool:
