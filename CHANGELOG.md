@@ -5,7 +5,13 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.17.0] - 2026-11-14
+
+### Highlights
+
+- **`empirica mesh connect` moves a practice that has run without Cortex onto Cortex**, with its artifacts' ids, dates and links. It asks before anything becomes visible to the team, and keeps raw files and local paths on the machine.
+- **`empirica auth login` works on a machine that was never configured**: it uses the hosted Cortex unless told otherwise, and remembers it.
+- **Closing the terminal that launched the cockpit no longer kills every practice pane**: the tmux server runs in its own user service.
 
 ### Added
 
