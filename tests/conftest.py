@@ -163,6 +163,7 @@ def isolate_empirica_instance():
         "EMPIRICA_INSTANCE_ID",
         "EMPIRICA_HEADLESS",
         "EMPIRICA_ENABLE_EMBEDDINGS",
+        "EMPIRICA_COCKPIT_SERVER_UNIT",
     )
     for var in identity_vars:
         saved_env[var] = os.environ.get(var)
@@ -170,6 +171,8 @@ def isolate_empirica_instance():
     # Set test-specific instance identity (priority 1 in get_instance_id)
     os.environ["EMPIRICA_INSTANCE_ID"] = test_instance_id
     os.environ["EMPIRICA_HEADLESS"] = "true"
+    # A cockpit test's private tmux server must not start a real systemd user unit (tests must not measure the box).
+    os.environ["EMPIRICA_COCKPIT_SERVER_UNIT"] = "off"
 
     # Disable embeddings for the WHOLE suite — tests must not measure the box.
     #

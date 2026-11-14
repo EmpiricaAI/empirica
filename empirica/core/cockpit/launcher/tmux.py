@@ -47,6 +47,7 @@ class LaunchResult:
     created: bool  # True if a new session was created; False if attached to existing
     windows_created: list[str]
     status_windows_created: list[str]
+    server: dict | None = None  # ensure_server's answer: how the tmux server runs (existing / systemd / inline)
     error: str | None = None
     session_identity_stripped: str | None = None  # id removed from an existing session's environment
     opened: list[dict] = field(
@@ -101,6 +102,73 @@ def tmux_available() -> bool:
     return shutil.which("tmux") is not None
 
 
+#: The user service the cockpit's tmux server runs in when launch starts it (prop_kuswn7yepvepdewzvjtxhqicfy).
+SERVER_UNIT = "empirica-tmux"
+#: What the server must not inherit: the caller's pane and instance identity (every pane would carry it) and systemd's
+#: bookkeeping for the caller's own unit.
+_SERVER_ENV_DROP = frozenset(
+    {
+        "TMUX",
+        "TMUX_PANE",
+        "EMPIRICA_INSTANCE_ID",
+        "INVOCATION_ID",
+        "JOURNAL_STREAM",
+        "SYSTEMD_EXEC_PID",
+        "MANAGERPID",
+        "NOTIFY_SOCKET",
+    }
+)
+
+
+def _server_answers() -> bool:
+    return _tmux("display-message", "-p", "#{pid}").returncode == 0
+
+
+def ensure_server(run=subprocess.run, which=shutil.which, sleep=None) -> dict:
+    """Make sure a tmux server is running that does not belong to the caller's terminal. Returns {mode, unit?, detail?}.
+
+    A tmux server inherits the systemd unit of the process that first starts it; started from a terminal it sits in that
+    terminal's app unit, and when the terminal's main process ends systemd stops the unit and kills the server with every
+    practice pane in it (AIworkhorse, twice on 2026-11-14). So when none is running, the server is started as ``tmux -D`` (a
+    foreground server) in its own user service, with the caller's environment minus identity and systemd bookkeeping:
+
+    - ``existing``: a server answers already; it is left as it is.
+    - ``systemd``: started in ``SERVER_UNIT`` and answering.
+    - ``inline``: no systemd user manager, or the start failed, or it never answered: the first session starts the server
+      the old way, inside the caller's process tree. ``detail`` says why.
+    """
+    import time
+
+    if _server_answers():
+        return {"mode": "existing"}
+    if os.environ.get("EMPIRICA_COCKPIT_SERVER_UNIT", "").strip().lower() in ("off", "0", "false", "no"):
+        return {"mode": "inline", "detail": "EMPIRICA_COCKPIT_SERVER_UNIT=off"}
+    if not which("systemd-run") or not os.environ.get("XDG_RUNTIME_DIR"):
+        return {
+            "mode": "inline",
+            "detail": "no systemd user manager here; the server starts inside this terminal's unit",
+        }
+    env = [
+        f"--setenv={k}={v}"
+        for k, v in os.environ.items()
+        if k not in _SERVER_ENV_DROP and not k.startswith("CLAUDE") and "\n" not in v
+    ]
+    argv = ["systemd-run", "--user", f"--unit={SERVER_UNIT}", "--collect", "--quiet", *env, "tmux", "-D"]
+    try:
+        started = run(argv, capture_output=True, text=True, timeout=15, check=False)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return {"mode": "inline", "detail": f"systemd-run failed ({type(e).__name__}: {e})"}
+    if started.returncode != 0:
+        why = (started.stderr or started.stdout or f"exit {started.returncode}").strip()
+        return {"mode": "inline", "detail": f"systemd-run refused: {why}"}
+    pause = sleep or time.sleep
+    for _ in range(50):  # up to ~5 s for the server to open its socket
+        if _server_answers():
+            return {"mode": "systemd", "unit": SERVER_UNIT}
+        pause(0.1)
+    return {"mode": "inline", "detail": f"the server in {SERVER_UNIT} did not answer within 5 s"}
+
+
 def cockpit_session_exists(session_name: str) -> bool:
     """Check whether a tmux session with the given name is running."""
     if not tmux_available():
@@ -149,6 +217,7 @@ def launch_cockpit(config: LauncherConfig) -> LaunchResult:
             error="config has no projects and no status windows — nothing to launch",
         )
 
+    server = ensure_server()
     write_session_start()
 
     windows_created: list[str] = []
@@ -170,6 +239,7 @@ def launch_cockpit(config: LauncherConfig) -> LaunchResult:
         )
         if result.returncode != 0:
             return LaunchResult(
+                server=server,
                 session_name=config.session_name,
                 created=False,
                 windows_created=[],
@@ -192,6 +262,7 @@ def launch_cockpit(config: LauncherConfig) -> LaunchResult:
         )
         if result.returncode != 0:
             return LaunchResult(
+                server=server,
                 session_name=config.session_name,
                 created=False,
                 windows_created=[],
@@ -237,6 +308,7 @@ def launch_cockpit(config: LauncherConfig) -> LaunchResult:
     write_lock()
 
     return LaunchResult(
+        server=server,
         session_name=config.session_name,
         created=True,
         windows_created=windows_created,
@@ -295,6 +367,7 @@ class GroupsLaunchResult:
     opened: list[dict] = field(
         default_factory=list
     )  # panes THIS call created: {key, pane_id, instance_id, command, error}
+    server: dict | None = None  # ensure_server's answer: how the tmux server runs (existing / systemd / inline)
     error: str | None = (
         None  # top-level error (e.g. tmux missing, terminal spawn failed); per-window errors live on each result
     )
@@ -1006,6 +1079,7 @@ def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> Groups
         return GroupsLaunchResult(error="config has no groups — nothing to launch")
 
     session_name = config.session_name
+    server = ensure_server()
     write_session_start()
 
     results: list[GroupLaunchResult] = []
@@ -1027,13 +1101,13 @@ def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> Groups
         )
 
     if any(g.error for g in results):
-        return GroupsLaunchResult(groups=results, session_name=session_name, error=None, opened=opened)
+        return GroupsLaunchResult(server=server, groups=results, session_name=session_name, error=None, opened=opened)
 
     if not spawn_terminal:
         # surface: tmux — the caller attaches the terminal it was run from.
         write_lock()
         return GroupsLaunchResult(
-            groups=results, session_name=session_name, session_identity_stripped=stripped, opened=opened
+            server=server, groups=results, session_name=session_name, session_identity_stripped=stripped, opened=opened
         )
 
     # Dedup: if the session already has a client attached (= a terminal
@@ -1043,6 +1117,7 @@ def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> Groups
     if _session_has_attached_client(session_name):
         write_lock()
         return GroupsLaunchResult(
+            server=server,
             groups=results,
             session_name=session_name,
             terminal_skipped=True,
@@ -1059,6 +1134,7 @@ def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> Groups
 
     write_lock()
     return GroupsLaunchResult(
+        server=server,
         groups=results,
         session_name=session_name,
         terminal_pid=pid,

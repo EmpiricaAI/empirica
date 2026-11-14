@@ -85,6 +85,18 @@ def _profile_error(args, error: str) -> int:
     return 1
 
 
+def _say_tmux_server(server: dict | None) -> None:
+    """One line on how the tmux server runs: in its own service, or inside this terminal (and why)."""
+    if not server or server.get("mode") == "existing":
+        return
+    if server.get("mode") == "systemd":
+        print(
+            f"  ▸ tmux server started in its own user service ({server.get('unit')}): closing this terminal keeps the cockpit"
+        )
+    else:
+        print(f"  ⚠ tmux server runs inside this terminal ({server.get('detail')}): closing it ends every pane")
+
+
 def _install_bar(config, session_name: str, args, *, human: bool) -> dict:
     """Put the cockpit bars on the session and start their first state refresh. Never raises: the layout is up either way."""
     try:
@@ -210,6 +222,7 @@ def handle_cockpit_launch_command(args) -> int:
         "windows_created": result.windows_created,
         "status_windows_created": result.status_windows_created,
         "abnormal_exit": abnormal_payload,
+        "tmux_server": result.server,
         "bar": _install_bar(config, result.session_name, args, human=output == "human"),
         "wake": _start_launch_wake(result.opened, result.session_name, human=output == "human"),
     }
@@ -223,6 +236,7 @@ def handle_cockpit_launch_command(args) -> int:
         if output == "human":
             verb = "created" if result.created else "attached to existing"
             print(f"✅ Cockpit {verb}: {result.session_name}")
+            _say_tmux_server(result.server)
             print(f"   Attach manually: tmux attach -t {result.session_name}")
         return 0
 
@@ -230,6 +244,7 @@ def handle_cockpit_launch_command(args) -> int:
     if output == "human":
         verb = "created" if result.created else "attaching to existing"
         print(f"✅ Cockpit {verb}: {result.session_name} — handing off to tmux...")
+        _say_tmux_server(result.server)
     os.execvp("tmux", ["tmux", "attach-session", "-t", exact_session(result.session_name)])  # noqa: S606 — tmux is the OS executable, args are sanitized config values
     # execvp doesn't return on success; if we get here, something failed.
     return 1
@@ -361,6 +376,7 @@ def _handle_groups_launch(config, output: str, quiet: bool, args=None) -> int:
         "terminal_skipped": result.terminal_skipped,
         "session_identity_stripped": result.session_identity_stripped,
         "wm_class": _wm_class_for(surface, result.session_name),
+        "tmux_server": result.server,
         "windows": [
             {
                 "name": g.group_name,
@@ -390,6 +406,7 @@ def _handle_groups_launch(config, output: str, quiet: bool, args=None) -> int:
     else:
         window_state = f"{surface} pid n/a"
     print(f"✅ cockpit ({surface} surface) — session {result.session_name} ({window_state})")
+    _say_tmux_server(result.server)
     for i, g in enumerate(result.groups, 1):
         verb = "created" if g.created else "adopted existing"
         marker = "✗" if g.error else "·"

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`empirica mesh connect` moves a practice that has run without Cortex onto Cortex.** It checks the Cortex sign-in, registers the practice under its own id, then imports its findings, unknowns, dead ends, mistakes, assumptions, decisions and sources with the ids, dates, resolution and links they have, 500 a request. Visibility maps local to project and shared or public to the team; when anything would become visible to the team, connect stops before registering and says how many, and imports only with `--yes`. `--dry-run` writes nothing. Cortex embeds what it receives, so nothing is re-embedded here; what it already holds is skipped. Raw source files stay on this machine.
 
+### Fixed
+
+- **Closing the terminal that launched the cockpit no longer kills every practice pane.** A tmux server lives in the systemd unit of whatever first started it, so a cockpit started from a terminal died with that terminal. When no server is running, `empirica cockpit launch` now starts it in its own user service (`empirica-tmux`, through `systemd-run --user`), with the launching environment minus its pane identity, and says which way it ran. A server already running is left alone; without a systemd user manager, or with `EMPIRICA_COCKPIT_SERVER_UNIT=off`, it starts as before and says so.
+
 ## [1.16.3] - 2026-11-14
 
 ### Highlights
