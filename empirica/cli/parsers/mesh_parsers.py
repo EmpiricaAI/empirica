@@ -138,6 +138,11 @@ def add_mesh_parsers(subparsers) -> None:
     connect.add_argument(
         "--dry-run", action="store_true", help="Report what would be registered and imported; write nothing"
     )
+    connect.add_argument(
+        "--yes",
+        action="store_true",
+        help="Import even though some artifacts become visible to the whole team (without it, connect stops and asks)",
+    )
     connect.add_argument("--output", choices=["human", "json"], default="human")
 
 

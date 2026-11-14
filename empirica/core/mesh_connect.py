@@ -196,6 +196,7 @@ def connect(
     credential: Callable[[], dict] | None = None,
     http: Callable[..., tuple[int, dict]] = _http_json,
     register: Callable[..., dict] | None = None,
+    confirm_team: bool = False,
 ) -> dict[str, Any]:
     """Run sign-in, register and import for one practice. Returns a report; ``ok`` is False with ``step`` naming where it
     stopped. ``project`` is {name, project_id, path, repo_url?}."""
@@ -225,6 +226,13 @@ def connect(
     nodes, counts = export_nodes(conn, project["project_id"])
     edges, local_edges = export_edges(conn, {n["id"] for n in nodes})
     report.update(nodes=len(nodes), edges=len(edges), links_kept_local=local_edges, **counts)
+    if not dry_run and counts["to_team"] and not confirm_team:
+        # David, 2026-11-14: nothing becomes team-visible by surprise. Most local artifacts carry 'shared', the store's default.
+        return {
+            **report, "step": "confirm",
+            "error": f"{counts['to_team']} artifacts would be visible to the whole team ({counts['to_project']} to this "
+            "project only). Run with --dry-run to see them, then again with --yes to import.",
+        }  # fmt: skip
 
     if not dry_run:
         if register is None:

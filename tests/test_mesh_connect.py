@@ -109,7 +109,7 @@ def test_a_practice_is_signed_in_registered_and_imported_with_its_ids_dates_and_
     seen = []
     report = mc.connect(
         project=PROJECT, conn=db.conn, credential=_signed_in, http=cortex,
-        register=lambda *a: seen.append(a) or _registered(*a),
+        register=lambda *a: seen.append(a) or _registered(*a), confirm_team=True,
     )  # fmt: skip
     assert report["ok"] is True and report["step"] == "done" and report["org"] == "Team One"
     assert seen and seen[0][1:3] == ("https://cortex.test", "tok")
@@ -164,7 +164,9 @@ def test_a_register_conflict_stops_before_the_import_and_says_why(store):
             "reason": "slug_taken: existing_id e-1, suggested alpha-2",
         }
 
-    report = mc.connect(project=PROJECT, conn=db.conn, credential=_signed_in, http=cortex, register=taken)
+    report = mc.connect(
+        project=PROJECT, conn=db.conn, credential=_signed_in, http=cortex, register=taken, confirm_team=True
+    )
     assert (report["ok"], report["step"]) == (False, "register") and "slug_taken" in report["error"]
     assert cortex.imports() == []
 
@@ -174,7 +176,9 @@ def test_an_import_cortex_refuses_is_reported_with_its_errors(store):
     cortex = FakeCortex(
         import_status=400, import_body={"ok": False, "errors": ["Node 'x': created_at is not an ISO-8601 time"]}
     )
-    report = mc.connect(project=PROJECT, conn=db.conn, credential=_signed_in, http=cortex, register=_registered)
+    report = mc.connect(
+        project=PROJECT, conn=db.conn, credential=_signed_in, http=cortex, register=_registered, confirm_team=True
+    )
     assert (report["ok"], report["step"]) == (False, "import") and "created_at" in report["error"]
 
 
@@ -183,7 +187,9 @@ def test_refused_nodes_are_counted_and_the_rest_still_import(store):
     cortex = FakeCortex(
         import_body={"ok": True, "created": 5, "refused": ["n1", "n2"], "skipped_existing": 1, "edges_wired": 1}
     )
-    report = mc.connect(project=PROJECT, conn=db.conn, credential=_signed_in, http=cortex, register=_registered)
+    report = mc.connect(
+        project=PROJECT, conn=db.conn, credential=_signed_in, http=cortex, register=_registered, confirm_team=True
+    )
     assert report["ok"] is True and (report["created"], report["refused"], report["skipped_existing"]) == (5, 2, 1)
 
 
@@ -245,3 +251,12 @@ def test_the_command_refuses_outside_a_practice_and_reads_the_practice_it_is_in(
     assert mc.practice_of(str(tmp_path)) == {
         "name": "alpha", "project_id": "11111111-2222-4333-8444-555555555555", "path": str(tmp_path)
     }  # fmt: skip
+
+
+def test_nothing_goes_to_the_team_without_a_yes(store):
+    """David, 2026-11-14: connect asks first; most local artifacts are 'shared' by the store's default."""
+    db, _ = store
+    cortex = FakeCortex()
+    report = mc.connect(project=PROJECT, conn=db.conn, credential=_signed_in, http=cortex, register=pytest.fail)
+    assert (report["ok"], report["step"]) == (False, "confirm") and "--yes" in report["error"]
+    assert str(report["to_team"]) in report["error"] and cortex.imports() == []

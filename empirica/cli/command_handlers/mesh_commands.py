@@ -1260,7 +1260,7 @@ def handle_mesh_connect_command(args) -> int:
 
     conn = sqlite3.connect(str(get_session_db_path()))
     try:
-        report = connect(project=project, conn=conn, dry_run=args.dry_run)
+        report = connect(project=project, conn=conn, dry_run=args.dry_run, confirm_team=getattr(args, "yes", False))
     finally:
         conn.close()
     if args.output == "json":
