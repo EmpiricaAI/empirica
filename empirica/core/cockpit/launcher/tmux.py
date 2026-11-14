@@ -1083,7 +1083,7 @@ class RefreshResult:
 _RESUME_LAST_PROGRAMS = frozenset({"codex", "ecodex"})
 
 
-def resume_command(proj, session_id: str | None = None) -> str:
+def resume_command(proj, session_id: str | None = None, *, has_conversation: bool | None = None) -> str:
     """The command that brings ``proj``'s pane back with its conversation.
 
     An explicit ``resume`` wins. With ``session_id`` (the session the pane last ran, confirmed by ``resume_ids``), a claude launch
@@ -1093,6 +1093,10 @@ def resume_command(proj, session_id: str | None = None) -> str:
     bare ``--resume`` would open the session picker instead, so it is swapped.
     ``--resume <id>`` names a conversation already and is kept. Anything that
     is not claude, codex or ecodex is re-run as launched.
+
+    ``has_conversation=False`` (Claude Code keeps no conversation for the directory) runs a claude launch without
+    ``--continue``, ``-c`` or a bare ``--resume``: claude would print "No conversation found to continue" and exit 1, and a
+    restart would leave the pane as dead as before. None (not known) keeps the old behaviour.
     """
     if proj.resume:
         return proj.resume
@@ -1132,11 +1136,11 @@ def resume_command(proj, session_id: str | None = None) -> str:
     )
     if chained:
         return proj.launch
-    if session_id and simple:
-        # Edit the original string (see below for why): drop the launch's own continue or bare resume, then name the session.
-        # The flag goes with the space before it, so nothing else in the line moves.
+    if (session_id or has_conversation is False) and simple:
+        # Edit the original string (see below for why): drop the launch's own continue or bare resume, then name the session
+        # (or, with no conversation to come back to, start fresh). The flag goes with the space before it, so nothing else moves.
         stripped = re.sub(r"\s+(?:--continue|-c|--resume|-r)(?!\S)", "", proj.launch)
-        return f"{stripped} --resume {session_id}"
+        return f"{stripped} --resume {session_id}" if session_id else stripped
     if any(t in ("--continue", "-c") for t in tokens):
         return proj.launch
     # Edit the ORIGINAL string, never shlex.join the tokens: the launch line is run by a shell, and
@@ -1230,6 +1234,39 @@ def _clear_waiting_mark(pane_id: str) -> None:
     except OSError:
         pass
     _tmux("set-option", "-p", "-u", "-t", pane_id, "@empirica_waiting")
+
+
+def _claude_has_conversation(path: str) -> bool | None:
+    """Whether Claude Code keeps a conversation whose working directory is ``path``. None when nothing can be read.
+
+    Fast path: a transcript in the folder Claude Code names after the path (``/`` as ``-``). Otherwise one transcript per
+    folder is read for the ``cwd`` it records, the evidence ``resume_ids`` trusts, so a folder named some other way still
+    counts. False only when ``~/.claude/projects`` exists and none of its transcripts is in ``path``: a fresh start then
+    loses nothing, where a wrong False would drop a conversation, so anything unreadable answers None.
+    """
+    from empirica.core.cockpit.launcher.resume_ids import _same_dir, _transcript_cwd
+
+    projects = Path.home() / ".claude" / "projects"
+    if not projects.is_dir():
+        return None
+    real = os.path.realpath(os.path.expanduser(path))
+    try:
+        named = projects / real.replace("/", "-")
+        if named.is_dir() and next(named.glob("*.jsonl"), None) is not None:
+            return True
+        unread = False
+        for folder in projects.iterdir():
+            sample = next(folder.glob("*.jsonl"), None) if folder.is_dir() else None
+            if sample is None:
+                continue
+            cwd = _transcript_cwd(sample)
+            if cwd is None:
+                unread = True
+            elif _same_dir(cwd, real):
+                return True
+        return None if unread else False
+    except OSError:
+        return None
 
 
 def _pane_session(proj, iid: str | None, pane_id: str, server_start: str | None) -> str | None:
@@ -1346,7 +1383,8 @@ def refresh_cockpit(
             continue
         iid = row["iid"] or None
         session_id = _pane_session(proj, iid, row["pane_id"], server_start)
-        command = resume_command(proj, session_id)
+        fresh = None if session_id else _claude_has_conversation(proj.path)
+        command = resume_command(proj, session_id, has_conversation=fresh)
         args = ["respawn-pane", "-k", "-t", row["pane_id"], "-c", proj.path, *_identity_args(iid), command]
         result = _tmux(*args)
         _clear_waiting_mark(row["pane_id"])

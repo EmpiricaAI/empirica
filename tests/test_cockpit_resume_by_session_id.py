@@ -170,12 +170,23 @@ def test_refresh_resumes_the_pane_s_own_session_and_says_so(home, monkeypatch):
 
 def test_refresh_falls_back_to_continue_when_the_session_cannot_be_confirmed(home, monkeypatch):
     h, proj = home
-    _record(h, "core", project_path=str(proj), claude_session_id=SID)  # no transcript
+    _record(h, "core", project_path=str(proj), claude_session_id=SID)  # its own transcript is gone
+    _transcript(h, "another-session", str(proj))  # but the directory has a conversation to continue
 
     (entry,) = _refresh(monkeypatch, proj, "core").respawned
 
     assert entry["command"] == "claude --continue"
     assert entry["session_id"] is None
+
+
+def test_refresh_starts_fresh_when_the_directory_has_no_conversation_at_all(home, monkeypatch):
+    """--continue there exits 1 ("No conversation found to continue") and the pane stays dead (prop_vc67kjtw4vfj3b5uavfqyjsycu)."""
+    h, proj = home
+    _record(h, "core", project_path=str(proj), claude_session_id=SID)
+
+    (entry,) = _refresh(monkeypatch, proj, "core").respawned
+
+    assert entry["command"] == "claude"
 
 
 # ── 1.14.23 sweep (finding fddc9b63) ─────────────────────────────────────────────────────────────────────────────────────

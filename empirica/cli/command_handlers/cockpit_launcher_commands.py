@@ -103,7 +103,7 @@ def _install_bar(config, session_name: str, args, *, human: bool) -> dict:
     except Exception as e:
         result = {"installed": False, "detail": f"the cockpit bar could not be installed ({type(e).__name__}: {e})"}
     if human and result.get("installed"):
-        keys = "Ctrl+b e then R A M I U C S L, ? for help" if result.get("keys") else "click a chip"
+        keys = "Ctrl+b e then R A M I C S L, Space for the menu, ? for help" if result.get("keys") else "click a chip"
         print(f"  ▁ cockpit bar on ({result.get('lines')} lines): {keys}")
         if result.get("detail"):
             print(f"    {result['detail']}")

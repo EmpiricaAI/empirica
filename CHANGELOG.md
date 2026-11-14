@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Restarting a cockpit pane whose practice has no conversation starts claude instead of leaving the pane dead.** With no session to name, refresh added `--continue`; claude found nothing to continue, exited, and the pane was dead again. When Claude Code holds no conversation for the directory, the launch runs without `--continue`. A conversation filed under another folder name still counts, and an unreadable transcript is not taken as proof of none.
 - **A pane inserted in the middle of a cockpit group comes up, and nothing is duplicated.** Panes were matched to the config by position, so inserting one shifted every pane after it: launch spawned a second copy of the pane that moved and never started the new one, and reported success. Each pane now also records what it is (its project, label or command), and launch and `refresh` match live panes by that, re-key them to their current position, split a missing pane next to its configured neighbour, and take the key off a pane that left the config. A pane started before this keeps its position unless it sits in the directory of another project in the group.
 
 ## [1.16.2] - 2026-11-13
