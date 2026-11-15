@@ -5,6 +5,13 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **After a compaction, the coverage line no longer says "0 of N" for what it just showed.** Findings, unknowns, dead ends and goals are ranked above the line, which counted them as none shown; it now says they are in the ranked focus above.
+- **`empirica mesh connect` lists the artifacts Cortex could not store** instead of reporting only success; a rerun retries them and skips what landed.
+
 ## [1.17.0] - 2026-11-14
 
 ### Highlights

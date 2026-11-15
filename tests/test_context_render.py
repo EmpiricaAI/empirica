@@ -113,7 +113,9 @@ def test_session_start_renders_the_contract(monkeypatch):
 def test_only_limits_the_item_sections_but_coverage_names_every_category():
     out = cr.render(_history(5), budget=4000, only={"decisions", "assumptions"})
     assert "**Decisions:**" in out and "**Findings:**" not in out
-    assert "findings 0 of 15" in next(line for line in out.splitlines() if line.startswith("Coverage:"))
+    assert "findings 15, in the ranked focus above" in next(
+        line for line in out.splitlines() if line.startswith("Coverage:")
+    )
 
 
 def test_post_compact_adds_the_contract_sections_its_focus_lacks():
@@ -139,3 +141,12 @@ def test_an_unreadable_blindspot_store_is_not_read_never_none_recorded():
 def test_an_empty_readable_store_still_says_none_recorded():
     line = cr._blindspots({"blindspot_status": {"total": 0, "source": "sqlite"}})
     assert line == "Blindspots: none recorded"
+
+
+def test_categories_the_caller_renders_itself_are_named_not_counted_as_zero():
+    """post-compact ranks findings, unknowns, dead ends and goals itself and asks render() for the rest; the coverage line
+    said "findings 0 of 1200" about findings shown just above it (1.16.2 sweep A3)."""
+    out = cr.render(_history(40), budget=4000, only={"decisions", "assumptions", "mistakes_to_avoid", "artifact_edges"})
+    coverage = [line for line in out.splitlines() if line.startswith("Coverage:")][-1]
+    assert "findings 120, in the ranked focus above" in coverage and "findings 0 of" not in coverage
+    assert "decisions 0 of" not in coverage and " of 120" in coverage, "a rendered category still counts what it showed"

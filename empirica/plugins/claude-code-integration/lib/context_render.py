@@ -87,7 +87,7 @@ def _line(key: str, item: object) -> str:
     return f"  - {_short(item)}"
 
 
-def _coverage(breadcrumbs: dict, rendered: dict[str, int]) -> str:
+def _coverage(breadcrumbs: dict, rendered: dict[str, int], only: set[str] | None = None) -> str:
     cover = breadcrumbs.get("coverage") or {}
     parts = []
     for key, heading in SECTIONS:
@@ -106,6 +106,10 @@ def _coverage(breadcrumbs: dict, rendered: dict[str, int]) -> str:
             parts.append(f"{name}: none" if not entry.get("truncated") else f"{name}: none returned (capped)")
             continue
         of = f"{total}" if isinstance(total, int) else (f"{returned}+" if entry.get("truncated") else f"{returned}")
+        if only is not None and key not in only:
+            # Rendered by the caller (post-compact ranks these itself): "0 of N" would read as none shown (1.16.2 sweep A3).
+            parts.append(f"{name} {of}, in the ranked focus above")
+            continue
         parts.append(f"{name} {rendered.get(key, 0)} of {of}")
     return "Coverage: " + "; ".join(parts)
 
@@ -136,7 +140,7 @@ def render(
     limit = budget if budget is not None else budget_from_env()
     lines: list[str] = list(head or [])
     fixed = [
-        _coverage(breadcrumbs, {}),
+        _coverage(breadcrumbs, {}, only),
         _blindspots(breadcrumbs) or "",
         "Ids are 8-character prefixes; artifact verbs take them.",
     ]
@@ -170,7 +174,7 @@ def render(
     if not any(chosen.values()) and only is None:
         # Loaded, and nothing to show: not the same statement as "no context" (bootstrap did not answer, above).
         lines.append("  (Project loaded; nothing retrieved: the coverage line says why, per category)")
-    lines.append(_coverage(breadcrumbs, {k: len(v) for k, v in chosen.items()}))
+    lines.append(_coverage(breadcrumbs, {k: len(v) for k, v in chosen.items()}, only))
     blind = _blindspots(breadcrumbs)
     if blind:
         lines.append(blind)
