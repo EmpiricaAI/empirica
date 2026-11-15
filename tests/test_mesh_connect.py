@@ -318,3 +318,27 @@ def test_an_artifact_missing_a_field_cortex_requires_stays_local_instead_of_refu
     assert ids["decision"] not in {n["id"] for n in nodes} and counts["incomplete_kept_local"] == 1
     edges, _ = mc.export_edges(db.conn, {n["id"] for n in nodes})
     assert all(ids["decision"] not in (e["from"], e["to"]) for e in edges), "a link to it stays local too"
+
+
+def test_node_errors_cortex_reports_are_printed_not_hidden_behind_a_tick(tmp_path, monkeypatch, capsys):
+    """First real run (empirica-paper, 2026-11-15): 12 sources failed on Cortex and the human output said only ✅."""
+    import types
+
+    from empirica.cli.command_handlers import mesh_commands
+    from empirica.config import path_resolver
+
+    (tmp_path / ".empirica" / "sessions").mkdir(parents=True)
+    (tmp_path / ".empirica" / "project.yaml").write_text(
+        "ai_id: alpha\nproject_id: 11111111-2222-4333-8444-555555555555\n"
+    )
+    (tmp_path / ".empirica" / "sessions" / "sessions.db").write_bytes(b"")
+    monkeypatch.setattr(path_resolver, "get_git_root", lambda: tmp_path)
+    report = {"ok": True, "dry_run": False, "practice": "alpha", "org": "O", "nodes": 3, "edges": 0, "to_team": 0,
+              "to_project": 3, "created": 2, "skipped_existing": 0, "refused": 0, "note": "n",
+              "errors": ["Node 'x' (source): per-org Qdrant routing enabled but org_id not configured"]}  # fmt: skip
+    monkeypatch.setattr("empirica.core.mesh_connect.connect", lambda **_kw: report)
+    assert (
+        mesh_commands.handle_mesh_connect_command(types.SimpleNamespace(dry_run=False, yes=True, output="human")) == 0
+    )
+    out = capsys.readouterr().out
+    assert "1 artifact(s) Cortex could not store" in out and "per-org Qdrant routing" in out

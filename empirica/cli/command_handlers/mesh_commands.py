@@ -1292,6 +1292,12 @@ def handle_mesh_connect_command(args) -> int:
     print(
         f"   Cortex: {done} new, {report.get('skipped_existing', 0)} already there, {report.get('refused', 0)} refused"
     )
+    if report.get("errors"):
+        # Cortex can import a batch and still fail single nodes (first real run, 2026-11-15: 12 sources, a Cortex-side
+        # vector store setting); they are not in Cortex, and a later run retries them while skipping what landed.
+        print(f"⚠️  {len(report['errors'])} artifact(s) Cortex could not store; run connect again once fixed:")
+        for err in report["errors"][:5]:
+            print(f"     {err}")
     if report.get("incomplete_kept_local"):
         print(f"   {report['incomplete_kept_local']} artifacts stay local: a field Cortex requires is empty")
     if report.get("links_kept_local"):
