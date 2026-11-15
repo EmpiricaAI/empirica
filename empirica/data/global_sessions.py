@@ -63,7 +63,7 @@ def _ended_at(value) -> float | None:
 
 
 def _local_state(db: Path, session_id: str) -> tuple[str, float | None]:
-    """('ended', when) | ('live', None) | ('absent', None) for one practice database; raises sqlite3.Error when unreadable."""
+    """('ended', when) | ('live', last reflex or None) | ('absent', None) for one practice database; raises sqlite3.Error when unreadable."""
     conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
     try:
         for table in ("sessions", "subagent_sessions"):
@@ -74,10 +74,22 @@ def _local_state(db: Path, session_id: str) -> tuple[str, float | None]:
                     continue
                 raise
             if row is not None:
-                return ("ended", _ended_at(row[0])) if row[0] else ("live", None)
+                return ("ended", _ended_at(row[0])) if row[0] else ("live", _last_reflex(conn, session_id))
         return "absent", None
     finally:
         conn.close()
+
+
+def _last_reflex(conn: sqlite3.Connection, session_id: str) -> float | None:
+    """When the session last measured anything in this practice. The registry's last_activity has no writer, so this is
+    the activity signal a long-lived session actually leaves (one live pane's session was two months old)."""
+    try:
+        (when,) = conn.execute("SELECT MAX(timestamp) FROM reflexes WHERE session_id = ?", (session_id,)).fetchone()
+    except sqlite3.OperationalError as e:
+        if "no such table" in str(e) or "no such column" in str(e):
+            return None
+        raise
+    return when if isinstance(when, (int, float)) else None
 
 
 #: A session the practice store still calls live but that has done nothing for this long is closed in the registry: its
@@ -125,7 +137,10 @@ def plan_reconcile(conn: sqlite3.Connection, *, stale_days: int = STALE_DAYS) ->
                 states.append(("unknown", None))
         ended = [when for state, when in states if state == "ended"]
         if any(state == "live" for state, _ in states):
-            if isinstance(seen, (int, float)) and seen < cutoff:
+            seen_at = [
+                w for w in (seen, *(when for state, when in states if state == "live")) if isinstance(w, (int, float))
+            ]
+            if seen_at and max(seen_at) < cutoff:
                 # Never ended in its practice either: the process died. Closed in the registry only (1.16.2 sweep).
                 counts["stale"] += 1
                 close.append({"session_id": session_id, "reason": "stale", "closed_at": None})

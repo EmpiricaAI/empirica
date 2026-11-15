@@ -178,3 +178,23 @@ def test_a_session_live_in_its_practice_but_idle_past_the_limit_is_closed_as_sta
     assert (plan["counts"]["stale"], plan["counts"]["live"]) == (1, 1)
     assert gs.apply_reconcile(registry, plan) == 1
     assert _status(registry) == {"old": "closed", "recent": "active"}
+
+
+def test_a_long_lived_session_still_working_in_its_practice_is_not_stale(registry, tmp_path):
+    """Nothing writes the registry's last_activity, so created_at stood in for it: the reconcile would have closed the
+    session of a live pane opened two months ago (6 such rows on one machine, among them the pane running the dry run)."""
+    import sqlite3
+    import time
+
+    traj = _practice(tmp_path, registry, "p1", [("working", None), ("quiet", None)])
+    local = sqlite3.connect(traj / "sessions" / "sessions.db")
+    local.execute("CREATE TABLE reflexes (session_id TEXT, timestamp REAL)")
+    local.execute("INSERT INTO reflexes VALUES ('working', ?)", (time.time() - 3600,))
+    local.execute("INSERT INTO reflexes VALUES ('quiet', ?)", (time.time() - 50 * 86400,))
+    local.commit()
+    local.close()
+    _register(registry, "working", "p1")  # created_at 1, last_activity NULL
+    _register(registry, "quiet", "p1")
+    plan = gs.plan_reconcile(registry)
+    assert [c["session_id"] for c in plan["close"]] == ["quiet"]
+    assert (plan["counts"]["stale"], plan["counts"]["live"]) == (1, 1)
