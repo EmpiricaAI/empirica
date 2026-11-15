@@ -644,13 +644,11 @@ def _attach_session_from_global_registry(project_id, project_path, output_format
             (current_instance_id,),
         )
     else:
-        cursor.execute("""
-            SELECT session_id, ai_id, created_at
-            FROM global_sessions
-            WHERE status = 'active'
-            ORDER BY COALESCE(last_activity, created_at) DESC
-            LIMIT 1
-        """)
+        # No session of its own and no pane to tell whose: attach nothing. The newest active session in the registry
+        # belongs to whichever conversation touched it last, and moving it here re-homed someone else's session (1.16.2
+        # sweep B4).
+        conn.close()
+        return None
 
     row = cursor.fetchone()
     if row:
