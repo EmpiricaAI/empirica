@@ -53,7 +53,7 @@ def test_reconcile_reads_a_practice_registered_under_its_root(tmp_path, monkeypa
     local.close()
     reg.execute("INSERT INTO global_projects VALUES ('p', 'legacy', ?)", (str(root),))  # the root, not <root>/.empirica
     reg.execute(
-        "INSERT INTO global_sessions (session_id, ai_id, origin_project_id, current_project_id, created_at) VALUES ('live', 't', 'p', 'p', 1)"
+        "INSERT INTO global_sessions (session_id, ai_id, origin_project_id, current_project_id, created_at) VALUES ('live', 't', 'p', 'p', strftime('%s','now'))"
     )
     reg.commit()
     plan = gs.plan_reconcile(reg)

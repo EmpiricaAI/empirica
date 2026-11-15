@@ -80,16 +80,28 @@ def _local_state(db: Path, session_id: str) -> tuple[str, float | None]:
         conn.close()
 
 
-def plan_reconcile(conn: sqlite3.Connection) -> dict:
+#: A session the practice store still calls live but that has done nothing for this long is closed in the registry: its
+#: process ended without saying so. Registering again reopens it (register_session_global), so nothing is lost.
+STALE_DAYS = 30
+
+
+def plan_reconcile(conn: sqlite3.Connection, *, stale_days: int = STALE_DAYS) -> dict:
     """What a reconcile would close, and why. Reads only."""
+    import time
+
+    cutoff = time.time() - stale_days * 86400
     paths = dict(conn.execute("SELECT id, trajectory_path FROM global_projects").fetchall())
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(global_sessions)")}
+    seen_sql = (
+        "COALESCE(last_activity, created_at)" if "last_activity" in columns else "created_at"
+    )  # an older registry
     rows = conn.execute(
-        "SELECT session_id, origin_project_id, current_project_id FROM global_sessions WHERE status = 'active'"
+        f"SELECT session_id, origin_project_id, current_project_id, {seen_sql} FROM global_sessions WHERE status = 'active'"
     ).fetchall()
     close: list[dict] = []
-    counts = {"active": len(rows), "ended": 0, "absent": 0, "practice_gone": 0, "live": 0, "unknown": 0}
+    counts = {"active": len(rows), "ended": 0, "absent": 0, "practice_gone": 0, "live": 0, "stale": 0, "unknown": 0}
     unknown_dbs: dict[str, str] = {}
-    for session_id, origin, current in rows:
+    for session_id, origin, current, seen in rows:
         project_ids = [p for p in dict.fromkeys((current, origin)) if p]
         dbs, gone = [], 0
         for pid in project_ids:
@@ -113,7 +125,12 @@ def plan_reconcile(conn: sqlite3.Connection) -> dict:
                 states.append(("unknown", None))
         ended = [when for state, when in states if state == "ended"]
         if any(state == "live" for state, _ in states):
-            counts["live"] += 1
+            if isinstance(seen, (int, float)) and seen < cutoff:
+                # Never ended in its practice either: the process died. Closed in the registry only (1.16.2 sweep).
+                counts["stale"] += 1
+                close.append({"session_id": session_id, "reason": "stale", "closed_at": None})
+            else:
+                counts["live"] += 1
         elif ended:
             counts["ended"] += 1
             close.append({"session_id": session_id, "reason": "ended", "closed_at": max(w or 0 for w in ended) or None})

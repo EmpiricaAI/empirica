@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`doctor --reconcile-sessions` closes sessions whose process died without ending them.** A session its practice still listed as live stayed active in the registry for months (209 rows on one machine, 125 idle over 30 days). One idle for 30 days is now closed there as `stale`; the practice's own store is not changed, and registering the session again reopens it.
 - **`project-switch` never takes another conversation's session.** With no session of its own and no instance id, it attached the most recently active session in the registry, whoever it belonged to, and moved it to the new project. It now attaches nothing in that case.
 - **After a compaction, the coverage line no longer says "0 of N" for what it just showed.** Findings, unknowns, dead ends and goals are ranked above the line, which counted them as none shown; it now says they are in the ranked focus above.
 - **`empirica mesh connect` lists the artifacts Cortex could not store** instead of reporting only success; a rerun retries them and skips what landed.

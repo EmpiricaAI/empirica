@@ -48,10 +48,11 @@ def _practice(tmp_path, registry, pid, sessions):
     return traj
 
 
-def _register(registry, sid, pid):
+def _register(registry, sid, pid, last_activity=None):
     registry.execute(
-        "INSERT INTO global_sessions (session_id, ai_id, origin_project_id, current_project_id, created_at) VALUES (?, 't', ?, ?, 1)",
-        (sid, pid, pid),
+        "INSERT INTO global_sessions (session_id, ai_id, origin_project_id, current_project_id, created_at, last_activity)"
+        " VALUES (?, 't', ?, ?, 1, ?)",
+        (sid, pid, pid, last_activity),
     )
     registry.commit()
 
@@ -99,8 +100,11 @@ def test_every_path_that_ends_a_session_closes_its_row(registry, tmp_path):
 
 def test_reconcile_closes_what_ended_is_absent_or_lost_its_practice_and_leaves_the_rest(registry, tmp_path):
     _practice(tmp_path, registry, "p1", [("ended", "2026-10-01T10:00:00"), ("live", None)])
-    for sid in ("ended", "live", "absent"):
+    for sid in ("ended", "absent"):
         _register(registry, sid, "p1")
+    import time
+
+    _register(registry, "live", "p1", last_activity=time.time())
     registry.execute(
         "INSERT INTO global_projects VALUES ('gone', 'gone', ?)", (str(tmp_path / "deleted" / ".empirica"),)
     )
@@ -111,7 +115,15 @@ def test_reconcile_closes_what_ended_is_absent_or_lost_its_practice_and_leaves_t
     _register(registry, "unreadable", "p2")
 
     plan = gs.plan_reconcile(registry)
-    assert plan["counts"] == {"active": 6, "ended": 1, "absent": 1, "practice_gone": 2, "live": 1, "unknown": 1}
+    assert plan["counts"] == {
+        "active": 6,
+        "ended": 1,
+        "absent": 1,
+        "practice_gone": 2,
+        "live": 1,
+        "stale": 0,
+        "unknown": 1,
+    }
     assert _status(registry)["ended"] == "active"  # the plan writes nothing
 
     assert gs.apply_reconcile(registry, plan) == 4
@@ -153,3 +165,16 @@ def test_unregister_counts_only_active_sessions_as_references(registry):
     assert _local_sql_references(registry, "p")["global_sessions"] == 0
     _register(registry, "now", "p")
     assert _local_sql_references(registry, "p")["global_sessions"] == 1
+
+
+def test_a_session_live_in_its_practice_but_idle_past_the_limit_is_closed_as_stale(registry, tmp_path):
+    """Its process ended without saying so; the row stayed active for months (205 on one machine, 1.16.2 sweep)."""
+    import time
+
+    _practice(tmp_path, registry, "p1", [("old", None), ("recent", None)])
+    _register(registry, "old", "p1", last_activity=time.time() - 40 * 86400)
+    _register(registry, "recent", "p1", last_activity=time.time() - 2 * 86400)
+    plan = gs.plan_reconcile(registry)
+    assert (plan["counts"]["stale"], plan["counts"]["live"]) == (1, 1)
+    assert gs.apply_reconcile(registry, plan) == 1
+    assert _status(registry) == {"old": "closed", "recent": "active"}
