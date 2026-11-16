@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+from typing import Any
 
 
 def _loader():
@@ -58,7 +59,7 @@ def handle_auth_login_command(args) -> int:
     # Rung 4 inline: the credential is proven by a real authenticated call
     # from this seat, not by the token existing.
     identity: dict = {}
-    verify = _verify_token(identity)
+    verify = _verify_token(identity, org_id=result.get("org_id"))  # the set just stored, which may not be the default
     result["verified_against_api"] = verify
     if identity.get("org_id"):
         result["org"] = {"org_id": identity["org_id"], "org_name": identity.get("org_name")}
@@ -87,7 +88,7 @@ def handle_auth_login_command(args) -> int:
     return 0
 
 
-def _verify_token(identity: dict | None = None) -> bool | None:
+def _verify_token(identity: dict | None = None, org_id: str | None = None) -> bool | None:
     """One real /v1/users/me call with the OAuth token ONLY (no api_key
     fallback) — 'stored' is not 'works'. None when the check itself errors.
     ``identity``, when given, receives the response (org_id, org_name, ...)."""
@@ -97,7 +98,8 @@ def _verify_token(identity: dict | None = None) -> bool | None:
     try:
         loader = _loader()
         url = (loader.get_cortex_config().get("url") or "").rstrip("/")
-        token = loader.cortex_access_token()  # no refresh: token was just minted
+        # no refresh: token was just minted
+        token = loader.cortex_access_token(org_id=org_id) if org_id else loader.cortex_access_token()
         if not url or not token:
             return None
         req = urllib.request.Request(f"{url}/v1/users/me", headers={"Authorization": f"Bearer {token}"})
@@ -129,7 +131,7 @@ def handle_auth_status_command(args) -> int:
             credential_lifecycle = "valid" if expires_at and float(expires_at) > now else "expired"
         except (TypeError, ValueError):
             credential_lifecycle = "unknown-expiry"
-    status = {
+    status: dict[str, Any] = {
         "url": cfg.get("url"),
         "api_key_present": bool(cfg.get("api_key")),
         "oauth_token": credential_lifecycle,
@@ -138,6 +140,18 @@ def handle_auth_status_command(args) -> int:
         "client_id": (oauth.get("client_id") or "")[:12] or None,
         # The sentence that matters for retirement planning:
         "retirement_ready": credential_lifecycle == "valid" and bool(oauth.get("refresh_token")),
+        # Every team signed in on this machine; the fields above describe the default (goal da0396f8).
+        "orgs": [
+            {
+                "org_id": block.get("org_id") or slot,
+                "org_name": block.get("org_name"),
+                "default": slot is None,
+                "oauth_token": _lifecycle(block, now),
+                "expires_at": block.get("expires_at"),
+                "refresh_owner": block.get("refresh_owner") or "cli",
+            }
+            for slot, block in loader.cortex_oauth_sets()
+        ],
     }
     if output == "json":
         print(json.dumps(status))
@@ -148,7 +162,23 @@ def handle_auth_status_command(args) -> int:
         print(f"refresh token:     {'held (CLI is sole refresher)' if status['has_refresh_token'] else 'none'}")
         print(f"client:            {status['client_id'] or '(not registered)'}")
         print(f"retirement-ready:  {'yes' if status['retirement_ready'] else 'NO — api_key still load-bearing'}")
+        if len(status["orgs"]) > 1 or any(o["org_id"] for o in status["orgs"]):
+            print("teams:")
+            for o in status["orgs"]:
+                name = (
+                    f"{o['org_name']} ({o['org_id']})" if o.get("org_name") else (o["org_id"] or "(org not recorded)")
+                )
+                print(f"  {'*' if o['default'] else ' '} {name}: {o['oauth_token']}")
     return 0
+
+
+def _lifecycle(block: dict, now: float) -> str:
+    if not block.get("access_token"):
+        return "absent"
+    try:
+        return "valid" if block.get("expires_at") and float(block["expires_at"]) > now else "expired"
+    except (TypeError, ValueError):
+        return "unknown-expiry"
 
 
 def handle_auth_logout_command(args) -> int:
@@ -156,17 +186,18 @@ def handle_auth_logout_command(args) -> int:
     The api_key is untouched — logout must never be a lockout."""
     output = getattr(args, "output", "human")
     loader = _loader()
-    oauth = loader.get_cortex_oauth()
+    org = getattr(args, "org", None)
+    oauth = loader.get_cortex_oauth(org) if org else loader.get_cortex_oauth()
     if not oauth:
         if output == "json":
-            print(json.dumps({"ok": True, "note": "no oauth block present"}))
+            print(json.dumps({"ok": True, "note": f"no sign-in present{f' for org {org}' if org else ''}"}))
         else:
-            print("nothing to log out — no oauth block present")
+            print(f"nothing to log out — no sign-in{f' for org {org}' if org else ''}")
         return 0
 
     revoked = _revoke_remote(loader, oauth)
-    # Drop the block by rewriting the file without it (save_* only merges).
-    _drop_oauth_block(loader)
+    # Drop the block by rewriting the file without it (save_* only merges). Another team's sign-in stays.
+    _drop_oauth_block(loader, loader.cortex_oauth_slot(org) if org else None)
     result = {"ok": True, "remote_revoked": revoked}
     if output == "json":
         print(json.dumps(result))
@@ -197,16 +228,24 @@ def _revoke_remote(loader, oauth: dict) -> bool:
         return False
 
 
-def _drop_oauth_block(loader) -> None:
-    """Remove cortex.oauth from the credentials file, preserving everything
+def _drop_oauth_block(loader, slot: str | None = None) -> None:
+    """Remove cortex.oauth (or cortex.orgs.<slot>) from the credentials file, preserving everything
     else byte-for-byte at the data level (same atomic write as the savers)."""
     target = loader._resolve_credentials_target(None)
     existing = loader._read_existing(target)
     cortex_block = existing.get("cortex")
-    if isinstance(cortex_block, dict) and "oauth" in cortex_block:
+    if not isinstance(cortex_block, dict):
+        return
+    if slot is None and "oauth" in cortex_block:
         cortex_block.pop("oauth")
-        existing["cortex"] = cortex_block
-        loader._write_credentials(target, existing)
+    elif slot is not None and isinstance(cortex_block.get("orgs"), dict) and slot in cortex_block["orgs"]:
+        cortex_block["orgs"].pop(slot)
+        if not cortex_block["orgs"]:
+            cortex_block.pop("orgs")
+    else:
+        return
+    existing["cortex"] = cortex_block
+    loader._write_credentials(target, existing)
 
 
 def handle_auth_token_command(args) -> int:
@@ -225,12 +264,14 @@ def handle_auth_token_command(args) -> int:
     output = getattr(args, "output", "human")
     as_headers = bool(getattr(args, "headers", False))
     loader = _loader()
-    oauth = loader.get_cortex_oauth()
+    org = getattr(args, "org", None)
+    org_kw = {"org_id": org} if org else {}
+    oauth = loader.get_cortex_oauth(**org_kw)
     # Custody first: a daemon- or extension-owned family is refreshed by its owner, and a second
     # refresher makes cortex revoke it. For those this returns the stored token while it is valid
     # and never refreshes; the same gate `cortex_bearer` applies.
-    refresh_cb, owner = cortex_oauth.custody_refresh(loader) if oauth else (None, "cli")
-    token = loader.cortex_access_token(refresh=refresh_cb) if oauth else None
+    refresh_cb, owner = cortex_oauth.custody_refresh(loader, **org_kw) if oauth else (None, "cli")
+    token = loader.cortex_access_token(refresh=refresh_cb, **org_kw) if oauth else None
     if not token:
         if not oauth.get("access_token"):
             reason, hint = "no token set stored", "run `empirica auth login`"
@@ -255,7 +296,7 @@ def handle_auth_token_command(args) -> int:
         print(json.dumps({"Authorization": f"Bearer {token}"}))
         return 0
     if output == "json":
-        fresh = loader.get_cortex_oauth()
+        fresh = loader.get_cortex_oauth(**org_kw)
         print(
             json.dumps(
                 {

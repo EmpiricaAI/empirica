@@ -12,7 +12,8 @@ import time
 import pytest
 import yaml
 
-_AT_A, _AT_B, _RT, _NEW_B = "AT_A", "AT_B", "RT", "NEW_B"  # fake fixtures, not credentials
+_AT_A, _AT_B, _RT, _NEW_B, _AT_A2 = "AT_A", "AT_B", "RT", "NEW_B", "AT_A2"  # fake fixtures, not credentials
+_VALID = "valid"
 
 
 @pytest.fixture
@@ -121,3 +122,165 @@ def test_refresh_custody_is_read_from_the_orgs_own_block(creds, monkeypatch):
                     "orgs": {"org-b": _set(_AT_B, "org-b", refresh_owner="cli")}})  # fmt: skip
     assert co.custody_refresh(loader, org_id="org-a")[1] == "daemon"
     assert co.custody_refresh(loader, org_id="org-b")[1] == "cli"
+
+
+# --- auth login writes the org's own block (it used to replace whatever team was stored) ---
+
+_DISCO = {"issuer": "https://c", "authorization_endpoint": "https://c/v1/oauth/authorize",
+          "token_endpoint": "https://c/t", "registration_endpoint": "https://c/v1/oauth/register"}  # fmt: skip
+
+
+def _login(loader, monkeypatch, *, new_org, new_token, me_by_token=None, org=None):
+    """Run login() over the --remote path with fakes: the new set acts in ``new_org``."""
+    import urllib.parse
+
+    from empirica.core.auth import cortex_oauth as co
+
+    me = {new_token: {"org_id": new_org, "org_name": new_org.upper()}, **(me_by_token or {})}
+
+    def http(url, *, data=None, headers=None, timeout=15.0, form=False):
+        if "/.well-known" in url:
+            return _DISCO
+        if url.endswith("/register"):
+            return {"client_id": "cli_new"}
+        if url.endswith("/t"):
+            if (data or {}).get("grant_type") == "refresh_token":
+                raise RuntimeError("refresh refused")
+            return {"access_token": new_token, "refresh_token": "RT_NEW", "expires_in": 3600}
+        if url.endswith("/v1/users/me"):
+            bearer = (headers or {}).get("Authorization", "").removeprefix("Bearer ")
+            if bearer in me:
+                return me[bearer]
+            raise RuntimeError("401")
+        raise AssertionError(url)
+
+    def paste(url):
+        q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
+        return f"code#{q['state']}"
+
+    monkeypatch.setattr(co, "_serve_daemon_running", lambda: False)
+    return co.login(loader=loader, http=http, remote=True, read_code=paste, org=org)
+
+
+def test_a_first_sign_in_is_the_default_and_records_its_org(creds, monkeypatch):
+    write, path = creds
+    result = _login(write({"url": "https://c"}), monkeypatch, new_org="org-a", new_token=_AT_A)
+    stored = yaml.safe_load(path.read_text())["cortex"]
+    assert stored["oauth"]["access_token"] == _AT_A and stored["oauth"]["org_id"] == "org-a"
+    assert stored["oauth"]["org_name"] == "ORG-A" and "orgs" not in stored
+    assert (result["slot"], result["org_id"]) == (None, "org-a")
+
+
+def test_a_second_team_goes_beside_the_first_not_over_it(creds, monkeypatch):
+    write, path = creds
+    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a")})
+    result = _login(loader, monkeypatch, new_org="org-b", new_token=_AT_B, org="org-b")
+    stored = yaml.safe_load(path.read_text())["cortex"]
+    assert stored["oauth"]["access_token"] == _AT_A
+    assert stored["orgs"]["org-b"]["access_token"] == _AT_B and stored["orgs"]["org-b"]["org_id"] == "org-b"
+    assert result["slot"] == "org-b"
+    assert stored["orgs"]["org-b"]["client_id"] == "cli_new"  # its own client, not the other team's family's
+
+
+def test_signing_in_to_the_same_team_again_renews_the_default(creds, monkeypatch):
+    write, path = creds
+    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a")})
+    _login(loader, monkeypatch, new_org="org-a", new_token=_AT_A2)
+    stored = yaml.safe_load(path.read_text())["cortex"]
+    assert stored["oauth"]["access_token"] == _AT_A2 and "orgs" not in stored
+
+
+def test_a_default_with_no_recorded_org_is_asked_which_it_is(creds, monkeypatch):
+    """Signed in before orgs were recorded: one /v1/users/me with its own token says which team it is."""
+    write, path = creds
+    loader = write({"url": "https://c", "oauth": _set(_AT_A)})
+    _login(loader, monkeypatch, new_org="org-b", new_token=_AT_B, me_by_token={_AT_A: {"org_id": "org-a"}})
+    stored = yaml.safe_load(path.read_text())["cortex"]
+    assert stored["oauth"]["access_token"] == _AT_A and stored["oauth"]["org_id"] == "org-a"
+    assert stored["orgs"]["org-b"]["access_token"] == _AT_B
+
+
+def test_a_default_that_cannot_say_which_team_it_is_is_replaced(creds, monkeypatch):
+    """Its token is dead and cannot be renewed: nothing usable is lost, so the new sign-in takes the default, as before."""
+    write, path = creds
+    loader = write({"url": "https://c", "oauth": _set(_AT_A, expires_at=time.time() - 60)})
+    _login(loader, monkeypatch, new_org="org-b", new_token=_AT_B)
+    stored = yaml.safe_load(path.read_text())["cortex"]
+    assert stored["oauth"]["access_token"] == _AT_B and stored["oauth"]["org_id"] == "org-b"
+
+
+def _run(handler, monkeypatch, loader, **kw):
+    import json
+    import types
+
+    from empirica.cli.command_handlers import auth_commands
+
+    monkeypatch.setattr(auth_commands, "_loader", lambda: loader)
+    monkeypatch.setattr(auth_commands, "_revoke_remote", lambda loader, oauth: True)
+    return getattr(auth_commands, handler)(types.SimpleNamespace(output="json", **kw)), json
+
+
+def test_status_lists_every_team_and_keeps_its_default_fields(creds, monkeypatch, capsys):
+    write, _ = creds
+    loader = write(
+        {"url": "https://c", "oauth": _set(_AT_A, "org-a", org_name="A"), "orgs": {"org-b": _set(_AT_B, "org-b")}}
+    )
+    rc, json = _run("handle_auth_status_command", monkeypatch, loader)
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0 and out["oauth_token"] == _VALID  # the default, as before
+    assert [(o["org_id"], o["default"], o["oauth_token"]) for o in out["orgs"]] == [
+        ("org-a", True, "valid"),
+        ("org-b", False, "valid"),
+    ]
+
+
+def test_logout_of_one_team_leaves_the_others(creds, monkeypatch, capsys):
+    write, path = creds
+    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
+    rc, _ = _run("handle_auth_logout_command", monkeypatch, loader, org="org-b")
+    stored = yaml.safe_load(path.read_text())["cortex"]
+    assert rc == 0 and stored["oauth"]["access_token"] == _AT_A and not stored.get("orgs")
+
+
+def test_logout_without_an_org_drops_the_default_only(creds, monkeypatch, capsys):
+    write, path = creds
+    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
+    _run("handle_auth_logout_command", monkeypatch, loader)
+    stored = yaml.safe_load(path.read_text())["cortex"]
+    assert "oauth" not in stored and stored["orgs"]["org-b"]["access_token"] == _AT_B
+
+
+def test_the_sign_in_is_verified_with_the_set_it_stored(creds, monkeypatch):
+    """A second team's sign-in is stored beside the default: verifying the default would report the wrong team."""
+    import types
+
+    from empirica.cli.command_handlers import auth_commands
+    from empirica.core import auth
+
+    write, _ = creds
+    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
+    monkeypatch.setattr(auth_commands, "_loader", lambda: loader)
+    monkeypatch.setattr(auth, "login", lambda **kw: {"ok": True, "client_id": "c" * 20, "expires_at": None,
+                        "has_refresh_token": True, "cortex_url": "https://c", "url_source": "config", "org_id": "org-b"})  # fmt: skip
+    used = {}
+
+    class Resp:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b'{"org_id": "org-b"}'
+
+    def urlopen(req, timeout=10):
+        used["auth"] = req.headers.get("Authorization")
+        return Resp()
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    monkeypatch.setattr("empirica.config.credentials_loader.get_credentials_loader", lambda: loader)
+    auth_commands.handle_auth_login_command(types.SimpleNamespace(output="json", timeout=5, url=None))
+    assert used["auth"] == f"Bearer {_AT_B}"

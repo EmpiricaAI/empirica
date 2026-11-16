@@ -67,6 +67,11 @@ def add_auth_parsers(subparsers) -> None:
             "with no token printed when there is none or it cannot be refreshed."
         ),
     )
+    token.add_argument(
+        "--org",
+        metavar="ORG_ID",
+        help="The team whose token to print (its org id); default: the default sign-in (optional).",
+    )
     token.add_argument("--output", choices=["human", "json"], default="human")
     token.add_argument(
         "--headers",
@@ -99,5 +104,10 @@ def add_auth_parsers(subparsers) -> None:
     logout = actions.add_parser(
         "logout",
         help="Revoke this seat's refresh token at cortex and drop cortex.oauth. The api_key is untouched — logout is never a lockout.",
+    )
+    logout.add_argument(
+        "--org",
+        metavar="ORG_ID",
+        help="Log out of this team only (its org id); others stay signed in. Default: the default sign-in (optional).",
     )
     logout.add_argument("--output", choices=["human", "json"], default="human")

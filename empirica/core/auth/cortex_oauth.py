@@ -560,7 +560,8 @@ def login(
     # save_cortex_oauth replace-guard could never fire. So over a foreign or
     # unknown-owner block we register our OWN client and let the guard REPLACE
     # theirs.
-    oauth = loader.get_cortex_oauth()
+    # With --org, the client of that team's own stored set (another team's would put two families under one client).
+    oauth = loader.get_cortex_oauth(org) if org else loader.get_cortex_oauth()
     owner = (oauth.get("refresh_owner") or "").lower()
     same_cortex = oauth.get("token_endpoint") in (None, "", disco["token_endpoint"])
     # A client registered on ANOTHER Cortex is unknown here: reusing it left the browser on an error and the login waiting
@@ -643,16 +644,27 @@ def login(
     # stays warm without the browser (the retirement goal). A headless box has
     # no competing refresher, so 'cli' is correct there.
     owner = "daemon" if _serve_daemon_running() else "cli"
+    # Which team the new set acts in, and so where it is stored: a second team's sign-in goes beside the first, never
+    # over it (a token is bound to one user in one org; goal da0396f8).
+    identity = _whoami(base_url, tokens["access_token"], http=http)
+    new_org = identity.get("org_id") or None
+    slot = _slot_for_new_sign_in(loader, new_org, base_url, http=http)
     loader.save_cortex_oauth(
+        slot=slot,
         access_token=tokens.get("access_token"),
         refresh_token=tokens.get("refresh_token"),
         expires_at=_expires_at(tokens, now=now),
         token_endpoint=disco["token_endpoint"],
         client_id=client_id,
         refresh_owner=owner,
+        org_id=new_org,
+        org_name=identity.get("org_name") or None,
     )
     return {
         "ok": True,
+        "slot": slot,
+        "org_id": new_org,
+        "org_name": identity.get("org_name"),
         "client_id": client_id,
         "expires_at": _expires_at(tokens, now=now),
         "has_refresh_token": bool(tokens.get("refresh_token")),
@@ -664,6 +676,40 @@ def login(
         "org_requested": org or None,
         "remote": remote,
     }
+
+
+def _whoami(base_url: str, token: str, *, http=_http_json) -> dict:
+    """GET /v1/users/me with ``token``: {org_id, org_name, ...}, or {} when it cannot say (the sign-in still stands)."""
+    try:
+        out = http(f"{base_url.rstrip('/')}/v1/users/me", headers={"Authorization": f"Bearer {token}"})
+        return out if isinstance(out, dict) else {}
+    except Exception as e:
+        logger.debug("auth login: /v1/users/me failed: %s", e)
+        return {}
+
+
+def _slot_for_new_sign_in(loader, new_org: str | None, base_url: str, *, http=_http_json) -> str | None:
+    """Where a new sign-in for ``new_org`` is stored: None (the default `cortex.oauth`) or an org id (`cortex.orgs`).
+
+    The default when there is none, when it is the same team, or when the new org is unknown (as before). Beside it when
+    the default records another team. A default from before orgs were recorded is asked which team it is, once, with its
+    own token; when it cannot say (its token is dead and will not renew), nothing usable would be lost, so it is replaced.
+    """
+    default = loader.get_cortex_oauth()
+    if not default or not new_org:
+        return None
+    known = default.get("org_id")
+    if not known:
+        try:
+            refresh_cb, _owner = custody_refresh(loader, http=http)
+            token = loader.cortex_access_token(refresh=refresh_cb)
+        except Exception:
+            token = None
+        known = _whoami(base_url, token, http=http).get("org_id") if token else None
+        if not known:
+            return None
+        loader.save_cortex_oauth(org_id=known)  # recorded, so the next sign-in need not ask
+    return None if known == new_org else new_org
 
 
 def _open_and_wait(authorize_url: str, open_browser, server, state: str, timeout_s: float) -> str:

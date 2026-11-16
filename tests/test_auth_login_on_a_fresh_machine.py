@@ -67,7 +67,7 @@ def _run_command(monkeypatch, result, loader, url=None):
     from empirica.core import auth
 
     monkeypatch.setattr(auth, "login", lambda **_kw: dict(result))
-    monkeypatch.setattr(auth_commands, "_verify_token", lambda identity=None: True)
+    monkeypatch.setattr(auth_commands, "_verify_token", lambda identity=None, org_id=None: True)
     monkeypatch.setattr("empirica.config.credentials_loader.get_credentials_loader", lambda: loader)
     args = types.SimpleNamespace(output="json", timeout=5, url=url)
     return auth_commands.handle_auth_login_command(args)
@@ -134,7 +134,7 @@ def test_the_org_signed_in_to_is_reported(monkeypatch, capsys):
         return {"ok": True, "client_id": "c" * 20, "expires_at": None, "has_refresh_token": True,
                 "cortex_url": "https://cortex.example.test", "url_source": "config", "invite": True}  # fmt: skip
 
-    def verify(identity=None):
+    def verify(identity=None, org_id=None):
         identity.update({"org_id": "org-acme", "org_name": "Acme", "email": "x@acme.test"})
         return True
 
