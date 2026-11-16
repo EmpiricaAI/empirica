@@ -667,6 +667,8 @@ def login(
     identity = _whoami(base_url, tokens["access_token"], http=http)
     new_org = identity.get("org_id") or None
     previous_org = loader.get_cortex_oauth().get("org_id")
+    if not _same_cortex(loader, base_url) and len(loader.cortex_oauth_sets()) > 1:
+        loader.clear_other_teams()  # they belong to the Cortex being left; never sent to the new one
     slot = _slot_for_new_sign_in(loader, new_org, base_url, http=http)
     note = None
     if slot is None and previous_org and new_org and previous_org != new_org and not loader.multi_team_allowed():
@@ -715,6 +717,10 @@ def _whoami(base_url: str, token: str, *, http=_http_json) -> dict:
         return {}
 
 
+def _same_cortex(loader, base_url: str) -> bool:
+    return (loader.get_cortex_config() or {}).get("url", "").rstrip("/") == base_url.rstrip("/")
+
+
 def _slot_for_new_sign_in(loader, new_org: str | None, base_url: str, *, http=_http_json) -> str | None:
     """Where a new sign-in for ``new_org`` is stored: None (the default `cortex.oauth`) or an org id (`cortex.orgs`).
 
@@ -722,8 +728,10 @@ def _slot_for_new_sign_in(loader, new_org: str | None, base_url: str, *, http=_h
     the default records another team. A default from before orgs were recorded is asked which team it is, once, with its
     own token; when it cannot say (its token is dead and will not renew), nothing usable would be lost, so it is replaced.
     """
-    if not loader.multi_team_allowed():
-        return None  # several teams need Empirica Cortex: elsewhere one sign-in, replaced as before
+    if not loader.multi_team_allowed() or not _same_cortex(loader, base_url):
+        # Several teams need Empirica Cortex, and the sign-in must be to the Cortex the stored ones belong to: a login to
+        # another server neither probes the stored token there nor files its token beside ours (1.17.2 sweep).
+        return None
     if new_org and any(slot == new_org for slot, _ in loader.cortex_oauth_sets()):
         return new_org  # that team already has its own block: update it, never a second copy
     default = loader.get_cortex_oauth()

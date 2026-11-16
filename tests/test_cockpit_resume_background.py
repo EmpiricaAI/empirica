@@ -23,12 +23,13 @@ def test_the_panes_own_session_in_the_background_is_attached():
     assert background_job(_DIR, _SID, [_job()]) == "901761c7"
 
 
-def test_without_a_known_session_one_background_job_in_the_directory_is_attached():
-    assert background_job(_DIR, None, [_job()]) == "901761c7"
+def test_without_the_panes_own_session_nothing_is_attached():
+    """A dispatched agent is listed as background too: a directory match alone could attach it (1.17.2 sweep)."""
+    assert background_job(_DIR, None, [_job()]) is None
 
 
-def test_two_background_jobs_in_one_directory_are_not_guessed_between():
-    assert background_job(_DIR, None, [_job(), _job(sid="aaaa", jid="aaaa0000")]) is None
+def test_an_option_shaped_job_id_is_refused():
+    assert background_job(_DIR, _SID, [_job(jid="--help")]) is None
 
 
 def test_a_session_still_live_in_a_terminal_is_not_attached():
@@ -50,5 +51,7 @@ def test_refresh_runs_attach_for_a_backgrounded_claude_pane():
 
     proj = SimpleNamespace(launch="claude --dangerously-skip-permissions --continue", path=_DIR, resume=None)
     assert _background_attach_command(proj, _SID, [_job()]) == "claude attach 901761c7"
+    pinned = SimpleNamespace(launch="/opt/cc/claude --continue", path=_DIR, resume=None)
+    assert _background_attach_command(pinned, _SID, [_job()]) == "/opt/cc/claude attach 901761c7"
     codex = SimpleNamespace(launch="ecodex", path=_DIR, resume=None)
     assert _background_attach_command(codex, _SID, [_job()]) is None

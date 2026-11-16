@@ -178,9 +178,9 @@ class HeartbeatEmitter:
 
         with acting_for(self.ai_id):  # this listener's practice team, when several are signed in here
             url, api_key = self._resolve_creds_fn()
-        if not url or not api_key:
-            _say_why_skipped("heartbeat")
-            return 0  # SKIP — cortex not configured
+            if not url or not api_key:
+                _say_why_skipped("heartbeat")  # the reason for this team's sign-in, not the default's
+                return 0  # SKIP — cortex not configured
         _say_usable("heartbeat")
         endpoint = f"{url.rstrip('/')}{_HEARTBEAT_ENDPOINT_PATH}"
         body = json.dumps(

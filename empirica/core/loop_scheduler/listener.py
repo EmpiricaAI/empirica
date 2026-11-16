@@ -773,7 +773,17 @@ def _rotate_fires_log_if_oversized(log_path: Path) -> None:
         logger.debug(f"loop_fires.log rotation failed (non-fatal): {e}")
 
 
-def run_listener(  # noqa: C901 — held-connection loop; clarity beats decomposition here
+def run_listener(instance_id: str, *args, **kwargs):
+    """Run the listener for ``instance_id`` (see `_run_listener_body`). Every credential lookup inside, including the
+    notification-channel and roster calls, uses this practice's team when several are signed in here; the unit has no
+    working directory of its own (1.17.2 sweep)."""
+    from empirica.core.mesh_endpoint import acting_for
+
+    with acting_for(instance_id):
+        return _run_listener_body(instance_id, *args, **kwargs)
+
+
+def _run_listener_body(  # noqa: C901 — held-connection loop; clarity beats decomposition here
     instance_id: str,
     loop_name: str = "cortex-mailbox-poll",
     output_stream=sys.stdout,

@@ -15,7 +15,7 @@ import yaml
 _AT_A, _AT_B, _RT, _NEW_B, _AT_A2 = "AT_A", "AT_B", "RT", "NEW_B", "AT_A2"  # fake fixtures, not credentials
 _VALID = "valid"
 _CORTEX = "https://cortex.getempirica.com"  # several teams need Empirica Cortex (David, 2026-11-16)
-_AT_C, _NEW_A = "AT_C", "NEW_org-a"
+_AT_C, _NEW_A = "AT_C", "NEW_None"  # the default is renewed by its slot (None)
 
 
 @pytest.fixture
@@ -23,6 +23,7 @@ def creds(tmp_path, monkeypatch):
     from empirica.config.credentials_loader import CredentialsLoader
 
     path = tmp_path / "credentials.yaml"
+    monkeypatch.setenv("HOME", str(tmp_path))  # practices live under $HOME: the working-directory walk stops there
     for var in ("CORTEX_API_KEY", "CORTEX_URL", "CORTEX_REMOTE_URL"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("EMPIRICA_CREDENTIALS_PATH", str(path))
@@ -245,11 +246,12 @@ def test_logout_of_one_team_leaves_the_others(creds, monkeypatch, capsys):
 
 
 def test_logout_without_an_org_drops_the_default_only(creds, monkeypatch, capsys):
+    """The default's sign-in goes; the other team stays signed in, now as the default (1.17.2 sweep)."""
     write, path = creds
     loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
     _run("handle_auth_logout_command", monkeypatch, loader)
     stored = yaml.safe_load(path.read_text())["cortex"]
-    assert "oauth" not in stored and stored["orgs"]["org-b"]["access_token"] == _AT_B
+    assert stored["oauth"]["access_token"] == _AT_B and _AT_A not in str(stored)
 
 
 def test_the_sign_in_is_verified_with_the_set_it_stored(creds, monkeypatch):
@@ -375,7 +377,7 @@ def test_the_daemon_renews_every_family_it_owns_and_only_those(creds, monkeypatc
     monkeypatch.setattr("empirica.core.auth.default_refresh", fake_default_refresh)
     serve_app._refresh_daemon_families(loader)
     stored = yaml.safe_load(path.read_text())["cortex"]
-    assert sorted(renewed, key=str) == ["org-a", "org-b"]  # not org-c: its shell process owns it
+    assert sorted(renewed, key=str) == [None, "org-b"]  # the default by its slot; not org-c: its shell owns it
     assert stored["oauth"]["access_token"] == _NEW_A
     assert stored["orgs"]["org-c"]["access_token"] == _AT_C
 
@@ -537,3 +539,34 @@ def test_a_practitioner_beats_with_its_own_practices_team(creds, tmp_path, monke
     )
     emitter.emit_once()
     assert sent and sent[0]["Authorization"] == f"Bearer {_AT_B}"
+
+
+# --- 1.17.2 pre-publish sweep ---
+
+
+def test_a_sign_in_to_another_server_never_sends_it_the_stored_token_and_stores_nothing_beside(creds, monkeypatch):
+    """login --url <other> decided the slot from the stored URL and probed the default's token against the other server."""
+    from empirica.core.auth import cortex_oauth as co
+
+    write, path = creds
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A)})  # default with no recorded team: would be probed
+    probed = []
+    real_whoami = co._whoami
+    monkeypatch.setattr(
+        co,
+        "_whoami",
+        lambda base, token, http=None: (probed.append((base, token)), real_whoami(base, token, http=http))[1],
+    )
+    monkeypatch.setattr(co, "resolve_cortex_url", lambda loader, url=None: ("https://copy.test", "flag"))
+    _login(loader, monkeypatch, new_org="org-b", new_token=_AT_B)
+    assert all(token != _AT_A for _, token in probed), probed
+    stored = yaml.safe_load(path.read_text())["cortex"]
+    assert "orgs" not in stored and stored["oauth"]["access_token"] == _AT_B
+
+
+def test_logging_out_of_the_default_promotes_a_remaining_team(creds, monkeypatch, capsys):
+    write, path = creds
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
+    _run("handle_auth_logout_command", monkeypatch, loader)
+    stored = yaml.safe_load(path.read_text())["cortex"]
+    assert stored["oauth"]["access_token"] == _AT_B and stored["oauth"]["org_id"] == "org-b" and not stored.get("orgs")

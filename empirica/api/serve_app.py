@@ -312,7 +312,9 @@ def _refresh_daemon_families(loader) -> None:
     for slot, block in loader.cortex_oauth_sets():
         if (block.get("refresh_owner") or "cli").lower() != "daemon" or not block.get("refresh_token"):
             continue
-        org_id = block.get("org_id") or slot  # the default's slot is None; its recorded org addresses it as well
+        # Addressed by its slot: the default (None) through the default path even when it records an org that also has
+        # a block under cortex.orgs, which an org lookup would pick instead (1.17.2 sweep).
+        org_id = slot
         org = {"org_id": org_id} if org_id else {}
         try:
             token = loader.cortex_access_token(refresh=auth.default_refresh(loader, **org), leeway_s=300.0, **org)

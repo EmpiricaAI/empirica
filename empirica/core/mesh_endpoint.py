@@ -85,10 +85,14 @@ def practice_org_id(instance: str | None = None) -> str | None:
         here = Path.cwd()
     except OSError:
         return None
-    for root in (here, *here.parents):
+    home = Path.home()
+    # Up to $HOME and no further; outside $HOME only the working directory itself (a project.yaml in /tmp or / must not
+    # choose a team for whatever runs below it; 1.17.2 sweep).
+    roots = (here, *here.parents) if here == home or home in here.parents else (here,)
+    for root in roots:
         if (root / ".empirica" / "project.yaml").is_file():
             return _org_in(root)
-        if root == Path.home():
+        if root == home:
             break
     return None
 

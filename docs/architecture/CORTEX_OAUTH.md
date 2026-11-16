@@ -119,7 +119,7 @@ block also records `org_id` and `org_name`, read from `/v1/users/me` at sign-in.
   marked); `auth logout --org <org>` and `auth token --org <org>` act on one team.
 - **Empirica Cortex only.** Several teams are read and stored only when the configured Cortex is https on
   `getempirica.com` or a subdomain (`CredentialsLoader.multi_team_allowed`); elsewhere `cortex.orgs` is ignored and a
-  second team's sign-in replaces the default, as before, with a note. There is no override. Core is open source, so this
+  second team's sign-in replaces the default, as before (and says so when the replaced sign-in recorded another team). A sign-in to a different Cortex than the configured one never stores beside the default and clears the other teams' sign-ins, which belong to the Cortex being left. There is no override. Core is open source, so this
   is a bar rather than a lock; a Cortex-signed seat assertion, verified against a key pinned in core, is the next step.
 
 ## `auth login` flow

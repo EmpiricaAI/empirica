@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Cockpit refresh brings back a pane whose Claude session went to the background.** In Claude Code 2.1.325 Ctrl+Z moves the session to the background and the pane's claude exits; restarting it with `--continue` then failed. Refresh now finds the session with `claude agents` and attaches to it.
+- **Cockpit refresh resumes an ecodex pane's own session.** ecodex's session start now records which session each pane runs, so refresh resumes that one instead of the newest in the directory, which was wrong when two panes shared a practice.
+- **Cockpit refresh brings back a pane whose Claude session went to the background.** In Claude Code 2.1.325 Ctrl+Z moves the session to the background and the pane's claude exits; restarting it with `--continue` then failed. Refresh now finds the pane's own session with `claude agents` and attaches to it.
 
 ## [1.17.1] - 2026-11-16
 

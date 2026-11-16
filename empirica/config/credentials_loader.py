@@ -720,6 +720,15 @@ class CredentialsLoader:
             return {k: v for k, v in cortex.items() if k != "orgs"}
         return cortex
 
+    def clear_other_teams(self) -> None:
+        """Remove every `cortex.orgs` block (the default stays). Used when signing in to a different Cortex."""
+        target = self._resolve_credentials_target(None)
+        existing = self._read_existing(target)
+        cortex_block = existing.get("cortex")
+        if isinstance(cortex_block, dict) and cortex_block.pop("orgs", None) is not None:
+            existing["cortex"] = cortex_block
+            self._write_credentials(target, existing)
+
     def multi_team_allowed(self) -> bool:
         """Several teams on one machine need Empirica Cortex (David, 2026-11-16): the configured Cortex must be https on
         getempirica.com or a subdomain. Not a lock (core is open source), a bar: a server that copies the public routes

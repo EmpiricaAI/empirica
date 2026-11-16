@@ -1385,7 +1385,10 @@ def _background_attach_command(proj, session_id: str | None, jobs: list) -> str 
     if proj.resume or _launch_program(proj.launch) != "claude":
         return None
     job = background_job(proj.path, session_id, jobs)
-    return f"claude attach {job}" if job else None
+    if not job:
+        return None
+    program = shlex.split(proj.launch)[0]  # the launch's own claude (a path stays a path)
+    return f"{shlex.quote(program)} attach {job}"
 
 
 def _or_attach(proj, session_id: str | None, command: str, cache: dict) -> str:

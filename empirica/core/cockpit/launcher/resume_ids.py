@@ -95,7 +95,7 @@ def codex_session_id(pane_id: str | None, project_path: str, tmux_server_start: 
     return sid
 
 
-_JOB_ID = re.compile(r"^[A-Za-z0-9_-]{4,64}$")
+_JOB_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$")  # no leading "-": never an option
 
 
 def claude_background_jobs(timeout: float = 5.0) -> list:
@@ -114,7 +114,12 @@ def claude_background_jobs(timeout: float = 5.0) -> list:
 def background_job(project_path: str, session_id: str | None, jobs: list) -> str | None:
     """The job id to `claude attach` for a pane whose session went to the background (Ctrl+Z in Claude Code 2.1.325: the
     foreground exits, and `--continue` then exits 1). The pane's own session when known, else the one background job in
-    its directory; never a session still live in a terminal, never a guess between two."""
+    its directory; never a session still live in a terminal, never a guess between two.
+
+    Only the pane's own session: Claude Code lists sessions dispatched from `claude agents` as "background" too, so a
+    directory match alone could attach a dispatched agent (1.17.2 sweep)."""
+    if not session_id:
+        return None
     entries = [j for j in jobs if isinstance(j, dict)]
     live = {j.get("sessionId") for j in entries if j.get("kind") == "interactive"}
     candidates = [
@@ -126,6 +131,6 @@ def background_job(project_path: str, session_id: str | None, jobs: list) -> str
         and j.get("sessionId") not in live
         and isinstance(j.get("cwd"), str)
         and _same_dir(j["cwd"], project_path)
-        and (session_id is None or j.get("sessionId") == session_id)
+        and j.get("sessionId") == session_id
     ]
     return candidates[0]["id"] if len(candidates) == 1 else None

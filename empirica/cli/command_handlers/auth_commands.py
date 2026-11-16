@@ -251,6 +251,12 @@ def _drop_oauth_block(loader, slot: str | None = None) -> None:
         return
     if slot is None and "oauth" in cortex_block:
         cortex_block.pop("oauth")
+        orgs = cortex_block.get("orgs") if isinstance(cortex_block.get("orgs"), dict) else {}
+        if orgs:  # another team stays signed in: it becomes the default, so tools reading cortex.oauth keep working
+            first = sorted(orgs)[0]
+            cortex_block["oauth"] = orgs.pop(first)
+            if not orgs:
+                cortex_block.pop("orgs")
     elif slot is not None and isinstance(cortex_block.get("orgs"), dict) and slot in cortex_block["orgs"]:
         cortex_block["orgs"].pop(slot)
         if not cortex_block["orgs"]:
