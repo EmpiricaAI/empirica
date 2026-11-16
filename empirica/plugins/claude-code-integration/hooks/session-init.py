@@ -1744,6 +1744,38 @@ EOF
 """
 
 
+def _write_codex_pane_record(project_root, session_id: str | None) -> bool:
+    """For a codex session in a tmux pane, record which session this pane runs, so the cockpit resumes this pane's own
+    session (``ecodex resume <id>``) rather than the newest in the directory (``resume --last``), which is wrong when two
+    panes share a practice. The reader is ``resume_ids.codex_session_id``; ecodex vendors this hook, so the write lives
+    here (ecodex prop_bwg6k4wwprgc3jwtnq4fvw443a). Best effort: never fails the hook. Returns True when written."""
+    try:
+        if _harness() != "codex" or not session_id:
+            return False
+        pane = os.environ.get("TMUX_PANE") or ""
+        if not re.fullmatch(r"%\d{1,6}", pane):
+            return False
+        started = subprocess.run(
+            ["tmux", "display", "-p", "#{start_time}"], capture_output=True, text=True, timeout=2
+        ).stdout.strip()
+        if not started:
+            return False
+        record = {
+            "harness": "codex",
+            "session_id": session_id,
+            "project_path": str(project_root),
+            "tmux_server_start": started,  # pane numbers restart with each tmux server: this ties the record to one
+        }
+        target = Path.home() / ".empirica" / "pane_sessions" / f"{pane[1:]}.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(record), encoding="utf-8")
+        tmp.replace(target)  # atomic: the launcher may read it while a pane starts
+        return True
+    except Exception:
+        return False
+
+
 def _harness() -> str:
     """Which harness is hosting this hook.
 
@@ -1932,6 +1964,7 @@ def main():
             )
 
     os.chdir(project_root)
+    _write_codex_pane_record(project_root, claude_session_id)  # codex panes only; resumes the pane's own session
     ai_id = _resolve_ai_id_for_session(project_root)
 
     # Housekeeping
