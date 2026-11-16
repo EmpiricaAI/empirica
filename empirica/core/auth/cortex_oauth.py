@@ -277,7 +277,7 @@ def _expires_at(token_response: dict, *, now: float) -> float | None:
     return None
 
 
-def default_refresh(loader, *, http=_http_json) -> Callable[[str, str | None], dict]:
+def default_refresh(loader, *, http=_http_json, org_id: str | None = None) -> Callable[[str, str | None], dict]:
     """The refresh callable `cortex_access_token` wants, bound to this loader.
 
     Persists the ROTATED token set before returning (cortex rotates per use;
@@ -288,14 +288,16 @@ def default_refresh(loader, *, http=_http_json) -> Callable[[str, str | None], d
     def _refresh(refresh_token: str, token_endpoint: str | None) -> dict:
         import time as _time
 
-        oauth = loader.get_cortex_oauth()
+        oauth = loader.get_cortex_oauth(org_id) if org_id else loader.get_cortex_oauth()
         client_id = oauth.get("client_id")
         endpoint = token_endpoint or oauth.get("token_endpoint")
         if not client_id or not endpoint:
             raise RuntimeError("stored oauth block lacks client_id/token_endpoint — run `empirica auth login`")
         out = refresh_access_token(refresh_token, endpoint, client_id, http=http)
         now = _time.time()
+        slot = {"slot": loader.cortex_oauth_slot(org_id)} if org_id else {}  # the same org's block, never another's
         loader.save_cortex_oauth(
+            **slot,
             access_token=out.get("access_token"),
             refresh_token=out.get("refresh_token"),  # rotation — persist or die
             expires_at=_expires_at(out, now=now),
@@ -309,7 +311,9 @@ def default_refresh(loader, *, http=_http_json) -> Callable[[str, str | None], d
     return _refresh
 
 
-def custody_refresh(loader, *, http=_http_json) -> tuple[Callable[[str, str | None], dict] | None, str]:
+def custody_refresh(
+    loader, *, http=_http_json, org_id: str | None = None
+) -> tuple[Callable[[str, str | None], dict] | None, str]:
     """``(refresh callback or None, owner)`` for the stored OAuth family.
 
     The CLI refreshes ONLY a family it owns (`cli` / absent = the headless-fallback client it
@@ -319,13 +323,17 @@ def custody_refresh(loader, *, http=_http_json) -> tuple[Callable[[str, str | No
     cortex revoke it (rotation + reuse detection). Every path that would refresh asks here, so
     `cortex_bearer` and `empirica auth token` cannot disagree about who may.
     """
-    raw = loader.get_cortex_oauth().get("refresh_owner")
+    raw = (loader.get_cortex_oauth(org_id) if org_id else loader.get_cortex_oauth()).get("refresh_owner")
     owner = (str(raw).strip().lower() if raw else "") or "cli"  # a non-string owner is a malformed one, not a crash
-    return (default_refresh(loader, http=http) if owner == "cli" else None), owner
+    extra = {"org_id": org_id} if org_id else {}
+    return (default_refresh(loader, http=http, **extra) if owner == "cli" else None), owner
 
 
-def cortex_bearer(loader=None, *, http=_http_json) -> dict[str, Any]:
+def cortex_bearer(loader=None, *, http=_http_json, org_id: str | None = None) -> dict[str, Any]:
     """{url, bearer, source} — OAuth-first, api_key fallback, dead credentials skipped.
+
+    With ``org_id`` (a practice's project.yaml org_id), the sign-in for that org: a machine can hold several teams'
+    (goal da0396f8). Without it, the default sign-in, as before.
 
     source: 'oauth' | 'api_key' | 'none'. Never returns a stale token
     (cortex_access_token's contract).
@@ -356,8 +364,9 @@ def cortex_bearer(loader=None, *, http=_http_json) -> dict[str, Any]:
     owner, failure = "", None
     try:
         # Refresh custody (see custody_refresh): only a family the CLI owns is refreshed here.
-        refresh_cb, owner = custody_refresh(loader, http=http)
-        token = loader.cortex_access_token(refresh=refresh_cb)
+        org = {"org_id": org_id} if org_id else {}
+        refresh_cb, owner = custody_refresh(loader, http=http, **org)
+        token = loader.cortex_access_token(refresh=refresh_cb, **org)
         refresh_error = getattr(loader, "last_refresh_error", None)
         if not token and isinstance(refresh_error, str) and refresh_error:
             failure = f"oauth token expired and its refresh failed ({refresh_error})"
@@ -396,21 +405,24 @@ def cortex_bearer(loader=None, *, http=_http_json) -> dict[str, Any]:
         "reason": (
             f"oauth token unusable ({token_reason}) — re-authenticate with `empirica auth login`"
             if token_reason
-            else _no_token_reason(loader, owner, failure)
+            else _no_token_reason(loader, owner, failure, org_id)
         ),
     }
 
 
-def _no_token_reason(loader, owner: str, failure: str | None) -> str:
+def _no_token_reason(loader, owner: str, failure: str | None, org_id: str | None = None) -> str:
     """Why no OAuth token came back. A stored set that could not give one must not read like a seat with nothing stored:
     that sent an operator looking for a missing credential while the real fault was a refresh (mesh-support, 2026-11-15)."""
     if failure:  # a refresh that raised, or a credentials file that could not be read: say so before anything else
         return f"{failure}; retry, and run `empirica auth login` if it persists"
     try:
-        oauth = loader.get_cortex_oauth() or {}
+        oauth = (loader.get_cortex_oauth(org_id) if org_id else loader.get_cortex_oauth()) or {}
+        any_stored = bool(org_id) and any(block for _, block in loader.cortex_oauth_sets())
     except Exception as e:
         return f"the stored sign-in could not be read ({type(e).__name__}: {e})"
     if not (oauth.get("access_token") or oauth.get("refresh_token")):
+        if any_stored:  # signed in to other teams, not this practice's
+            return f"no sign-in for org {org_id} on this machine — run `empirica auth login --org {org_id}`"
         return "no cortex credential configured (no OAuth token, no api_key)"
     if not oauth.get("refresh_token"):
         return "oauth token expired and no refresh token is stored — re-authenticate with `empirica auth login`"

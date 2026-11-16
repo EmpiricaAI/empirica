@@ -602,8 +602,12 @@ class CredentialsLoader:
         client_id: str | None = None,
         refresh_owner: str | None = None,
         config_path: Path | None = None,
+        slot: str | None = None,
+        org_id: str | None = None,
+        org_name: str | None = None,
     ) -> Path:
-        """Persist the OAuth token set under `cortex.oauth`.
+        """Persist the OAuth token set under `cortex.oauth`, or under `cortex.orgs.<slot>` for another team's sign-in.
+        ``org_id`` / ``org_name`` record which org the set acts in (from /v1/users/me).
 
         Merges — never touches `cortex.api_key`. **Keys stay valid throughout the
         migration**: dual-accept by shape is the safety net, and a seat must never
@@ -613,7 +617,19 @@ class CredentialsLoader:
         Reuses `save_cortex_config`'s atomic write, so the file keeps mode 0600
         (mkstemp creates at 0600; `os.replace` preserves it).
         """
-        if all(v is None for v in (access_token, refresh_token, expires_at, token_endpoint, client_id, refresh_owner)):
+        if all(
+            v is None
+            for v in (
+                access_token,
+                refresh_token,
+                expires_at,
+                token_endpoint,
+                client_id,
+                refresh_owner,
+                org_id,
+                org_name,
+            )
+        ):
             raise ValueError("save_cortex_oauth: at least one token field required")
 
         target = self._resolve_credentials_target(config_path)
@@ -622,7 +638,8 @@ class CredentialsLoader:
         cortex_block = existing.get("cortex") or {}
         if not isinstance(cortex_block, dict):
             cortex_block = {}
-        oauth_block = cortex_block.get("oauth") or {}
+        orgs_block = cortex_block.get("orgs") if isinstance(cortex_block.get("orgs"), dict) else {}
+        oauth_block = (cortex_block.get("oauth") if slot is None else orgs_block.get(slot)) or {}
         if not isinstance(oauth_block, dict):
             oauth_block = {}
 
@@ -659,16 +676,60 @@ class CredentialsLoader:
             # refreshers mutually destroy it. Absent → treated as 'cli' (the
             # headless default; keeps pre-field tokens working).
             ("refresh_owner", refresh_owner),
+            ("org_id", org_id),
+            ("org_name", org_name),
         ):
             if value is not None:
                 oauth_block[key] = value
 
-        cortex_block["oauth"] = oauth_block
+        if slot is None:
+            cortex_block["oauth"] = oauth_block
+        else:
+            orgs_block[slot] = oauth_block
+            cortex_block["orgs"] = orgs_block
         existing["cortex"] = cortex_block
         return self._write_credentials(target, existing)
 
-    def get_cortex_oauth(self) -> dict[str, Any]:
-        """Return the stored `cortex.oauth` block, or {} when absent.
+    def _cortex_block(self) -> dict[str, Any]:
+        self._ensure_fresh()
+        if not self._credentials_cache:
+            self._load_credentials()
+        cortex = self._credentials_cache.get("cortex") if self._credentials_cache else None
+        return cortex if isinstance(cortex, dict) else {}
+
+    @staticmethod
+    def _oauth_slot_of(cortex: dict[str, Any], org_id: str | None) -> str | None:
+        """Where an org's token set lives: None for the default block `cortex.oauth`, else the key under `cortex.orgs`.
+
+        The default serves an org when it records that org, or records none (a sign-in from before orgs were recorded:
+        refusing it would cut off every practice of a seat that has one team)."""
+        if org_id is None:
+            return None
+        default = cortex.get("oauth") if isinstance(cortex.get("oauth"), dict) else {}
+        orgs = cortex.get("orgs") if isinstance(cortex.get("orgs"), dict) else {}
+        if isinstance(orgs.get(org_id), dict):
+            return org_id
+        if default and default.get("org_id") in (None, "", org_id):
+            return None
+        return org_id  # another org's default: this org has no sign-in yet (reads as {})
+
+    def cortex_oauth_slot(self, org_id: str | None = None) -> str | None:
+        """The slot `get_cortex_oauth(org_id)` reads; refresh writes back to the same one."""
+        return self._oauth_slot_of(self._cortex_block(), org_id)
+
+    def cortex_oauth_sets(self) -> list[tuple[str | None, dict[str, Any]]]:
+        """Every stored sign-in as (slot, block): the default first (slot None), then each other org's."""
+        cortex = self._cortex_block()
+        out: list[tuple[str | None, dict[str, Any]]] = []
+        if isinstance(cortex.get("oauth"), dict) and cortex["oauth"]:
+            out.append((None, cortex["oauth"]))
+        orgs = cortex.get("orgs") if isinstance(cortex.get("orgs"), dict) else {}
+        out.extend((key, block) for key, block in orgs.items() if isinstance(block, dict) and block)
+        return out
+
+    def get_cortex_oauth(self, org_id: str | None = None) -> dict[str, Any]:
+        """Return the stored `cortex.oauth` block, or {} when absent. With ``org_id``, that org's block (see
+        `_oauth_slot_of`), or {} when this machine has no sign-in for it.
 
         Deliberately file-only, with no env fallback. The api_key path takes env as
         a gap-filler, and that asymmetry is intentional: a token set is four
@@ -677,14 +738,18 @@ class CredentialsLoader:
         identity beside an access token from another — which fails in ways far
         harder to read than "no token".
         """
-        self._ensure_fresh()
-        if not self._credentials_cache:
-            self._load_credentials()
-        cortex = self._credentials_cache.get("cortex") if self._credentials_cache else None
-        oauth = cortex.get("oauth") if isinstance(cortex, dict) else None
+        cortex = self._cortex_block()
+        slot = self._oauth_slot_of(cortex, org_id)
+        if slot is None:
+            oauth = cortex.get("oauth")
+        else:
+            orgs = cortex.get("orgs") if isinstance(cortex.get("orgs"), dict) else {}
+            oauth = orgs.get(slot)
         return oauth if isinstance(oauth, dict) else {}
 
-    def cortex_access_token(self, *, refresh: Any = None, leeway_s: float = 120.0) -> str | None:
+    def cortex_access_token(
+        self, *, refresh: Any = None, leeway_s: float = 120.0, org_id: str | None = None
+    ) -> str | None:
         """A currently-valid access token; see `_cortex_access_token_once`.
 
         With a refresh callable, the whole check-and-refresh runs under an
@@ -697,15 +762,17 @@ class CredentialsLoader:
         credential every ecosystem tool presents.
         """
         if refresh is None:
-            return self._cortex_access_token_once(refresh=None, leeway_s=leeway_s)
+            return self._cortex_access_token_once(refresh=None, leeway_s=leeway_s, org_id=org_id)
         # Resolved like the save path, not read off the cache: a concurrent reload
         # can momentarily clear the cache's source path, and a caller that then
         # fell back to another directory took a different lock and raced anyway.
         lock_dir = self._resolve_credentials_target(None).parent
         with _oauth_refresh_lock(lock_dir):
-            return self._cortex_access_token_once(refresh=refresh, leeway_s=leeway_s)
+            return self._cortex_access_token_once(refresh=refresh, leeway_s=leeway_s, org_id=org_id)
 
-    def _cortex_access_token_once(self, *, refresh: Any = None, leeway_s: float = 120.0) -> str | None:
+    def _cortex_access_token_once(
+        self, *, refresh: Any = None, leeway_s: float = 120.0, org_id: str | None = None
+    ) -> str | None:
         """A currently-valid access token, refreshing through `refresh` if needed.
 
         `refresh` is injected — a callable taking `(refresh_token, token_endpoint)`
@@ -727,7 +794,8 @@ class CredentialsLoader:
         # Why the last refresh gave no token, for cortex_bearer's message: a failed refresh is caught here and returns
         # None, so without this a timeout read as "re-authenticate" (1.17.1 sweep).
         self.last_refresh_error = None
-        oauth = self.get_cortex_oauth()
+        slot = self.cortex_oauth_slot(org_id)
+        oauth = self.get_cortex_oauth(org_id)
         token = oauth.get("access_token")
         expires_at = _as_epoch_seconds(oauth.get("expires_at"))
 
@@ -782,6 +850,7 @@ class CredentialsLoader:
             return None
 
         self.save_cortex_oauth(
+            slot=slot,  # back into the block it was read from: one org's refresh never touches another's
             access_token=new_access,
             expires_at=renewed.get("expires_at"),
             # Rotating auth servers issue a new refresh token on every use; dropping
