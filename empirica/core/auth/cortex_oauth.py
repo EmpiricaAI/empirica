@@ -319,13 +319,16 @@ def cortex_bearer(loader=None, *, http=_http_json) -> dict[str, Any]:
         loader = get_credentials_loader()
     cfg = loader.get_cortex_config()
     token = None
-    owner, refresh_error = "", None
+    owner, failure = "", None
     try:
         # Refresh custody (see custody_refresh): only a family the CLI owns is refreshed here.
         refresh_cb, owner = custody_refresh(loader, http=http)
         token = loader.cortex_access_token(refresh=refresh_cb)
+        refresh_error = getattr(loader, "last_refresh_error", None)
+        if not token and isinstance(refresh_error, str) and refresh_error:
+            failure = f"oauth token expired and its refresh failed ({refresh_error})"
     except Exception as e:  # refresh machinery must never take down the api_key path
-        refresh_error = f"{type(e).__name__}: {e}"
+        failure = f"the stored sign-in could not be read or renewed ({type(e).__name__}: {e})"
         logger.warning(f"oauth token resolution failed, falling back to api_key: {e}")
     from empirica.core.auth.credential_health import dead_reason
 
@@ -359,25 +362,22 @@ def cortex_bearer(loader=None, *, http=_http_json) -> dict[str, Any]:
         "reason": (
             f"oauth token unusable ({token_reason}) — re-authenticate with `empirica auth login`"
             if token_reason
-            else _no_token_reason(loader, owner, refresh_error)
+            else _no_token_reason(loader, owner, failure)
         ),
     }
 
 
-def _no_token_reason(loader, owner: str, refresh_error: str | None) -> str:
+def _no_token_reason(loader, owner: str, failure: str | None) -> str:
     """Why no OAuth token came back. A stored set that could not give one must not read like a seat with nothing stored:
     that sent an operator looking for a missing credential while the real fault was a refresh (mesh-support, 2026-11-15)."""
+    if failure:  # a refresh that raised, or a credentials file that could not be read: say so before anything else
+        return f"{failure}; retry, and run `empirica auth login` if it persists"
     try:
         oauth = loader.get_cortex_oauth() or {}
-    except Exception:
-        oauth = {}
+    except Exception as e:
+        return f"the stored sign-in could not be read ({type(e).__name__}: {e})"
     if not (oauth.get("access_token") or oauth.get("refresh_token")):
         return "no cortex credential configured (no OAuth token, no api_key)"
-    if refresh_error:
-        return (
-            f"oauth token expired and its refresh failed ({refresh_error}); "
-            "retry, and run `empirica auth login` if it persists"
-        )
     if not oauth.get("refresh_token"):
         return "oauth token expired and no refresh token is stored — re-authenticate with `empirica auth login`"
     if owner and owner != "cli":
@@ -450,8 +450,11 @@ def invite_token(value: str) -> str:
     """The token of a Cortex invite, given the token itself or the whole link an admin was sent
     (``https://getempirica.com/install?invite=<token>``). Raises ValueError when there is none, before any browser opens."""
     text = (value or "").strip()
-    if "://" in text or "?" in text:
-        query = urllib.parse.urlparse(text if "://" in text else f"https://x/{text}").query
+    if "://" in text or "?" in text or "invite=" in text:
+        if "://" in text or "?" in text:
+            query = urllib.parse.urlparse(text if "://" in text else f"https://x/{text}").query
+        else:  # just the query part, e.g. `invite=<token>` copied from the address bar
+            query = text
         text = (urllib.parse.parse_qs(query).get("invite") or [""])[0].strip()
         if not text:
             raise ValueError("that link carries no invite= token")

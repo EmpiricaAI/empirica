@@ -81,8 +81,9 @@ def _local_state(db: Path, session_id: str) -> tuple[str, float | None]:
 
 
 def _last_reflex(conn: sqlite3.Connection, session_id: str) -> float | None:
-    """When the session last measured anything in this practice. The registry's last_activity has no writer, so this is
-    the activity signal a long-lived session actually leaves (one live pane's session was two months old)."""
+    """When the session last measured anything in this practice. The registry's last_activity is written only when the
+    session registers again or switches project, so a long-lived session at work in one practice keeps its creation time
+    there; its reflexes are the activity it actually leaves (one live pane's session was two months old)."""
     try:
         (when,) = conn.execute("SELECT MAX(timestamp) FROM reflexes WHERE session_id = ?", (session_id,)).fetchone()
     except sqlite3.OperationalError as e:
@@ -93,7 +94,8 @@ def _last_reflex(conn: sqlite3.Connection, session_id: str) -> float | None:
 
 
 #: A session the practice store still calls live but that has done nothing for this long is closed in the registry: its
-#: process ended without saying so. Registering again reopens it (register_session_global), so nothing is lost.
+#: process ended without saying so. Registering again (`_register_session_globally`, at session-create or the
+#: auto-heal mirror) reopens it; a session that measures nothing for this long and never registers again stays closed.
 STALE_DAYS = 30
 
 
@@ -143,20 +145,27 @@ def plan_reconcile(conn: sqlite3.Connection, *, stale_days: int = STALE_DAYS) ->
             if seen_at and max(seen_at) < cutoff:
                 # Never ended in its practice either: the process died. Closed in the registry only (1.16.2 sweep).
                 counts["stale"] += 1
-                close.append({"session_id": session_id, "reason": "stale", "closed_at": None})
+                close.append({"session_id": session_id, "reason": "stale", "closed_at": None, "seen": seen})
             else:
                 counts["live"] += 1
         elif ended:
             counts["ended"] += 1
-            close.append({"session_id": session_id, "reason": "ended", "closed_at": max(w or 0 for w in ended) or None})
+            close.append(
+                {
+                    "session_id": session_id,
+                    "reason": "ended",
+                    "closed_at": max(w or 0 for w in ended) or None,
+                    "seen": seen,
+                }
+            )
         elif any(state == "unknown" for state, _ in states):
             counts["unknown"] += 1
         elif states:
             counts["absent"] += 1
-            close.append({"session_id": session_id, "reason": "absent", "closed_at": None})
+            close.append({"session_id": session_id, "reason": "absent", "closed_at": None, "seen": seen})
         else:  # no project id, or every practice it names is gone from disk
             counts["practice_gone"] += 1
-            close.append({"session_id": session_id, "reason": "practice_gone", "closed_at": None})
+            close.append({"session_id": session_id, "reason": "practice_gone", "closed_at": None, "seen": seen})
     return {"counts": counts, "close": close, "unknown_dbs": unknown_dbs}
 
 
@@ -166,9 +175,16 @@ def apply_reconcile(conn: sqlite3.Connection, plan: dict) -> int:
 
     ensure_global_sessions_closed_at(conn)
     now = time.time()
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(global_sessions)")}
+    seen_sql = "COALESCE(last_activity, created_at)" if "last_activity" in columns else "created_at"
     with conn:
+        # A row whose registry time moved since the plan registered again (which writes last_activity): it stays open.
         cur = conn.executemany(
-            "UPDATE global_sessions SET status = 'closed', closed_at = ? WHERE session_id = ? AND status = 'active'",
-            [(item["closed_at"] or now, item["session_id"]) for item in plan["close"]],
+            "UPDATE global_sessions SET status = 'closed', closed_at = ? WHERE session_id = ? AND status = 'active'"
+            f" AND (? IS NULL OR {seen_sql} IS ?)",
+            [
+                (item["closed_at"] or now, item["session_id"], 1 if "seen" in item else None, item.get("seen"))
+                for item in plan["close"]
+            ],
         )
     return cur.rowcount

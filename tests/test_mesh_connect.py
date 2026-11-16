@@ -342,3 +342,33 @@ def test_node_errors_cortex_reports_are_printed_not_hidden_behind_a_tick(tmp_pat
     )
     out = capsys.readouterr().out
     assert "1 artifact(s) Cortex could not store" in out and "per-org Qdrant routing" in out
+
+
+def test_the_error_count_is_the_total_not_the_kept_sample(tmp_path, monkeypatch, capsys):
+    """1.17.1 sweep: the report keeps 20 error strings, and the line counted those, so 200 failures read as 20."""
+    import types
+
+    from empirica.cli.command_handlers import mesh_commands
+    from empirica.config import path_resolver
+
+    (tmp_path / ".empirica" / "sessions").mkdir(parents=True)
+    (tmp_path / ".empirica" / "project.yaml").write_text(
+        "ai_id: alpha\nproject_id: 11111111-2222-4333-8444-555555555555\n"
+    )
+    (tmp_path / ".empirica" / "sessions" / "sessions.db").write_bytes(b"")
+    monkeypatch.setattr(path_resolver, "get_git_root", lambda: tmp_path)
+    report = {"ok": True, "dry_run": False, "practice": "alpha", "org": "O", "nodes": 300, "edges": 0, "to_team": 0,
+              "to_project": 300, "created": 100, "skipped_existing": 0, "refused": 0, "note": "n",
+              "errors": [f"Node '{i}' (source): x" for i in range(20)], "error_count": 200}  # fmt: skip
+    monkeypatch.setattr("empirica.core.mesh_connect.connect", lambda **_kw: report)
+    mesh_commands.handle_mesh_connect_command(types.SimpleNamespace(dry_run=False, yes=True, output="human"))
+    assert "200 artifact(s) Cortex could not store" in capsys.readouterr().out
+
+
+def test_connect_reports_how_many_errors_there_were_beyond_the_sample(store):
+    db, _ = store
+    cortex = FakeCortex(import_body={"ok": True, "nodes_created": 0, "errors": [f"Node '{i}': x" for i in range(25)]})
+    report = mc.connect(
+        project=PROJECT, conn=db.conn, credential=_signed_in, http=cortex, register=_registered, confirm_team=True
+    )
+    assert (len(report["errors"]), report["error_count"]) == (20, 25)

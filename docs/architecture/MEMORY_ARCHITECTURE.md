@@ -79,13 +79,13 @@ Qdrant collections, from `empirica/core/qdrant/collections.py`: per project `doc
 
   session-init.py                  sentinel-gate.py              session-end-postflight.py
        |                                |                              |
-       +-- create or resume session     +-- read the transaction       +-- POSTFLIGHT if a PREFLIGHT
-       +-- project-bootstrap            +-- classify the call          |   has none
-       +-- write instance_projects      |   (noetic / praxic)          +-- embed the project
-       |   and active_work              +-- gate or allow              +-- Cortex sync, where
-       +-- Cortex sync, where           +-- count the call             |   configured
-       |   configured                                                  +-- remove this conversation's
-       |                                                               |   transient files
+       +-- create or resume session     +-- read the transaction       +-- if a PREFLIGHT has no
+       +-- project-bootstrap            +-- classify the call          |   POSTFLIGHT: write one,
+       +-- write instance_projects      |   (noetic / praxic)          |   embed the project and
+       |   and active_work              +-- gate or allow              |   sync to Cortex
+       +-- Cortex sync, where           +-- count the call             +-- remove active_work, the
+       |   configured                                                  |   tty session file and
+       |                                                               |   presence
        v                                v                              v
   Context injected                 Allowed, or blocked           State persisted
                                    with a reason                 for the next session
@@ -108,7 +108,7 @@ Compaction runs `pre-compact.py` and `post-compact.py`: the open transaction car
 | **Per project** | `{project}/.empirica/active_transaction_*.json` | Open transaction |
 | **Per project** | `{project}/.empirica/hook_counters_*.json` | Tool call counts |
 | **Per project** | `{project}/.breadcrumbs.yaml` | Calibration cache, rewritten at POSTFLIGHT (gitignored) |
-| **Per conversation** | `~/.claude/projects/{path}/memory/` | Auto-memories (Claude Code's own) |
+| **Per project** | `~/.claude/projects/{path}/memory/` | Auto-memories (Claude Code's own) |
 | **Per conversation** | `~/.claude/projects/{path}/*.jsonl` | Full transcripts |
 
 ---
@@ -119,8 +119,9 @@ Compaction runs `pre-compact.py` and `post-compact.py`: the open transaction car
    Claude Code truncates MEMORY.md, so it holds one line per memory.
 2. **Tier 2 is injected when relevant**, by SessionStart, PREFLIGHT and post-compact output, or by loading a skill.
 3. **Tier 3 is queried, never bulk-loaded.** CLI verbs and Qdrant search retrieve specific rows.
-4. **Tier 4 is per session.** The session-end hook removes a conversation's files; a session that dies without ending
-   leaves them, and `doctor --reconcile-sessions` closes its registry row.
+4. **Tier 4 is per session.** The session-end hook removes a conversation's active_work file, its tty session file and
+   its presence; transaction and hook-counter files stay with the practice. A session that dies without ending leaves its
+   files, and `doctor --reconcile-sessions` closes its registry row.
 5. **No CWD fallback mid-session.** Project resolution uses the instance files, not the working directory. Exception:
    `startup` prefers the working directory over a stale instance file.
 6. **Git notes are portable.** The epistemic graph survives a clone and rebuilds the database from the notes.

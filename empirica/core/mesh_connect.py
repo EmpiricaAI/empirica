@@ -299,7 +299,7 @@ def connect(
             value = out.get(key)
             totals[key] += len(value) if isinstance(value, (list, dict)) else int(value or 0)
         errors.extend(out.get("errors") or [])
-    report.update(totals, errors=errors[:20], ok=True, step="done")
+    report.update(totals, errors=errors[:20], error_count=len(errors), ok=True, step="done")  # a sample, and the total
     report["note"] = (
         "Raw source files and local paths stay on this machine; Cortex holds each source's title, type and web address."
     )

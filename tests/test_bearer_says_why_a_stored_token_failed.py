@@ -29,8 +29,8 @@ class Loader:
         if self.oauth.get("expires_at", 0) > time.time() + leeway_s:
             return self.oauth["access_token"]
         if refresh and self.oauth.get("refresh_token"):
-            if self.refresh_raises:
-                raise self.refresh_raises
+            if self.refresh_raises:  # as the real loader does: caught, recorded, None
+                self.last_refresh_error = f"{type(self.refresh_raises).__name__}: {self.refresh_raises}"
             return None
         return None
 
@@ -73,3 +73,44 @@ def test_an_api_key_still_covers_an_expired_token(monkeypatch):  # control: the 
     monkeypatch.setattr("empirica.core.auth.credential_health.dead_reason", lambda cred: None)
     out = co.cortex_bearer(Loader(_expired(refresh_owner="daemon"), api_key="ctx_k"))
     assert out["source"] == "api_key"
+
+
+def test_a_refresh_that_fails_inside_the_real_loader_is_named(tmp_path, monkeypatch):
+    """1.17.1 sweep: the real loader catches a failed refresh and returns None, so the fake above never matched production;
+    a timeout read as 'the refresh returned no token — re-authenticate'."""
+    from empirica.config.credentials_loader import CredentialsLoader
+
+    creds = tmp_path / "credentials.yaml"
+    creds.write_text(
+        "version: '1.0'\ncortex:\n  url: https://cortex.example\n  oauth:\n    access_token: AT\n"
+        f"    refresh_token: {_RT}\n    expires_at: {time.time() - 60}\n    token_endpoint: https://cortex.example/t\n"
+        "    client_id: c\n    refresh_owner: cli\n"
+    )
+    monkeypatch.setenv("EMPIRICA_CREDENTIALS_PATH", str(creds))
+    for var in ("CORTEX_API_KEY", "CORTEX_URL", "CORTEX_REMOTE_URL"):
+        monkeypatch.delenv(var, raising=False)
+    CredentialsLoader._instance = None
+    CredentialsLoader._credentials_cache = None
+    try:
+
+        def refresh(*_a):
+            raise TimeoutError("timed out")
+
+        monkeypatch.setattr(co, "default_refresh", lambda loader, http=None: refresh)
+        out = co.cortex_bearer(CredentialsLoader())
+    finally:
+        CredentialsLoader._instance = None
+        CredentialsLoader._credentials_cache = None
+    assert out["bearer"] is None
+    assert "refresh failed" in out["reason"] and "TimeoutError" in out["reason"], out["reason"]
+
+
+def test_an_unreadable_credentials_file_is_not_reported_as_nothing_configured(monkeypatch):
+    class Broken(Loader):
+        def get_cortex_oauth(self):
+            raise OSError("permission denied")
+
+    monkeypatch.setattr(co, "default_refresh", lambda loader, http=None: lambda *a: {})
+    out = co.cortex_bearer(Broken())
+    assert "no cortex credential configured" not in out["reason"]
+    assert "permission denied" in out["reason"]

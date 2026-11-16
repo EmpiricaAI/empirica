@@ -587,3 +587,11 @@ def test_login_with_an_org_carries_it_on_the_authorize_request(loader):
 def test_an_empty_org_is_refused_before_the_browser_opens(loader):
     with pytest.raises(ValueError):
         login(loader=loader, org="   ", http=_mock_http({}, []))
+
+
+def test_a_pasted_query_fragment_is_read_as_a_link():
+    """1.17.1 sweep: `invite=T` (copied from the address bar without the start) went to Cortex as the literal token."""
+    from empirica.core.auth.cortex_oauth import invite_token
+
+    assert invite_token(f"invite={_INVITE}") == _INVITE
+    assert invite_token(f"install?x=1&invite={_INVITE}") == _INVITE

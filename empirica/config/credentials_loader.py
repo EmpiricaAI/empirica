@@ -724,6 +724,9 @@ class CredentialsLoader:
         """
         import time as _time
 
+        # Why the last refresh gave no token, for cortex_bearer's message: a failed refresh is caught here and returns
+        # None, so without this a timeout read as "re-authenticate" (1.17.1 sweep).
+        self.last_refresh_error = None
         oauth = self.get_cortex_oauth()
         token = oauth.get("access_token")
         expires_at = _as_epoch_seconds(oauth.get("expires_at"))
@@ -768,11 +771,13 @@ class CredentialsLoader:
         try:
             renewed = refresh(refresh_token, oauth.get("token_endpoint")) or {}
         except Exception as e:
+            self.last_refresh_error = f"{type(e).__name__}: {e}"
             logger.warning(f"cortex token refresh failed, not falling back to the expired token: {e}")
             return None
 
         new_access = renewed.get("access_token")
         if not new_access:
+            self.last_refresh_error = "the token endpoint returned no access_token"
             logger.warning("cortex token refresh returned no access_token")
             return None
 

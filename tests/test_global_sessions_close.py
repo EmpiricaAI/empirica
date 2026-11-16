@@ -198,3 +198,28 @@ def test_a_long_lived_session_still_working_in_its_practice_is_not_stale(registr
     plan = gs.plan_reconcile(registry)
     assert [c["session_id"] for c in plan["close"]] == ["quiet"]
     assert (plan["counts"]["stale"], plan["counts"]["live"]) == (1, 1)
+
+
+def test_a_row_registered_again_between_plan_and_apply_stays_open(registry, tmp_path):
+    """1.17.1 sweep: apply_reconcile closed a planned row even when the session registered again after the plan, which
+    its docstring said it would not do. Registering writes last_activity, so the apply checks that it has not moved."""
+    import time
+
+    _practice(tmp_path, registry, "p1", [("old", None)])
+    _register(registry, "old", "p1", last_activity=time.time() - 40 * 86400)
+    plan = gs.plan_reconcile(registry)
+    assert [c["session_id"] for c in plan["close"]] == ["old"]
+    registry.execute("UPDATE global_sessions SET last_activity = ? WHERE session_id = 'old'", (time.time(),))
+    registry.commit()
+    assert gs.apply_reconcile(registry, plan) == 0
+    assert _status(registry)["old"] == "active"
+
+
+def test_a_plan_without_registry_times_still_applies(registry):  # control: plans built before the time was recorded
+    _register(registry, "gone-practice", "nowhere")
+    assert (
+        gs.apply_reconcile(
+            registry, {"close": [{"session_id": "gone-practice", "reason": "practice_gone", "closed_at": None}]}
+        )
+        == 1
+    )
