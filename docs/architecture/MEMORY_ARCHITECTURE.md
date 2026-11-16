@@ -4,44 +4,34 @@
 
 ---
 
-## Four-Tier Architecture
+## Four Tiers
 
 ```
 +================================================================+
 |                    TIER 1: ALWAYS LOADED                        |
-|                  (injected every message)                       |
+|                  (in context every turn)                        |
 |                                                                |
-|  +------------------+  +-------------------+  +--------------+ |
-|  | System Prompt    |  | ~/.claude/CLAUDE.md|  | MEMORY.md    | |
-|  | (model identity, |  | --> @empirica-     |  | (auto-memory | |
-|  |  vectors, rules) |  |    system-prompt   |  |  index, 200  | |
-|  +------------------+  +-------------------+  |  lines max)  | |
-|                                                +--------------+ |
-|  +------------------+  +-------------------+                    |
-|  | {project}/       |  | Hook output       |                    |
-|  | .claude/CLAUDE.md|  | (SessionStart,    |                    |
-|  | (project-local)  |  |  UserPromptSubmit)|                    |
-|  +------------------+  +-------------------+                    |
+|  System prompt and ~/.claude/CLAUDE.md, which @-includes the   |
+|  Empirica core prompt (plus the org, Cortex and CRM layers      |
+|  where those are installed)                                    |
+|  {project}/CLAUDE.md, AGENTS.md (project-local)                |
+|  MEMORY.md: Claude Code's auto-memory index. Claude Code owns   |
+|  it; Empirica writes nothing to the memory folder              |
+|  Hook output (SessionStart, UserPromptSubmit, PreToolUse, ...) |
 +================================================================+
                              |
                              v
 +================================================================+
-|                   TIER 2: ON-DEMAND                             |
-|            (loaded by hooks/skills when relevant)               |
+|                   TIER 2: ON DEMAND                             |
+|            (loaded by hooks or skills when relevant)            |
 |                                                                |
-|  +------------------+  +-------------------+  +--------------+ |
-|  | memory/*.md      |  | .breadcrumbs.yaml |  | Qdrant       | |
-|  | (individual      |  | (calibration,     |  | search       | |
-|  |  memory files,   |  |  bias corrections,|  | (eidetic,    | |
-|  |  loaded on       |  |  loaded at        |  |  episodic,   | |
-|  |  relevance)      |  |  session start)   |  |  at PRE/CHK) | |
-|  +------------------+  +-------------------+  +--------------+ |
-|                                                                |
-|  +--------------------------------------------------+          |
-|  | project-bootstrap output                          |          |
-|  | (findings, goals, unknowns, calibration —         |          |
-|  |  loaded at session start and post-compact)        |          |
-|  +--------------------------------------------------+          |
+|  memory/*.md: individual memories, loaded on relevance         |
+|  .breadcrumbs.yaml: calibration block, injected at session     |
+|    start                                                       |
+|  project-bootstrap output: findings, goals, unknowns,          |
+|    calibration; at session start and after compaction          |
+|  Qdrant search: retrieval at PREFLIGHT / CHECK and on demand   |
+|  Skills: loaded when their trigger fires                       |
 +================================================================+
                              |
                              v
@@ -49,64 +39,60 @@
 |                TIER 3: PERSISTENT STORAGE                       |
 |             (queried on demand, never bulk-loaded)              |
 |                                                                |
-|  +------------------+  +-------------------+  +--------------+ |
-|  | sessions.db      |  | workspace.db      |  | Qdrant       | |
-|  | (reflexes, goals,|  | (cross-project    |  | collections  | |
-|  |  artifacts,      |  |  registry,        |  | (4 per proj: | |
-|  |  calibration,    |  |  entities,        |  |  docs, memory| |
-|  |  snapshots)      |  |  contacts)        |  |  eidetic,    | |
-|  +------------------+  +-------------------+  |  episodic)   | |
-|                                                +--------------+ |
-|  +--------------------------------------------------+          |
-|  | Git notes --ref=breadcrumbs                       |          |
-|  | (portable epistemic snapshots, survives repo      |          |
-|  |  clone/transfer)                                  |          |
-|  +--------------------------------------------------+          |
+|  {project}/.empirica/sessions/sessions.db: reflexes, goals,    |
+|    artifacts, edges, calibration                               |
+|  ~/.empirica/workspace/workspace.db: cross-project registry    |
+|    (projects, sessions) and the CRM tables crm-mcp serves      |
+|  Qdrant: ten collections per project, three global (below)     |
+|  Git notes: refs/notes/empirica/* (one note per artifact,      |
+|    goal, task, edge source, ...) and --ref=breadcrumbs; they    |
+|    travel with the repo and rebuild the database               |
 +================================================================+
                              |
                              v
 +================================================================+
 |                TIER 4: TRANSIENT STATE                          |
-|             (per-session, ephemeral, auto-cleaned)              |
+|                     (per session)                               |
 |                                                                |
-|  +------------------+  +-------------------+  +--------------+ |
-|  | instance_projects|  | active_work_      |  | active_      | |
-|  | /{id}.json       |  | {session}.json    |  | transaction_ | |
-|  | (terminal -->    |  | (session -->      |  | {suffix}.json| |
-|  |  project bind)   |  |  project bind)    |  | (open tx)    | |
-|  +------------------+  +-------------------+  +--------------+ |
-|                                                                |
-|  +------------------+  +-------------------+  +--------------+ |
-|  | hook_counters_   |  | context_usage.json|  | *.jsonl      | |
-|  | {suffix}.json    |  | (context % for    |  | (session     | |
-|  | (tool call count)|  |  compact advisory)|  |  transcripts)| |
-|  +------------------+  +-------------------+  +--------------+ |
+|  ~/.empirica/instance_projects/{id}.json  terminal -> project  |
+|  ~/.empirica/active_work_{conversation}.json                   |
+|                              conversation -> session, project  |
+|  {project}/.empirica/active_transaction_{instance}.json        |
+|                              the open transaction              |
+|  {project}/.empirica/hook_counters_{instance}.json             |
+|                              tool calls in the transaction     |
+|  ~/.claude/projects/{path}/*.jsonl   conversation transcripts  |
 +================================================================+
 ```
+
+Qdrant collections, from `empirica/core/qdrant/collections.py`: per project `docs`, `memory`, `epistemics`, `eidetic`,
+`episodic`, `goals`, `calibration`, `assumptions`, `decisions`, `intents` (named `project_{id}_{kind}`); global
+`global_learnings`, `global_eidetic`, `workspace_index`.
 
 ---
 
 ## Data Flow
 
 ```
-  Session Start                    Mid-Session                   Session End
-  ===========                      ===========                   ===========
+  Session start                    Each tool call                Session end
+  =============                    ==============                ===========
 
-  SessionStart hook                PreToolUse hook               SessionEnd hook
+  session-init.py                  sentinel-gate.py              session-end-postflight.py
        |                                |                              |
+       +-- create or resume session     +-- read the transaction       +-- POSTFLIGHT if a PREFLIGHT
+       +-- project-bootstrap            +-- classify the call          |   has none
+       +-- write instance_projects      |   (noetic / praxic)          +-- embed the project
+       |   and active_work              +-- gate or allow              +-- Cortex sync, where
+       +-- Cortex sync, where           +-- count the call             |   configured
+       |   configured                                                  +-- remove this conversation's
+       |                                                               |   transient files
        v                                v                              v
-  session-init.py               sentinel-gate.py            session-end-postflight.py
-       |                                |                              |
-       +-- session-create               +-- read transaction           +-- auto POSTFLIGHT
-       +-- project-bootstrap            +-- read hook_counters         +-- save to DB
-       +-- write instance_projects      +-- classify tool              +-- episodic sync
-       +-- write active_work            +-- gate (noetic/praxic)       +-- Cortex push
-       +-- Cortex pull                  +-- increment counter          +-- cleanup transient
-       |                                |                              |
-       v                                v                              v
-  Context loaded                   Tool allowed/blocked          State persisted
-  into conversation                with reason                   for next session
+  Context injected                 Allowed, or blocked           State persisted
+                                   with a reason                 for the next session
 ```
+
+Compaction runs `pre-compact.py` and `post-compact.py`: the open transaction carries across and the bootstrap is re-injected.
+`session-monitor-arm.py` prints the mesh listener's arming instructions where a listener is installed.
 
 ---
 
@@ -114,26 +100,28 @@
 
 | Scope | Path | Purpose |
 |-------|------|---------|
-| **Global** | `~/.claude/CLAUDE.md` | User instructions (includes Empirica system prompt) |
-| **Global** | `~/.claude/settings.json` | Hooks, plugins, statusline configuration |
-| **Global** | `~/.empirica/` | Global state (active_work, instance_projects, config) |
-| **Global** | `~/.empirica/workspace.db` | Cross-project entity registry |
-| **Per-project** | `{project}/.claude/CLAUDE.md` | Project-specific overrides |
-| **Per-project** | `{project}/.empirica/sessions/sessions.db` | All epistemic data |
-| **Per-project** | `{project}/.empirica/active_transaction_*.json` | Open transaction state |
-| **Per-project** | `{project}/.empirica/hook_counters_*.json` | Tool call counts |
-| **Per-project** | `{project}/.breadcrumbs.yaml` | Calibration data (auto-updated) |
-| **Per-conversation** | `~/.claude/projects/{path}/memory/` | Auto-memories (CC native) |
-| **Per-conversation** | `~/.claude/projects/{path}/*.jsonl` | Full transcripts |
+| **Global** | `~/.claude/CLAUDE.md` | User instructions (includes the Empirica prompt) |
+| **Global** | `~/.claude/settings.json` | Hooks, plugins, status line |
+| **Global** | `~/.empirica/` | Global state: active_work, instance_projects, credentials, config |
+| **Global** | `~/.empirica/workspace/workspace.db` | Cross-project registry |
+| **Per project** | `{project}/.empirica/sessions/sessions.db` | All epistemic data |
+| **Per project** | `{project}/.empirica/active_transaction_*.json` | Open transaction |
+| **Per project** | `{project}/.empirica/hook_counters_*.json` | Tool call counts |
+| **Per project** | `{project}/.breadcrumbs.yaml` | Calibration cache, rewritten at POSTFLIGHT (gitignored) |
+| **Per conversation** | `~/.claude/projects/{path}/memory/` | Auto-memories (Claude Code's own) |
+| **Per conversation** | `~/.claude/projects/{path}/*.jsonl` | Full transcripts |
 
 ---
 
-## Key Design Principles
+## Design Principles
 
-1. **Tier 1 is token-budgeted** — MEMORY.md capped at 200 lines, system prompt is lean (~1200 tokens)
-2. **Tier 2 is hook-injected** — Loaded only when relevant, via SessionStart and PREFLIGHT hooks
-3. **Tier 3 is queried** — Never bulk-loaded. CLI commands and Qdrant search retrieve specific data
-4. **Tier 4 is ephemeral** — Auto-cleaned by stale file detection and session-end hooks
-5. **No CWD fallback (mid-session)** — Project resolution uses instance files, not filesystem. Exception: `startup` events prefer CWD over stale instance files
-6. **Git notes are portable** — Epistemic state survives repo clone/transfer via `--ref=breadcrumbs`
-7. **Qdrant is optional** — Core works without it. Semantic search and pattern injection require it.
+1. **Tier 1 is paid every turn.** The core prompt is lean by intent: rules and when-to-load triggers, with depth in skills.
+   Claude Code truncates MEMORY.md, so it holds one line per memory.
+2. **Tier 2 is injected when relevant**, by SessionStart, PREFLIGHT and post-compact output, or by loading a skill.
+3. **Tier 3 is queried, never bulk-loaded.** CLI verbs and Qdrant search retrieve specific rows.
+4. **Tier 4 is per session.** The session-end hook removes a conversation's files; a session that dies without ending
+   leaves them, and `doctor --reconcile-sessions` closes its registry row.
+5. **No CWD fallback mid-session.** Project resolution uses the instance files, not the working directory. Exception:
+   `startup` prefers the working directory over a stale instance file.
+6. **Git notes are portable.** The epistemic graph survives a clone and rebuilds the database from the notes.
+7. **Qdrant is optional.** Core works without it; semantic retrieval needs it.
