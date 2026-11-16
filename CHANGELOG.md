@@ -5,6 +5,12 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`empirica auth login --remote` signs in from a machine whose browser is elsewhere**, such as a server over SSH. It prints a URL to open on any machine; after sign-in, Cortex's page shows a code to paste back into the terminal. No local port is used, and the code is useless without the verifier that stays in the terminal.
+
 ## [1.17.1] - 2026-11-16
 
 ### Highlights

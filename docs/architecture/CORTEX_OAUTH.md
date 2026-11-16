@@ -122,6 +122,13 @@ marked; that path refreshes.
    With `--org <id, slug or name>`, `org=` rides the same request and Cortex
    signs in as the person's user in that org with no picker, refusing a
    non-member. The sign-in then reports the org it joined, read from `/v1/users/me`.
+   With `--remote` (the browser is on another machine, e.g. over SSH) no
+   loopback port is bound: the redirect is Cortex's page `<issuer>/v1/oauth/code`,
+   which shows `<code>#<state>`. The CLI prints the URL, reads the pasted line
+   (or the address-bar URL), checks the state against the one it sent, and
+   exchanges the code with the same redirect and its PKCE verifier, which never
+   leaves the terminal. A stored client lists only the loopback block, so a
+   remote login registers its own client with both.
 4. **Callback** — the loopback listener receives the code (validating `state`);
    the code is exchanged for the token set at the token endpoint.
 5. **Persist** — `save_cortex_oauth(...)` writes the family (access + refresh

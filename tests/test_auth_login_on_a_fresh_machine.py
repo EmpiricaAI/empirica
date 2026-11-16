@@ -143,8 +143,8 @@ def test_the_org_signed_in_to_is_reported(monkeypatch, capsys):
     monkeypatch.setattr(
         "empirica.config.credentials_loader.get_credentials_loader", lambda: Loader("https://cortex.example.test")
     )
-    args = types.SimpleNamespace(output="human", timeout=5, url=None, invite="tok", org="acme")
+    args = types.SimpleNamespace(output="human", timeout=5, url=None, invite="tok", org="acme", remote=True)
     assert auth_commands.handle_auth_login_command(args) == 0
-    assert seen["invite"] == "tok" and seen["org"] == "acme"
+    assert seen["invite"] == "tok" and seen["org"] == "acme" and seen["remote"] is True
     out = capsys.readouterr().out
     assert "Acme" in out and "org-acme" in out and "invite" in out

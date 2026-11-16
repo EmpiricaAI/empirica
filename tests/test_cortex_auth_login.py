@@ -601,3 +601,73 @@ def test_a_bare_query_drops_its_fragment():  # 1.17.1 second pass
     from empirica.core.auth.cortex_oauth import invite_token
 
     assert invite_token(f"invite={_INVITE}#top") == _INVITE
+
+
+# --- auth login --remote: the browser is on another machine; Cortex's page shows <code>#<state> to paste back ---
+
+_CODE_PAGE = "https://cortex.example/v1/oauth/code"
+
+
+@pytest.mark.parametrize(
+    "pasted",
+    ["CODE123#STATE9", "  CODE123#STATE9 \n", f"{_CODE_PAGE}?code=CODE123&state=STATE9", "code=CODE123&state=STATE9"],
+)
+def test_a_pasted_code_is_read_from_the_page_line_or_the_address_bar(pasted):
+    from empirica.core.auth.cortex_oauth import parse_pasted_code
+
+    assert parse_pasted_code(pasted, "STATE9") == "CODE123"
+
+
+@pytest.mark.parametrize(
+    ("pasted", "why"),
+    [
+        ("CODE123#OTHER", "state"),
+        ("CODE123", "#"),
+        ("", "empty"),
+        (f"{_CODE_PAGE}?error=access_denied&error_description=not+a+member", "not a member"),
+    ],
+)
+def test_a_wrong_or_failed_paste_is_refused_with_the_reason(pasted, why):
+    from empirica.core.auth.cortex_oauth import parse_pasted_code
+
+    with pytest.raises(RuntimeError, match=why):
+        parse_pasted_code(pasted, "STATE9")
+
+
+def test_login_remote_uses_the_code_page_and_no_local_port(loader, monkeypatch):
+    from empirica.core.auth import cortex_oauth as co
+
+    calls = []
+    disco = {**DISCO, "issuer": "https://cortex.example"}
+    http = _mock_http(
+        {
+            "/.well-known": disco,
+            "/register": {"client_id": "cli_remote"},
+            "/token": {"access_token": _AT1, "refresh_token": _RT1, "expires_in": 3600},
+        },
+        calls,
+    )
+
+    def no_port():
+        raise AssertionError("remote login must not bind a loopback port")
+
+    monkeypatch.setattr(co, "_bind_first_free_port", no_port)
+    seen = {}
+
+    def paste(url):  # the reader is handed the URL the person opens elsewhere
+        import urllib.parse
+
+        seen["url"] = url
+        q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
+        return f"thecode#{q['state']}"
+
+    result = login(loader=loader, http=http, remote=True, read_code=paste, org="acme")
+    import urllib.parse
+
+    q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(seen["url"]).query))
+    assert q["redirect_uri"] == _CODE_PAGE and q["org"] == "acme"
+    reg = next(c for c in calls if c["url"].endswith("/register"))
+    assert _CODE_PAGE in reg["data"]["redirect_uris"]
+    exchange = next(c for c in calls if c["url"].endswith("/token"))
+    assert exchange["data"]["redirect_uri"] == _CODE_PAGE and exchange["data"]["code"] == "thecode"
+    assert result["ok"] and result["remote"] is True

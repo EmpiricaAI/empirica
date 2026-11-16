@@ -93,7 +93,41 @@ def _redirect_uris() -> list[str]:
     return [f"http://127.0.0.1:{p}{CALLBACK_PATH}" for p in LOOPBACK_PORTS]
 
 
-def register_client(registration_endpoint: str, *, http=_http_json) -> dict:
+#: Cortex's page that shows ``<code>#<state>`` for `auth login --remote`, under the deployment's issuer.
+CODE_PAGE_PATH = "/v1/oauth/code"
+
+
+def parse_pasted_code(pasted: str, expected_state: str) -> str:
+    """The authorization code from what the person pasted back: the page's ``<code>#<state>`` line, or, if the page did not
+    render, the address-bar URL (or just its query). Raises RuntimeError with the reason on an error, a missing state or a
+    state that does not match the one this login sent."""
+    text = (pasted or "").strip()
+    if not text:
+        raise RuntimeError("empty paste: copy the line the page shows (code#state)")
+    if "code=" in text or "error=" in text:
+        query = urllib.parse.urlparse(text).query if "?" in text else text.split("#", 1)[0]
+        params = dict(urllib.parse.parse_qsl(query))
+        if params.get("error"):
+            raise RuntimeError(f"authorization failed: {params['error']}: {params.get('error_description', '')}")
+        code, state = params.get("code", ""), params.get("state", "")
+    elif "#" in text:
+        code, _, state = text.partition("#")
+    else:
+        raise RuntimeError("no state in the paste: copy the whole line the page shows, code#state")
+    if state != expected_state:
+        raise RuntimeError("the pasted state does not match this login (a code from another sign-in?)")
+    if not code:
+        raise RuntimeError("no code in the paste")
+    return code
+
+
+def _read_pasted_code(authorize_url: str) -> str:
+    """Default reader for --remote: the URL is already on stderr; ask for the code on stderr, read it from stdin."""
+    print("Sign in there, then paste the code the page shows here: ", end="", file=sys.stderr, flush=True)
+    return input()
+
+
+def register_client(registration_endpoint: str, *, http=_http_json, extra_redirects: list[str] | None = None) -> dict:
     """DCR-register the CLI as a PUBLIC client (RFC 7591).
 
     `token_endpoint_auth_method: none` — a CLI cannot keep a secret; PKCE is
@@ -102,7 +136,7 @@ def register_client(registration_endpoint: str, *, http=_http_json) -> dict:
     """
     payload = {
         "client_name": CLIENT_NAME,
-        "redirect_uris": _redirect_uris(),
+        "redirect_uris": _redirect_uris() + list(extra_redirects or []),
         "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",
@@ -472,6 +506,8 @@ def login(
     url: str | None = None,
     invite: str | None = None,
     org: str | None = None,
+    remote: bool = False,
+    read_code: Callable[[str], str] | None = None,
 ) -> dict[str, Any]:
     """Full authorization_code + PKCE login. Returns a status dict.
 
@@ -518,12 +554,23 @@ def login(
     # A client registered on ANOTHER Cortex is unknown here: reusing it left the browser on an error and the login waiting
     # out its timeout (1.17.0 sweep).
     client_id = oauth.get("client_id") if owner in ("cli", "daemon") and same_cortex else None
+    code_page = f"{(disco.get('issuer') or base_url).rstrip('/')}{CODE_PAGE_PATH}"
+    if remote:
+        # The browser is on another machine, so the redirect is Cortex's page, which shows the code to paste back. A
+        # stored client lists only the loopback ports (Cortex matches redirect_uri exactly), so this registers its own,
+        # with both; a later local login reuses it.
+        client_id = None
     if not client_id:
-        client_id = register_client(disco["registration_endpoint"], http=http)["client_id"]
+        extra = {"extra_redirects": [code_page]} if remote else {}  # a local login registers exactly as before
+        client_id = register_client(disco["registration_endpoint"], http=http, **extra)["client_id"]
 
-    sock, port = _bind_first_free_port()
-    server = _prepare_callback_server(sock, port)  # listening BEFORE the browser opens
-    redirect_uri = f"http://127.0.0.1:{port}{CALLBACK_PATH}"
+    server = None
+    if remote:
+        redirect_uri = code_page
+    else:
+        sock, port = _bind_first_free_port()
+        server = _prepare_callback_server(sock, port)  # listening BEFORE the browser opens
+        redirect_uri = f"http://127.0.0.1:{port}{CALLBACK_PATH}"
     verifier, challenge = build_pkce()
     state = secrets.token_urlsafe(24)
 
@@ -551,29 +598,18 @@ def login(
     # browser exists at all. So NEVER gate on the opener: always surface the URL
     # so the user can paste it into any reachable browser, and the loopback
     # callback still returns. stderr (not stdout) keeps --output json parseable.
-    print(
-        f"\nAuthorize this seat in your browser. If it does not open automatically, "
-        f"open this URL:\n\n    {authorize_url}\n",
-        file=sys.stderr,
-        flush=True,
-    )
+    if remote:
+        print(f"\nOpen this URL in a browser on any machine:\n\n    {authorize_url}\n", file=sys.stderr, flush=True)
+        code = parse_pasted_code((read_code or _read_pasted_code)(authorize_url), state)
+    else:
+        print(
+            f"\nAuthorize this seat in your browser. If it does not open automatically, "
+            f"open this URL:\n\n    {authorize_url}\n",
+            file=sys.stderr,
+            flush=True,
+        )
+        code = _open_and_wait(authorize_url, open_browser, server, state, timeout_s)
 
-    def _best_effort_open() -> None:
-        try:
-            opener_fn = open_browser
-            if opener_fn is None:
-                import webbrowser
-
-                opener_fn = webbrowser.open  # may itself raise on a browserless box
-            opener_fn(authorize_url)
-        except Exception as e:
-            # browserless (WSL2 interop-off, headless) — expected; the URL was
-            # already printed above, so this is a degraded path, not a failure.
-            logger.debug("auth login: browser open failed (%s); URL printed to stderr", e)
-
-    threading.Thread(target=_best_effort_open, daemon=True).start()
-
-    code = _wait_for_callback(server, state, timeout_s)
     tokens = exchange_code(
         disco["token_endpoint"],
         client_id=client_id,
@@ -614,7 +650,28 @@ def login(
         "url_source": url_source,
         "invite": bool(invite),
         "org_requested": org or None,
+        "remote": remote,
     }
+
+
+def _open_and_wait(authorize_url: str, open_browser, server, state: str, timeout_s: float) -> str:
+    """Open the browser in the background (best effort) and wait for the loopback callback."""
+
+    def _best_effort_open() -> None:
+        try:
+            opener_fn = open_browser
+            if opener_fn is None:
+                import webbrowser
+
+                opener_fn = webbrowser.open  # may itself raise on a browserless box
+            opener_fn(authorize_url)
+        except Exception as e:
+            # browserless (WSL2 interop-off, headless) — expected; the URL was
+            # already printed above, so this is a degraded path, not a failure.
+            logger.debug("auth login: browser open failed (%s); URL printed to stderr", e)
+
+    threading.Thread(target=_best_effort_open, daemon=True).start()
+    return _wait_for_callback(server, state, timeout_s)
 
 
 def _serve_daemon_running() -> bool:

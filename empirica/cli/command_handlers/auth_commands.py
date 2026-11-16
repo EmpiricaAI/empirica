@@ -36,6 +36,7 @@ def handle_auth_login_command(args) -> int:
             url=getattr(args, "url", None),
             invite=getattr(args, "invite", None),
             org=getattr(args, "org", None),
+            remote=bool(getattr(args, "remote", False)),
         )
     except Exception as e:
         if output == "json":

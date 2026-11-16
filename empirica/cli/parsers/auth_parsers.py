@@ -51,6 +51,12 @@ def add_auth_parsers(subparsers) -> None:
         help="Sign in as your user in this org (its id, slug or name), with no picker (optional). Refused if you are "
         "not a member there.",
     )
+    login.add_argument(
+        "--remote",
+        action="store_true",
+        help="For a machine whose browser is elsewhere (SSH, a server): prints a URL to open on any machine, then reads "
+        "the code Cortex's page shows (code#state) pasted back here. No local port is used (optional).",
+    )
     login.add_argument("--output", choices=["human", "json"], default="human")
 
     token = actions.add_parser(
