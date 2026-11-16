@@ -390,3 +390,65 @@ def test_a_direct_caller_inside_a_practice_gets_that_teams_sign_in(creds, tmp_pa
     assert co.cortex_bearer(loader)["bearer"] == _AT_B
     monkeypatch.chdir(_practice(tmp_path / "x", "org-c"))  # no sign-in for its team: the default, as before
     assert co.cortex_bearer(loader)["bearer"] == _AT_A
+
+
+# --- review of the branch (1.17.2 work): six findings ---
+
+
+def test_signing_in_to_a_team_already_beside_the_default_updates_that_block(creds, monkeypatch):
+    write, path = creds
+    loader = write({"url": "https://c", "orgs": {"org-b": _set(_AT_B, "org-b")}})  # default logged out
+    _login(loader, monkeypatch, new_org="org-b", new_token=_NEW_B)
+    stored = yaml.safe_load(path.read_text())["cortex"]
+    assert "oauth" not in stored and stored["orgs"]["org-b"]["access_token"] == _NEW_B
+
+
+def test_a_sign_in_whose_team_is_unknown_does_not_keep_the_old_teams_label(creds, monkeypatch):
+    write, path = creds
+    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a", org_name="A")})
+    monkeypatch.setattr("empirica.core.auth.cortex_oauth._whoami", lambda base, token, http=None: {})
+    _login(loader, monkeypatch, new_org="org-b", new_token=_AT_B)
+    stored = yaml.safe_load(path.read_text())["cortex"]["oauth"]
+    assert stored["access_token"] == _AT_B and not stored.get("org_id") and not stored.get("org_name")
+
+
+def test_logout_and_token_for_a_team_never_touch_an_unlabelled_default(creds, monkeypatch, capsys):
+    write, path = creds
+    loader = write({"url": "https://c", "oauth": _set(_AT_A)})  # team not recorded
+    rc, _ = _run("handle_auth_logout_command", monkeypatch, loader, org="org-b")
+    assert rc == 0 and yaml.safe_load(path.read_text())["cortex"]["oauth"]["access_token"] == _AT_A
+    capsys.readouterr()
+    _run("handle_auth_token_command", monkeypatch, loader, org="org-b", headers=False)
+    assert _AT_A not in capsys.readouterr().out
+
+
+def test_a_single_sign_in_takes_the_old_path_inside_any_practice(creds, tmp_path, monkeypatch):
+    """One team on the machine (every seat before this change): no org is threaded at all, so nothing can differ."""
+    from empirica.core.auth import cortex_oauth as co
+
+    write, _ = creds
+    loader = write({"url": "https://c", "oauth": _set(_AT_A)})
+    seen = []
+    monkeypatch.setattr(co, "custody_refresh", lambda loader, http=None, **kw: (seen.append(kw), (None, "cli"))[1])
+    monkeypatch.setattr("empirica.core.auth.credential_health.dead_reason", lambda cred: None)
+    monkeypatch.chdir(_practice(tmp_path, "org-a"))
+    assert co.cortex_bearer(loader)["bearer"] == _AT_A and seen == [{}]
+
+
+def test_a_live_default_whose_team_cannot_be_read_is_kept(creds, monkeypatch):
+    write, path = creds
+    loader = write({"url": "https://c", "oauth": _set(_AT_A)})  # valid token, team not recorded, /me fails for it
+    _login(loader, monkeypatch, new_org="org-b", new_token=_AT_B)
+    stored = yaml.safe_load(path.read_text())["cortex"]
+    assert stored["oauth"]["access_token"] == _AT_A and stored["orgs"]["org-b"]["access_token"] == _AT_B
+
+
+def test_a_listener_never_borrows_its_working_directorys_team(creds, tmp_path, monkeypatch):
+    from empirica.core import mesh_endpoint as me
+
+    write, _ = creds
+    loader = _two_teams(write)
+    monkeypatch.setattr("empirica.api.registry.load_registry", lambda path=None, *, auto_dedupe=True: {"projects": []})
+    monkeypatch.setattr("empirica.core.auth.credential_health.dead_reason", lambda cred: None)
+    monkeypatch.chdir(_practice(tmp_path, "org-b"))  # started inside another team's practice
+    assert me.mesh_bearer(loader, instance="unknown-practice")["bearer"] == _AT_A

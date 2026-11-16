@@ -361,15 +361,9 @@ def cortex_bearer(loader=None, *, http=_http_json, org_id: str | None = None) ->
         loader = get_credentials_loader()
     cfg = loader.get_cortex_config()
     if org_id is None:
-        # Inside a practice whose team is signed in here, that team's sign-in; otherwise the default, as before. A daemon
-        # (working directory outside any practice) is unaffected; mesh paths also resolve a listener's instance.
-        from empirica.core.mesh_endpoint import practice_org_id
-
-        preferred = practice_org_id()
-        try:
-            org_id = preferred if preferred and loader.get_cortex_oauth(preferred) else None
-        except Exception:
-            org_id = None
+        # With several teams signed in here, the sign-in of the practice this runs in when it holds one; otherwise the
+        # default, as before. A machine with one sign-in (every seat before teams) takes exactly the old path.
+        org_id = preferred_practice_org(loader)
     token = None
     owner, failure = "", None
     try:
@@ -418,6 +412,20 @@ def cortex_bearer(loader=None, *, http=_http_json, org_id: str | None = None) ->
             else _no_token_reason(loader, owner, failure, org_id)
         ),
     }
+
+
+def preferred_practice_org(loader) -> str | None:
+    """The org of the practice in play when this machine holds several sign-ins and one for that org; else None. The
+    practice is the one a listener declared (`mesh_endpoint.acting_for`), else the working directory's."""
+    try:
+        if len(loader.cortex_oauth_sets()) < 2:
+            return None
+        from empirica.core.mesh_endpoint import acting_for_instance, practice_org_id
+
+        org = practice_org_id(acting_for_instance())
+        return org if org and loader.get_cortex_oauth(org) else None
+    except Exception:
+        return None
 
 
 def _no_token_reason(loader, owner: str, failure: str | None, org_id: str | None = None) -> str:
@@ -667,8 +675,9 @@ def login(
         token_endpoint=disco["token_endpoint"],
         client_id=client_id,
         refresh_owner=owner,
-        org_id=new_org,
-        org_name=identity.get("org_name") or None,
+        # An unknown team clears the labels: a label left from the replaced set would name the wrong team.
+        org_id=new_org or "",
+        org_name=(identity.get("org_name") or None) if new_org else "",
     )
     return {
         "ok": True,
@@ -705,19 +714,26 @@ def _slot_for_new_sign_in(loader, new_org: str | None, base_url: str, *, http=_h
     the default records another team. A default from before orgs were recorded is asked which team it is, once, with its
     own token; when it cannot say (its token is dead and will not renew), nothing usable would be lost, so it is replaced.
     """
+    if new_org and any(slot == new_org for slot, _ in loader.cortex_oauth_sets()):
+        return new_org  # that team already has its own block: update it, never a second copy
     default = loader.get_cortex_oauth()
     if not default or not new_org:
         return None
     known = default.get("org_id")
     if not known:
         try:
-            refresh_cb, _owner = custody_refresh(loader, http=http)
+            refresh_cb, owner = custody_refresh(loader, http=http)
             token = loader.cortex_access_token(refresh=refresh_cb)
         except Exception:
-            token = None
-        known = _whoami(base_url, token, http=http).get("org_id") if token else None
-        if not known:
-            return None
+            token, owner = None, "cli"
+        if token:
+            known = _whoami(base_url, token, http=http).get("org_id")
+            if not known:
+                return new_org  # a live default that could not say which team it is stays; the new one goes beside it
+        elif default.get("refresh_token") and owner != "cli":
+            return new_org  # expired, but its owner (the daemon or the extension) renews it: keep it
+        else:
+            return None  # dead and nobody renews it: nothing usable is lost by replacing it, as before
         loader.save_cortex_oauth(org_id=known)  # recorded, so the next sign-in need not ask
     return None if known == new_org else new_org
 

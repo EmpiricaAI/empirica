@@ -187,7 +187,7 @@ def handle_auth_logout_command(args) -> int:
     output = getattr(args, "output", "human")
     loader = _loader()
     org = getattr(args, "org", None)
-    oauth = loader.get_cortex_oauth(org) if org else loader.get_cortex_oauth()
+    oauth = _block_for(loader, org)
     if not oauth:
         if output == "json":
             print(json.dumps({"ok": True, "note": f"no sign-in present{f' for org {org}' if org else ''}"}))
@@ -228,6 +228,17 @@ def _revoke_remote(loader, oauth: dict) -> bool:
         return False
 
 
+def _block_for(loader, org: str | None) -> dict:
+    """The sign-in an `--org` command acts on. Strict: a default that does not record that org is not it (reads serve an
+    unlabelled default to any org; revoking or printing a token must not)."""
+    if not org:
+        return loader.get_cortex_oauth()
+    block = loader.get_cortex_oauth(org)
+    if loader.cortex_oauth_slot(org) is None and block.get("org_id") != org:
+        return {}
+    return block
+
+
 def _drop_oauth_block(loader, slot: str | None = None) -> None:
     """Remove cortex.oauth (or cortex.orgs.<slot>) from the credentials file, preserving everything
     else byte-for-byte at the data level (same atomic write as the savers)."""
@@ -266,7 +277,7 @@ def handle_auth_token_command(args) -> int:
     loader = _loader()
     org = getattr(args, "org", None)
     org_kw = {"org_id": org} if org else {}
-    oauth = loader.get_cortex_oauth(**org_kw)
+    oauth = _block_for(loader, org)
     # Custody first: a daemon- or extension-owned family is refreshed by its owner, and a second
     # refresher makes cortex revoke it. For those this returns the stored token while it is valid
     # and never refreshes; the same gate `cortex_bearer` applies.

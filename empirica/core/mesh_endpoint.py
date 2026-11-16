@@ -13,6 +13,8 @@ wizard, identity minting, seat backfill, ``auth login`` among them).
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import json
 import os
 import urllib.request
@@ -23,14 +25,31 @@ from typing import Any
 PROBE_TIMEOUT = 0.5  # loopback: a refused connection is ~1 ms; this only bounds a port held by something that hangs
 
 
-def _cortex_bearer(loader=None, instance: str | None = None) -> dict[str, Any]:
+def _cortex_bearer(loader=None) -> dict[str, Any]:
     # The same import the moved callers used (`from empirica.core.auth import cortex_bearer`), at call time, so whatever
     # empirica.core.auth holds is what runs: a patched attribute, or a module replaced in sys.modules.
     from empirica.core.auth import cortex_bearer
 
-    org_id = _preferred_org(loader, instance)
-    org = {"org_id": org_id} if org_id else {}
-    return cortex_bearer(**org) if loader is None else cortex_bearer(loader, **org)
+    return cortex_bearer() if loader is None else cortex_bearer(loader)
+
+
+_ACTING_FOR: contextvars.ContextVar[str | None] = contextvars.ContextVar("empirica_acting_for", default=None)
+
+
+def acting_for_instance() -> str | None:
+    """The practice (instance id) a listener declared for the credential lookups it makes; None outside one."""
+    return _ACTING_FOR.get()
+
+
+@contextlib.contextmanager
+def acting_for(instance: str | None):
+    """Credential lookups inside use ``instance``'s practice team (when signed in here), never the working directory's.
+    A context variable rather than an argument: every caller and test double of cortex_bearer keeps its signature."""
+    token = _ACTING_FOR.set(instance)
+    try:
+        yield
+    finally:
+        _ACTING_FOR.reset(token)
 
 
 def _org_in(root: Path) -> str | None:
@@ -158,22 +177,6 @@ def _local_token() -> str:
     return configured_local_token() or "local"
 
 
-def _preferred_org(loader, instance: str | None) -> str | None:
-    """The practice's org when this machine holds a sign-in for it; otherwise None, so the default is used as before (a
-    practice whose team has no sign-in here keeps working exactly as it did with one sign-in; goal da0396f8)."""
-    org = practice_org_id(instance)
-    if not org:
-        return None
-    try:
-        if loader is None:
-            from empirica.config.credentials_loader import get_credentials_loader
-
-            loader = get_credentials_loader()
-        return org if loader.get_cortex_oauth(org) else None
-    except Exception:
-        return None
-
-
 def mesh_bearer(
     loader=None, *, probe: Callable[[str], dict | None] | None = None, instance: str | None = None
 ) -> dict[str, Any]:
@@ -184,7 +187,8 @@ def mesh_bearer(
     ``edition`` is ``"cortex"`` when a Cortex is configured (even one whose credential is unusable: that surfaces as its
     ``reason``, it does not quietly switch the practice to local), ``"local"`` for the local server, None for neither.
     """
-    creds = dict(_cortex_bearer(loader, instance=instance) if instance else _cortex_bearer(loader))
+    with acting_for(instance) if instance else contextlib.nullcontext():
+        creds = dict(_cortex_bearer(loader))
     if creds.get("url"):
         return {**creds, "edition": "cortex"}
     base = local_server_url()

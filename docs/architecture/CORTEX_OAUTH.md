@@ -108,9 +108,11 @@ block also records `org_id` and `org_name`, read from `/v1/users/me` at sign-in.
 - **Where a sign-in goes.** `auth login` stores the new set as the default when there is none, when it is the same team,
   or when its org is unknown; beside it when the default is another team. A default from before orgs were recorded is
   asked once, with its own token, which team it is; one that cannot answer has a dead token and is replaced.
-- **Which set a command uses.** Inside a practice (its `.empirica/project.yaml` `org_id`), that team's set when this
-  machine holds one, otherwise the default, as before. A listener resolves its practice from its instance id through the
-  registry. `cortex_bearer(org_id=...)` is strict: no set for that org means no token, with the login to run.
+- **Which set a command uses.** With one sign-in, the old path, unchanged. With several, inside a practice (its
+  `.empirica/project.yaml` `org_id`), that team's set when this machine holds one, otherwise the default. A listener
+  declares its practice (`mesh_endpoint.acting_for`) and is resolved through the registry, never by its working
+  directory. `cortex_bearer(org_id=...)` is strict: no set for that org means no token, with the login to run.
+  `logout --org` and `token --org` are strict too: a default that records no org is never taken for another one.
 - **Renewal.** A refresh writes back into the block it read. The `empirica serve` daemon renews every daemon-owned set,
   each on its own.
 - **Commands.** `auth login --org <org>` signs in to one team; `auth status` lists every team (`orgs`, the default
