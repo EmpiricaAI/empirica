@@ -439,18 +439,18 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.17.0
+## What's New in 1.17.1
 
-- **`empirica mesh connect` moves a practice that has run without Cortex onto Cortex**, with its artifacts' ids, dates and links. It asks before anything becomes visible to the team, and keeps raw files and local paths on the machine.
-- **`empirica auth login` works on a machine that was never configured**: it uses the hosted Cortex unless told otherwise, and remembers it.
-- **Closing the terminal that launched the cockpit no longer kills every practice pane**: the tmux server runs in its own user service.
+- **`empirica auth login --invite` and `--org`**: join a team from the invite an admin sent, or sign in to one of your teams directly.
+- **Sign-in errors say what went wrong**: an expired token whose renewal failed no longer reads as a machine with nothing configured.
+- **`doctor --reconcile-sessions` closes sessions whose process died**, and keeps a long-lived session that is still at work.
 
-All 3 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 8 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.17.0** — `empirica mesh connect` moves a practice that has run without Cortex onto Cortex, with its artifacts' ids, dates and links.
 - **1.16.3** — PREFLIGHT can name the goals a transaction works on. A goal carried across transactions counts as in play from the first call, and what is logged in the wi…
-- **1.16.2** — A session starts with the whole bootstrap picture. Goals, findings, unknowns, decisions, assumptions, mistakes, dead ends and links, each with a short id,…
 
 ## What's Coming
 
