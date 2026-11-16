@@ -71,6 +71,8 @@ def handle_auth_login_command(args) -> int:
         print(
             f"✅ logged in to {result.get('cortex_url')} (client {result['client_id'][:12]}…, token valid until {exp_s})"
         )
+        if result.get("note"):
+            print(f"   note: {result['note']}")
         if result.get("url_source") == "default":
             print("   (the hosted Cortex: no URL was configured; pass --url for another one)")
         if isinstance(result.get("cortex_url_saved"), str):

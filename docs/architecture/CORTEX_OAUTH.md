@@ -117,6 +117,10 @@ block also records `org_id` and `org_name`, read from `/v1/users/me` at sign-in.
   each on its own.
 - **Commands.** `auth login --org <org>` signs in to one team; `auth status` lists every team (`orgs`, the default
   marked); `auth logout --org <org>` and `auth token --org <org>` act on one team.
+- **Empirica Cortex only.** Several teams are read and stored only when the configured Cortex is https on
+  `getempirica.com` or a subdomain (`CredentialsLoader.multi_team_allowed`); elsewhere `cortex.orgs` is ignored and a
+  second team's sign-in replaces the default, as before, with a note. There is no override. Core is open source, so this
+  is a bar rather than a lock; a Cortex-signed seat assertion, verified against a key pinned in core, is the next step.
 - **Not yet per team:** the listener and practitioner heartbeats use the default set.
 
 ## `auth login` flow

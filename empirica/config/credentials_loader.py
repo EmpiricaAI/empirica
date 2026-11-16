@@ -86,6 +86,22 @@ class _NullLock:
         return False
 
 
+#: The hosts of Empirica Cortex. Several teams on one machine are offered only there (see multi_team_allowed).
+EMPIRICA_CORTEX_DOMAIN = "getempirica.com"
+
+
+def is_empirica_cortex_url(url: str | None) -> bool:
+    """True for an https URL whose host is getempirica.com or a subdomain of it."""
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(str(url or "").strip())
+    except ValueError:
+        return False
+    host = (parsed.hostname or "").lower().rstrip(".")
+    return parsed.scheme == "https" and (host == EMPIRICA_CORTEX_DOMAIN or host.endswith("." + EMPIRICA_CORTEX_DOMAIN))
+
+
 def _oauth_refresh_lock(directory: Path):
     """An exclusive inter-process lock for the OAuth refresh, or a no-op.
 
@@ -632,6 +648,8 @@ class CredentialsLoader:
         ):
             raise ValueError("save_cortex_oauth: at least one token field required")
 
+        if slot is not None and not self.multi_team_allowed():
+            raise ValueError("another team's sign-in is stored only for Empirica Cortex (getempirica.com)")
         target = self._resolve_credentials_target(config_path)
         existing = self._read_existing(target)
 
@@ -695,7 +713,18 @@ class CredentialsLoader:
         if not self._credentials_cache:
             self._load_credentials()
         cortex = self._credentials_cache.get("cortex") if self._credentials_cache else None
-        return cortex if isinstance(cortex, dict) else {}
+        if not isinstance(cortex, dict):
+            return {}
+        if "orgs" in cortex and not self.multi_team_allowed():
+            # Other teams' sign-ins are read only for Empirica Cortex: a block hand-written for another server is ignored.
+            return {k: v for k, v in cortex.items() if k != "orgs"}
+        return cortex
+
+    def multi_team_allowed(self) -> bool:
+        """Several teams on one machine need Empirica Cortex (David, 2026-11-16): the configured Cortex must be https on
+        getempirica.com or a subdomain. Not a lock (core is open source), a bar: a server that copies the public routes
+        does not get it by configuration. No override, since an override would be the trivial way around it."""
+        return is_empirica_cortex_url((self.get_cortex_config() or {}).get("url"))
 
     @staticmethod
     def _oauth_slot_of(cortex: dict[str, Any], org_id: str | None) -> str | None:

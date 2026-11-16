@@ -666,7 +666,14 @@ def login(
     # over it (a token is bound to one user in one org; goal da0396f8).
     identity = _whoami(base_url, tokens["access_token"], http=http)
     new_org = identity.get("org_id") or None
+    previous_org = loader.get_cortex_oauth().get("org_id")
     slot = _slot_for_new_sign_in(loader, new_org, base_url, http=http)
+    note = None
+    if slot is None and previous_org and new_org and previous_org != new_org and not loader.multi_team_allowed():
+        note = (
+            f"replaced the sign-in for {previous_org}: several teams on one machine need Empirica Cortex "
+            "(getempirica.com)"
+        )
     loader.save_cortex_oauth(
         slot=slot,
         access_token=tokens.get("access_token"),
@@ -682,6 +689,7 @@ def login(
     return {
         "ok": True,
         "slot": slot,
+        "note": note,
         "org_id": new_org,
         "org_name": identity.get("org_name"),
         "client_id": client_id,
@@ -714,6 +722,8 @@ def _slot_for_new_sign_in(loader, new_org: str | None, base_url: str, *, http=_h
     the default records another team. A default from before orgs were recorded is asked which team it is, once, with its
     own token; when it cannot say (its token is dead and will not renew), nothing usable would be lost, so it is replaced.
     """
+    if not loader.multi_team_allowed():
+        return None  # several teams need Empirica Cortex: elsewhere one sign-in, replaced as before
     if new_org and any(slot == new_org for slot, _ in loader.cortex_oauth_sets()):
         return new_org  # that team already has its own block: update it, never a second copy
     default = loader.get_cortex_oauth()

@@ -14,6 +14,7 @@ import yaml
 
 _AT_A, _AT_B, _RT, _NEW_B, _AT_A2 = "AT_A", "AT_B", "RT", "NEW_B", "AT_A2"  # fake fixtures, not credentials
 _VALID = "valid"
+_CORTEX = "https://cortex.getempirica.com"  # several teams need Empirica Cortex (David, 2026-11-16)
 _AT_C, _NEW_A = "AT_C", "NEW_org-a"
 
 
@@ -45,14 +46,14 @@ def _set(token, org=None, **extra):
 
 def test_no_org_asked_reads_the_default_block_as_before(creds):
     write, _ = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
     assert loader.get_cortex_oauth()["access_token"] == _AT_A
     assert loader.cortex_access_token() == _AT_A
 
 
 def test_an_org_asked_reads_its_own_block(creds):
     write, _ = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
     assert loader.get_cortex_oauth(org_id="org-b")["access_token"] == _AT_B
     assert loader.get_cortex_oauth(org_id="org-a")["access_token"] == _AT_A  # the default is that org's block
     assert loader.cortex_access_token(org_id="org-b") == _AT_B
@@ -60,7 +61,7 @@ def test_an_org_asked_reads_its_own_block(creds):
 
 def test_an_org_with_no_sign_in_reads_as_none(creds):
     write, _ = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a")})
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a")})
     assert loader.get_cortex_oauth(org_id="org-c") == {}
     assert loader.cortex_access_token(org_id="org-c") is None
 
@@ -68,13 +69,13 @@ def test_an_org_with_no_sign_in_reads_as_none(creds):
 def test_a_default_signed_in_before_orgs_were_recorded_serves_any_org(creds):
     """Its org is unknown (pre-1.17.2 sign-in): it is offered, as before, rather than refusing every practice."""
     write, _ = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A)})
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A)})
     assert loader.get_cortex_oauth(org_id="org-a")["access_token"] == _AT_A
 
 
 def test_every_sign_in_is_listed(creds):
     write, _ = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
     assert [(slot, block["access_token"]) for slot, block in loader.cortex_oauth_sets()] == [
         (None, _AT_A),
         ("org-b", _AT_B),
@@ -84,7 +85,7 @@ def test_every_sign_in_is_listed(creds):
 def test_a_refresh_of_one_org_writes_that_org_only(creds):
     write, path = creds
     expired = _set(_AT_B, "org-b", expires_at=time.time() - 60)
-    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": expired}})
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": expired}})
     token = loader.cortex_access_token(
         org_id="org-b", refresh=lambda rt, ep: {"access_token": _NEW_B, "expires_at": time.time() + 3600}
     )
@@ -98,7 +99,7 @@ def test_the_bearer_for_an_org_is_that_orgs_token(creds, monkeypatch):
     from empirica.core.auth import cortex_oauth as co
 
     write, _ = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
     monkeypatch.setattr("empirica.core.auth.credential_health.dead_reason", lambda cred: None)
     assert co.cortex_bearer(loader)["bearer"] == _AT_A
     assert co.cortex_bearer(loader, org_id="org-b")["bearer"] == _AT_B
@@ -108,7 +109,7 @@ def test_an_org_with_no_sign_in_says_which_and_how(creds, monkeypatch):
     from empirica.core.auth import cortex_oauth as co
 
     write, _ = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a")})
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a")})
     monkeypatch.setattr("empirica.core.auth.credential_health.dead_reason", lambda cred: None)
     out = co.cortex_bearer(loader, org_id="org-c")
     assert out["bearer"] is None
@@ -119,7 +120,7 @@ def test_refresh_custody_is_read_from_the_orgs_own_block(creds, monkeypatch):
     from empirica.core.auth import cortex_oauth as co
 
     write, _ = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a", refresh_owner="daemon"),
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a", refresh_owner="daemon"),
                     "orgs": {"org-b": _set(_AT_B, "org-b", refresh_owner="cli")}})  # fmt: skip
     assert co.custody_refresh(loader, org_id="org-a")[1] == "daemon"
     assert co.custody_refresh(loader, org_id="org-b")[1] == "cli"
@@ -165,7 +166,7 @@ def _login(loader, monkeypatch, *, new_org, new_token, me_by_token=None, org=Non
 
 def test_a_first_sign_in_is_the_default_and_records_its_org(creds, monkeypatch):
     write, path = creds
-    result = _login(write({"url": "https://c"}), monkeypatch, new_org="org-a", new_token=_AT_A)
+    result = _login(write({"url": _CORTEX}), monkeypatch, new_org="org-a", new_token=_AT_A)
     stored = yaml.safe_load(path.read_text())["cortex"]
     assert stored["oauth"]["access_token"] == _AT_A and stored["oauth"]["org_id"] == "org-a"
     assert stored["oauth"]["org_name"] == "ORG-A" and "orgs" not in stored
@@ -174,7 +175,7 @@ def test_a_first_sign_in_is_the_default_and_records_its_org(creds, monkeypatch):
 
 def test_a_second_team_goes_beside_the_first_not_over_it(creds, monkeypatch):
     write, path = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a")})
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a")})
     result = _login(loader, monkeypatch, new_org="org-b", new_token=_AT_B, org="org-b")
     stored = yaml.safe_load(path.read_text())["cortex"]
     assert stored["oauth"]["access_token"] == _AT_A
@@ -185,7 +186,7 @@ def test_a_second_team_goes_beside_the_first_not_over_it(creds, monkeypatch):
 
 def test_signing_in_to_the_same_team_again_renews_the_default(creds, monkeypatch):
     write, path = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a")})
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a")})
     _login(loader, monkeypatch, new_org="org-a", new_token=_AT_A2)
     stored = yaml.safe_load(path.read_text())["cortex"]
     assert stored["oauth"]["access_token"] == _AT_A2 and "orgs" not in stored
@@ -194,7 +195,7 @@ def test_signing_in_to_the_same_team_again_renews_the_default(creds, monkeypatch
 def test_a_default_with_no_recorded_org_is_asked_which_it_is(creds, monkeypatch):
     """Signed in before orgs were recorded: one /v1/users/me with its own token says which team it is."""
     write, path = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A)})
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A)})
     _login(loader, monkeypatch, new_org="org-b", new_token=_AT_B, me_by_token={_AT_A: {"org_id": "org-a"}})
     stored = yaml.safe_load(path.read_text())["cortex"]
     assert stored["oauth"]["access_token"] == _AT_A and stored["oauth"]["org_id"] == "org-a"
@@ -204,7 +205,7 @@ def test_a_default_with_no_recorded_org_is_asked_which_it_is(creds, monkeypatch)
 def test_a_default_that_cannot_say_which_team_it_is_is_replaced(creds, monkeypatch):
     """Its token is dead and cannot be renewed: nothing usable is lost, so the new sign-in takes the default, as before."""
     write, path = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A, expires_at=time.time() - 60)})
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, expires_at=time.time() - 60)})
     _login(loader, monkeypatch, new_org="org-b", new_token=_AT_B)
     stored = yaml.safe_load(path.read_text())["cortex"]
     assert stored["oauth"]["access_token"] == _AT_B and stored["oauth"]["org_id"] == "org-b"
@@ -224,7 +225,7 @@ def _run(handler, monkeypatch, loader, **kw):
 def test_status_lists_every_team_and_keeps_its_default_fields(creds, monkeypatch, capsys):
     write, _ = creds
     loader = write(
-        {"url": "https://c", "oauth": _set(_AT_A, "org-a", org_name="A"), "orgs": {"org-b": _set(_AT_B, "org-b")}}
+        {"url": _CORTEX, "oauth": _set(_AT_A, "org-a", org_name="A"), "orgs": {"org-b": _set(_AT_B, "org-b")}}
     )
     rc, json = _run("handle_auth_status_command", monkeypatch, loader)
     out = json.loads(capsys.readouterr().out)
@@ -237,7 +238,7 @@ def test_status_lists_every_team_and_keeps_its_default_fields(creds, monkeypatch
 
 def test_logout_of_one_team_leaves_the_others(creds, monkeypatch, capsys):
     write, path = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
     rc, _ = _run("handle_auth_logout_command", monkeypatch, loader, org="org-b")
     stored = yaml.safe_load(path.read_text())["cortex"]
     assert rc == 0 and stored["oauth"]["access_token"] == _AT_A and not stored.get("orgs")
@@ -245,7 +246,7 @@ def test_logout_of_one_team_leaves_the_others(creds, monkeypatch, capsys):
 
 def test_logout_without_an_org_drops_the_default_only(creds, monkeypatch, capsys):
     write, path = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
     _run("handle_auth_logout_command", monkeypatch, loader)
     stored = yaml.safe_load(path.read_text())["cortex"]
     assert "oauth" not in stored and stored["orgs"]["org-b"]["access_token"] == _AT_B
@@ -259,7 +260,7 @@ def test_the_sign_in_is_verified_with_the_set_it_stored(creds, monkeypatch):
     from empirica.core import auth
 
     write, _ = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
     monkeypatch.setattr(auth_commands, "_loader", lambda: loader)
     monkeypatch.setattr(auth, "login", lambda **kw: {"ok": True, "client_id": "c" * 20, "expires_at": None,
                         "has_refresh_token": True, "cortex_url": "https://c", "url_source": "config", "org_id": "org-b"})  # fmt: skip
@@ -299,7 +300,7 @@ def _practice(tmp_path, org):
 
 
 def _two_teams(write):
-    return write({"url": "https://c", "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
+    return write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
 
 
 def test_a_practice_in_another_team_uses_that_teams_sign_in(creds, tmp_path, monkeypatch):
@@ -356,7 +357,7 @@ def test_the_daemon_renews_every_family_it_owns_and_only_those(creds, monkeypatc
 
     write, path = creds
     old = time.time() - 60
-    loader = write({"url": "https://c",
+    loader = write({"url": _CORTEX,
                     "oauth": _set(_AT_A, "org-a", refresh_owner="daemon", expires_at=old),
                     "orgs": {"org-b": _set(_AT_B, "org-b", refresh_owner="daemon", expires_at=old),
                              "org-c": _set(_AT_C, "org-c", refresh_owner="cli", expires_at=old)}})  # fmt: skip
@@ -397,7 +398,7 @@ def test_a_direct_caller_inside_a_practice_gets_that_teams_sign_in(creds, tmp_pa
 
 def test_signing_in_to_a_team_already_beside_the_default_updates_that_block(creds, monkeypatch):
     write, path = creds
-    loader = write({"url": "https://c", "orgs": {"org-b": _set(_AT_B, "org-b")}})  # default logged out
+    loader = write({"url": _CORTEX, "orgs": {"org-b": _set(_AT_B, "org-b")}})  # default logged out
     _login(loader, monkeypatch, new_org="org-b", new_token=_NEW_B)
     stored = yaml.safe_load(path.read_text())["cortex"]
     assert "oauth" not in stored and stored["orgs"]["org-b"]["access_token"] == _NEW_B
@@ -405,7 +406,7 @@ def test_signing_in_to_a_team_already_beside_the_default_updates_that_block(cred
 
 def test_a_sign_in_whose_team_is_unknown_does_not_keep_the_old_teams_label(creds, monkeypatch):
     write, path = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A, "org-a", org_name="A")})
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a", org_name="A")})
     monkeypatch.setattr("empirica.core.auth.cortex_oauth._whoami", lambda base, token, http=None: {})
     _login(loader, monkeypatch, new_org="org-b", new_token=_AT_B)
     stored = yaml.safe_load(path.read_text())["cortex"]["oauth"]
@@ -414,7 +415,7 @@ def test_a_sign_in_whose_team_is_unknown_does_not_keep_the_old_teams_label(creds
 
 def test_logout_and_token_for_a_team_never_touch_an_unlabelled_default(creds, monkeypatch, capsys):
     write, path = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A)})  # team not recorded
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A)})  # team not recorded
     rc, _ = _run("handle_auth_logout_command", monkeypatch, loader, org="org-b")
     assert rc == 0 and yaml.safe_load(path.read_text())["cortex"]["oauth"]["access_token"] == _AT_A
     capsys.readouterr()
@@ -427,7 +428,7 @@ def test_a_single_sign_in_takes_the_old_path_inside_any_practice(creds, tmp_path
     from empirica.core.auth import cortex_oauth as co
 
     write, _ = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A)})
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A)})
     seen = []
     monkeypatch.setattr(co, "custody_refresh", lambda loader, http=None, **kw: (seen.append(kw), (None, "cli"))[1])
     monkeypatch.setattr("empirica.core.auth.credential_health.dead_reason", lambda cred: None)
@@ -437,7 +438,7 @@ def test_a_single_sign_in_takes_the_old_path_inside_any_practice(creds, tmp_path
 
 def test_a_live_default_whose_team_cannot_be_read_is_kept(creds, monkeypatch):
     write, path = creds
-    loader = write({"url": "https://c", "oauth": _set(_AT_A)})  # valid token, team not recorded, /me fails for it
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A)})  # valid token, team not recorded, /me fails for it
     _login(loader, monkeypatch, new_org="org-b", new_token=_AT_B)
     stored = yaml.safe_load(path.read_text())["cortex"]
     assert stored["oauth"]["access_token"] == _AT_A and stored["orgs"]["org-b"]["access_token"] == _AT_B
@@ -452,3 +453,43 @@ def test_a_listener_never_borrows_its_working_directorys_team(creds, tmp_path, m
     monkeypatch.setattr("empirica.core.auth.credential_health.dead_reason", lambda cred: None)
     monkeypatch.chdir(_practice(tmp_path, "org-b"))  # started inside another team's practice
     assert me.mesh_bearer(loader, instance="unknown-practice")["bearer"] == _AT_A
+
+
+# --- several teams need Empirica Cortex (David, 2026-11-16): not trivial to get from a server copying the routes ---
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["https://cortex.example.com", "http://cortex.getempirica.com", "https://getempirica.com.evil.test",
+     "https://evilgetempirica.com", "http://localhost:8000"],
+)  # fmt: skip
+def test_off_cortex_a_hand_written_second_team_is_not_read(creds, monkeypatch, url):
+    write, _ = creds
+    loader = write({"url": url, "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
+    assert loader.get_cortex_oauth(org_id="org-b") == {}
+    assert [slot for slot, _ in loader.cortex_oauth_sets()] == [None]
+
+
+@pytest.mark.parametrize(
+    "url", ["https://cortex.getempirica.com", "https://getempirica.com", "https://eu.cortex.getempirica.com"]
+)
+def test_on_empirica_cortex_every_team_is_read(creds, url):
+    write, _ = creds
+    loader = write({"url": url, "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
+    assert loader.get_cortex_oauth(org_id="org-b")["access_token"] == _AT_B
+
+
+def test_off_cortex_a_second_team_replaces_the_default_as_before(creds, monkeypatch):
+    write, path = creds
+    loader = write({"url": "https://cortex.example.com", "oauth": _set(_AT_A, "org-a")})
+    result = _login(loader, monkeypatch, new_org="org-b", new_token=_AT_B, org="org-b")
+    stored = yaml.safe_load(path.read_text())["cortex"]
+    assert stored["oauth"]["access_token"] == _AT_B and "orgs" not in stored
+    assert result["slot"] is None and "Empirica Cortex" in result["note"]
+
+
+def test_off_cortex_a_write_to_another_teams_slot_is_refused(creds):
+    write, _ = creds
+    loader = write({"url": "https://cortex.example.com", "oauth": _set(_AT_A, "org-a")})
+    with pytest.raises(ValueError, match="Empirica Cortex"):
+        loader.save_cortex_oauth(slot="org-b", access_token=_AT_B)
