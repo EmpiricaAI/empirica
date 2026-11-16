@@ -95,17 +95,26 @@ def load_yaml_cached(path: str | Path) -> dict[str, Any]:
     return parsed
 
 
-#: The keys that differ per person in a shared practice repo (one project, one ai_id, a seat each). They are read from the
-#: untracked `.empirica/project.local.yaml` when it names them (goal cdc2e27c, David 2026-11-16); nothing else is.
+#: The keys that differ per person in a shared practice repo (one project, one ai_id, a seat each; goal cdc2e27c, David
+#: 2026-11-16). A repo is shared only when its tracked project.yaml says so (`seats: per-clone`): then these keys come from
+#: each clone's untracked `.empirica/project.local.yaml` and never from the tracked file, which another person may have
+#: committed theirs into. An unmarked practice reads exactly as before.
 PERSON_KEYS = ("tenant_slug", "mesh_id_prefix", "canonical_seat")
+SHARED_MARKER = ("seats", "per-clone")
+
+
+def is_shared_repo(data: dict[str, Any]) -> bool:
+    return isinstance(data, dict) and data.get(SHARED_MARKER[0]) == SHARED_MARKER[1]
 
 
 def with_person_overlay(data: dict[str, Any], empirica_dir: Path) -> dict[str, Any]:
-    """``data`` with the per-person keys of ``empirica_dir/project.local.yaml`` laid over it (a copy: cached dicts are
-    never mutated). Unchanged when there is no local file or it names none of them."""
+    """``data`` as this clone sees it: in a shared repo the per-person keys come only from project.local.yaml (string
+    values only; anything else there is ignored). A copy: cached dicts are never mutated. Unmarked: ``data`` unchanged."""
+    if not is_shared_repo(data):
+        return data
     local = load_yaml_cached(Path(empirica_dir) / "project.local.yaml")
-    picked = {k: local[k] for k in PERSON_KEYS if isinstance(local, dict) and local.get(k)}
-    return {**data, **picked} if picked else data
+    mine = {k: local[k] for k in PERSON_KEYS if isinstance(local, dict) and isinstance(local.get(k), str) and local[k]}
+    return {**{k: v for k, v in data.items() if k not in PERSON_KEYS}, **mine}
 
 
 def load_project_yaml(project_path: str | Path | None) -> dict[str, Any]:

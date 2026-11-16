@@ -1,65 +1,86 @@
 """Shared practice repos: each person's seat in an untracked project.local.yaml (goal cdc2e27c, David 2026-11-16).
 
 Two people work one Forgejo repo (empirica-consult: David and Francisco). Cortex joins both to the same project, so
-project_id and ai_id are shared and tracked; only the per-person keys differ, and they cannot live in the tracked file
-for both clones. `.empirica/project.local.yaml` (untracked) overrides exactly those keys.
+project_id and ai_id are shared and tracked; only the per-person keys differ. A repo is shared only when its tracked
+project.yaml says so (`seats: per-clone`, set by `empirica setup-claude-code --shared-repo`): then those keys live in each
+clone's untracked `.empirica/project.local.yaml` and nowhere else. An unmarked practice behaves exactly as before.
 """
 
 from __future__ import annotations
+
+import importlib.util
+import sys
+from pathlib import Path
 
 import yaml
 
 from empirica.utils import yaml_cache
 
+_DAVID = {
+    "tenant_slug": "david",
+    "mesh_id_prefix": "empirica-consulting.david",
+    "canonical_seat": "empirica-consulting.david.empirica-consult",
+}
+_FRANCISCO = {
+    "tenant_slug": "francisco",
+    "mesh_id_prefix": "empirica-consulting.francisco",
+    "canonical_seat": "empirica-consulting.francisco.empirica-consult",
+}
 
-def _practice(tmp_path, local=None):
+
+def _practice(tmp_path, *, shared, tracked_person=None, local=None):
     emp = tmp_path / ".empirica"
     emp.mkdir()
-    (emp / "project.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "project_id": "p-1",
-                "ai_id": "empirica-consult",
-                "org_id": "org-c",
-                "tenant_slug": "david",
-                "mesh_id_prefix": "empirica-consulting.david",
-                "canonical_seat": "empirica-consulting.david.empirica-consult",
-            }
-        )
-    )
+    tracked = {"project_id": "p-1", "ai_id": "empirica-consult", "org_id": "org-c", **(tracked_person or {})}
+    if shared:
+        tracked["seats"] = "per-clone"
+    (emp / "project.yaml").write_text(yaml.safe_dump(tracked))
     if local is not None:
         (emp / "project.local.yaml").write_text(yaml.safe_dump(local))
     yaml_cache.clear_cache()
     return tmp_path
 
 
-_FRANCISCO = {"tenant_slug": "francisco", "mesh_id_prefix": "empirica-consulting.francisco",
-              "canonical_seat": "empirica-consulting.francisco.empirica-consult"}  # fmt: skip
+def _read(root, name):
+    path = root / ".empirica" / name
+    return yaml.safe_load(path.read_text()) if path.exists() else None
 
 
-def test_the_local_file_gives_this_clone_its_own_seat(tmp_path):
-    data = yaml_cache.load_project_yaml(_practice(tmp_path, _FRANCISCO))
-    assert data["tenant_slug"] == "francisco" and data["canonical_seat"].endswith("francisco.empirica-consult")
-    assert data["project_id"] == "p-1" and data["ai_id"] == "empirica-consult"  # shared keys stay
+# --- readers ---
 
 
-def test_only_the_per_person_keys_are_overridden(tmp_path):
-    data = yaml_cache.load_project_yaml(_practice(tmp_path, {**_FRANCISCO, "project_id": "evil", "ai_id": "x"}))
+def test_in_a_shared_repo_the_clones_own_seat_is_read(tmp_path):
+    data = yaml_cache.load_project_yaml(_practice(tmp_path, shared=True, local=_FRANCISCO))
+    assert data["canonical_seat"] == _FRANCISCO["canonical_seat"] and data["tenant_slug"] == "francisco"
     assert data["project_id"] == "p-1" and data["ai_id"] == "empirica-consult"
 
 
-def test_without_a_local_file_nothing_changes(tmp_path):
-    assert yaml_cache.load_project_yaml(_practice(tmp_path))["tenant_slug"] == "david"
+def test_in_a_shared_repo_a_seat_pulled_from_git_is_not_this_clones(tmp_path):
+    """A tracked seat (someone committed theirs) must not be taken as this person's."""
+    data = yaml_cache.load_project_yaml(_practice(tmp_path, shared=True, tracked_person=_DAVID))
+    assert "canonical_seat" not in data and "tenant_slug" not in data
+
+
+def test_only_the_per_person_keys_are_taken_from_the_local_file(tmp_path):
+    local = {**_FRANCISCO, "project_id": "evil", "ai_id": "x", "tenant_slug": 123}
+    data = yaml_cache.load_project_yaml(_practice(tmp_path, shared=True, local=local))
+    assert data["project_id"] == "p-1" and data["ai_id"] == "empirica-consult"
+    assert "tenant_slug" not in data  # not a string: ignored
+    assert data["mesh_id_prefix"] == "empirica-consulting.francisco"
+
+
+def test_an_unmarked_practice_reads_exactly_as_before(tmp_path):
+    data = yaml_cache.load_project_yaml(_practice(tmp_path, shared=False, tracked_person=_DAVID, local=_FRANCISCO))
+    assert data["tenant_slug"] == "david" and data["canonical_seat"] == _DAVID["canonical_seat"]
 
 
 def test_the_cached_tracked_file_is_not_mutated(tmp_path):
-    root = _practice(tmp_path, _FRANCISCO)
+    root = _practice(tmp_path, shared=True, tracked_person=_DAVID, local=_FRANCISCO)
     yaml_cache.load_project_yaml(root)
-    raw = yaml_cache.load_yaml_cached(root / ".empirica" / "project.yaml")
-    assert raw["tenant_slug"] == "david"
+    assert yaml_cache.load_yaml_cached(root / ".empirica" / "project.yaml")["tenant_slug"] == "david"
 
 
-# --- the writer: setup and the session-start heal put a person's seat where it belongs ---
+# --- the writer: setup and the session-start heal ---
 
 
 def _persist(root, **kw):
@@ -68,63 +89,84 @@ def _persist(root, **kw):
     return _persist_tenant_metadata(root, **{"org_id": "org-c", "tenant_slug": None, "mesh_id_prefix": None, **kw})
 
 
-def _read(root, name):
-    path = root / ".empirica" / name
-    return yaml.safe_load(path.read_text()) if path.exists() else None
-
-
-def test_a_second_person_in_a_shared_repo_writes_their_seat_locally(tmp_path):
-    root = _practice(tmp_path)  # tracked file names david
+def test_in_a_shared_repo_a_persons_seat_is_written_locally_and_never_tracked(tmp_path):
+    root = _practice(tmp_path, shared=True)
     assert _persist(root, tenant_slug="francisco", mesh_id_prefix="empirica-consulting.francisco") is True
-    tracked, local = _read(root, "project.yaml"), _read(root, "project.local.yaml")
-    assert tracked["tenant_slug"] == "david" and tracked["canonical_seat"].endswith("david.empirica-consult")
-    assert local == {"tenant_slug": "francisco", "mesh_id_prefix": "empirica-consulting.francisco",
-                     "canonical_seat": "empirica-consulting.francisco.empirica-consult"}  # fmt: skip
+    assert _read(root, "project.local.yaml") == _FRANCISCO
+    tracked = _read(root, "project.yaml")
+    assert not any(k in tracked for k in _FRANCISCO) and tracked["seats"] == "per-clone"
 
 
-def test_with_a_local_file_the_owners_keys_go_there_too(tmp_path):
-    root = _practice(tmp_path, {"tenant_slug": "david"})
-    _persist(root, tenant_slug="david", mesh_id_prefix="empirica-consulting.david2")
-    assert _read(root, "project.local.yaml")["mesh_id_prefix"] == "empirica-consulting.david2"
-    assert _read(root, "project.yaml")["mesh_id_prefix"] == "empirica-consulting.david"
+def test_in_a_shared_repo_a_prefix_alone_still_goes_local(tmp_path):
+    root = _practice(tmp_path, shared=True, tracked_person={"tenant_slug": "david"})
+    _persist(root, mesh_id_prefix="empirica-consulting.francisco")
+    assert _read(root, "project.local.yaml")["canonical_seat"] == _FRANCISCO["canonical_seat"]
+    assert "mesh_id_prefix" not in _read(root, "project.yaml")
 
 
-def test_a_single_owner_practice_writes_the_tracked_file_as_before(tmp_path):
-    emp = tmp_path / ".empirica"
-    emp.mkdir()
-    (emp / "project.yaml").write_text(yaml.safe_dump({"project_id": "p", "ai_id": "solo"}))
-    assert _persist(tmp_path, tenant_slug="david", mesh_id_prefix="org-x.david") is True
-    tracked = _read(tmp_path, "project.yaml")
-    assert tracked["tenant_slug"] == "david" and tracked["canonical_seat"] == "org-x.david.solo"
-    assert _read(tmp_path, "project.local.yaml") is None
+def test_in_a_shared_repo_the_seat_is_never_composed_from_the_tracked_prefix(tmp_path):
+    root = _practice(tmp_path, shared=True, tracked_person={"mesh_id_prefix": "empirica-consulting.david"})
+    _persist(root, tenant_slug="francisco")
+    assert "canonical_seat" not in (_read(root, "project.local.yaml") or {})
 
 
-def test_a_shared_repo_never_flips_the_tracked_org(tmp_path):
-    root = _practice(tmp_path)
-    _persist(root, org_id="org-other", tenant_slug="francisco", mesh_id_prefix="empirica-consulting.francisco")
-    assert _read(root, "project.yaml")["org_id"] == "org-c"
+def test_an_unmarked_practice_whose_tenant_changes_is_corrected_in_place(tmp_path):
+    """A single owner's renamed tenant fixes the tracked file, as before the overlay."""
+    root = _practice(tmp_path, shared=False, tracked_person={"tenant_slug": "old", "mesh_id_prefix": "o.old"})
+    _persist(root, org_id="o2", tenant_slug="new", mesh_id_prefix="o2.new")
+    tracked = _read(root, "project.yaml")
+    assert (tracked["tenant_slug"], tracked["org_id"], tracked["canonical_seat"]) == (
+        "new",
+        "o2",
+        "o2.new.empirica-consult",
+    )
+    assert _read(root, "project.local.yaml") is None
 
 
-def test_the_session_start_heal_counts_a_local_seat(tmp_path, monkeypatch):
-    """Fast path: a seat in project.local.yaml is a seat; the heal must not ask Cortex or write the tracked file."""
-    import importlib.util
-    import sys
-    from pathlib import Path
+def test_marking_a_repo_shared_moves_the_owners_keys_out_of_git(tmp_path):
+    from empirica.cli.command_handlers.setup_claude_code import mark_shared_repo
 
-    hook = (
+    root = _practice(tmp_path, shared=False, tracked_person=_DAVID)
+    assert mark_shared_repo(root) is True
+    tracked = _read(root, "project.yaml")
+    assert tracked["seats"] == "per-clone" and not any(k in tracked for k in _DAVID)
+    assert _read(root, "project.local.yaml") == _DAVID
+    assert ".empirica/project.local.yaml" in (root / ".gitignore").read_text()
+    assert mark_shared_repo(root) is False  # already shared
+
+
+def test_the_local_file_is_kept_out_of_git(tmp_path):
+    root = _practice(tmp_path, shared=True)
+    _persist(root, tenant_slug="francisco", mesh_id_prefix="empirica-consulting.francisco")
+    assert ".empirica/project.local.yaml" in (root / ".gitignore").read_text()
+
+
+# --- the session-start heal ---
+
+
+def _hook():
+    path = (
         Path(__file__).parent.parent / "empirica" / "plugins" / "claude-code-integration" / "hooks" / "session-init.py"
     )
-    spec = importlib.util.spec_from_file_location("session_init_overlay", hook)
+    spec = importlib.util.spec_from_file_location("session_init_overlay", path)
+    assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     sys.modules["session_init_overlay"] = mod
     spec.loader.exec_module(mod)
-    root = tmp_path
-    emp = root / ".empirica"
-    emp.mkdir()
-    (emp / "project.yaml").write_text(yaml.safe_dump({"project_id": "p-1", "ai_id": "empirica-consult"}))
-    (emp / "project.local.yaml").write_text(yaml.safe_dump(_FRANCISCO))
-    before = (emp / "project.yaml").read_text()
-    monkeypatch.setattr("empirica.cli.command_handlers.setup_claude_code._persist_tenant_metadata",
-                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("heal ran")))  # fmt: skip
-    mod._heal_mesh_metadata_at_init(str(root))
-    assert (emp / "project.yaml").read_text() == before
+    return mod
+
+
+def _heal(monkeypatch, root):
+    calls = []
+    monkeypatch.setattr("empirica.core.auth.cortex_bearer", lambda *a, **k: calls.append("me") or {"url": None})
+    _hook()._heal_mesh_metadata_at_init(str(root))
+    return calls
+
+
+def test_the_heal_counts_this_clones_local_seat(tmp_path, monkeypatch):
+    assert _heal(monkeypatch, _practice(tmp_path, shared=True, local=_FRANCISCO)) == []
+
+
+def test_the_heal_asks_cortex_when_only_a_pulled_seat_exists(tmp_path, monkeypatch):
+    """A fresh clone of a shared repo heals its own seat instead of acting as whoever committed theirs."""
+    assert _heal(monkeypatch, _practice(tmp_path, shared=True, tracked_person=_DAVID)) == ["me"]

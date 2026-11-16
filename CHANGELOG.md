@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Several people can share one practice repo.** Each person's seat (tenant, mesh prefix, canonical seat) lives in an untracked `.empirica/project.local.yaml` in their own clone; `empirica setup-claude-code` writes it when the tracked `project.yaml` already names someone else. The shared identity (project id, ai id, org) stays in the tracked file.
+- **Several people can share one practice repo.** Mark it once with `empirica setup-claude-code --shared-repo` (the tracked `project.yaml` then says `seats: per-clone`). Each person's seat (tenant, mesh prefix, canonical seat) then lives only in their clone's untracked `.empirica/project.local.yaml`, filled from Cortex on their first session; the shared identity (project id, ai id, org) stays tracked. Unmarked practices are unchanged.
 
 ## [1.17.2] - 2026-11-16
 

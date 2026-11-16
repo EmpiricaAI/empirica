@@ -128,6 +128,12 @@ Run this after 'brew install empirica' or 'pip install empirica'.
         help="Override mesh_id_prefix (skip cortex tenant-metadata fetch for this field)",
     )
     setup_cc_parser.add_argument(
+        "--shared-repo",
+        action="store_true",
+        help="Mark this practice repo as shared by several people (seats: per-clone): each person's seat lives in their "
+        "clone's untracked .empirica/project.local.yaml (optional)",
+    )
+    setup_cc_parser.add_argument(
         "--skip-claude-md", action="store_true", help="Skip CLAUDE.md installation (keep existing system prompt)"
     )
     setup_cc_parser.add_argument(

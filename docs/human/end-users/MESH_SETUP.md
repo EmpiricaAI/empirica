@@ -393,11 +393,12 @@ A reminder, because users sometimes assume the mesh is required:
 
 When two or more people work in one practice repo (for example a consulting practice two partners co-own), Cortex joins
 them to the same project, so `project_id` and `ai_id` are shared and stay in the tracked `.empirica/project.yaml`. Each
-person's own seat (`tenant_slug`, `mesh_id_prefix`, `canonical_seat`) lives in the untracked `.empirica/project.local.yaml`
-of their clone and overrides those keys.
+person's own seat (`tenant_slug`, `mesh_id_prefix`, `canonical_seat`) must not be in git, or whoever pulls it would act as
+that person.
 
-Each person runs `empirica setup-claude-code` once in their own clone, signed in as themselves. Setup sees that the tracked
-file names someone else and writes that person's keys to `project.local.yaml` instead; from then on every command in that
-clone acts as their seat. `project.local.yaml` stays out of git (the practice's `.gitignore` ignores `.empirica/*` except
-`project.yaml`).
+1. One person marks the repo shared once: `empirica setup-claude-code --shared-repo`, then commits `.empirica/project.yaml`
+   (it now says `seats: per-clone`). Their own keys move to `.empirica/project.local.yaml`, which is added to `.gitignore`.
+2. Everyone else just clones and works. In a repo marked shared, the per-person keys are read only from the clone's own
+   `project.local.yaml`; a fresh clone has none, so its first session asks Cortex for that person's seat and writes it there.
 
+A practice that is not marked shared behaves exactly as before: its seat lives in the tracked `project.yaml`.

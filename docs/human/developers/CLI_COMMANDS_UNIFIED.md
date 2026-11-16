@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.17.2
-**Generated:** 2026-11-16 19:19:03 UTC
+**Generated:** 2026-11-16 20:17:59 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -4543,6 +4543,8 @@ Configure harness integration (hooks, system prompt)
   Override tenant_slug (skip cortex tenant-metadata fetch for this field)
 - `--mesh-id-prefix` — optional
   Override mesh_id_prefix (skip cortex tenant-metadata fetch for this field)
+- `--shared-repo` — optional · flag
+  Mark this practice repo as shared by several people (seats: per-clone): each person's seat lives in their clone's untracked .empirica/project.local.yaml (optional)
 - `--skip-claude-md` — optional · flag
   Skip CLAUDE.md installation (keep existing system prompt)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
