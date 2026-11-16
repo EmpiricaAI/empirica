@@ -138,12 +138,6 @@
       "decided_by": "empirica (2026-10-04, date rollover: crossed 180 days)",
       "review_by": "2026-12-01"
     },
-    "docs/architecture/SENTINEL_CONSTITUTION.md": {
-      "status": "pending_review",
-      "reason": "Read in full on 2026-10-12. Principles I and III-IX still describe the code (phase-aware calibration, earned autonomy, honest over accurate, fail-open measurement, human authority). Principle II (measurement opacity: the system prompt must not expose scoring mechanics) is in tension with the current lean system prompt, which publishes the work_type calibration weights and frames measurement as collaborative; whether II stands, is amended, or the prompt is wrong is David's ruling, not edited here. Authors are David and Claude Code, so the principles are not rewritten unasked. Further check 2026-10-13: the work_type weights have been in the agent-facing lean system prompt since commit d106cd0c3 (2026-04-13, five weeks after this document) and in the public guide docs/human/end-users/05_EPISTEMIC_VECTORS_EXPLAINED.md; no amendment decision was logged; SENTINEL_GATE_REFERENCE.md line 5 still cites Principle II as its audience rule; and CHECK ADVISORY messages with K/U thresholds now reach the model. The contradiction is three documents and two delivery channels wide, not one prompt line. Amend or reaffirm Principle II (David).\n Re-read 2026-11-16: the tension still holds at HEAD (the core prompt still publishes \"code: execution 0.40, foundation 0.30\"); asked David again. The new date is the ruling deadline, not a re-read.",
-      "decided_by": "empirica (2026-11-16, docs drift gate)",
-      "review_by": "2026-11-30"
-    },
     "docs/architecture/UNIVERSAL_GOVERNANCE_PATTERN.md": {
       "status": "pending_review",
       "reason": "Brand document in David's voice, mostly narrative; its subject (governance gates, Epistemic Candor PROCEED/HEDGE/HALT) still exists and the Candor part was verified. NOT verified current: 'UQ gate' appears nowhere else in the repo; it names five autonomy levels incl. ECO against four SentinelModes in empirica-autonomy (ECO is a separate gate); OBSERVER/ADVISORY semantics differ from EARNED_AUTONOMY.md; '200+ calibrated transactions', '~20/day', '~1/week' and the week-1/week-12 convergence are unsourced. Rewriting a brand document is a separate decision.",

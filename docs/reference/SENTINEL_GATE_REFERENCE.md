@@ -2,7 +2,7 @@
 
 **Status:** AUTHORITATIVE
 **Source:** `empirica/plugins/claude-code-integration/hooks/sentinel-gate.py`
-**Audience:** Developers, not AI agents (see [Sentinel Constitution](../architecture/SENTINEL_CONSTITUTION.md) Principle II: Measurement Opacity)
+**Audience:** Developers. The agent-facing summary of the gate is the core prompt's NOETIC FIREWALL section; publishing it is allowed (see [Sentinel Constitution](../architecture/SENTINEL_CONSTITUTION.md) Principle II: Observation Integrity)
 
 ---
 

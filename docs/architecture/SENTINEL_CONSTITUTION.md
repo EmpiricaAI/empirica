@@ -52,22 +52,33 @@ agent's behavior, and is that change aligned with our goals?"
 on action metrics. The agent knows this general principle. But the specific weights,
 thresholds, and tool classification logic are Sentinel-internal.
 
-### II. Measurement Opacity
+### II. Observation Integrity *(amended 2026-11-16; was "Measurement Opacity")*
 
-> *The measured entity must not know the scoring mechanics.*
+> *The measured entity may know how it is measured. What it reports must never count as what was observed.*
 
-If the agent knows that Read tool calls increment `noetic_tool_calls` while Edit calls
-increment `praxic_tool_calls`, and that a higher noetic ratio softens calibration scoring,
-it can (consciously or through gradient-like optimization pressure) shift its tool
-selection to game the weighting. The measurement becomes the target.
+The original rule hid the scoring mechanics from the agent, so that it could not shift its behavior to game the
+weighting. That rule cannot hold and has not held. The implementation is open source and the agent works inside the
+repository that contains it; the agent-facing core prompt has published the work_type weights since d106cd0c3
+(2026-04-13), names the evidence sources (test results, artifact counts, git metrics) and the noetic/praxic gate rules,
+and the public guide `docs/human/end-users/05_EPISTEMIC_VECTORS_EXPLAINED.md` explains which vectors each work_type weights up. A principle that is
+broken every day teaches that the principles are optional.
 
-**Rule:** The system prompt exposes the *contract* (what the agent should do: be honest,
-act on insights) but hides the *implementation* (how scores are computed, what triggers
-gates, what evidence sources exist).
+What keeps the measurement honest is not secrecy but where the evidence comes from:
 
-**Exception:** When an insight explicitly tells the agent to adjust (e.g., "you chronically
-overestimate know"), the agent needs enough information to act on it. Insights are the
-designed interface between measurement and behavior.
+**Rule:**
+1. **Publish the contract and the mechanics.** What is measured, how it is weighted and what a gate looks for may be
+   explained to the agent. Knowing them is how the agent turns calibration feedback into better work.
+2. **Grounded evidence is observed, never reported.** Commits, test runs, artifact rows and goal completions are read
+   by the Sentinel from the record. No path may let the agent's self-assessment, or text it writes, enter as grounded
+   evidence. This is the boundary to audit.
+3. **Vectors are beliefs, not targets.** Divergence between belief and observation is fed back as a discipline signal,
+   not a score to maximize. Prefer gates that certify grounded claims (CHECK `claims` with `read` or `ran`) over gates
+   that read a vector value: a gate on a self-reported number is gameable by construction, and where one exists it
+   should say so.
+
+**What the amendment prevents:** a rule that contradicted three documents and two delivery channels, and that sent
+reviewers to hide information the agent could read from the repository anyway, while the real exposure (a self-report
+reaching the evidence layer) had no principle naming it.
 
 ### III. Complementary Bases
 
@@ -91,9 +102,10 @@ self-assessment from optimized self-assessment. If the agent knows the mechanics
 honest and gaming look identical in the data. The signal-to-noise ratio of calibration
 drops toward zero.
 
-**Rule:** Audit every system prompt change, hook output, and breadcrumb export for
-information that could be used to game calibration. When in doubt, don't expose it.
-Architecture docs are for developers; the system prompt is for the agent.
+**Rule** *(amended 2026-11-16 with Principle II)*: Audit every system prompt change, hook
+output and breadcrumb export for whether it lets a self-report substitute for an
+observation, or rewards a vector value directly. Explaining how measurement works is
+not leakage; letting the measured entity author its own evidence is.
 
 ### V. Entangled Feedback
 
@@ -176,6 +188,12 @@ This constitution is a living document. Amendments require:
 4. **Document** the amendment with rationale and the failure it prevents
 
 Amendments should be logged as Empirica decisions with `--domain constitution`.
+
+### Amendment log
+
+| Date | Principles | Change | Ruled by |
+|------|------------|--------|----------|
+| 2026-11-16 | II, IV | Measurement Opacity replaced by Observation Integrity: the mechanics may be published; self-reports must never enter as grounded evidence. Grounded in the mismatch with the core prompt (weights published since d106cd0c3) and the public source. | David |
 
 ---
 
