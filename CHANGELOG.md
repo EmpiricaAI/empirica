@@ -5,7 +5,11 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.17.3] - 2026-11-16
+
+### Highlights
+
+- **Several people can share one practice repo**: mark it once with `empirica setup-claude-code --shared-repo`; each person's seat then lives only in their own clone, fetched from Cortex on their first session.
 
 ### Added
 
