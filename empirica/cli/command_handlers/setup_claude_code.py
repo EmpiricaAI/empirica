@@ -2142,11 +2142,14 @@ def _apply_shared_repo_flag(project_root: Path, output_format: str) -> None:
     if not (project_root / ".empirica" / "project.yaml").exists():
         if not quiet:
             print(f"   ⚠️  --shared-repo: no .empirica/project.yaml under {project_root}; run it from the practice root")
-    elif mark_shared_repo(project_root) and not quiet:
-        print(
-            "   🤝 this repo is now shared (seats: per-clone): commit .empirica/project.yaml and .gitignore; "
-            "each person's seat stays in their clone's project.local.yaml"
-        )
+    elif mark_shared_repo(project_root):
+        if not quiet:
+            print(
+                "   🤝 this repo is now shared (seats: per-clone): commit .empirica/project.yaml and .gitignore; "
+                "each person's seat stays in their clone's project.local.yaml (fetched below, or at the next session)"
+            )
+    elif not quiet:
+        print("   🤝 --shared-repo: already shared (or project.yaml is not a mapping); nothing changed")
 
 
 def mark_shared_repo(project_root: Path) -> bool:
@@ -2232,8 +2235,12 @@ def _resolve_and_persist_tenant_metadata(
     wrote = _persist_tenant_metadata(project_root, **metadata)
     if output_format != "json":
         if wrote:
+            from empirica.utils.yaml_cache import is_shared_repo, load_yaml_cached
+
+            shared = is_shared_repo(load_yaml_cached(project_root / ".empirica" / "project.yaml"))
+            target = ".empirica/project.local.yaml (this clone's seat)" if shared else ".empirica/project.yaml"
             print(
-                f"   ✓ tenant metadata persisted to .empirica/project.yaml "
+                f"   ✓ tenant metadata persisted to {target} "
                 f"(org_id={metadata['org_id']}, tenant_slug={metadata['tenant_slug']}, "
                 f"mesh_id_prefix={metadata['mesh_id_prefix']})"
             )
