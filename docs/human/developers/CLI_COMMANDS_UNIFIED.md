@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.17.1
-**Generated:** 2026-11-16 15:47:13 UTC
+**Generated:** 2026-11-16 17:06:42 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -3833,6 +3833,8 @@ Print a currently valid access token from the `auth login` token set, refreshing
 
 **Arguments:**
 
+- `--org` — optional
+  The team whose token to print (its org id); default: the default sign-in (optional).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
 - `--headers` — optional · flag
   Print the HTTP header object Claude Code's `headersHelper` expects, {"Authorization": "Bearer <token>"}, built as JSON (no shell quoting to get wrong). On any failure nothing is printed to stdout, so the connection fails visibly instead of presenting an empty bearer.
@@ -3866,6 +3868,8 @@ Revoke this seat's refresh token at cortex and drop cortex.oauth. The api_key is
 
 **Arguments:**
 
+- `--org` — optional
+  Log out of this team only (its org id); others stay signed in. Default: the default sign-in (optional).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
 
 

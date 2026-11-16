@@ -98,6 +98,25 @@ marked; that path refreshes.
 
 ---
 
+## Several teams on one machine
+
+A token acts as one user in one org, so a person in several teams holds several token sets. `cortex.oauth` stays where
+it was and holds the **default** team's set: other tools read it directly (cortex-cli reads `cortex.oauth.access_token`),
+so its path and fields do not change. Every other team's set lives at `cortex.orgs.<org_id>`, with the same fields. Each
+block also records `org_id` and `org_name`, read from `/v1/users/me` at sign-in.
+
+- **Where a sign-in goes.** `auth login` stores the new set as the default when there is none, when it is the same team,
+  or when its org is unknown; beside it when the default is another team. A default from before orgs were recorded is
+  asked once, with its own token, which team it is; one that cannot answer has a dead token and is replaced.
+- **Which set a command uses.** Inside a practice (its `.empirica/project.yaml` `org_id`), that team's set when this
+  machine holds one, otherwise the default, as before. A listener resolves its practice from its instance id through the
+  registry. `cortex_bearer(org_id=...)` is strict: no set for that org means no token, with the login to run.
+- **Renewal.** A refresh writes back into the block it read. The `empirica serve` daemon renews every daemon-owned set,
+  each on its own.
+- **Commands.** `auth login --org <org>` signs in to one team; `auth status` lists every team (`orgs`, the default
+  marked); `auth logout --org <org>` and `auth token --org <org>` act on one team.
+- **Not yet per team:** the listener and practitioner heartbeats use the default set.
+
 ## `auth login` flow
 
 `empirica auth login` runs an OAuth **authorization_code + PKCE** flow:
