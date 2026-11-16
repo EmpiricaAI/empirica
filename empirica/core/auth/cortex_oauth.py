@@ -319,11 +319,13 @@ def cortex_bearer(loader=None, *, http=_http_json) -> dict[str, Any]:
         loader = get_credentials_loader()
     cfg = loader.get_cortex_config()
     token = None
+    owner, refresh_error = "", None
     try:
         # Refresh custody (see custody_refresh): only a family the CLI owns is refreshed here.
-        refresh_cb, _owner = custody_refresh(loader, http=http)
+        refresh_cb, owner = custody_refresh(loader, http=http)
         token = loader.cortex_access_token(refresh=refresh_cb)
     except Exception as e:  # refresh machinery must never take down the api_key path
+        refresh_error = f"{type(e).__name__}: {e}"
         logger.warning(f"oauth token resolution failed, falling back to api_key: {e}")
     from empirica.core.auth.credential_health import dead_reason
 
@@ -357,9 +359,33 @@ def cortex_bearer(loader=None, *, http=_http_json) -> dict[str, Any]:
         "reason": (
             f"oauth token unusable ({token_reason}) — re-authenticate with `empirica auth login`"
             if token_reason
-            else "no cortex credential configured (no OAuth token, no api_key)"
+            else _no_token_reason(loader, owner, refresh_error)
         ),
     }
+
+
+def _no_token_reason(loader, owner: str, refresh_error: str | None) -> str:
+    """Why no OAuth token came back. A stored set that could not give one must not read like a seat with nothing stored:
+    that sent an operator looking for a missing credential while the real fault was a refresh (mesh-support, 2026-11-15)."""
+    try:
+        oauth = loader.get_cortex_oauth() or {}
+    except Exception:
+        oauth = {}
+    if not (oauth.get("access_token") or oauth.get("refresh_token")):
+        return "no cortex credential configured (no OAuth token, no api_key)"
+    if refresh_error:
+        return (
+            f"oauth token expired and its refresh failed ({refresh_error}); "
+            "retry, and run `empirica auth login` if it persists"
+        )
+    if not oauth.get("refresh_token"):
+        return "oauth token expired and no refresh token is stored — re-authenticate with `empirica auth login`"
+    if owner and owner != "cli":
+        return (
+            f"oauth token expired; its refresh belongs to the {owner}, which has not renewed it "
+            "(is `empirica serve` running?)"
+        )
+    return "oauth token expired and the refresh returned no token — re-authenticate with `empirica auth login`"
 
 
 def cortex_configured(loader=None) -> bool:
