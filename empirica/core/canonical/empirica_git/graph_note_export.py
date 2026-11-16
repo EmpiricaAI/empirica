@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -74,7 +75,18 @@ def mark_edges_dirty(conn, from_ids) -> None:
         root = None
     if not root:
         return
-    _save_watermark(root, "edges_dirty", sorted(set(_watermarks(root).get("edges_dirty") or []) | ids))
+    token = (
+        uuid.uuid4().hex
+    )  # a fresh token per mark: an export clears a source only if nobody marked it again meanwhile
+    _save_watermark(root, "edges_dirty", {**_dirty(_watermarks(root)), **dict.fromkeys(ids, token)})
+
+
+def _dirty(marks: dict) -> dict:
+    """The dirty sources as ``{from_id: token}``. The older form, a plain list, reads as tokens of None."""
+    value = marks.get("edges_dirty") or {}
+    if isinstance(value, list):
+        return dict.fromkeys(value)
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def edge_sources_touching(conn, artifact_id: str) -> set[str]:
@@ -118,7 +130,8 @@ def export_edge_notes(conn, root: str, *, limit: int | None = DEFAULT_LIMIT, ful
     written = failed = 0
 
     # Sources whose links were deleted or rewritten: their notes are rewritten from the committed rows, all of them.
-    dirty = set(marks.get("edges_dirty") or [])
+    snapshot = _dirty(marks)
+    dirty = set(snapshot)
     if full:
         dirty |= _noted_sources(root) - {r[0] for r in conn.execute("SELECT DISTINCT from_id FROM artifact_edges")}
     done = set()
@@ -129,8 +142,13 @@ def export_edge_notes(conn, root: str, *, limit: int | None = DEFAULT_LIMIT, ful
         else:
             failed += 1
             break
-    if marks.get("edges_dirty") or done:
-        _save_watermark(root, "edges_dirty", sorted(set(_watermarks(root).get("edges_dirty") or []) - done))
+    if snapshot or done:
+        # Clear only what was written from a mark this run read: a source marked again after its note was built (a link
+        # deleted meanwhile) carries a new token and stays for the next run (1.16.2 sweep B7).
+        current = _dirty(_watermarks(root))
+        kept = {i: t for i, t in current.items() if not (i in done and t == snapshot.get(i))}
+        if kept != current or isinstance(marks.get("edges_dirty"), list):
+            _save_watermark(root, "edges_dirty", kept)
     if failed:
         return {"written": written, "failed": failed, "remaining": True}
 

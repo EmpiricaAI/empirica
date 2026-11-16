@@ -291,3 +291,40 @@ def test_the_sources_reconcile_swap_marks_its_sources(practice, tmp_path, monkey
     finally:
         db.close()
     assert _rebuilt_edges(tmp_path, practice) == [("f", "cortex-1", "sourced_from")]
+
+
+def test_a_source_marked_again_while_its_note_is_written_stays_dirty(practice, monkeypatch):
+    """1.16.2 sweep B7: the note is built from a snapshot, then the source was subtracted from the dirty list. A link deleted
+    in between (marked dirty again by its writer) never reached a note until something else touched that source."""
+    db = SessionDatabase()
+    try:
+        _edge(db, "f", "x", "evidence", "2026-11-01 10:00:00")
+        gx.mark_edges_dirty(db.conn, ["f"])
+        real = gx._edge_payload
+        calls = []
+
+        def payload_then_concurrent_mark(conn, from_id):
+            out = real(conn, from_id)
+            if not calls:  # another process changes f's links after the snapshot, before the export saves
+                calls.append(from_id)
+                gx.mark_edges_dirty(conn, [from_id])
+            return out
+
+        monkeypatch.setattr(gx, "_edge_payload", payload_then_concurrent_mark)
+        gx.export_edge_notes(db.conn, str(practice))
+        assert "f" in gx._dirty(gx._watermarks(str(practice))), "the second change was dropped"
+        gx.export_edge_notes(db.conn, str(practice))  # the next run writes it and clears the mark
+        assert gx._dirty(gx._watermarks(str(practice))) == {}
+    finally:
+        db.close()
+
+
+def test_a_dirty_list_in_the_older_form_is_still_exported_and_cleared(practice):
+    db = SessionDatabase()
+    try:
+        _edge(db, "f", "x", "evidence", "2026-11-01 10:00:00")
+        gx._save_watermark(str(practice), "edges_dirty", ["f"])
+        assert gx.export_edge_notes(db.conn, str(practice))["written"] >= 1
+        assert gx._dirty(gx._watermarks(str(practice))) == {}
+    finally:
+        db.close()
