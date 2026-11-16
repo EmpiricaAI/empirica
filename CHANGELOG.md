@@ -5,12 +5,17 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.17.2] - 2026-11-16
+
+### Highlights
+
+- **One machine, several teams, with Empirica Cortex**: `auth login --org` keeps each team's sign-in, and each practice, listener and heartbeat uses its own team's.
+- **`auth login --remote`** signs in from a server over SSH: open the URL anywhere, paste back the code.
+- **Cockpit refresh brings back** a Claude session sent to the background, and an ecodex pane's own session.
 
 ### Added
 
 - **One machine can be signed in to several teams, with Empirica Cortex.** `empirica auth login --org <team>` now keeps each team's sign-in beside the others instead of replacing the last one. Inside a practice, commands use the sign-in of that practice's team when there is one, and the default otherwise. `auth status` lists every team; `auth logout --org` and `auth token --org` act on one. The default sign-in stays where other tools read it. Several teams need Empirica Cortex (getempirica.com); with any other server a second sign-in replaces the first, as before.
-
 - **`empirica auth login --remote` signs in from a machine whose browser is elsewhere**, such as a server over SSH. It prints a URL to open on any machine; after sign-in, Cortex's page shows a code to paste back into the terminal. No local port is used, and the code is useless without the verifier that stays in the terminal.
 
 ### Fixed
