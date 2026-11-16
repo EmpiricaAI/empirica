@@ -678,6 +678,9 @@ def _heal_mesh_metadata_at_init(project_root: str | None) -> None:
         cfg = yaml.safe_load(project_yaml.read_text()) or {}
         if not isinstance(cfg, dict):
             return
+        from empirica.utils.yaml_cache import with_person_overlay
+
+        cfg = with_person_overlay(cfg, project_yaml.parent)  # a seat in project.local.yaml (shared repo) counts
         # Idempotent fast-path: already seated → no import, no network.
         if cfg.get("canonical_seat"):
             return

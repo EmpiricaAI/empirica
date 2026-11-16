@@ -404,6 +404,12 @@ def _resolve_ai_id_for_poll() -> str | None:
             if not p.exists():
                 continue
             data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+            try:
+                from empirica.utils.yaml_cache import with_person_overlay
+
+                data = with_person_overlay(data, p.parent)  # this clone's seat in a shared repo
+            except Exception:
+                pass
             ai_id = data.get("ai_id") or data.get("canonical_seat")
             if ai_id:
                 return str(ai_id)

@@ -2019,7 +2019,8 @@ def _persist_tenant_metadata(
     tenant_slug: str | None,
     mesh_id_prefix: str | None,
 ) -> bool:
-    """Merge tenant fields into `<project_root>/.empirica/project.yaml`.
+    """Merge tenant fields into `<project_root>/.empirica/project.yaml`, or, in a shared practice repo, this person's
+    tenant_slug / mesh_id_prefix / canonical_seat into the untracked `project.local.yaml` (goal cdc2e27c).
 
     Returns True iff any field was newly written. Returns False if:
       - no fields supplied, or
@@ -2044,36 +2045,51 @@ def _persist_tenant_metadata(
         return False
     if not isinstance(existing, dict):
         return False
-    changed = False
-    for key, value in (
-        ("org_id", org_id),
-        ("tenant_slug", tenant_slug),
-        ("mesh_id_prefix", mesh_id_prefix),
-    ):
-        if value is not None and existing.get(key) != value:
-            existing[key] = value
-            changed = True
+    # A shared practice repo (several people, one project; goal cdc2e27c): each person's keys live in the untracked
+    # project.local.yaml, so one clone never writes its seat into the file the others pull. Shared when that file exists,
+    # or when the tracked file already names another person.
+    local_yaml = project_yaml.parent / "project.local.yaml"
+    try:
+        local = (yaml.safe_load(local_yaml.read_text(encoding="utf-8")) or {}) if local_yaml.exists() else {}
+    except Exception:
+        local = {}
+    if not isinstance(local, dict):
+        local = {}
+    shared = local_yaml.exists() or (
+        tenant_slug is not None and existing.get("tenant_slug") not in (None, "", tenant_slug)
+    )
+    person = local if shared else existing
+    tracked_changed = local_changed = False
+    if org_id is not None and existing.get("org_id") != org_id and not (shared and existing.get("org_id")):
+        existing["org_id"] = org_id  # shared by everyone in the repo: set once, never flipped by one person's clone
+        tracked_changed = True
+    for key, value in (("tenant_slug", tenant_slug), ("mesh_id_prefix", mesh_id_prefix)):
+        if value is not None and person.get(key) != value:
+            person[key] = value
+            tracked_changed = tracked_changed or not shared
+            local_changed = local_changed or shared
     # Derive the strict canonical 3-form seat (`org.tenant.project`) from the
     # effective mesh_id_prefix + the project's ai_id, and persist it so the
     # daemon/model can pass `seat` to cortex_session_init without re-composing.
-    # Self-heals: recomputes even when the three fields above were unchanged
+    # Self-heals: recomputes even when the fields above were unchanged
     # (e.g. a project.yaml that has mesh_id_prefix + ai_id but no seat yet).
     from empirica.config.project_config_loader import compose_canonical_seat
 
     seat = compose_canonical_seat(
-        mesh_id_prefix=existing.get("mesh_id_prefix") or "",
+        mesh_id_prefix=person.get("mesh_id_prefix") or existing.get("mesh_id_prefix") or "",
         ai_id=existing.get("ai_id") or "",
     )
-    if seat is not None and existing.get("canonical_seat") != seat:
-        existing["canonical_seat"] = seat
-        changed = True
-    if not changed:
-        return False
-    project_yaml.write_text(
-        yaml.safe_dump(existing, sort_keys=False, default_flow_style=False),
-        encoding="utf-8",
-    )
-    return True
+    if seat is not None and person.get("canonical_seat") != seat:
+        person["canonical_seat"] = seat
+        tracked_changed = tracked_changed or not shared
+        local_changed = local_changed or shared
+    if tracked_changed:
+        project_yaml.write_text(yaml.safe_dump(existing, sort_keys=False, default_flow_style=False), encoding="utf-8")
+    if local_changed:
+        tmp = local_yaml.with_name(f".{local_yaml.name}.{os.getpid()}.tmp")
+        tmp.write_text(yaml.safe_dump(local, sort_keys=False, default_flow_style=False), encoding="utf-8")
+        tmp.replace(local_yaml)
+    return tracked_changed or local_changed
 
 
 def _resolve_and_persist_tenant_metadata(

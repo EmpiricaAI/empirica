@@ -327,6 +327,10 @@ def _infer_tenant_org(cwd: Path) -> tuple[str | None, str | None]:
         data = yaml.safe_load(project_yaml.read_text()) or {}
     except Exception:
         return None, None
+    if isinstance(data, dict):
+        from empirica.utils.yaml_cache import with_person_overlay
+
+        data = with_person_overlay(data, project_yaml.parent)  # the provisioning person's tenant in a shared repo
     # `tenant_slug`/`org_id` FIRST — that is the canonical spelling, written by
     # `setup` and read by ~24 other modules. Reading only the bare `tenant`/`org`
     # keys meant the inference never fired on a real practice: this repo's own

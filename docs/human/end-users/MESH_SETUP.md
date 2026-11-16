@@ -388,3 +388,16 @@ A reminder, because users sometimes assume the mesh is required:
 - **Architecture deep-dive:** `docs/architecture/EVENT_LISTENER.md`
 - **Cortex serving layer (proprietary):** [getempirica.com](https://getempirica.com)
 - **Browser extension (proprietary):** [getempirica.com](https://getempirica.com)
+
+## Shared practice repos (several people, one practice)
+
+When two or more people work in one practice repo (for example a consulting practice two partners co-own), Cortex joins
+them to the same project, so `project_id` and `ai_id` are shared and stay in the tracked `.empirica/project.yaml`. Each
+person's own seat (`tenant_slug`, `mesh_id_prefix`, `canonical_seat`) lives in the untracked `.empirica/project.local.yaml`
+of their clone and overrides those keys.
+
+Each person runs `empirica setup-claude-code` once in their own clone, signed in as themselves. Setup sees that the tracked
+file names someone else and writes that person's keys to `project.local.yaml` instead; from then on every command in that
+clone acts as their seat. `project.local.yaml` stays out of git (the practice's `.gitignore` ignores `.empirica/*` except
+`project.yaml`).
+

@@ -5,6 +5,12 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Several people can share one practice repo.** Each person's seat (tenant, mesh prefix, canonical seat) lives in an untracked `.empirica/project.local.yaml` in their own clone; `empirica setup-claude-code` writes it when the tracked `project.yaml` already names someone else. The shared identity (project id, ai id, org) stays in the tracked file.
+
 ## [1.17.2] - 2026-11-16
 
 ### Highlights

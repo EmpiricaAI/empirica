@@ -712,6 +712,10 @@ def check_project_yaml(cwd: Path | None = None) -> Check:
         data = yaml.safe_load(pyaml_path.read_text(encoding="utf-8")) or {}
     except Exception as e:
         return Check("project.yaml present + has ai_id", FAIL, f"unparseable: {e}", "Inspect/repair the file manually")
+    if isinstance(data, dict):
+        from empirica.utils.yaml_cache import with_person_overlay
+
+        data = with_person_overlay(data, pyaml_path.parent)  # this clone's seat in a shared repo (project.local.yaml)
     if not isinstance(data, dict):
         return Check("project.yaml present + has ai_id", FAIL, "not a YAML object", "Inspect/repair the file manually")
     ai_id = data.get("ai_id")

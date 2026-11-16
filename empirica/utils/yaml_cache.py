@@ -95,11 +95,27 @@ def load_yaml_cached(path: str | Path) -> dict[str, Any]:
     return parsed
 
 
+#: The keys that differ per person in a shared practice repo (one project, one ai_id, a seat each). They are read from the
+#: untracked `.empirica/project.local.yaml` when it names them (goal cdc2e27c, David 2026-11-16); nothing else is.
+PERSON_KEYS = ("tenant_slug", "mesh_id_prefix", "canonical_seat")
+
+
+def with_person_overlay(data: dict[str, Any], empirica_dir: Path) -> dict[str, Any]:
+    """``data`` with the per-person keys of ``empirica_dir/project.local.yaml`` laid over it (a copy: cached dicts are
+    never mutated). Unchanged when there is no local file or it names none of them."""
+    local = load_yaml_cached(Path(empirica_dir) / "project.local.yaml")
+    picked = {k: local[k] for k in PERSON_KEYS if isinstance(local, dict) and local.get(k)}
+    return {**data, **picked} if picked else data
+
+
 def load_project_yaml(project_path: str | Path | None) -> dict[str, Any]:
-    """`<project_path>/.empirica/project.yaml`, cached. ``{}`` when absent."""
+    """`<project_path>/.empirica/project.yaml`, cached, with this clone's per-person keys from project.local.yaml.
+    ``{}`` when absent."""
     if not project_path:
         return {}
-    return load_yaml_cached(Path(project_path) / ".empirica" / "project.yaml")
+    emp = Path(project_path) / ".empirica"
+    data = load_yaml_cached(emp / "project.yaml")
+    return with_person_overlay(data, emp) if data else data
 
 
 def clear_cache() -> None:

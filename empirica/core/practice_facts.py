@@ -23,7 +23,11 @@ def _project(project_path: Path) -> dict | None:
         data = yaml.safe_load((project_path / ".empirica" / "project.yaml").read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError):
         return None
-    return data if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        return None
+    from empirica.utils.yaml_cache import with_person_overlay
+
+    return with_person_overlay(data, project_path / ".empirica")  # this clone's seat in a shared repo
 
 
 def _domain_lines(project_path: Path, domain: str) -> list[str]:
