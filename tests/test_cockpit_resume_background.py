@@ -55,3 +55,18 @@ def test_refresh_runs_attach_for_a_backgrounded_claude_pane():
     assert _background_attach_command(pinned, _SID, [_job()]) == "/opt/cc/claude attach 901761c7"
     codex = SimpleNamespace(launch="ecodex", path=_DIR, resume=None)
     assert _background_attach_command(codex, _SID, [_job()]) is None
+
+
+def test_a_launch_line_that_cannot_be_split_does_not_crash_refresh():
+    from empirica.core.cockpit.launcher.tmux import _background_attach_command
+
+    broken = SimpleNamespace(launch='claude --append-system-prompt "oops', path=_DIR, resume=None)
+    assert _background_attach_command(broken, _SID, [_job()]) is None
+
+
+def test_a_home_relative_claude_is_expanded_not_quoted(monkeypatch):
+    from empirica.core.cockpit.launcher.tmux import _background_attach_command
+
+    monkeypatch.setenv("HOME", "/home/u")
+    tilde = SimpleNamespace(launch="~/.local/bin/claude --continue", path=_DIR, resume=None)
+    assert _background_attach_command(tilde, _SID, [_job()]) == "/home/u/.local/bin/claude attach 901761c7"

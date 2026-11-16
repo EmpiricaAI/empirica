@@ -82,10 +82,10 @@ def practice_org_id(instance: str | None = None) -> str | None:
             return None
         return None
     try:
-        here = Path.cwd()
-    except OSError:
+        here = Path.cwd().resolve()
+        home = Path.home().resolve()  # resolved like the working directory: a symlinked $HOME still contains it
+    except (OSError, RuntimeError):
         return None
-    home = Path.home()
     # Up to $HOME and no further; outside $HOME only the working directory itself (a project.yaml in /tmp or / must not
     # choose a team for whatever runs below it; 1.17.2 sweep).
     roots = (here, *here.parents) if here == home or home in here.parents else (here,)

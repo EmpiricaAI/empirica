@@ -717,8 +717,21 @@ def _whoami(base_url: str, token: str, *, http=_http_json) -> dict:
         return {}
 
 
+def _cortex_key(url: str | None) -> tuple:
+    """A Cortex URL compared as scheme, host (lowercase, no trailing dot), port (the scheme's default when absent), path."""
+    try:
+        parsed = urllib.parse.urlparse(str(url or "").strip())
+        port = parsed.port or {"https": 443, "http": 80}.get(parsed.scheme.lower())
+    except ValueError:
+        return (str(url or ""),)
+    host = (parsed.hostname or "").lower().rstrip(".")
+    return (parsed.scheme.lower(), host, port, parsed.path.rstrip("/"))
+
+
 def _same_cortex(loader, base_url: str) -> bool:
-    return (loader.get_cortex_config() or {}).get("url", "").rstrip("/") == base_url.rstrip("/")
+    """Whether a sign-in to ``base_url`` is to the configured Cortex (a first sign-in, with none configured, is)."""
+    configured = (loader.get_cortex_config() or {}).get("url") or ""
+    return not configured or _cortex_key(configured) == _cortex_key(base_url)
 
 
 def _slot_for_new_sign_in(loader, new_org: str | None, base_url: str, *, http=_http_json) -> str | None:

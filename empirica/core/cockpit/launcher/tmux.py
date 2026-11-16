@@ -1387,7 +1387,11 @@ def _background_attach_command(proj, session_id: str | None, jobs: list) -> str 
     job = background_job(proj.path, session_id, jobs)
     if not job:
         return None
-    program = shlex.split(proj.launch)[0]  # the launch's own claude (a path stays a path)
+    try:
+        program = shlex.split(proj.launch)[0]  # the launch's own claude (a path stays a path)
+    except (ValueError, IndexError):
+        return None  # a launch line that cannot be split resumes as launched
+    program = os.path.expandvars(os.path.expanduser(program))  # a quoted ~ or $HOME would not expand in the pane
     return f"{shlex.quote(program)} attach {job}"
 
 

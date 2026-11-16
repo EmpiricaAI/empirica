@@ -113,8 +113,8 @@ def claude_background_jobs(timeout: float = 5.0) -> list:
 
 def background_job(project_path: str, session_id: str | None, jobs: list) -> str | None:
     """The job id to `claude attach` for a pane whose session went to the background (Ctrl+Z in Claude Code 2.1.325: the
-    foreground exits, and `--continue` then exits 1). The pane's own session when known, else the one background job in
-    its directory; never a session still live in a terminal, never a guess between two.
+    foreground exits, and `--continue` then exits 1): the pane's own session, in its directory, when it runs in the
+    background; never a session still live in a terminal.
 
     Only the pane's own session: Claude Code lists sessions dispatched from `claude agents` as "background" too, so a
     directory match alone could attach a dispatched agent (1.17.2 sweep)."""

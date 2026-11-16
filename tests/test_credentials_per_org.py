@@ -570,3 +570,53 @@ def test_logging_out_of_the_default_promotes_a_remaining_team(creds, monkeypatch
     _run("handle_auth_logout_command", monkeypatch, loader)
     stored = yaml.safe_load(path.read_text())["cortex"]
     assert stored["oauth"]["access_token"] == _AT_B and stored["oauth"]["org_id"] == "org-b" and not stored.get("orgs")
+
+
+# --- 1.17.2 second pass ---
+
+
+def test_a_first_sign_in_with_no_stored_url_works(creds, monkeypatch):
+    write, path = creds
+    loader = write({})  # a fresh machine: no cortex.url at all
+    monkeypatch.setattr(
+        "empirica.core.auth.cortex_oauth.resolve_cortex_url", lambda loader, url=None: (_CORTEX, "default")
+    )
+    result = _login(loader, monkeypatch, new_org="org-a", new_token=_AT_A)
+    assert result["ok"] and yaml.safe_load(path.read_text())["cortex"]["oauth"]["access_token"] == _AT_A
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    ["https://CORTEX.GetEmpirica.com", "https://cortex.getempirica.com.", "https://cortex.getempirica.com:443/"],
+)
+def test_the_same_cortex_spelt_differently_keeps_the_other_teams(creds, monkeypatch, spelling):
+    from empirica.core.auth.cortex_oauth import _same_cortex
+
+    write, _ = creds
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
+    assert _same_cortex(loader, spelling)
+    assert not _same_cortex(loader, "https://copy.test")
+
+
+def test_a_symlinked_home_still_finds_the_practice(creds, tmp_path, monkeypatch):
+    from empirica.core.mesh_endpoint import practice_org_id
+
+    real = tmp_path / "realhome"
+    (real / "practice" / ".empirica").mkdir(parents=True)
+    (real / "practice" / ".empirica" / "project.yaml").write_text("org_id: org-x\n")
+    (real / "practice" / "sub").mkdir()
+    link = tmp_path / "linkhome"
+    link.symlink_to(real)
+    monkeypatch.setenv("HOME", str(link))
+    monkeypatch.chdir(link / "practice" / "sub")
+    assert practice_org_id() == "org-x"
+
+
+def test_logout_never_promotes_a_team_that_is_not_readable_here(creds, monkeypatch, capsys):
+    write, path = creds
+    loader = write(
+        {"url": "https://cortex.example.com", "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}}
+    )
+    _run("handle_auth_logout_command", monkeypatch, loader)
+    stored = yaml.safe_load(path.read_text())["cortex"]
+    assert "oauth" not in stored  # org-b belongs to another Cortex: it is not made the default for this one
