@@ -439,18 +439,16 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.17.2
+## What's New in 1.17.3
 
-- **One machine, several teams, with Empirica Cortex**: `auth login --org` keeps each team's sign-in, and each practice, listener and heartbeat uses its own team's.
-- **`auth login --remote`** signs in from a server over SSH: open the URL anywhere, paste back the code.
-- **Cockpit refresh brings back** a Claude session sent to the background, and an ecodex pane's own session.
+- **Several people can share one practice repo**: mark it once with `empirica setup-claude-code --shared-repo`; each person's seat then lives only in their own clone, fetched from Cortex on their first session.
 
-All 4 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 1 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.17.2** — One machine, several teams, with Empirica Cortex: `auth login --org` keeps each team's sign-in, and each practice, listener and heartbeat uses its own team…
 - **1.17.1** — `empirica auth login --invite` and `--org`: join a team from the invite an admin sent, or sign in to one of your teams directly.
-- **1.17.0** — `empirica mesh connect` moves a practice that has run without Cortex onto Cortex, with its artifacts' ids, dates and links.
 
 ## What's Coming
 
