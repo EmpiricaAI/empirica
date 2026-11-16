@@ -67,7 +67,7 @@ def _run_command(monkeypatch, result, loader, url=None):
     from empirica.core import auth
 
     monkeypatch.setattr(auth, "login", lambda **_kw: dict(result))
-    monkeypatch.setattr(auth_commands, "_verify_token", lambda: True)
+    monkeypatch.setattr(auth_commands, "_verify_token", lambda identity=None: True)
     monkeypatch.setattr("empirica.config.credentials_loader.get_credentials_loader", lambda: loader)
     args = types.SimpleNamespace(output="json", timeout=5, url=url)
     return auth_commands.handle_auth_login_command(args)
@@ -120,3 +120,31 @@ def test_a_client_registered_on_another_cortex_is_not_reused(monkeypatch):
     with pytest.raises(Stop):
         co.login(loader=Stored(), url="https://new.test")
     assert registered == ["https://new.test/register"], "a new client for the new Cortex"
+
+
+def test_the_org_signed_in_to_is_reported(monkeypatch, capsys):
+    """An invite's whole point is joining an org: the sign-in says which one, from the identity call it already makes."""
+    from empirica.cli.command_handlers import auth_commands
+    from empirica.core import auth
+
+    seen = {}
+
+    def login(**kw):
+        seen.update(kw)
+        return {"ok": True, "client_id": "c" * 20, "expires_at": None, "has_refresh_token": True,
+                "cortex_url": "https://cortex.example.test", "url_source": "config", "invite": True}  # fmt: skip
+
+    def verify(identity=None):
+        identity.update({"org_id": "org-acme", "org_name": "Acme", "email": "x@acme.test"})
+        return True
+
+    monkeypatch.setattr(auth, "login", login)
+    monkeypatch.setattr(auth_commands, "_verify_token", verify)
+    monkeypatch.setattr(
+        "empirica.config.credentials_loader.get_credentials_loader", lambda: Loader("https://cortex.example.test")
+    )
+    args = types.SimpleNamespace(output="human", timeout=5, url=None, invite="tok")
+    assert auth_commands.handle_auth_login_command(args) == 0
+    assert seen["invite"] == "tok"
+    out = capsys.readouterr().out
+    assert "Acme" in out and "org-acme" in out and "invite" in out

@@ -420,6 +420,20 @@ def resolve_cortex_url(loader, url: str | None = None) -> tuple[str, str]:
     return DEFAULT_CORTEX_URL, "default"
 
 
+def invite_token(value: str) -> str:
+    """The token of a Cortex invite, given the token itself or the whole link an admin was sent
+    (``https://getempirica.com/install?invite=<token>``). Raises ValueError when there is none, before any browser opens."""
+    text = (value or "").strip()
+    if "://" in text or "?" in text:
+        query = urllib.parse.urlparse(text if "://" in text else f"https://x/{text}").query
+        text = (urllib.parse.parse_qs(query).get("invite") or [""])[0].strip()
+        if not text:
+            raise ValueError("that link carries no invite= token")
+    if not text:
+        raise ValueError("empty invite")
+    return text
+
+
 def login(
     *,
     loader=None,
@@ -427,6 +441,7 @@ def login(
     timeout_s: float = 300.0,
     http=_http_json,
     url: str | None = None,
+    invite: str | None = None,
 ) -> dict[str, Any]:
     """Full authorization_code + PKCE login. Returns a status dict.
 
@@ -442,6 +457,9 @@ def login(
         loader = get_credentials_loader()
 
     base_url, url_source = resolve_cortex_url(loader, url)
+    # An invite rides the authorize request; Cortex redeems it in its callback once Google has verified the email, or refuses
+    # the sign-in (access_denied) rather than signing in to another org.
+    invite = invite_token(invite) if invite is not None else None
 
     disco = fetch_discovery(base_url, http=http)
     for required in ("authorization_endpoint", "token_endpoint", "registration_endpoint"):
@@ -484,6 +502,7 @@ def login(
                 "state": state,
                 "code_challenge": challenge,
                 "code_challenge_method": "S256",
+                **({"invite": invite} if invite else {}),
             }
         )
     )
@@ -556,6 +575,7 @@ def login(
         "authorize_url": authorize_url,
         "cortex_url": base_url,
         "url_source": url_source,
+        "invite": bool(invite),
     }
 
 

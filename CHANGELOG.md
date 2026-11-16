@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`empirica auth login --invite` joins an org from its invite.** Pass the token or the whole `https://getempirica.com/install?invite=...` link an org admin sent; Cortex redeems it at sign-in once your Google email matches. The sign-in reports the org it joined.
+
 ### Fixed
 
-- **`doctor --reconcile-sessions` closes sessions whose process died without ending them.** A session its practice still listed as live stayed active in the registry for months (209 rows on one machine, 125 idle over 30 days). One idle for 30 days is now closed there as `stale`; the practice's own store is not changed, and registering the session again reopens it.
+- **`doctor --reconcile-sessions` closes sessions whose process died without ending them.** A session its practice still listed as live stayed active in the registry for months (209 rows on one machine, 125 idle over 30 days). One with no measurement in 30 days is now closed there as `stale` (a long-lived session still at work stays open); the practice's own store is not changed, and registering the session again reopens it.
+- **The edge-notes export keeps a link change made while it runs.** A source whose links changed after its note was built, but before the export finished, was dropped from the to-do list and its note stayed out of date until something else touched it.
 - **`project-switch` never takes another conversation's session.** With no session of its own and no instance id, it attached the most recently active session in the registry, whoever it belonged to, and moved it to the new project. It now attaches nothing in that case.
 - **After a compaction, the coverage line no longer says "0 of N" for what it just showed.** Findings, unknowns, dead ends and goals are ranked above the line, which counted them as none shown; it now says they are in the ranked focus above.
 - **`empirica mesh connect` lists the artifacts Cortex could not store** instead of reporting only success; a rerun retries them and skips what landed.

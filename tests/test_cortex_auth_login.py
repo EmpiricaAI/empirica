@@ -469,3 +469,88 @@ def test_login_reuses_our_own_stored_client(loader, monkeypatch):
 
     login(loader=loader, open_browser=_fake_browser, timeout_s=10, http=http)
     assert not any("/register" in c["url"] for c in calls), "our own family: reuse client, no re-register"
+
+
+# --- auth login --invite (mesh-support prop_qjav2hggrvdhlaf64vbijfwyqy; Cortex redeems it in the OAuth callback) ---
+
+_INVITE = "inv_tok_123"
+
+
+@pytest.mark.parametrize(
+    "given",
+    [
+        _INVITE,
+        f"  {_INVITE}\n",
+        f"https://getempirica.com/install?invite={_INVITE}",
+        f"https://getempirica.com/install?x=1&invite={_INVITE}#top",
+    ],
+)
+def test_an_invite_is_read_from_the_token_or_the_whole_link(given):
+    from empirica.core.auth.cortex_oauth import invite_token
+
+    assert invite_token(given) == _INVITE
+
+
+@pytest.mark.parametrize(
+    "given", ["", "   ", "https://getempirica.com/install", "https://getempirica.com/install?invite="]
+)
+def test_a_link_without_an_invite_is_refused_before_the_browser_opens(given):
+    from empirica.core.auth.cortex_oauth import invite_token
+
+    with pytest.raises(ValueError):
+        invite_token(given)
+
+
+def test_login_with_an_invite_carries_it_on_the_authorize_request(loader):
+    calls, seen = [], {}
+    http = _mock_http(
+        {
+            "/.well-known": DISCO,
+            "/register": {"client_id": "cli_new"},
+            "/token": {"access_token": _AT1, "refresh_token": _RT1, "expires_in": 3600},
+        },
+        calls,
+    )
+
+    def _fake_browser(url):
+        import urllib.parse
+        import urllib.request
+
+        q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
+        seen.update(q)
+        urllib.request.urlopen(f"{q['redirect_uri']}?code=authcode&state={q['state']}", timeout=5)
+
+    result = login(
+        loader=loader,
+        open_browser=_fake_browser,
+        timeout_s=10,
+        http=http,
+        invite=f"https://getempirica.com/install?invite={_INVITE}",
+    )
+    assert seen["invite"] == _INVITE
+    assert result["invite"] is True
+
+
+def test_login_without_an_invite_sends_none(loader):
+    from empirica.core.auth import cortex_oauth as co
+
+    class Stop(Exception):
+        pass
+
+    seen = {}
+
+    def _stop(server, state, timeout_s):
+        raise Stop
+
+    http = _mock_http({"/.well-known": DISCO, "/register": {"client_id": "cli_new"}}, [])
+    import unittest.mock as um
+
+    with um.patch.object(co, "_wait_for_callback", _stop), pytest.raises(Stop):
+        login(loader=loader, open_browser=lambda url: seen.setdefault("url", url), timeout_s=1, http=http)
+    import time
+
+    for _ in range(50):  # the opener runs on its own thread
+        if "url" in seen:
+            break
+        time.sleep(0.02)
+    assert "invite=" not in seen["url"]

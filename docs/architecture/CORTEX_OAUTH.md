@@ -115,7 +115,11 @@ marked; that path refreshes.
    replace-guard could never fire, minting the CLI's tokens under another party's
    client (two clients presenting one rotating family → Cortex revokes it).
 3. **Authorize** — the browser is opened to the authorize URL. **The URL is
-   always printed to stderr first** (see *Browserless boxes* below).
+   always printed to stderr first** (see *Browserless boxes* below). With
+   `--invite <token or link>`, the invite rides this request as `invite=`;
+   Cortex redeems it in its callback once Google has verified the email, and
+   refuses the sign-in (`access_denied`) rather than signing in to another org.
+   The sign-in then reports the org it joined, read from `/v1/users/me`.
 4. **Callback** — the loopback listener receives the code (validating `state`);
    the code is exchanged for the token set at the token endpoint.
 5. **Persist** — `save_cortex_oauth(...)` writes the family (access + refresh

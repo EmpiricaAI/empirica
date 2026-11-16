@@ -31,7 +31,7 @@ def handle_auth_login_command(args) -> int:
     output = getattr(args, "output", "human")
     timeout_s = float(getattr(args, "timeout", None) or 300)
     try:
-        result = login(timeout_s=timeout_s, url=getattr(args, "url", None))
+        result = login(timeout_s=timeout_s, url=getattr(args, "url", None), invite=getattr(args, "invite", None))
     except Exception as e:
         if output == "json":
             print(json.dumps({"ok": False, "error": str(e)}))
@@ -51,8 +51,11 @@ def handle_auth_login_command(args) -> int:
 
     # Rung 4 inline: the credential is proven by a real authenticated call
     # from this seat, not by the token existing.
-    verify = _verify_token()
+    identity: dict = {}
+    verify = _verify_token(identity)
     result["verified_against_api"] = verify
+    if identity.get("org_id"):
+        result["org"] = {"org_id": identity["org_id"], "org_name": identity.get("org_name")}
     if output == "json":
         print(json.dumps(result))
     else:
@@ -69,14 +72,19 @@ def handle_auth_login_command(args) -> int:
             print("⚠️  no refresh_token issued — token dies at expiry; api_key fallback covers")
         if verify is True:
             print("✅ verified: authenticated call succeeded with the new token")
+            org = result.get("org")
+            if org:
+                name = f"{org['org_name']} ({org['org_id']})" if org.get("org_name") else org["org_id"]
+                print(f"   {'joined by invite' if result.get('invite') else 'signed in to'}: org {name}")
         elif verify is False:
             print("❌ token stored but an authenticated call FAILED — do not retire this seat's api_key")
     return 0
 
 
-def _verify_token() -> bool | None:
+def _verify_token(identity: dict | None = None) -> bool | None:
     """One real /v1/users/me call with the OAuth token ONLY (no api_key
-    fallback) — 'stored' is not 'works'. None when the check itself errors."""
+    fallback) — 'stored' is not 'works'. None when the check itself errors.
+    ``identity``, when given, receives the response (org_id, org_name, ...)."""
     import urllib.error
     import urllib.request
 
@@ -88,7 +96,14 @@ def _verify_token() -> bool | None:
             return None
         req = urllib.request.Request(f"{url}/v1/users/me", headers={"Authorization": f"Bearer {token}"})
         with urllib.request.urlopen(req, timeout=10) as resp:
-            return 200 <= resp.status < 300
+            ok = 200 <= resp.status < 300
+            if ok and identity is not None:
+                try:
+                    body = json.loads(resp.read() or b"{}")
+                    identity.update(body if isinstance(body, dict) else {})
+                except ValueError:
+                    pass  # verified; the org is just not reported
+            return ok
     except urllib.error.HTTPError:
         return False
     except Exception:

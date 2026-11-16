@@ -39,6 +39,12 @@ def add_auth_parsers(subparsers) -> None:
         help="The Cortex to sign in to (optional; default: cortex.url in credentials.yaml, else the hosted "
         "https://cortex.getempirica.com). Saved after a successful sign-in.",
     )
+    login.add_argument(
+        "--invite",
+        metavar="TOKEN_OR_LINK",
+        help="Join an org with the invite its admin sent: the token, or the whole "
+        "https://getempirica.com/install?invite=... link (optional). Cortex redeems it once your Google email matches.",
+    )
     login.add_argument("--output", choices=["human", "json"], default="human")
 
     token = actions.add_parser(
