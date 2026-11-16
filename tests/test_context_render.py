@@ -113,7 +113,7 @@ def test_session_start_renders_the_contract(monkeypatch):
 def test_only_limits_the_item_sections_but_coverage_names_every_category():
     out = cr.render(_history(5), budget=4000, only={"decisions", "assumptions"})
     assert "**Decisions:**" in out and "**Findings:**" not in out
-    assert "findings 15, ranked with every type in the focus above (its top items only)" in next(
+    assert "findings 15, ranked with every type in the focus above, which shows only the top few overall" in next(
         line for line in out.splitlines() if line.startswith("Coverage:")
     )
 
@@ -149,7 +149,7 @@ def test_categories_the_caller_renders_itself_are_named_not_counted_as_zero():
     out = cr.render(_history(40), budget=4000, only={"decisions", "assumptions", "mistakes_to_avoid", "artifact_edges"})
     coverage = [line for line in out.splitlines() if line.startswith("Coverage:")][-1]
     assert (
-        "findings 120, ranked with every type in the focus above (its top items only)" in coverage
+        "findings 120, ranked with every type in the focus above, which shows only the top few overall" in coverage
         and "findings 0 of" not in coverage
     )
     assert "decisions 0 of" not in coverage and " of 120" in coverage, "a rendered category still counts what it showed"

@@ -328,7 +328,7 @@ def cortex_bearer(loader=None, *, http=_http_json) -> dict[str, Any]:
         if not token and isinstance(refresh_error, str) and refresh_error:
             failure = f"oauth token expired and its refresh failed ({refresh_error})"
     except Exception as e:  # refresh machinery must never take down the api_key path
-        failure = f"the stored sign-in could not be read or renewed ({type(e).__name__}: {e})"
+        failure = f"the sign-in could not be read or renewed ({type(e).__name__}: {e})"
         logger.warning(f"oauth token resolution failed, falling back to api_key: {e}")
     from empirica.core.auth.credential_health import dead_reason
 
@@ -454,7 +454,7 @@ def invite_token(value: str) -> str:
         if "://" in text or "?" in text:
             query = urllib.parse.urlparse(text if "://" in text else f"https://x/{text}").query
         else:  # just the query part, e.g. `invite=<token>` copied from the address bar
-            query = text
+            query = text.split("#", 1)[0]
         text = (urllib.parse.parse_qs(query).get("invite") or [""])[0].strip()
         if not text:
             raise ValueError("that link carries no invite= token")

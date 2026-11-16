@@ -595,3 +595,9 @@ def test_a_pasted_query_fragment_is_read_as_a_link():
 
     assert invite_token(f"invite={_INVITE}") == _INVITE
     assert invite_token(f"install?x=1&invite={_INVITE}") == _INVITE
+
+
+def test_a_bare_query_drops_its_fragment():  # 1.17.1 second pass
+    from empirica.core.auth.cortex_oauth import invite_token
+
+    assert invite_token(f"invite={_INVITE}#top") == _INVITE

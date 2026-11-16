@@ -108,7 +108,9 @@ def _coverage(breadcrumbs: dict, rendered: dict[str, int], only: set[str] | None
         of = f"{total}" if isinstance(total, int) else (f"{returned}+" if entry.get("truncated") else f"{returned}")
         if only is not None and key not in only:
             # Rendered by the caller (post-compact ranks these itself): "0 of N" would read as none shown (1.16.2 sweep A3).
-            parts.append(f"{name} {of}, ranked with every type in the focus above (its top items only)")
+            parts.append(
+                f"{name} {of}, ranked with every type in the focus above, which shows only the top few overall"
+            )
             continue
         parts.append(f"{name} {rendered.get(key, 0)} of {of}")
     return "Coverage: " + "; ".join(parts)
