@@ -5,7 +5,13 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.17.1] - 2026-11-16
+
+### Highlights
+
+- **`empirica auth login --invite` and `--org`**: join a team from the invite an admin sent, or sign in to one of your teams directly.
+- **Sign-in errors say what went wrong**: an expired token whose renewal failed no longer reads as a machine with nothing configured.
+- **`doctor --reconcile-sessions` closes sessions whose process died**, and keeps a long-lived session that is still at work.
 
 ### Added
 
@@ -14,11 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **`doctor --reconcile-sessions` closes sessions whose process died without ending them.** A session its practice still listed as live stayed active in the registry for months (209 rows on one machine, 125 idle over 30 days). One with no measurement in 30 days is now closed there as `stale` (a long-lived session still at work stays open); the practice's own store is not changed, and registering the session again reopens it.
+- **`doctor --reconcile-sessions` closes sessions whose process died without ending them.** A session its practice still listed as live stayed active in the registry for months (209 active rows on one machine; 116 had taken no measurement in 30 days). One with no measurement in 30 days is now closed there as `stale` (a long-lived session still at work stays open); the practice's own store is not changed, and registering the session again reopens it.
 - **A Cortex command whose stored sign-in could not be renewed says so.** It printed "no cortex credential configured", the message for a machine with nothing stored, when the token had expired and its refresh failed or belonged to the `empirica serve` daemon. It now names which, with the refresh error.
 - **The edge-notes export keeps a link change made while it runs.** A source whose links changed after its note was built, but before the export finished, was dropped from the to-do list and its note stayed out of date until something else touched it.
 - **After a compaction, the coverage line no longer says "0 of N" for what it just showed.** Findings, unknowns, dead ends and goals are ranked together above the line, which counted them as none shown; it now says they were ranked there, with only the top items of all types shown.
 - **`empirica mesh connect` lists the artifacts Cortex could not store** instead of reporting only success; a rerun retries them and skips what landed.
+
+### Changed
+
+- **Sentinel Constitution, Principle II is now Observation Integrity.** How Empirica measures may be explained to the agent; what the agent reports must never count as observed evidence. It replaces Measurement Opacity, which the published prompt and the open source code had long since made impossible to keep.
 
 ## [1.17.0] - 2026-11-14
 
