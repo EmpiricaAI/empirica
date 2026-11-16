@@ -174,7 +174,10 @@ class HeartbeatEmitter:
         error, -1 on network failure, 0 when skipped because cortex
         creds aren't configured).
         """
-        url, api_key = self._resolve_creds_fn()
+        from empirica.core.mesh_endpoint import acting_for
+
+        with acting_for(self.ai_id):  # this listener's practice team, when several are signed in here
+            url, api_key = self._resolve_creds_fn()
         if not url or not api_key:
             _say_why_skipped("heartbeat")
             return 0  # SKIP — cortex not configured

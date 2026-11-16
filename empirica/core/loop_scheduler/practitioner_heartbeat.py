@@ -435,15 +435,19 @@ class PractitionerHeartbeatEmitter:
         for rec in records:
             sid = rec.get("claude_session_id") or "?"
             try:
-                results[sid] = emit_practitioner_heartbeat(
-                    rec,
-                    machine=self.machine,
-                    emitter_id=self.emitter_id,
-                    post_fn=self._post_fn,
-                    resolve_creds_fn=self._resolve_creds_fn,
-                    get_fn=self._get_fn,
-                    timeout=self.timeout_sec,
-                )
+                from empirica.core.mesh_endpoint import acting_for
+
+                # Each session beats with its own practice's team, when several are signed in here.
+                with acting_for(rec.get("practice_ai_id") or None):
+                    results[sid] = emit_practitioner_heartbeat(
+                        rec,
+                        machine=self.machine,
+                        emitter_id=self.emitter_id,
+                        post_fn=self._post_fn,
+                        resolve_creds_fn=self._resolve_creds_fn,
+                        get_fn=self._get_fn,
+                        timeout=self.timeout_sec,
+                    )
             except Exception as e:
                 # One bad record is not an outage: record it and carry on with the next session, every interval.
                 logger.warning("practitioner-heartbeat: emit failed for %s: %s", sid, e)

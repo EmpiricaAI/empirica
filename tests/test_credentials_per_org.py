@@ -493,3 +493,47 @@ def test_off_cortex_a_write_to_another_teams_slot_is_refused(creds):
     loader = write({"url": "https://cortex.example.com", "oauth": _set(_AT_A, "org-a")})
     with pytest.raises(ValueError, match="Empirica Cortex"):
         loader.save_cortex_oauth(slot="org-b", access_token=_AT_B)
+
+
+# --- heartbeats beat with their practice's team (goal 1783ba50) ---
+
+
+def _registry_with(monkeypatch, tmp_path, ai_id, org):
+    root = _practice(tmp_path / ai_id, org)
+    monkeypatch.setattr(
+        "empirica.api.registry.load_registry",
+        lambda path=None, *, auto_dedupe=True: {"projects": [{"ai_id": ai_id, "path": str(root)}]},
+    )
+
+
+def test_the_listener_heartbeat_uses_its_practices_team(creds, tmp_path, monkeypatch):
+    from empirica.core.loop_scheduler import heartbeat as hb
+
+    write, _ = creds
+    _two_teams(write)
+    _registry_with(monkeypatch, tmp_path, "p", "org-b")
+    monkeypatch.setattr("empirica.core.auth.credential_health.dead_reason", lambda cred: None)
+    monkeypatch.chdir(tmp_path)
+    sent = []
+    emitter = hb.HeartbeatEmitter(ai_id="p", _post_fn=lambda url, body, headers, timeout: sent.append(headers) or 200)
+    emitter.emit_once()
+    assert sent and sent[0]["Authorization"] == f"Bearer {_AT_B}"
+
+
+def test_a_practitioner_beats_with_its_own_practices_team(creds, tmp_path, monkeypatch):
+    from empirica.core.loop_scheduler import practitioner_heartbeat as ph
+
+    write, _ = creds
+    _two_teams(write)
+    _registry_with(monkeypatch, tmp_path, "p", "org-b")
+    monkeypatch.setattr("empirica.core.auth.credential_health.dead_reason", lambda cred: None)
+    monkeypatch.chdir(tmp_path)
+    sent = []
+    emitter = ph.PractitionerHeartbeatEmitter(
+        _list_fn=lambda: [{"claude_session_id": "s1", "practice_ai_id": "p"}],
+        _refresh_fn=lambda: None,
+        _post_fn=lambda url, body, headers, timeout: sent.append(headers) or 200,
+        _get_fn=lambda url, key, timeout: {"projects": []},
+    )
+    emitter.emit_once()
+    assert sent and sent[0]["Authorization"] == f"Bearer {_AT_B}"
