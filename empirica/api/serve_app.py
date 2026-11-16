@@ -295,24 +295,35 @@ def _oauth_refresh_loop(interval_sec: float, stop: threading.Event) -> None:
     a refresh failure logs and retries next tick; it never crashes the daemon.
     """
     from empirica.config.credentials_loader import get_credentials_loader
-    from empirica.core.auth import default_refresh
 
     while not stop.wait(interval_sec):
         try:
-            loader = get_credentials_loader()
-            oauth = loader.get_cortex_oauth()
-            if (oauth.get("refresh_owner") or "cli").lower() != "daemon":
-                continue
-            if not oauth.get("refresh_token"):
-                continue
-            # cortex_access_token refreshes through the injected callable only
-            # when the token is within leeway of expiry, and persists the
-            # rotated set. Returns None on failure — logged, retried next tick.
-            token = loader.cortex_access_token(refresh=default_refresh(loader), leeway_s=300.0)
-            if token is None:
-                logger.warning("serve: daemon-owned oauth token refresh returned no token; will retry next tick")
+            _refresh_daemon_families(get_credentials_loader())
         except Exception as e:
             logger.warning(f"serve: oauth refresh tick failed (non-fatal): {e}")
+
+
+def _refresh_daemon_families(loader) -> None:
+    """One tick: every daemon-owned family on this machine, one per team signed in (goal da0396f8). Each is refreshed on
+    its own, so one team's failure leaves the others renewed; cortex_access_token refreshes only within the leeway of
+    expiry and persists the rotated set back into that team's block."""
+    from empirica.core import auth
+
+    for slot, block in loader.cortex_oauth_sets():
+        if (block.get("refresh_owner") or "cli").lower() != "daemon" or not block.get("refresh_token"):
+            continue
+        org_id = block.get("org_id") or slot  # the default's slot is None; its recorded org addresses it as well
+        org = {"org_id": org_id} if org_id else {}
+        try:
+            token = loader.cortex_access_token(refresh=auth.default_refresh(loader, **org), leeway_s=300.0, **org)
+        except Exception as e:
+            logger.warning(f"serve: oauth refresh for {org_id or 'the default sign-in'} failed (non-fatal): {e}")
+            continue
+        if token is None:
+            logger.warning(
+                f"serve: daemon-owned oauth refresh for {org_id or 'the default sign-in'} returned no token; "
+                "will retry next tick"
+            )
 
 
 def _make_serve_lifespan():

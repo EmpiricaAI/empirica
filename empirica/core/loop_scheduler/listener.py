@@ -180,7 +180,7 @@ def resolve_tag_filter(instance_id: str, err_stream, *, sleep=time.sleep, attemp
 
         # RESOLVE a credential, do not test for one: `get_cortex_config` has no
         # OAuth path, so `url and api_key` reads an authenticated seat as bare.
-        resolved = mesh_bearer(_gc())
+        resolved = mesh_bearer(_gc(), instance=instance_id)  # its practice's team, when signed in here
         url, key = resolved.get("url"), resolved.get("bearer")
         if not (url and key):
             err_stream.write(
@@ -666,7 +666,7 @@ def _emit_catchup_events(
         # OAuth-first with api_key fallback (empirica auth login).
         from empirica.core.mesh_endpoint import mesh_bearer
 
-        creds = mesh_bearer()
+        creds = mesh_bearer(instance=instance_id)  # its practice's team, when signed in here
     except Exception as e:
         logger.warning(f"catch-up disabled — cortex creds unreadable: {e}")
         return 0

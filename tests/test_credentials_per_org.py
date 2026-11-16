@@ -14,6 +14,7 @@ import yaml
 
 _AT_A, _AT_B, _RT, _NEW_B, _AT_A2 = "AT_A", "AT_B", "RT", "NEW_B", "AT_A2"  # fake fixtures, not credentials
 _VALID = "valid"
+_AT_C, _NEW_A = "AT_C", "NEW_org-a"
 
 
 @pytest.fixture
@@ -284,3 +285,95 @@ def test_the_sign_in_is_verified_with_the_set_it_stored(creds, monkeypatch):
     monkeypatch.setattr("empirica.config.credentials_loader.get_credentials_loader", lambda: loader)
     auth_commands.handle_auth_login_command(types.SimpleNamespace(output="json", timeout=5, url=None))
     assert used["auth"] == f"Bearer {_AT_B}"
+
+
+# --- the mesh paths prefer the practice's own team ---
+
+
+def _practice(tmp_path, org):
+    root = tmp_path / "practice"
+    (root / ".empirica").mkdir(parents=True)
+    (root / ".empirica" / "project.yaml").write_text(f"ai_id: p\norg_id: {org}\n")
+    (root / "sub").mkdir()
+    return root
+
+
+def _two_teams(write):
+    return write({"url": "https://c", "oauth": _set(_AT_A, "org-a"), "orgs": {"org-b": _set(_AT_B, "org-b")}})
+
+
+def test_a_practice_in_another_team_uses_that_teams_sign_in(creds, tmp_path, monkeypatch):
+    from empirica.core import mesh_endpoint as me
+
+    write, _ = creds
+    loader = _two_teams(write)
+    monkeypatch.setattr("empirica.core.auth.credential_health.dead_reason", lambda cred: None)
+    monkeypatch.chdir(_practice(tmp_path, "org-b") / "sub")  # anywhere inside the practice
+    assert me.mesh_bearer(loader)["bearer"] == _AT_B
+
+
+def test_a_practice_whose_team_has_no_sign_in_keeps_the_default_as_before(creds, tmp_path, monkeypatch):
+    from empirica.core import mesh_endpoint as me
+
+    write, _ = creds
+    loader = _two_teams(write)
+    monkeypatch.setattr("empirica.core.auth.credential_health.dead_reason", lambda cred: None)
+    monkeypatch.chdir(_practice(tmp_path, "org-c"))
+    assert me.mesh_bearer(loader)["bearer"] == _AT_A
+
+
+def test_outside_any_practice_the_default_is_used(creds, tmp_path, monkeypatch):
+    from empirica.core import mesh_endpoint as me
+
+    write, _ = creds
+    loader = _two_teams(write)
+    monkeypatch.setattr("empirica.core.auth.credential_health.dead_reason", lambda cred: None)
+    monkeypatch.chdir(tmp_path)
+    assert me.mesh_bearer(loader)["bearer"] == _AT_A
+
+
+def test_a_listener_finds_its_practices_team_by_instance(creds, tmp_path, monkeypatch):
+    from empirica.core import mesh_endpoint as me
+
+    write, _ = creds
+    loader = _two_teams(write)
+    root = _practice(tmp_path, "org-b")
+    calls = []
+
+    def load_registry(path=None, *, auto_dedupe=True):
+        calls.append(auto_dedupe)
+        return {"projects": [{"ai_id": "p", "path": str(root)}]}
+
+    monkeypatch.setattr("empirica.api.registry.load_registry", load_registry)
+    monkeypatch.setattr("empirica.core.auth.credential_health.dead_reason", lambda cred: None)
+    monkeypatch.chdir(tmp_path)
+    assert me.mesh_bearer(loader, instance="p")["bearer"] == _AT_B
+    assert calls == [False]  # read-only: no dedupe rewrite from a credential lookup
+
+
+def test_the_daemon_renews_every_family_it_owns_and_only_those(creds, monkeypatch):
+    from empirica.api import serve_app
+
+    write, path = creds
+    old = time.time() - 60
+    loader = write({"url": "https://c",
+                    "oauth": _set(_AT_A, "org-a", refresh_owner="daemon", expires_at=old),
+                    "orgs": {"org-b": _set(_AT_B, "org-b", refresh_owner="daemon", expires_at=old),
+                             "org-c": _set(_AT_C, "org-c", refresh_owner="cli", expires_at=old)}})  # fmt: skip
+    renewed = []
+
+    def fake_default_refresh(loader, *, http=None, org_id=None):
+        def _refresh(rt, ep):
+            renewed.append(org_id)
+            if org_id == "org-b":
+                raise RuntimeError("org-b refresh refused")  # one team failing must not stop the others
+            return {"access_token": f"NEW_{org_id}", "expires_at": time.time() + 3600}
+
+        return _refresh
+
+    monkeypatch.setattr("empirica.core.auth.default_refresh", fake_default_refresh)
+    serve_app._refresh_daemon_families(loader)
+    stored = yaml.safe_load(path.read_text())["cortex"]
+    assert sorted(renewed, key=str) == ["org-a", "org-b"]  # not org-c: its shell process owns it
+    assert stored["oauth"]["access_token"] == _NEW_A
+    assert stored["orgs"]["org-c"]["access_token"] == _AT_C

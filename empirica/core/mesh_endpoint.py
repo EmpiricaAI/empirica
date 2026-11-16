@@ -17,17 +17,61 @@ import json
 import os
 import urllib.request
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 PROBE_TIMEOUT = 0.5  # loopback: a refused connection is ~1 ms; this only bounds a port held by something that hangs
 
 
-def _cortex_bearer(loader=None) -> dict[str, Any]:
+def _cortex_bearer(loader=None, instance: str | None = None) -> dict[str, Any]:
     # The same import the moved callers used (`from empirica.core.auth import cortex_bearer`), at call time, so whatever
     # empirica.core.auth holds is what runs: a patched attribute, or a module replaced in sys.modules.
     from empirica.core.auth import cortex_bearer
 
-    return cortex_bearer() if loader is None else cortex_bearer(loader)
+    org_id = _preferred_org(loader, instance)
+    org = {"org_id": org_id} if org_id else {}
+    return cortex_bearer(**org) if loader is None else cortex_bearer(loader, **org)
+
+
+def _org_in(root: Path) -> str | None:
+    try:
+        import yaml
+
+        data = yaml.safe_load((root / ".empirica" / "project.yaml").read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError, ImportError):
+        return None
+    except Exception:  # a malformed project.yaml names no org
+        return None
+    org = data.get("org_id") if isinstance(data, dict) else None
+    return org if isinstance(org, str) and org else None
+
+
+def practice_org_id(instance: str | None = None) -> str | None:
+    """The org of the practice in play: ``instance`` (a listener's ai_id) through the registry, else the practice that
+    contains the working directory. None when neither names one. Reads only (the registry is loaded without its dedupe
+    rewrite); no subprocess, since heartbeats call this on every beat."""
+    if instance:
+        try:
+            from empirica.api.registry import load_registry
+
+            for proj in load_registry(auto_dedupe=False).get("projects", []):
+                if not isinstance(proj, dict) or not proj.get("path"):
+                    continue
+                if instance in {str(proj.get(k)) for k in ("ai_id", "name", "project_id", "id") if proj.get(k)}:
+                    return _org_in(Path(proj["path"]))
+        except Exception:
+            return None
+        return None
+    try:
+        here = Path.cwd()
+    except OSError:
+        return None
+    for root in (here, *here.parents):
+        if (root / ".empirica" / "project.yaml").is_file():
+            return _org_in(root)
+        if root == Path.home():
+            break
+    return None
 
 
 def _probe_health(url: str) -> dict | None:
@@ -114,13 +158,33 @@ def _local_token() -> str:
     return configured_local_token() or "local"
 
 
-def mesh_bearer(loader=None, *, probe: Callable[[str], dict | None] | None = None) -> dict[str, Any]:
+def _preferred_org(loader, instance: str | None) -> str | None:
+    """The practice's org when this machine holds a sign-in for it; otherwise None, so the default is used as before (a
+    practice whose team has no sign-in here keeps working exactly as it did with one sign-in; goal da0396f8)."""
+    org = practice_org_id(instance)
+    if not org:
+        return None
+    try:
+        if loader is None:
+            from empirica.config.credentials_loader import get_credentials_loader
+
+            loader = get_credentials_loader()
+        return org if loader.get_cortex_oauth(org) else None
+    except Exception:
+        return None
+
+
+def mesh_bearer(
+    loader=None, *, probe: Callable[[str], dict | None] | None = None, instance: str | None = None
+) -> dict[str, Any]:
     """``{url, bearer, source, edition}`` for the mesh paths, the shape of ``cortex_bearer()`` plus ``edition``.
+
+    With several teams signed in, the sign-in of the practice in play (``instance``, else the working directory's).
 
     ``edition`` is ``"cortex"`` when a Cortex is configured (even one whose credential is unusable: that surfaces as its
     ``reason``, it does not quietly switch the practice to local), ``"local"`` for the local server, None for neither.
     """
-    creds = dict(_cortex_bearer(loader))
+    creds = dict(_cortex_bearer(loader, instance=instance) if instance else _cortex_bearer(loader))
     if creds.get("url"):
         return {**creds, "edition": "cortex"}
     base = local_server_url()
