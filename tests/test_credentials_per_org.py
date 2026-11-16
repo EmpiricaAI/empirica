@@ -377,3 +377,16 @@ def test_the_daemon_renews_every_family_it_owns_and_only_those(creds, monkeypatc
     assert sorted(renewed, key=str) == ["org-a", "org-b"]  # not org-c: its shell process owns it
     assert stored["oauth"]["access_token"] == _NEW_A
     assert stored["orgs"]["org-c"]["access_token"] == _AT_C
+
+
+def test_a_direct_caller_inside_a_practice_gets_that_teams_sign_in(creds, tmp_path, monkeypatch):
+    """POSTFLIGHT sync, the session hooks, mesh connect, forgejo: they call cortex_bearer() from the practice."""
+    from empirica.core.auth import cortex_oauth as co
+
+    write, _ = creds
+    loader = _two_teams(write)
+    monkeypatch.setattr("empirica.core.auth.credential_health.dead_reason", lambda cred: None)
+    monkeypatch.chdir(_practice(tmp_path, "org-b"))
+    assert co.cortex_bearer(loader)["bearer"] == _AT_B
+    monkeypatch.chdir(_practice(tmp_path / "x", "org-c"))  # no sign-in for its team: the default, as before
+    assert co.cortex_bearer(loader)["bearer"] == _AT_A

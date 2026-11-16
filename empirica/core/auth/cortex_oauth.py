@@ -360,6 +360,16 @@ def cortex_bearer(loader=None, *, http=_http_json, org_id: str | None = None) ->
 
         loader = get_credentials_loader()
     cfg = loader.get_cortex_config()
+    if org_id is None:
+        # Inside a practice whose team is signed in here, that team's sign-in; otherwise the default, as before. A daemon
+        # (working directory outside any practice) is unaffected; mesh paths also resolve a listener's instance.
+        from empirica.core.mesh_endpoint import practice_org_id
+
+        preferred = practice_org_id()
+        try:
+            org_id = preferred if preferred and loader.get_cortex_oauth(preferred) else None
+        except Exception:
+            org_id = None
     token = None
     owner, failure = "", None
     try:
