@@ -439,18 +439,18 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.17.1
+## What's New in 1.17.2
 
-- **`empirica auth login --invite` and `--org`**: join a team from the invite an admin sent, or sign in to one of your teams directly.
-- **Sign-in errors say what went wrong**: an expired token whose renewal failed no longer reads as a machine with nothing configured.
-- **`doctor --reconcile-sessions` closes sessions whose process died**, and keeps a long-lived session that is still at work.
+- **One machine, several teams, with Empirica Cortex**: `auth login --org` keeps each team's sign-in, and each practice, listener and heartbeat uses its own team's.
+- **`auth login --remote`** signs in from a server over SSH: open the URL anywhere, paste back the code.
+- **Cockpit refresh brings back** a Claude session sent to the background, and an ecodex pane's own session.
 
-All 8 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 4 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.17.1** — `empirica auth login --invite` and `--org`: join a team from the invite an admin sent, or sign in to one of your teams directly.
 - **1.17.0** — `empirica mesh connect` moves a practice that has run without Cortex onto Cortex, with its artifacts' ids, dates and links.
-- **1.16.3** — PREFLIGHT can name the goals a transaction works on. A goal carried across transactions counts as in play from the first call, and what is logged in the wi…
 
 ## What's Coming
 
