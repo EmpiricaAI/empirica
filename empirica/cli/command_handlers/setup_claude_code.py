@@ -2136,10 +2136,24 @@ def _ensure_local_ignored(project_root: Path) -> None:
         pass
 
 
+def _apply_shared_repo_flag(project_root: Path, output_format: str) -> None:
+    """`setup-claude-code --shared-repo`: mark the practice shared, and say what to commit (or that nothing was found)."""
+    quiet = output_format == "json"
+    if not (project_root / ".empirica" / "project.yaml").exists():
+        if not quiet:
+            print(f"   ⚠️  --shared-repo: no .empirica/project.yaml under {project_root}; run it from the practice root")
+    elif mark_shared_repo(project_root) and not quiet:
+        print(
+            "   🤝 this repo is now shared (seats: per-clone): commit .empirica/project.yaml and .gitignore; "
+            "each person's seat stays in their clone's project.local.yaml"
+        )
+
+
 def mark_shared_repo(project_root: Path) -> bool:
-    """Declare a practice repo shared (`seats: per-clone` in the tracked project.yaml): the current per-person keys move
-    to this clone's project.local.yaml and out of the tracked file, so nobody else inherits them. False when already
-    shared or there is no project.yaml."""
+    """Declare a practice repo shared (`seats: per-clone` in the tracked project.yaml) and remove the per-person keys from
+    the tracked file, so nobody inherits whoever's they were. Nothing is moved into this clone's local file (they may not
+    be this person's): each clone gets its own seat from Cortex, at this setup run or the next session start. False when
+    already shared or there is no project.yaml."""
     import yaml
 
     from empirica.utils.yaml_cache import PERSON_KEYS, SHARED_MARKER, is_shared_repo
@@ -2151,14 +2165,10 @@ def mark_shared_repo(project_root: Path) -> bool:
         return False
     if not isinstance(tracked, dict) or is_shared_repo(tracked):
         return False
-    mine = {k: tracked.pop(k) for k in PERSON_KEYS if k in tracked}
+    for key in (*PERSON_KEYS, "tenant"):
+        tracked.pop(key, None)
     tracked[SHARED_MARKER[0]] = SHARED_MARKER[1]
     _ensure_local_ignored(project_root)
-    if mine:
-        local_yaml = project_yaml.parent / "project.local.yaml"
-        tmp = local_yaml.with_name(f".{local_yaml.name}.{os.getpid()}.tmp")
-        tmp.write_text(yaml.safe_dump(mine, sort_keys=False, default_flow_style=False), encoding="utf-8")
-        tmp.replace(local_yaml)
     project_yaml.write_text(yaml.safe_dump(tracked, sort_keys=False, default_flow_style=False), encoding="utf-8")
     return True
 
@@ -2179,10 +2189,8 @@ def _resolve_and_persist_tenant_metadata(
     """
     if project_root is None:
         project_root = Path.cwd()
-    if getattr(args, "shared_repo", False) and mark_shared_repo(project_root) and output_format != "json":
-        print(
-            "   🤝 project.yaml now says this repo is shared (seats: per-clone): commit it; each person's seat stays local"
-        )
+    if getattr(args, "shared_repo", False):
+        _apply_shared_repo_flag(project_root, output_format)
 
     overrides = _resolve_tenant_overrides(args)
     metadata: dict[str, str | None]

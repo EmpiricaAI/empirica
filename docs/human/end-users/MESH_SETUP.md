@@ -396,8 +396,9 @@ them to the same project, so `project_id` and `ai_id` are shared and stay in the
 person's own seat (`tenant_slug`, `mesh_id_prefix`, `canonical_seat`) must not be in git, or whoever pulls it would act as
 that person.
 
-1. One person marks the repo shared once: `empirica setup-claude-code --shared-repo`, then commits `.empirica/project.yaml`
-   (it now says `seats: per-clone`). Their own keys move to `.empirica/project.local.yaml`, which is added to `.gitignore`.
+1. One person marks the repo shared once, from the practice root: `empirica setup-claude-code --shared-repo`, then commits
+   `.empirica/project.yaml` (it now says `seats: per-clone`, and no longer holds anyone's seat) and `.gitignore` (which now
+   ignores `.empirica/project.local.yaml`). The same setup run fetches their own seat into their `project.local.yaml`.
 2. Everyone else just clones and works. In a repo marked shared, the per-person keys are read only from the clone's own
    `project.local.yaml`; a fresh clone has none, so its first session asks Cortex for that person's seat and writes it there.
 

@@ -114,7 +114,8 @@ def with_person_overlay(data: dict[str, Any], empirica_dir: Path) -> dict[str, A
         return data
     local = load_yaml_cached(Path(empirica_dir) / "project.local.yaml")
     mine = {k: local[k] for k in PERSON_KEYS if isinstance(local, dict) and isinstance(local.get(k), str) and local[k]}
-    return {**{k: v for k, v in data.items() if k not in PERSON_KEYS}, **mine}
+    # `tenant` is the older spelling of tenant_slug: a tracked one is someone's too.
+    return {**{k: v for k, v in data.items() if k not in (*PERSON_KEYS, "tenant")}, **mine}
 
 
 def load_project_yaml(project_path: str | Path | None) -> dict[str, Any]:

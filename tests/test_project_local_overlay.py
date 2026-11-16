@@ -108,6 +108,8 @@ def test_in_a_shared_repo_the_seat_is_never_composed_from_the_tracked_prefix(tmp
     root = _practice(tmp_path, shared=True, tracked_person={"mesh_id_prefix": "empirica-consulting.david"})
     _persist(root, tenant_slug="francisco")
     assert "canonical_seat" not in (_read(root, "project.local.yaml") or {})
+    tracked = _read(root, "project.yaml")
+    assert tracked.get("tenant_slug") is None and "canonical_seat" not in tracked  # nothing of this person's is tracked
 
 
 def test_an_unmarked_practice_whose_tenant_changes_is_corrected_in_place(tmp_path):
@@ -123,16 +125,23 @@ def test_an_unmarked_practice_whose_tenant_changes_is_corrected_in_place(tmp_pat
     assert _read(root, "project.local.yaml") is None
 
 
-def test_marking_a_repo_shared_moves_the_owners_keys_out_of_git(tmp_path):
+def test_marking_a_repo_shared_takes_every_persons_keys_out_of_git(tmp_path):
     from empirica.cli.command_handlers.setup_claude_code import mark_shared_repo
 
-    root = _practice(tmp_path, shared=False, tracked_person=_DAVID)
+    root = _practice(tmp_path, shared=False, tracked_person={**_DAVID, "tenant": "david"}, local={"keep": "me"})
     assert mark_shared_repo(root) is True
     tracked = _read(root, "project.yaml")
-    assert tracked["seats"] == "per-clone" and not any(k in tracked for k in _DAVID)
-    assert _read(root, "project.local.yaml") == _DAVID
+    assert tracked["seats"] == "per-clone" and not any(k in tracked for k in (*_DAVID, "tenant"))
+    assert _read(root, "project.local.yaml") == {
+        "keep": "me"
+    }  # this clone's file is not overwritten with someone's keys
     assert ".empirica/project.local.yaml" in (root / ".gitignore").read_text()
     assert mark_shared_repo(root) is False  # already shared
+
+
+def test_a_tracked_legacy_tenant_is_not_this_clones_either(tmp_path):
+    data = yaml_cache.load_project_yaml(_practice(tmp_path, shared=True, tracked_person={"tenant": "david"}))
+    assert "tenant" not in data
 
 
 def test_the_local_file_is_kept_out_of_git(tmp_path):
