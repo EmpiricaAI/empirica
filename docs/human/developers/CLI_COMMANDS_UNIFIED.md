@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.17.0
-**Generated:** 2026-11-16 13:43:24 UTC
+**Generated:** 2026-11-16 14:58:46 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -3820,6 +3820,8 @@ Authorization_code + PKCE browser flow; stores the token set under cortex.oauth 
   The Cortex to sign in to (optional; default: cortex.url in credentials.yaml, else the hosted https://cortex.getempirica.com). Saved after a successful sign-in.
 - `--invite` — optional
   Join an org with the invite its admin sent: the token, or the whole https://getempirica.com/install?invite=... link (optional). Cortex redeems it once your Google email matches.
+- `--org` — optional
+  Sign in as your user in this org (its id, slug or name), with no picker (optional). Refused if you are not a member there.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
 
 

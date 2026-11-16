@@ -119,7 +119,9 @@ marked; that path refreshes.
    `--invite <token or link>`, the invite rides this request as `invite=`;
    Cortex redeems it in its callback once Google has verified the email, and
    refuses the sign-in (`access_denied`) rather than signing in to another org.
-   The sign-in then reports the org it joined, read from `/v1/users/me`.
+   With `--org <id, slug or name>`, `org=` rides the same request and Cortex
+   signs in as the person's user in that org with no picker, refusing a
+   non-member. The sign-in then reports the org it joined, read from `/v1/users/me`.
 4. **Callback** — the loopback listener receives the code (validating `state`);
    the code is exchanged for the token set at the token endpoint.
 5. **Persist** — `save_cortex_oauth(...)` writes the family (access + refresh

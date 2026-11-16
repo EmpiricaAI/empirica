@@ -31,7 +31,12 @@ def handle_auth_login_command(args) -> int:
     output = getattr(args, "output", "human")
     timeout_s = float(getattr(args, "timeout", None) or 300)
     try:
-        result = login(timeout_s=timeout_s, url=getattr(args, "url", None), invite=getattr(args, "invite", None))
+        result = login(
+            timeout_s=timeout_s,
+            url=getattr(args, "url", None),
+            invite=getattr(args, "invite", None),
+            org=getattr(args, "org", None),
+        )
     except Exception as e:
         if output == "json":
             print(json.dumps({"ok": False, "error": str(e)}))

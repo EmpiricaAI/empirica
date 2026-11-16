@@ -554,3 +554,36 @@ def test_login_without_an_invite_sends_none(loader):
             break
         time.sleep(0.02)
     assert "invite=" not in seen["url"]
+
+
+def test_login_with_an_org_carries_it_on_the_authorize_request(loader):
+    """`auth login --org <slug|id|name>` signs in as the person's user in that org, no picker (cortex 578cfab6)."""
+    seen = {}
+    http = _mock_http(
+        {
+            "/.well-known": DISCO,
+            "/register": {"client_id": "cli_new"},
+            "/token": {"access_token": _AT1, "refresh_token": _RT1, "expires_in": 3600},
+        },
+        [],
+    )
+
+    def _fake_browser(url):
+        import urllib.parse
+        import urllib.request
+
+        q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
+        seen.update(q)
+        urllib.request.urlopen(f"{q['redirect_uri']}?code=authcode&state={q['state']}", timeout=5)
+
+    result = login(
+        loader=loader, open_browser=_fake_browser, timeout_s=10, http=http, org="  acme-team ", invite=_INVITE
+    )
+    assert seen["org"] == "acme-team"
+    assert seen["invite"] == _INVITE  # both ride one request
+    assert result["org_requested"] == "acme-team"
+
+
+def test_an_empty_org_is_refused_before_the_browser_opens(loader):
+    with pytest.raises(ValueError):
+        login(loader=loader, org="   ", http=_mock_http({}, []))

@@ -468,6 +468,7 @@ def login(
     http=_http_json,
     url: str | None = None,
     invite: str | None = None,
+    org: str | None = None,
 ) -> dict[str, Any]:
     """Full authorization_code + PKCE login. Returns a status dict.
 
@@ -486,6 +487,12 @@ def login(
     # An invite rides the authorize request; Cortex redeems it in its callback once Google has verified the email, or refuses
     # the sign-in (access_denied) rather than signing in to another org.
     invite = invite_token(invite) if invite is not None else None
+    # The org to sign in as (id, slug or name): Cortex skips its picker and refuses with access_denied if the person is not a
+    # member there. Cortex reads at most 100 characters.
+    if org is not None:
+        org = org.strip()
+        if not org:
+            raise ValueError("empty --org")
 
     disco = fetch_discovery(base_url, http=http)
     for required in ("authorization_endpoint", "token_endpoint", "registration_endpoint"):
@@ -529,6 +536,7 @@ def login(
                 "code_challenge": challenge,
                 "code_challenge_method": "S256",
                 **({"invite": invite} if invite else {}),
+                **({"org": org} if org else {}),
             }
         )
     )
@@ -602,6 +610,7 @@ def login(
         "cortex_url": base_url,
         "url_source": url_source,
         "invite": bool(invite),
+        "org_requested": org or None,
     }
 
 

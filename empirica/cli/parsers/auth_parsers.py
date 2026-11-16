@@ -45,6 +45,12 @@ def add_auth_parsers(subparsers) -> None:
         help="Join an org with the invite its admin sent: the token, or the whole "
         "https://getempirica.com/install?invite=... link (optional). Cortex redeems it once your Google email matches.",
     )
+    login.add_argument(
+        "--org",
+        metavar="ORG",
+        help="Sign in as your user in this org (its id, slug or name), with no picker (optional). Refused if you are "
+        "not a member there.",
+    )
     login.add_argument("--output", choices=["human", "json"], default="human")
 
     token = actions.add_parser(

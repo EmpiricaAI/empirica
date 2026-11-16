@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`empirica auth login --invite` joins an org from its invite.** Pass the token or the whole `https://getempirica.com/install?invite=...` link an org admin sent; Cortex redeems it at sign-in once your Google email matches. The sign-in reports the org it joined.
+- **`empirica auth login --org` signs in to one of your teams directly.** Name the org by id, slug or name and Cortex skips its picker; it refuses if you are not a member there.
 
 ### Fixed
 
