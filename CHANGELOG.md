@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`empirica auth login --remote` signs in from a machine whose browser is elsewhere**, such as a server over SSH. It prints a URL to open on any machine; after sign-in, Cortex's page shows a code to paste back into the terminal. No local port is used, and the code is useless without the verifier that stays in the terminal.
 
+### Fixed
+
+- **Cockpit refresh brings back a pane whose Claude session went to the background.** In Claude Code 2.1.325 Ctrl+Z moves the session to the background and the pane's claude exits; restarting it with `--continue` then failed. Refresh now finds the session with `claude agents` and attaches to it.
+
 ## [1.17.1] - 2026-11-16
 
 ### Highlights

@@ -116,6 +116,8 @@ def test_identities_are_unique_within_a_config_and_against_other_sessions(monkey
 # ── real tmux, private server ────────────────────────────────────────────────
 
 FAKE_CLAUDE = """#!/bin/sh
+# refresh lists Claude Code's background sessions (`claude agents --json`) before restarting a claude pane: none here
+if [ "$1" = "agents" ]; then echo "[]"; exit 0; fi
 echo "$EMPIRICA_INSTANCE_ID $*" >> "$FAKE_CLAUDE_LOG"
 exec sleep 300
 """

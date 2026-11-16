@@ -1377,6 +1377,28 @@ def _claude_has_conversation(path: str) -> bool | None:
         return None
 
 
+def _background_attach_command(proj, session_id: str | None, jobs: list) -> str | None:
+    """``claude attach <job>`` for a claude pane whose session runs in Claude Code's background, else None
+    (mesh-support prop_3yoa6zfsffasdejpj5wnah4mcq: after Ctrl+Z, `--continue` exits 1 and the pane stays dead)."""
+    from empirica.core.cockpit.launcher.resume_ids import background_job
+
+    if proj.resume or _launch_program(proj.launch) != "claude":
+        return None
+    job = background_job(proj.path, session_id, jobs)
+    return f"claude attach {job}" if job else None
+
+
+def _or_attach(proj, session_id: str | None, command: str, cache: dict) -> str:
+    """``command``, or ``claude attach <job>`` when the pane's claude session runs in the background."""
+    if proj.resume or _launch_program(proj.launch) != "claude":
+        return command
+    if "jobs" not in cache:
+        from empirica.core.cockpit.launcher.resume_ids import claude_background_jobs
+
+        cache["jobs"] = claude_background_jobs()
+    return _background_attach_command(proj, session_id, cache["jobs"]) or command
+
+
 def _pane_session(proj, iid: str | None, pane_id: str, server_start: str | None) -> str | None:
     """The session a pane's program should resume, confirmed from its own record, or None for the program's own fallback.
     An explicit ``resume:`` line wins; claude reads instance_projects, codex/ecodex read ecodex's pane_sessions record."""
@@ -1454,6 +1476,7 @@ def refresh_cockpit(
         out.error = _only_pane_error(rows, specs, config, only_pane, session_name)
         if out.error:
             return out
+    jobs_cache: dict = {}  # `claude agents --json`, listed once per refresh and only if a claude pane restarts
     for row in rows:
         key = row["key"]
         if not key:
@@ -1492,7 +1515,7 @@ def refresh_cockpit(
         iid = row["iid"] or None
         session_id = _pane_session(proj, iid, row["pane_id"], server_start)
         fresh = None if session_id else _claude_has_conversation(proj.path)
-        command = resume_command(proj, session_id, has_conversation=fresh)
+        command = _or_attach(proj, session_id, resume_command(proj, session_id, has_conversation=fresh), jobs_cache)
         args = ["respawn-pane", "-k", "-t", row["pane_id"], "-c", proj.path, *_identity_args(iid), command]
         result = _tmux(*args)
         _clear_waiting_mark(row["pane_id"])

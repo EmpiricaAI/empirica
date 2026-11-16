@@ -93,3 +93,39 @@ def codex_session_id(pane_id: str | None, project_path: str, tmux_server_start: 
     if str(data.get("tmux_server_start")) != str(tmux_server_start) or not _same_dir(recorded, project_path):
         return None
     return sid
+
+
+_JOB_ID = re.compile(r"^[A-Za-z0-9_-]{4,64}$")
+
+
+def claude_background_jobs(timeout: float = 5.0) -> list:
+    """``claude agents --json``: Claude Code's sessions, interactive and background. [] when it cannot be read (an older
+    Claude Code with no `agents`, no claude on PATH, a timeout): refresh then resumes as it always did."""
+    import subprocess
+
+    try:
+        done = subprocess.run(["claude", "agents", "--json"], capture_output=True, text=True, timeout=timeout)
+        data = json.loads(done.stdout) if done.returncode == 0 else []
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def background_job(project_path: str, session_id: str | None, jobs: list) -> str | None:
+    """The job id to `claude attach` for a pane whose session went to the background (Ctrl+Z in Claude Code 2.1.325: the
+    foreground exits, and `--continue` then exits 1). The pane's own session when known, else the one background job in
+    its directory; never a session still live in a terminal, never a guess between two."""
+    entries = [j for j in jobs if isinstance(j, dict)]
+    live = {j.get("sessionId") for j in entries if j.get("kind") == "interactive"}
+    candidates = [
+        j
+        for j in entries
+        if j.get("kind") == "background"
+        and isinstance(j.get("id"), str)
+        and _JOB_ID.match(j["id"])
+        and j.get("sessionId") not in live
+        and isinstance(j.get("cwd"), str)
+        and _same_dir(j["cwd"], project_path)
+        and (session_id is None or j.get("sessionId") == session_id)
+    ]
+    return candidates[0]["id"] if len(candidates) == 1 else None
