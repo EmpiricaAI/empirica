@@ -439,17 +439,17 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.17.5
+## What's New in 1.17.6
 
-- **One schema for the workflow protocol**, shared by `/ewm-interview`, the web onboarding interview and the installer, and **`provision-practice --from-protocol`** to set up the practices a protocol lists.
-- **Discipline mode reads commands the way bash does**, and judges `curl … | bash`, `bash -c` and `xargs` by what they run.
+- **A differential fuzzer checks the Sentinel's reading of shell commands against bash itself**, and its first run found a `git push` that a quoted backtick hid from discipline mode; fixed.
+- **Hand-edited cockpit profiles keep their edits** when a practice is added, and `provision-practice` finds a practice where it already lives.
 
-All 7 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 9 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.17.5** — One schema for the workflow protocol, shared by `/ewm-interview`, the web onboarding interview and the installer, and **`provision-practice --from-protocol…
 - **1.17.4** — Discipline mode no longer refuses every shell command: outside a transaction, reads run freely (ssh reads included), small acts count against a budget that…
-- **1.17.3** — Several people can share one practice repo: mark it once with `empirica setup-claude-code --shared-repo`; each person's seat then lives only in their own c…
 
 ## What's Coming
 
