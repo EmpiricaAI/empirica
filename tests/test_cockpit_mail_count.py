@@ -44,6 +44,37 @@ def test_only_mail_that_still_needs_this_practice_s_reply_counts():
     assert bar.mail_count("empirica-web", "/x", run=_run(inbox, outbox)) == 2  # p1 and p5
 
 
+def test_another_tenants_same_named_practice_still_pending_is_not_this_one():
+    """1.16.3 sweep A4: ``x.other.empirica-web`` in pending_targets ended with ``.empirica-web`` and counted as ours."""
+    inbox = [
+        {
+            "id": "p1",
+            "target_claudes": [ME, "empirica.philipp.empirica-web"],
+            "pending_targets": ["empirica.philipp.empirica-web"],
+        },
+        {"id": "p2", "target_claudes": [ME, "empirica.philipp.empirica-web"], "pending_targets": [ME]},
+        {
+            "id": "p3",
+            "target_claudes": ["empirica-web"],
+            "pending_targets": ["empirica-web"],
+        },  # the bare name is this one
+    ]
+
+    def run(argv, **_kw):
+        body = {"proposals": []} if "--outbox" in argv else {"proposals": inbox, "queried_as": ME}
+        return subprocess.CompletedProcess(argv, 0, json.dumps(body), "")
+
+    assert bar.mail_count("empirica-web", "/x", run=run) == 2  # p2 and p3; p1 waits on the other tenant only
+
+
+def test_a_name_matches_only_its_own_canonical_form_or_its_exact_name():
+    assert bar._names("empirica-web", ME, ME)
+    assert bar._names("empirica-web", "empirica-web", ME)
+    assert not bar._names("empirica-web", "empirica.philipp.empirica-web", ME)
+    assert not bar._names("empirica-web", "web", ME)
+    assert not bar._names("empirica-web", None, ME)
+
+
 def test_a_mailbox_that_cannot_be_read_is_unknown_not_empty():
     def broken(argv, **_kw):
         return subprocess.CompletedProcess(argv, 1, "", "cortex unreachable")

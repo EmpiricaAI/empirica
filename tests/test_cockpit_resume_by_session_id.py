@@ -28,6 +28,7 @@ def home(tmp_path, monkeypatch):
     (home / ".empirica" / "instance_projects").mkdir(parents=True)
     (home / ".claude" / "projects").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)  # else the lookup reads the box's own Claude Code dir
     proj = tmp_path / "practice"
     proj.mkdir()
     return home, proj
