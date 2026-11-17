@@ -1,323 +1,150 @@
 ---
 name: ewm-interview
-description: "Use when the user says '/ewm-interview', 'run EWM interview', 'create workflow protocol', 'set up my workflow', 'interview me for EWM', or wants to create a personalized AI collaboration protocol. Guided multi-choice interview that produces workflow-protocol.yaml, renders it as a clickable artifact, and offers to provision the practices it implies."
-version: 0.3.0
+description: "Use when the user says '/ewm-interview', 'run EWM interview', 'create workflow protocol', 'set up my workflow', 'interview me for EWM', or wants to create a personalized AI collaboration protocol. A short multi-choice interview, in a depth the person picks, that finds out what work they do, proposes the practices that work needs (drafted from templates and routed like forecast predictions), captures how they want to work, writes workflow-protocol.yaml, and provisions the practices."
+version: 0.4.0
 ---
 
 # /ewm-interview — Epistemic Workflow Manager Interview
 
-Produce a **workflow-protocol.yaml** describing how this person wants to work
-with AI — then actually set up what it implies.
+Find out **what work this person does**, propose and set up **the practices that work needs**, and capture **how they
+want to work with AI**, in that order of importance. Write it to `workflow-protocol.yaml` and provision it.
 
-## The rule that governs the whole interview
+## Rules for the whole interview
 
-**Ask with options, never with a blank.** Every question goes through
-`AskUserQuestion` with 2–4 concrete, pickable options. The tool supplies its own
-"Other" path, so a free-form answer is always available without you offering one
-— do not add an "Other"/"Something else" option yourself, it duplicates the
-built-in.
+- **Ask with options, never with a blank.** Every question goes through `AskUserQuestion` with 2–4 pickable options; the
+  tool adds its own "Other". The options teach what the field means.
+- **Recommendation first**, marked `(Recommended)`, when there is a sane default.
+- **Batch**: one `AskUserQuestion` call takes up to 4 questions.
+- **Detect before asking**: repos, configured MCP servers, an existing `.empirica/project.yaml`. Confirming is cheap,
+  recalling is not.
+- **Hedging is a signal**: "kind of", "it depends" gets a narrower question, not a vague field.
+- **Keep it short.** The person chose a depth; stay inside it.
 
-This matters more than it looks. "What are your main constraints?" asked into a
-void gets a shrug or a paragraph you cannot map to a field. The same question as
-four options gets an answer in one click, and the options themselves TEACH what
-the field means. Prose questions are what made v0.1 a form-fill wearing a
-conversation's clothes.
+## Step 0 — Pick the depth
 
-Three rules for the options you write:
+One question, first:
 
-- **Make every option genuinely pickable.** An option nobody could choose is
-  filler; it makes the list look considered while narrowing the real choice.
-- **Put a recommendation first** when there is a sane default, and say so:
-  `"Collaborative — check in on approach (Recommended)"`.
-- **`multiSelect: true`** when answers are not exclusive (domains, tools,
-  non-negotiables). Most of this interview is multi-select.
+> How much time for setup? · **Quick, about 3 minutes (Recommended)**: your kinds of work, a ready setup, how much the AI
+> does on its own · **Standard, about 7 minutes**: adds how you like to work and checks the practices I'm unsure about ·
+> **Deep, about 12 minutes**: adds your goals, trust and a full pass over which practices to start with
 
-Batch related questions into ONE `AskUserQuestion` call — it takes up to 4. Five
-calls of 3–4 questions each covers the whole interview.
-
----
-
-## Phase 1 — Goals
-
-One call, up to 4 questions:
-
-| Ask | Shape | Options to offer |
+| Tier | Calls | Phases |
 |---|---|---|
-| What are you mainly trying to accomplish right now? | single | Ship a product / feature · Research & understand a problem space · Grow an organisation or practice · Operate & maintain something live |
-| What does "done" look like for that? | single | A shipped, working thing · A decision I can defend · A repeatable process · Learning I can reuse |
-| What is your binding constraint? | multi | Time · Money / headcount · Missing knowledge · Regulatory / compliance · Dependence on other people |
-| Horizon? | single | This week · This quarter · This year · Open-ended |
+| Quick | 2–3 | 1 (work), 2 (practices: confirm the preset), the autonomy question from 3 |
+| Standard | 4 | 1, 2 (with the 'ask' questions), 3 |
+| Deep | 5–6 | 1, 2, 3, 4 (goals and trust) |
 
-Capture into `goals.primary[]` (description, success_criteria, timeline) and
-`goals.secondary[]`.
+Every tier ends with Phase 5: provisioning. Quick still sets up working practices.
 
-## Phase 2 — Domains & expertise
+## Phase 1 — The work (every tier)
 
 | Ask | Shape | Options |
 |---|---|---|
-| Which domains are you expert in? | multi | Domains inferred from the repo and their answers so far, plus generic ones |
-| Which are you actively learning? | multi | same list |
-| Where do you want AI to carry the most weight? | multi | same list |
+| Which kinds of work do you do? | multi | the work kinds in `empirica/config/practice_templates.yaml` (`workloads`): building or maintaining software, research and synthesis, writing and content, outreach and sales, client or consulting engagements, operations and infrastructure, data and analysis |
+| For each one picked: how often? | single per kind (batch up to 4) | Often (weekly or more) · Sometimes · Rarely |
 
-**Infer the option list — do not ask people to type their own field.** Read the
-repo first: languages present, `docs/` topics, the project's own
-`.empirica/project.yaml`. Offer what you found. This is the single biggest
-friction reduction in the interview.
+If they build software, ask which codebases (detect repos first; offer what you found). Each becomes its own builder
+practice, typed by what it is (`web-app`, `cli`, `library`, `service`, …).
 
-Capture `domains.expert[]`, `domains.learning[]`, `domains.novice[]`.
+## Phase 2 — Which practices (every tier): the forecast pattern
 
-## Phase 3 — Tools & connections
+Draft the practices as **predictions**, the way `/forecast` drafts directions, from the templates in
+`empirica/config/practice_templates.yaml` (`empirica.core.practice_templates.suggest()` does exactly this):
 
-| Ask | Shape | Options |
-|---|---|---|
-| Which of these do you actually use daily? | multi | Detected MCP servers + GitHub / Forgejo · Slack · Google Drive · Linear / Jira · Notion |
-| Where does your code live? | single | GitHub · Forgejo (self-hosted) · GitLab · Local only |
-| Is this practice on the Cortex mesh? | single | Yes — registered · Yes — should be, not yet · No, standalone |
-| Which do you run in a terminal? | single | Claude Code · ecodex · Both · Neither — desktop or web app only |
+- each work kind suggests its templates (`suggested_by`); **often** grounds a practice strongly (0.85), **sometimes**
+  moderately (0.6), **rarely** not enough (0.3);
+- **support** is proposed for everyone; a **coordinator** once there are two or more other practices;
+- every candidate carries its **reason**: the answer it rests on ("you said research and synthesis: often").
 
-**Detect before asking.** Read `~/.claude/mcp.json` (or the harness equivalent)
-and offer what is configured rather than a generic menu. Mark detected entries
-so the user is confirming, not recalling.
+Route each candidate (`route()`), and spend questions only where they change the setup:
 
-The last three questions are load-bearing — they feed Phase 6.
+| Confidence | What happens |
+|---|---|
+| ≥ 0.7 | **confirm**: listed together, one tap accepts them all |
+| 0.5–0.7 | **ask**: one question each, at most 2–3 (Standard and Deep; Quick drops them to 'add later') |
+| < 0.5 | **park**: shown as "you can add these later", not provisioned |
 
-## Phase 4 — Work preferences
+**Presets.** When the confirmed set is close to a preset (`presets`: solo builder, researcher, consultant, small team),
+offer it as the first option: "Start with the *consultant* setup: client engagement, research, writing, coordinator,
+support (Recommended)". Quick offers the closest preset plus "Adjust".
 
-| Ask | Shape | Options |
-|---|---|---|
-| How should we split the work? | single | Equal partners — check in on approach (Recommended) · You lead, I execute · I run autonomously, you review outcomes |
-| When should I act without asking? | multi | Research & investigation · Code implementation once you have said go · Refactors & cleanup · Anything reversible |
-| What must ALWAYS wait for you? | multi | Anything sent outside the org · Architecture with business impact · Spending money · Legal / contractual · Deleting things |
-| When I think you are wrong? | single | Direct and factual, no hedging (Recommended) · Gentle reframe · Socratic questions |
+Name each practice in the person's words: `<them>-research`, `<client>-engagement`, `<repo>`.
 
-Capture `work_preferences.*` and the three `task_splitting` lists. The split answer maps to
-`ai_autonomy_level`: equal partners → `collaborative_equal_partner`, you lead → `assistant_mode`, autonomous →
-`full_autonomy`; the pushback answer to `direct_and_factual`, `gentle_reframe` or `socratic`.
+## Phase 3 — How you work (Standard and Deep; Quick asks only the first question)
 
-Note the asymmetry: **"act without asking" is a floor, "always wait" is a
-ceiling.** If an item appears in both, the ceiling wins — say so rather than
-silently resolving it.
+| Ask | Shape | Options | Field |
+|---|---|---|---|
+| How should we split the work? | single | Equal partners, check in on approach (Recommended) · You lead, I execute · I run autonomously, you review outcomes | `ai_autonomy_level`: `collaborative_equal_partner` · `assistant_mode` · `full_autonomy` |
+| When I think you are wrong? | single | Direct and factual (Recommended) · Gentle reframe · Socratic questions | `pushback_style`: `direct_and_factual` · `gentle_reframe` · `socratic` |
 
-## Phase 5 — Trust & non-negotiables
+Defaults when not asked: `uncertainty_surfacing: always_explicit`, `calibration_mode: single_pass`.
 
-| Ask | Shape | Options |
-|---|---|---|
-| How should trust start? | single | Start collaborative, widen as it is earned (Recommended) · Start restricted · Start open, pull back if needed |
-| What earns more autonomy from you? | multi | Accuracy that holds up · Flagging its own gaps · Catching problems unprompted · Admitting mistakes fast |
-| Absolute non-negotiables? | multi | Never act against my interests · Never hide uncertainty behind agreeable language · Never take irreversible actions unasked · Never send anything externally without approval |
+## Phase 4 — Goals and trust (Deep only)
 
-Capture `trust_building.*`. A first protocol's `current_level` is `establishing` whatever the
-start answer; record the answer itself in `autonomy_earned_through` and the non-negotiables. Move it
-to `building`, `established` or `high_trust` only when re-running the interview later.
+| Ask | Shape | Options | Field |
+|---|---|---|---|
+| What are you mainly trying to accomplish? | single | Ship a product · Understand a problem space · Grow an organisation · Run something live | `goals.primary[0]` |
+| What must always wait for you? | multi | Anything sent outside the org · Spending money · Legal or contractual · Deleting things | `task_splitting.human_only`, `trust_building.non_negotiables` |
 
----
+A first protocol's `trust_building.current_level` is `establishing`; change it only on a later re-run.
 
-## Phase 6 — Provision what the answers imply
+## Phase 5 — Provision what the answers imply (every tier)
 
-**This is the part v0.1 was missing.** An interview that produces a YAML file
-and stops has described a setup rather than performed one.
-
-`empirica provision-practice` already does the whole chain, idempotently:
-`mkdir` → `project-init` → patch `.empirica/project.yaml` (ai_id / tenant / org
-/ substrate) → with no Cortex configured, start the local server if it is not
-running → `project-register` (with Cortex, or with the local server) → optional
-Forgejo backup remote. Safe to re-run; every step no-ops if already done.
-
-So: from Phases 1–3, propose the practices their answers imply — a separate
-practice per distinct domain of work, which is the model Empirica is built on
-(a practice is an epistemic specialization, not a folder).
-
-**Start from the default set, then add what the answers imply.** Three practices
-are useful to almost everyone, so offer them first, named in the person's own words:
-
-| Role | What it does | Suggested name |
-|---|---|---|
-| Coordinator | plans across the other practices, hands each its part, and follows up | `<them>-coordinator` |
-| System support | looks after the person's own machine and tools: installs, updates, backups, diagnosing what broke | `<them>-support` |
-| Research | investigates questions and keeps what it learns for the others to find | `<them>-research` |
-
-Builders come from the interview, not from a default: one practice per codebase or
-product the person works on (Phase 3), named after it. Then anything else the
-answers imply (writing, outreach, operations). Offer, never impose: every one is an
-option in the provisioning question below.
-
-**Always dry-run first, and show the output before doing anything:**
+`empirica provision-practice` does the whole chain idempotently: directory, `project-init`, identity, registration
+(Cortex or the local server), an optional Forgejo backup. Always dry-run first and show the result:
 
 ```bash
 empirica provision-practice <name> --dry-run --output json
 ```
 
-Then ask — with options, like everything else:
+Or, once the protocol is written, all of them at once: `empirica provision-practice --from-protocol <file> --dry-run`.
+Then one question: provision these? · Yes, all · Let me adjust · Not now.
 
-> Provision these? — `empirica-research`, `empirica-outreach`
-> · Yes, both · Just the first · Let me adjust the names · No, not now
+Per practice, from its template and the answers:
 
-Only on an affirmative:
-
-```bash
-empirica provision-practice <name> \
-  [--tenant <tenant> --org <org>] \
-  --cockpit-profile <profile> \
-  [--forgejo-owner <owner> --forgejo-host <ssh-url>] \
-  [--no-cortex | --no-local-server]
-```
-
-With no Cortex, the local server needs the `[api]` extra (`pip install "empirica[api]"`). Without it,
-the `local-server` step reports an error and installs nothing: relay its `hint`, do not call the practice ready.
-
-`--cockpit-profile` adds each practice to one cockpit layout (`~/.empirica/cockpit/config-<name>.yaml`,
-created on the first call with a TUI window, then one window per practice). Pass the SAME name on
-every call. Their first name or the tenant slug is a sensible default; use another if they already have a profile.
-
-Where the flags come from Phase 3:
-
-| Phase 3 answer | Flag |
+| From | Flag |
 |---|---|
-| Code lives on Forgejo | `--forgejo-owner` + `--forgejo-host` (ask for both — they are not guessable) |
-| Code lives on GitHub / GitLab / local | omit the Forgejo flags |
-| No Cortex (one person, one machine) | omit both; practices hand work to each other through the local server, which `provision-practice` starts if it is not running. Proposals pass automatically: there is no review gate |
-| Wants a review gate on proposals | Cortex is what adds it; omit the flags once `cortex.url` is set |
-| On the mesh | omit `--no-cortex`; `--tenant` / `--org` default from the current directory's project.yaml |
-| Fully standalone, no mailbox at all | `--no-cortex` (also skips the local server) |
-| Starts `empirica serve` themselves | `--no-local-server` (keeps the mailbox, installs no service) |
-| Runs Claude Code in a terminal | `--cockpit-profile <name>` (each practice's pane runs `claude`) |
-| Runs ecodex in a terminal | `--cockpit-profile <name> --launch ecodex` |
-| Runs both | `--cockpit-profile <name> --second-pane ecodex`: one window per practice, claude and ecodex side by side in the same directory, each with its own identity |
-| Desktop or web app only | omit `--cockpit-profile`; the cockpit is a terminal layout |
+| the template's `type` (a builder: the codebase's own type) | `--type <type>` |
+| the template's `for`, in the person's words | `--description "<sentence>"` |
+| the template's `domain` | `--domain <name>` |
+| terminal: Claude Code / ecodex / both | `--cockpit-profile <name>`, plus `--launch ecodex` or `--second-pane ecodex` |
+| desktop or web app only | no cockpit flags |
+| a model other than the harness default | `--launch "claude --model <model>"` |
 
-Each practice is also created with what the interview learned about it, so nobody has to fix it by hand afterwards:
+Tenant, org and Forgejo come from the person's sign-in and these flags, never from a protocol file. **Suggest** the
+template's `skills`; install nothing unread, and only with the person's yes for that download.
 
-| What you learned | Flag |
-|---|---|
-| What kind of practice it is | `--type <type>` (`empirica project-init --help` lists the types and what each means) |
-| What it is for, in one sentence | `--description "<sentence>"` |
-| Its domain (research, operations, consulting, marketing, docs, cybersec, ...) | `--domain <name>`; an unknown name is refused, so leave it out rather than guess |
-
-**Which model each practice runs.** Ask per practice, with the harness default as the first option: a practice
-that does heavy reasoning (research, architecture) may want a stronger model than one that runs routine operations.
-The choice rides in the launch command, and nothing else stores it:
-
-| Answer | Flag |
-|---|---|
-| Harness default | nothing to add |
-| A model in Claude Code | `--launch "claude --model <model>"` |
-| A model in ecodex | `--launch "ecodex --model <model>"`, or `--second-pane "ecodex --model <model>"` when both run |
-
-**Which skills each practice gets.** Suggest per practice, by its type, and never install anything unread:
-
-1. Installed skills that fit the practice's type: list what the harness has, propose the ones that match.
-2. Published skills: name them with their source; install only after reading every `SKILL.md` and script in them,
-   and only with the person's yes for that download. `empirica source-add --title "<skill>" --url <url>` records where each came from.
-3. Skills worth writing for this practice: create them as planned goals in it,
-   `empirica goals-create --project-id <practice> --status planned --objective "Skill: ..."`, so its own practitioner
-   writes them with the person.
-
-Where a practice's own skill goes depends on the harness that runs in it: Claude Code reads
-`<practice>/.claude/skills/<name>/SKILL.md`, ecodex reads `<practice>/.agents/skills/<name>/SKILL.md` (same format).
-A practice that runs both needs it in both places; a directory symlink from one to the other keeps one copy, so check
-in an ecodex pane that the skill appears. Neither harness gates a skill found in the repository, so reading it before
-install is the only check.
-
-**Report per practice what actually happened** — provisioned, already existed,
-or failed and why. A rollup "done!" over a partial failure is the shape this
-whole system exists to prevent.
-
-**Then hand them the cockpit.** When at least one practice was provisioned, end the
-phase with the command the last call printed, in a block they can copy:
-
-```bash
-empirica cockpit launch --profile <name>
-```
-
-The cockpit is a terminal layout, for people who run Claude Code or ecodex in a
-terminal. If they use Claude only through the desktop or web app, say so and skip it.
-Say what it does in one line (one window per practice, each starting `claude` in its
-own directory with a stable identity, plus a TUI window) and point at
-`docs/guides/COCKPIT.md` for changing it. Tell them the two things they need on day one:
-their practices are the tabs at the top, and clicking the line under any pane opens the
-cockpit's commands, with `?` for a short guide to working with practices. A practice whose
-Claude exited is restarted from that menu (or `empirica cockpit refresh`). Do not launch it
-for them: it opens their terminal.
-If no practice was provisioned, or a `cockpit-profile` step failed, say that instead
-and do not print a launch command for a profile that was not written.
-
----
+Report per practice what happened: provisioned, already existed, or failed and why. Then, when a cockpit profile was
+written, hand them the command from the last call (`empirica cockpit launch --profile <name>`), with two things for day
+one: practices are the tabs at the top, and clicking the line under any pane opens the cockpit's commands (`?` for the
+guide). Do not launch it for them.
 
 ## Output
 
-### Where to write it — ask, do not assume
+**Where:** ask, default first: `~/.empirica/workflow-protocol.yaml` (everywhere, Recommended) · this project only (it
+shadows the global one here; say so if one exists).
 
-The loader searches **project directory first, then `~/.empirica/`**. That
-ordering has a consequence worth stating out loud, because it is silent:
-
-> **A project-local protocol SHADOWS the user's global one for that project.**
-
-That is a feature when someone wants different working agreements on a client
-repo, and a trap when they meant to update their global profile and quietly
-stopped using it everywhere else.
-
-So ask, with the default first:
-
-> Where should this live? · `~/.empirica/workflow-protocol.yaml` — applies
-> everywhere (Recommended) · This project only — overrides your global protocol
-> here
-
-If they pick project-local and a global one already exists, **say what will be
-shadowed** before writing.
-
-### Shape
-
-The schema is the contract: `empirica/schemas/workflow_protocol.schema.json`
-(`https://getempirica.com/schemas/workflow-protocol/0.3.0.json`). The web onboarding interview
-returns the same shape and the installer reads it, so a field the schema does not define is
-refused rather than ignored: do not add your own. Check the file before saving with
-`empirica provision-practice --from-protocol <file> --dry-run`, which validates it first.
+**Shape:** the contract is `empirica/schemas/workflow_protocol.schema.json` (0.4.0); a field it does not define is
+refused. Omit blocks with nothing in them.
 
 ```yaml
-# Epistemic Workflow Protocol
-# Generated by EWM Interview v0.3.0 — {date}
-
-schema_version: "0.3.0"
+schema_version: "0.4.0"
 
 user_profile:
   name: "{name}"
   role: "{role}"
   created: "{date}"
-  last_updated: "{date}"
 
-goals:
-  primary:
-    - description: "{goal}"
-      success_criteria: ["{criterion}"]
-      timeline: "{timeline}"
-  secondary: ["{goal}"]
-
-domains:
-  expert: ["{domain}"]
-  learning: ["{domain}"]
-  novice: ["{domain}"]
-
-tools:
-  {category}: ["{name}"]      # e.g. code_hosting: ["github"]; lowercase category names
-
-mesh:                          # Phase 3 — omit the block entirely if standalone
-  cortex: true
-  tenant: "{tenant}"
-  org: "{org}"
-  forgejo:
-    owner: "{owner}"
-    host: "{ssh_url}"
-
-practices:                     # Phase 6 — requested here, created by provision-practice
+practices:
   - name: "{ai_id}"
-    type: "{project type}"       # one of `empirica project-init --help`'s types
+    template: "{template}"            # from practice_templates.yaml
+    reason: "{the answer it rests on}"
+    type: "{project type}"
     description: "{one sentence}"
     domain: "{domain}"
     harness: "{claude-code|ecodex|both|none}"
-    model: "{model}"             # omit for the harness default
-    skills: ["{skill}"]          # suggestions only; never installed from the protocol
-    repository: "{git url}"      # only for a shared practice repo to clone: plain https, ssh or git@
-cockpit_profile: "{name}"      # Phase 6 — `empirica cockpit launch --profile {name}`; omit if none was written
+    model: "{model}"                  # omit for the harness default
+    skills: ["{skill}"]               # suggestions only
 
 work_preferences:
   ai_autonomy_level: "{collaborative_equal_partner|collaborative_with_checkpoints|ai_first_efficiency_maximizing|full_autonomy|assistant_mode}"
@@ -325,68 +152,23 @@ work_preferences:
   pushback_style: "{direct_and_factual|gentle_reframe|socratic}"
   calibration_mode: "{single_pass|multi_round}"
   task_splitting:
-    ai_autonomous: ["{task}"]
-    ai_with_checkpoint: ["{task}"]
     human_only: ["{task}"]
 
-trust_building:
-  current_level: "{establishing|building|established|high_trust}"
-  autonomy_earned_through: ["{demonstration}"]
+goals:                                 # Deep only
+  primary:
+    - description: "{goal}"
+
+trust_building:                        # Deep only
+  current_level: establishing
   non_negotiables: ["{boundary}"]
 ```
 
-Omit blocks with nothing in them. An empty `mesh:` block is a claim that the
-mesh was considered and configured, which would be false.
-
-### Render it as an artifact
-
-Do not paste 80 lines of YAML into the conversation and ask "does this look
-right?" — nobody proofreads YAML in a terminal.
-
-Publish it with the **Artifact** tool as a readable page: the working agreement
-in prose, grouped by section, with the raw YAML at the end for anyone who wants
-it. The user gets a link they can open, keep and re-read later — and a review
-they will actually do produces corrections, which is the point.
-
-Then ask for corrections **before** writing the file, with options:
-
-> · Looks right, save it · Change my autonomy settings · Change the
-> non-negotiables · Add a goal
-
----
+**Review before saving.** Publish it as a readable page with the Artifact tool (the practices first, each with its
+reason; then how they work; the YAML at the end), and ask: Looks right, save it · Change the practices · Change how I
+work.
 
 ## After saving
 
-1. **Save** to the location chosen above.
-2. **Report** what was provisioned in Phase 6, per practice, honestly.
-3. **Log it** — `empirica finding-log` with what the protocol covers (N goals,
-   N domains, N practices provisioned).
-4. **Say how to change it** — re-run `/ewm-interview`, or edit the YAML
-   directly; it is theirs and it is plain text.
-
----
-
-## Interview discipline
-
-- **5–10 minutes, not 30.** Five `AskUserQuestion` calls. If you are on your
-  eighth, you are interviewing rather than helping.
-- **Infer before asking.** Repo languages, configured MCP servers, existing
-  `project.yaml` — every one of those is a question you do not have to ask.
-- **Never ask what you can detect.** Confirming is cheap; recalling is not.
-- **Hedging is a signal, not an answer.** "It's complicated", "kind of", "I
-  guess" is CONTEXTUAL pushback — ask a narrower question with narrower options
-  rather than accepting the vagueness into a field. Do not mirror hedged
-  language back.
-- **Hold structure against emotional pushback; update on genuine new context.**
-  Full framing in `/epistemic-persistence-protocol`.
-- Once Phase 4 captures `pushback_style`, **use it for the rest of the
-  interview.** The protocol starts applying the moment it is known.
-
-## Design principles
-
-1. **Options over blanks** — the option list teaches the field.
-2. **Detect over ask** — inference is the friction reduction that matters.
-3. **Provision, don't describe** — Phase 6 is why this exists.
-4. **Transparent** — they see it, own it, and can edit it as plain text.
-5. **Evolvable** — re-runnable, and `provision-practice` is idempotent so
-   re-running is safe.
+1. Save it; provision (Phase 5); report per practice.
+2. `empirica finding-log` with what was set up: the tier, N practices provisioned, the preset if one was used.
+3. Say how to change it: re-run `/ewm-interview`, or edit the YAML; it is theirs.

@@ -2,10 +2,10 @@
 
 # /ewm-interview — Epistemic Workflow Manager Interview
 
-**When to load:** Use when the user says '/ewm-interview', 'run EWM interview', 'create workflow protocol', 'set up my workflow', 'interview me for EWM', or wants to create a personalized AI collaboration protocol. Guided multi-choice interview that produces workflow-protocol.yaml, renders it as a clickable artifact, and offers to provision the practices it implies.
+**When to load:** Use when the user says '/ewm-interview', 'run EWM interview', 'create workflow protocol', 'set up my workflow', 'interview me for EWM', or wants to create a personalized AI collaboration protocol. A short multi-choice interview, in a depth the person picks, that finds out what work they do, proposes the practices that work needs (drafted from templates and routed like forecast predictions), captures how they want to work, writes workflow-protocol.yaml, and provisions the practices.
 
-Produce a **workflow-protocol.yaml** describing how this person wants to work with AI — then actually set up what it implies.
+Find out **what work this person does**, propose and set up **the practices that work needs**, and capture **how they want to work with AI**, in that order of importance. Write it to `workflow-protocol.yaml` and provision it.
 
-Skill `ewm-interview` · version 0.3.0 · load with `/ewm-interview` in Claude Code.
+Skill `ewm-interview` · version 0.4.0 · load with `/ewm-interview` in Claude Code.
 
 Full skill: [SKILL.md](SKILL.md)

@@ -42,3 +42,45 @@ def test_suggest_grounds_each_practice_in_an_answer_and_routes_it():
 def test_a_rare_workload_alone_is_parked():
     candidates = {c.template: c for c in pt.suggest({"outreach": "rarely"})}
     assert pt.route(candidates["outreach"]) == "park" and "coordinator" not in candidates
+
+
+def test_a_quick_interview_yields_a_protocol_that_validates_and_provisions(tmp_path, capsys):
+    """End to end for the Quick tier: workload answers -> routed practices -> a 0.4.0 protocol -> --from-protocol."""
+    import argparse
+    import json
+
+    import yaml
+
+    from empirica.cli.command_handlers import provision_practice_commands as pp
+    from empirica.core import workflow_protocol as wp
+
+    confirmed = [c for c in pt.suggest({"client_work": "often", "research": "often"}) if pt.route(c) == "confirm"]
+    spec = pt.templates()
+    protocol = {
+        "schema_version": "0.4.0",
+        "user_profile": {"name": "Ada"},
+        "practices": [
+            {"name": f"ada-{c.template}", "template": c.template, "reason": c.reason, "type": spec[c.template]["type"],
+             "domain": spec[c.template]["domain"], "description": spec[c.template]["for"][:300], "harness": "claude-code"}
+            for c in confirmed
+        ],
+        "work_preferences": {"ai_autonomy_level": "collaborative_equal_partner"},
+    }  # fmt: skip
+    assert wp.validate(protocol) == []
+    assert {p["template"] for p in protocol["practices"]} == {"engagement", "research", "coordinator", "support"}
+    path = tmp_path / "workflow-protocol.yaml"
+    path.write_text(yaml.safe_dump(protocol))
+    seen = []
+
+    def provision(ns):
+        seen.append(ns.name)
+        print(json.dumps({"ok": True, "name": ns.name, "steps": []}))
+        return 0
+
+    args = argparse.Namespace(
+        name=None, from_protocol=str(path), only=None, base_path=str(tmp_path / "p"), type=None, description=None,
+        domain=None, tenant=None, org=None, substrate=None, forgejo_owner=None, forgejo_host=None, no_cortex=True,
+        cockpit_profile=None, launch=None, resume=None, second_pane=None, no_local_server=True, dry_run=True, output="json",
+    )  # fmt: skip
+    assert pp._provision_from_protocol(args, provision=provision) == 0
+    assert sorted(seen) == sorted(p["name"] for p in protocol["practices"])
