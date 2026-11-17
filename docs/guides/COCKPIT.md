@@ -157,8 +157,10 @@ routine actions do not need a command line.
 ── waiting: approve Bash  ☰ commands  R restart  A refresh 1  M mail 2  C claude  L login  ? help ──
 ```
 
-The top line is your practices, with whatever your tmux `status-right` already shows on the
-right. A red ✗ on a practice means a pane in it has stopped; an orange `!` means a pane in it is
+The top line is your practices, with a health readout on the right: whether Cortex and this
+machine's Empirica service (`serve`) answer, the load, and how full the disk is, then the time. The
+background refresh computes it, never the status tick. A machine whose tmux `status-right` runs its
+own script (`#(...)`) keeps that readout instead. A red ✗ on a practice means a pane in it has stopped; an orange `!` means a pane in it is
 waiting on you. When the practices do not fit, the right-hand readout moves to a second line at the top.
 
 **Waiting on you.** When Claude Code in a pane shows a permission dialog or asks a question, the
@@ -209,9 +211,10 @@ What `U`, `C` and `S` run, in order of precedence:
      C: claude update
    ```
 
-3. a built-in: `claude update` for `C`, and for `S` a restart of every practice pane with its
-   conversation resumed. `U` has no built-in, because the right update command depends on how
-   Empirica was installed; pressing it says which key to set.
+3. a built-in: `claude update` for `C`; for `S` a restart of every practice pane with its
+   conversation resumed; for `U` the upgrade that matches how Empirica was installed (`pipx upgrade`,
+   `brew upgrade` or `pip install --upgrade`, then `setup-claude-code --force`). A source checkout has
+   none: `U` says to update it with git.
 
 Where the colours come from:
 

@@ -682,8 +682,9 @@ def test_update_without_a_command_names_the_config_key_and_with_one_runs_it_in_i
     monkeypatch.setattr(bar, "read_ecosystem_state", dict)
     cfg, config_path = _cockpit(tmux_env, "c3")
     bar.install(cfg, "c3", config_path=config_path, profile=None)
+    monkeypatch.setattr(bar, "default_update_command", lambda **_k: "")  # as in a source checkout: no built-in upgrade
     bar.run_chip("U", "c3", None, None)
-    assert said and "bar_commands" in said[0]
+    assert said and "source checkout" in said[0]  # names the way to update it, not a config file (goal 8da5f220)
 
     cfg2, path2 = _cockpit(tmux_env, "c4", names=("gamma", "delta"), bar_commands={"U": "sleep 600"})
     bar.install(cfg2, "c4", config_path=path2, profile=None)

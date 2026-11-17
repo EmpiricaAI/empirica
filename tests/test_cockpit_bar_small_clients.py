@@ -38,3 +38,59 @@ def test_a_failed_window_command_stays_on_screen(monkeypatch):
     bar._window("s", "update", "false")
     shown = calls[-1][-1]
     assert "FAILED" in shown and "read -r" in shown and "rc -eq 0" in shown
+
+
+def test_core_computes_a_health_readout(monkeypatch, tmp_path):
+    """David 2026-11-17: a client's fresh machine showed only its name and the time; core ships the readout."""
+    from empirica.config import credentials_loader as cl
+
+    monkeypatch.setattr(
+        cl, "get_credentials_loader", lambda: SimpleNamespace(get_cortex_config=lambda: {"url": "https://c.test"})
+    )
+    asked = []
+    text = bar.health_readout(answers=lambda url: asked.append(url) or "c.test" in url)
+    assert asked[0] == "https://c.test/health" and "/health" in asked[1]
+    assert "#[fg=colour2]cortex●" in text and "serve●" in text and "disk " in text
+
+
+def test_the_bar_shows_core_health_unless_the_machine_runs_its_own(monkeypatch):
+    assert "@empirica_health" in bar.health_format() and "status-right" in bar.health_format()
+    monkeypatch.setattr(bar, "_tmux", lambda *a: SimpleNamespace(stdout="#(~/status-line.sh) %H:%M\n", returncode=0))
+    assert bar._machine_has_own_readout() is True
+    monkeypatch.setattr(
+        bar, "_tmux", lambda *a: SimpleNamespace(stdout='"#{=21:pane_title}" %H:%M %d-%b-%y\n', returncode=0)
+    )
+    assert bar._machine_has_own_readout() is False
+
+
+def test_layout_is_redone_on_resize_and_new_windows(monkeypatch):
+    calls = []
+    monkeypatch.setattr(bar, "_tmux", lambda *a: calls.append(a) or SimpleNamespace(stdout="", returncode=0))
+    monkeypatch.setattr(bar, "cockpit_session_exists", lambda _s: True)
+    monkeypatch.setattr(bar, "layout", lambda _s: 2)
+    monkeypatch.setattr(bar, "install_bindings", lambda mouse=True: {})
+    bar.install(SimpleNamespace(bar=True, mouse=True), "cock", config_path=None, profile=None)
+    hooks = {c[3]: c[4] for c in calls if c[0] == "set-hook"}
+    assert set(hooks) == {"client-resized", "after-new-window", "client-attached"}
+    assert all(" layout " in h and h.startswith("run-shell -b") for h in hooks.values())
+
+
+def test_u_defaults_to_the_upgrade_that_matches_the_install(tmp_path):
+    """David 2026-11-17: with nothing configured, U told a browser user to edit a config file."""
+
+    def installed(*parts):
+        f = tmp_path.joinpath(*parts, "empirica", "core", "cockpit", "bar.py")
+        f.parent.mkdir(parents=True)
+        f.write_text("")
+        return str(f)
+
+    pipx = bar.default_update_command(package_file=installed("pipx", "venvs", "empirica", "lib", "site-packages"))
+    assert pipx.startswith("pipx upgrade empirica && ") and pipx.endswith("setup-claude-code --force")
+    pip = bar.default_update_command(package_file=installed("venv", "lib", "site-packages"), executable="/v/bin/python")
+    assert pip.startswith("/v/bin/python -m pip install --upgrade empirica && ")
+    checkout = tmp_path / "src"
+    (checkout / ".git").mkdir(parents=True)
+    f = checkout / "empirica" / "core" / "cockpit" / "bar.py"
+    f.parent.mkdir(parents=True)
+    f.write_text("")
+    assert bar.default_update_command(package_file=str(f)) == ""  # a source checkout updates by git

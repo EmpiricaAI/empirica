@@ -19,8 +19,8 @@ How it is put together:
 * **Popups.** Help and inbox open in a viewer with Close, up and down buttons (bar_pager.py). Login and the machine commands run in
   a window of their own, where their output can be read and their tab is the way out.
 * **Machine commands.** U, C and S run what `~/.empirica/ecosystem-state.json` names, else the cockpit config's `bar_commands`,
-  else a built-in: `claude update` for C, and for S a restart of every practice pane with its conversation resumed. U has no
-  built-in, because the right update command depends on how Empirica was installed.
+  else a built-in: `claude update` for C; for S a restart of every practice pane with its conversation resumed; for U the
+  upgrade matching how Empirica was installed (pipx, Homebrew or pip), none for a source checkout, which updates by git.
 
 Run as a module by the bindings: ``python -m empirica.core.cockpit.bar chip R --session S --pane %3 --client /dev/pts/1``.
 """
@@ -141,8 +141,56 @@ def tabs_format() -> str:
 
 
 def health_format() -> str:
-    """Whatever this machine's `status-right` already shows, so its readout and click targets carry over."""
-    return "#[align=right]#{E:status-right}"
+    """The health readout core computes (``@empirica_health``, set by the background refresh) and the time; or, where it is
+    not set because this machine's `status-right` runs its own readout, that `status-right` with its click targets."""
+    return "#[align=right]#{?#{@empirica_health},#{@empirica_health}#[default] %H:%M,#{E:status-right}}"
+
+
+def _answers(url: str, timeout: float = 2.0) -> bool:
+    """Whether ``url`` answers with a 2xx within ``timeout`` seconds."""
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:  # our own Cortex and local server
+            return 200 <= resp.status < 300
+    except Exception:
+        return False
+
+
+def health_readout(*, answers=_answers) -> str:
+    """Cortex and the local server reachable, load and disk, as tmux-styled text (goal 8da5f220, David 2026-11-17: a fresh
+    machine showed only its name and the time). Computed in the detached refresh, never on the status tick."""
+    import shutil
+
+    from empirica.core.mesh_endpoint import local_server_url
+
+    green, red, yellow, grey = "#[fg=colour2]", "#[fg=colour1]", "#[fg=colour3]", "#[fg=colour8]"
+    parts = []
+    try:
+        from empirica.config.credentials_loader import get_credentials_loader
+
+        cortex = (get_credentials_loader().get_cortex_config() or {}).get("url")
+    except Exception:
+        cortex = None
+    if cortex:
+        parts.append(f"{green if answers(cortex.rstrip('/') + '/health') else red}cortex●")
+    parts.append(f"{green if answers(local_server_url() + '/health') else grey}serve●")
+    try:
+        parts.append(f"{grey}load {os.getloadavg()[0]:.1f}")
+    except (OSError, AttributeError):
+        pass
+    try:
+        usage = shutil.disk_usage(Path.home())
+        pct = round(100 * usage.used / usage.total)
+        parts.append(f"{red if pct >= 85 else yellow if pct >= 70 else grey}disk {pct}")
+    except OSError:
+        pass
+    return " ".join(parts)
+
+
+def _machine_has_own_readout() -> bool:
+    """A `status-right` that runs a script (mesh-support's status-line.sh, a tmux plugin) is kept as it is."""
+    return "#(" in _tmux("show-options", "-gv", "status-right").stdout
 
 
 def _self_command() -> str:
@@ -428,6 +476,11 @@ def install(
     ):
         _tmux("set-option", "-t", target, name, value)
     lines = layout(session_name)
+    # Whether health needs a line of its own is decided again when the window is resized or a window is added, not only at
+    # the next refresh (goal 8da5f220 gap check).
+    relayout = f"run-shell -b {_dq(_self_command() + ' layout ' + shlex.quote(session_name))}"
+    for hook in ("client-resized", "after-new-window", "client-attached"):
+        _tmux("set-hook", "-t", target, hook, relayout)
     bindings = install_bindings(mouse=config.mouse)
     return {"installed": True, "lines": lines, **bindings}
 
@@ -725,6 +778,7 @@ def refresh_state(
     with ThreadPoolExecutor(max_workers=8) as pool:
         chips = dict(pool.map(one, paths))
     machine = read_ecosystem_state()
+    _set_option("-q", target, "@empirica_health", "" if _machine_has_own_readout() else health_readout())
     for window_id in windows:
         for chip in "UCSL":
             entry = machine.get(chip, {})
@@ -836,7 +890,25 @@ def machine_command(key: str, config: LauncherConfig | None) -> str:
     fix = read_ecosystem_state().get(key, {}).get("fix", "")
     if not fix and config is not None:
         fix = getattr(config, "bar_commands", {}).get(key, "")
-    return fix or _BUILT_IN_COMMANDS.get(key, "")
+    return fix or _BUILT_IN_COMMANDS.get(key, "") or (default_update_command() if key == "U" else "")
+
+
+def default_update_command(*, package_file: str | None = None, executable: str | None = None) -> str:
+    """U's built-in: the upgrade that matches how Empirica was installed here, then the deploy step (David 2026-11-17: with
+    nothing configured, U sent a browser user to edit a config file). Empty for a source checkout, which updates by git."""
+    import shutil
+
+    location = os.path.realpath(package_file or __file__)
+    python = executable or sys.executable
+    root = Path(location).parents[3]  # .../empirica/core/cockpit/bar.py -> the directory holding the package
+    if (root / ".git").exists() or (root / "pyproject.toml").exists():
+        return ""  # running from a source checkout: an upgrade from PyPI would not touch it
+    deploy = f"{shlex.quote(shutil.which('empirica') or 'empirica')} setup-claude-code --force"
+    if "/pipx/venvs/" in location:
+        return f"pipx upgrade empirica && {deploy}"
+    if "/Cellar/" in location or "/homebrew/" in location.lower():
+        return f"brew upgrade empirica && {deploy}"
+    return f"{shlex.quote(python)} -m pip install --upgrade empirica && {deploy}"
 
 
 def _command_digest(command: str) -> str:
@@ -874,11 +946,14 @@ def _machine_action(
     config = _config_of(session)
     command = machine_command(key, config)
     if not command and key != "S":
-        _say(
-            client,
-            f"{key}: no command is set for this on this machine. Add it to the cockpit config: bar_commands: {{{key}: '...'}}",
-            ms=9000,
+        text = (
+            "Empirica runs from a source checkout here: update it with git pull in that checkout, then empirica "
+            "setup-claude-code --force"
+            if key == "U"
+            else f"{key}: no command is set for this on this machine. Add it to the cockpit config: bar_commands: "
+            f"{{{key}: '...'}}"
         )
+        _say(client, text, ms=9000)
         return
     shown = command or "restart every practice pane with its conversation resumed"
     if not confirmed or expect != _command_digest(shown):
@@ -943,7 +1018,12 @@ def main(argv: list[str] | None = None) -> int:
     tick.add_argument("session")
     tick.add_argument("--state-dir")
     sub.add_parser("help-view")
+    relayout = sub.add_parser("layout")
+    relayout.add_argument("session")
     args = parser.parse_args(argv)
+    if args.verb == "layout":
+        layout(args.session)
+        return 0
     if args.verb == "tick":
         refresh_state(args.session, state_dir=Path(args.state_dir) if args.state_dir else None)
         return 0

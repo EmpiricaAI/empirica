@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The cockpit bar shows a health readout of its own**: whether Cortex and the local server answer, the load and the disk, computed in the background refresh. A machine whose tmux status line runs its own script keeps it. The readout's line is re-decided when the window is resized or a window is added.
+- **The cockpit's update command works without configuration**: it runs the upgrade that matches how Empirica was installed (pipx, Homebrew or pip), then redeploys; on a source checkout it says to update with git.
 - **`remote_control: true` in a cockpit profile** starts each claude pane with `--remote-control <practice>`, so the sessions are told apart in the Claude app on a phone; without a name given at connect time they all read "Remote control". The cockpit guide also explains `/remote-control <name>` and now answers its three open questions (paste shortcuts, the extension's buttons, the status line's symbols).
 
 ## [1.17.6] - 2026-11-17
