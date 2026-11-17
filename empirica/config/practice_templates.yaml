@@ -1,0 +1,100 @@
+# Practice templates and cockpit presets for onboarding (goal e8c47635, David 2026-11-17).
+#
+# A template is a kind of practice a person's work tends to need: what it is for, its project type (one of
+# `empirica project-init --help`'s types), the domain file it starts from, the skills worth suggesting, and which work
+# kinds (the interview's workload answers) make it likely. /ewm-interview drafts practices from these as predictions,
+# and a preset is a ready composition of templates a person can start from and adjust.
+#
+# Read by empirica.core.practice_templates; tests pin every type, domain and skill to what exists.
+
+workloads:
+  build_software: Building or maintaining software
+  research: Research and synthesis
+  writing: Writing and content
+  outreach: Outreach and sales
+  client_work: Client or consulting engagements
+  operations: Operations and infrastructure
+  data: Data and analysis
+
+templates:
+  coordinator:
+    title: Coordinator
+    for: plans across your other practices, hands each its part, and follows up
+    type: operations
+    domain: operations
+    skills: [empirica:forecast]
+    suggested_by: []          # suggested whenever there are two or more other practices
+  support:
+    title: System support
+    for: "looks after your machine and tools: installs, updates, backups, finding what broke"
+    type: infrastructure
+    domain: operations
+    skills: []
+    suggested_by: []          # suggested for everyone; cheap, and every setup needs it
+  research:
+    title: Research
+    for: investigates questions and keeps what it learns for your other practices to find
+    type: research
+    domain: research
+    skills: [empirica:forecast]
+    suggested_by: [research, data]
+  builder:
+    title: Builder
+    for: builds and maintains one codebase or product; one practice per codebase
+    type: service             # the interview sets web-app, cli, library, service... per codebase
+    domain: default
+    skills: [empirica:pre-publish, empirica:code-audit]
+    suggested_by: [build_software]
+  writer:
+    title: Writing
+    for: drafts, edits and fact-checks documents, posts and reports
+    type: content
+    domain: docs
+    skills: [empirica:epistemic-editing]
+    suggested_by: [writing]
+  outreach:
+    title: Outreach
+    for: prospects, follow-ups and campaigns, with every message waiting for your approval
+    type: content
+    domain: marketing
+    skills: []
+    suggested_by: [outreach]
+  engagement:
+    title: Client engagement
+    for: one client's work, kept apart from everything else; one practice per client
+    type: engagement
+    domain: consulting
+    skills: [empirica:epistemic-editing]
+    suggested_by: [client_work]
+  operations:
+    title: Operations
+    for: runs and watches live systems and servers, including ones on other machines
+    type: operations
+    domain: remote-ops
+    skills: []
+    suggested_by: [operations]
+  analyst:
+    title: Analysis
+    for: "works with your data: pipelines, analyses and the reports that come out of them"
+    type: data
+    domain: research
+    skills: []
+    suggested_by: [data]
+
+presets:
+  solo-builder:
+    title: Solo builder
+    for: one person shipping software
+    templates: [builder, research, support]
+  researcher:
+    title: Researcher
+    for: questions in, findings and write-ups out
+    templates: [research, writer, coordinator, support]
+  consultant:
+    title: Consultant
+    for: client engagements backed by research and writing
+    templates: [engagement, research, writer, coordinator, support]
+  small-team:
+    title: Small team
+    for: a product with live systems and someone coordinating the work
+    templates: [builder, operations, coordinator, support]
