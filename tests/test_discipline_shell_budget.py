@@ -122,3 +122,20 @@ def test_ordinary_reads_are_reads(command, tmp_path):
 )
 def test_hidden_or_download_changes_are_not_reads(command, tmp_path):
     assert not _judge(command, tmp_path).get("read"), command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep '`' f",
+        "echo 'a`b'",
+        "grep -c '$(' f",
+        "wget -qO - https://x.test/f",
+        "wget --output-document=- https://x.test/f",
+        "curl -sLo /dev/null https://x.test/f",
+        "curl -s -o /dev/null -w '%{http_code}' https://x.test/f",
+    ],
+)
+def test_second_pass_reads_stay_reads(command, tmp_path):
+    verdict = _judge(command, tmp_path)
+    assert verdict["trivial"] and verdict.get("read") is True, (command, verdict)

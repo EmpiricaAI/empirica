@@ -258,9 +258,8 @@ def _drop_oauth_block(loader, slot: str | None = None) -> Path | None:
     else byte-for-byte at the data level (same atomic write as the savers). Returns the file changed, or None when
     nothing was dropped.
 
-    The file is the one the loader READS (``_find_config_file``), not the save target: the save target follows
-    EMPIRICA_CREDENTIALS_PATH even when that file does not exist, while reads fall back to ~/.empirica, so a drop written
-    there left the sign-in in place (goal 5f3adb52)."""
+    The file is the one the loader READS (``_find_config_file``): with nothing to read there is nothing to drop, and a
+    drop must never create a file (goal 5f3adb52)."""
     target = loader._find_config_file()
     if target is None:
         return None

@@ -730,28 +730,7 @@ def _classify_statement(
         verbs = set(_positional(args)[:2])
         return ({"install"} if verbs & _PACKAGE_VERBS else {"unknown"}), True
     if program in ("curl", "wget"):
-        found = _curl(program, args)
-        out_flags = ("-o", "--output", "-O", "--output-document") if program == "curl" else ("-O", "--output-document")
-        if (
-            program == "wget"
-            and not any(a in ("--spider", "-O-", "-qO-") for a in args)
-            and not any(
-                a in ("-O", "--output-document") and i + 1 < len(args) and args[i + 1] == "-"
-                for i, a in enumerate(args)
-            )
-        ):
-            found |= {"project_write"} if cwd and project_path else {"outside_write"}  # wget saves a file by default
-        for a in args:  # a clustered -LO / -sSLo writes a file too (goal 33ffc93c)
-            if program == "curl" and re.fullmatch(r"-[sSLfkvqiIg#]*[oO][sSLfkvqiIg#]*", a) and a not in ("-o", "-O"):
-                found |= {"project_write"} if cwd and project_path else {"outside_write"}
-        for i, a in enumerate(args):  # a download written to a file is a write, not a read (goal e6ee7d01)
-            if a in out_flags and i + 1 < len(args) and not args[i + 1].startswith("-"):
-                found |= _paths_written("tee", [args[i + 1]], cwd, project_path)
-            elif a.startswith("--output=") or a.startswith("--output-document="):
-                found |= _paths_written("tee", [a.split("=", 1)[1]], cwd, project_path)
-            elif program == "curl" and a in ("-O", "--remote-name", "--remote-name-all"):
-                found |= {"project_write"} if cwd and project_path else {"outside_write"}
-        return found, True
+        return _curl(program, args) | _download_writes(program, args, cwd, project_path), True
     return _classify_other(program, args, cwd, project_path, empirica_is_read)
 
 
@@ -825,6 +804,39 @@ def _read_shaped(program: str, args: list[str], cwd: str | None, project_path: s
     return set(), True
 
 
+def _download_writes(program: str, args: list[str], cwd: str | None, project_path: str | None) -> set[str]:
+    """The files a curl or wget command saves: a download written to a file is a write, not a read."""
+    found: set[str] = set()
+    out_flags = ("-o", "--output", "-O", "--output-document") if program == "curl" else ("-O", "--output-document")
+    here = {"project_write"} if cwd and project_path else {"outside_write"}
+    if program == "wget" and "--spider" not in args and not _wget_to_stdout(args):
+        found |= here  # wget saves a file by default (goal 33ffc93c)
+    for i, a in enumerate(args):  # a clustered -sSLo <path> / -LO writes a file too (goal 33ffc93c)
+        cluster = re.fullmatch(r"-[sSLfkvqiIg]*([oO])", a) if program == "curl" and a not in ("-o", "-O") else None
+        if cluster and cluster.group(1) == "O":
+            found |= here  # the remote file's name, in the working directory
+        elif cluster and i + 1 < len(args) and args[i + 1] not in ("/dev/null", "-"):
+            found |= _paths_written("tee", [args[i + 1]], cwd, project_path)
+    for i, a in enumerate(args):  # a download written to a file is a write, not a read (goal e6ee7d01)
+        if a in out_flags and i + 1 < len(args) and not args[i + 1].startswith("-") and args[i + 1] != "/dev/null":
+            found |= _paths_written("tee", [args[i + 1]], cwd, project_path)
+        elif a.startswith("--output=") or a.startswith("--output-document="):
+            found |= _paths_written("tee", [a.split("=", 1)[1]], cwd, project_path)
+        elif program == "curl" and a in ("-O", "--remote-name", "--remote-name-all"):
+            found |= {"project_write"} if cwd and project_path else {"outside_write"}
+    return found
+
+
+def _wget_to_stdout(args: list[str]) -> bool:
+    """wget writing to stdout (-O -, -qO-, -qO -, --output-document=-) saves no file."""
+    for i, a in enumerate(args):
+        if a in ("--output-document=-",) or re.fullmatch(r"-[a-zA-Z]*O-", a):
+            return True
+        if (a == "--output-document" or re.fullmatch(r"-[a-zA-Z]*O", a)) and i + 1 < len(args) and args[i + 1] == "-":
+            return True
+    return False
+
+
 def infer_shell_effects(command: str, *, cwd: str | None, project_path: str | None, empirica_is_read) -> dict:
     """{"classes": sorted inferred classes, "reliable": whether the text can settle it}. ``empirica_is_read`` answers
     whether an ``empirica <verb>`` only reads (the gate passes its own is_read_shaped_empirica_verb)."""
@@ -840,7 +852,10 @@ def infer_shell_effects(command: str, *, cwd: str | None, project_path: str | No
         classes |= set(found["classes"])
         reliable = reliable and found["reliable"]
     flattened = _SUBSTITUTION.sub(" x ", text)
-    if "$(" in flattened or "`" in flattened:
+    unquoted = re.sub(
+        r"'[^']*'", "", flattened
+    )  # single-quoted text is literal: grep '`' f is a search, not a substitution
+    if "$(" in unquoted or "`" in unquoted:
         classes.add("unknown")  # nested, or containing parentheses: its command cannot be read (goal 33ffc93c)
         reliable = False
     statements = _statements(flattened)
