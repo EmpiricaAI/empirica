@@ -43,8 +43,9 @@ Falls back to erroring with a clear message if neither is available.
         metavar="FILE",
         help="Provision the practices a workflow protocol lists (as /ewm-interview or the web onboarding writes it, "
         "schema workflow-protocol 0.3.0) instead of NAME. The file is validated first and nothing runs when it is "
-        "invalid. Each practice gets its own type, description, domain, harness and model; the protocol's mesh block "
-        "and cockpit profile apply unless given here. Suggested skills are listed, never installed",
+        "invalid. Each practice gets its own type, description, domain, harness and model. Tenant, org, Forgejo and "
+        "the cockpit profile come from this command's flags and the sign-in, never from the file: a profile requests "
+        "practices, it grants nothing. Suggested skills are listed, never installed",
     )
     p.add_argument(
         "--only",

@@ -61,7 +61,7 @@
       "additionalProperties": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 100}}
     },
     "mesh": {
-      "description": "Present only when the person is on an Empirica Cortex mesh.",
+      "description": "Present only when the person is on an Empirica Cortex mesh. A record of what the terminal interview found: provisioning takes tenant, org and Forgejo from the sign-in and its own flags, never from a protocol, and the web interview never emits it.",
       "type": "object",
       "additionalProperties": false,
       "required": ["cortex"],
@@ -123,9 +123,9 @@
             "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9:_-]{0,79}$"}
           },
           "repository": {
-            "description": "An existing shared practice repo to clone instead of creating a new practice.",
+            "description": "An existing shared practice repo to clone instead of creating a new practice: a plain https, ssh or git@ URL of inert characters, with no password, query or fragment (the rule cortex enforces).",
             "type": "string",
-            "pattern": "^(ssh://|https://|git@)[^\\s]+$",
+            "pattern": "^(https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?/[A-Za-z0-9._~/%+=-]+|ssh://([A-Za-z0-9._-]+@)?[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?/[A-Za-z0-9._~/%+=-]+|git@[A-Za-z0-9][A-Za-z0-9.-]*:[A-Za-z0-9._~/%+=-]+)$",
             "maxLength": 300
           },
           "provisioned": {"description": "Set by provisioning, never by the interview.", "type": "boolean"}
@@ -133,7 +133,7 @@
       }
     },
     "cockpit_profile": {
-      "description": "The cockpit layout the practices are added to (`empirica cockpit launch --profile <name>`).",
+      "description": "The cockpit layout the terminal interview set up (`empirica cockpit launch --profile <name>`). A record only: provisioning takes the profile from its own flag.",
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9_-]{0,39}$"
     },

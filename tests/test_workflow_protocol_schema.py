@@ -139,3 +139,25 @@ def test_an_unreadable_file_is_a_problem_not_a_crash(tmp_path):
 def test_the_schema_ships_in_the_package():
     data = tomllib.loads((_ROOT / "pyproject.toml").read_text())
     assert "schemas/*.json" in data["tool"]["setuptools"]["package-data"]["empirica"]
+
+
+@pytest.mark.parametrize(
+    "url, ok",
+    [
+        ("https://git.example.com/acme/app.git", True),
+        ("ssh://git@git.example.com:2222/acme/app.git", True),
+        ("git@github.com:acme/app.git", True),
+        ("https://user:secret@git.example.com/acme/app.git", False),  # a password in the URL
+        ("https://git.example.com/acme/app.git?x=1", False),
+        ("https://git.example.com/acme/app.git#frag", False),
+        ("ssh://-oProxyCommand=evil/x", False),  # a leading-hyphen host
+        ("https://git.example.com/acme/$(id).git", False),
+        ("git@github.com:acme/app.git;rm -rf ~", False),
+        ("file:///etc/passwd", False),
+    ],
+)
+def test_a_repository_is_a_plain_url_of_inert_characters(url, ok):
+    """Cortex's rule, mirrored so the terminal path and cortex agree (prop_npmgug5zcja6pgvpco5vaiqunm)."""
+    doc = copy.deepcopy(FULL)
+    doc["practices"][1]["repository"] = url
+    assert (wp.validate(doc) == []) is ok, url

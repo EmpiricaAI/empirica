@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **A versioned schema for the workflow protocol.** `empirica/schemas/workflow_protocol.schema.json` (`https://getempirica.com/schemas/workflow-protocol/0.3.0.json`) defines one person's `workflow-protocol.yaml`: closed, with fixed values for the working-style fields, and a required `schema_version`. Each practice can now carry its harness, model, suggested skills and a shared repository to clone. `/ewm-interview` writes 0.3.0.
-- **`empirica provision-practice --from-protocol <file>`** provisions the practices a protocol lists, after validating it (`--only <name>` to pick, `--dry-run` to preview). Suggested skills are listed, never installed. A cloned shared repo keeps your seat in your own clone.
+- **`empirica provision-practice --from-protocol <file>`** provisions the practices a protocol lists, after validating it (`--only <name>` to pick, `--dry-run` to preview). Tenant, org, Forgejo and the cockpit profile come from the command's flags and your sign-in, never from the file. Suggested skills are listed, never installed. A shared repo is cloned only from a plain https, ssh or git@ URL, and keeps your seat in your own clone.
 
 ## [1.17.4] - 2026-11-17
 

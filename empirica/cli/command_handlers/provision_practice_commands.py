@@ -863,14 +863,18 @@ def _pane_commands(practice: dict) -> tuple[str | None, str | None, bool]:
     return with_model("claude"), None, True
 
 
-def _practice_args(args, protocol: dict, practice: dict):
-    """The provision-practice arguments for one protocol practice: the practice's own fields, then this command's flags,
-    then the protocol's mesh block and cockpit profile."""
+#: Protocol fields that say where and as whom practices are set up. A stored profile is written by a person, so these come
+#: from this command's flags and the sign-in, never from the file (cortex, prop_npmgug5zcja6pgvpco5vaiqunm): a profile
+#: requests practices, it grants nothing.
+_INFRASTRUCTURE_FIELDS = ("mesh", "cockpit_profile")
+
+
+def _practice_args(args, practice: dict):
+    """The provision-practice arguments for one protocol practice: the practice's own fields, then this command's flags.
+    Tenant, org, Forgejo and the cockpit profile are this command's alone."""
     import argparse
 
-    mesh = protocol.get("mesh") or {}
-    forgejo = mesh.get("forgejo") or {}
-    profile = getattr(args, "cockpit_profile", None) or protocol.get("cockpit_profile")
+    profile = getattr(args, "cockpit_profile", None)
     launch, second, wants_pane = _pane_commands(practice)
     values = dict(vars(args))
     values.update(
@@ -881,10 +885,6 @@ def _practice_args(args, protocol: dict, practice: dict):
         type=practice.get("type") or getattr(args, "type", None),
         description=practice.get("description") or getattr(args, "description", None),
         domain=practice.get("domain") or getattr(args, "domain", None),
-        tenant=getattr(args, "tenant", None) or mesh.get("tenant"),
-        org=getattr(args, "org", None) or mesh.get("org"),
-        forgejo_owner=getattr(args, "forgejo_owner", None) or forgejo.get("owner"),
-        forgejo_host=getattr(args, "forgejo_host", None) or forgejo.get("host"),
         cockpit_profile=profile if wants_pane else None,
         launch=launch if (profile and wants_pane) else None,
         second_pane=second if (profile and wants_pane) else None,
@@ -954,7 +954,7 @@ def _provision_from_protocol(args, provision=None) -> int:
             continue
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer):
-            code = provision(_practice_args(args, protocol, practice))
+            code = provision(_practice_args(args, practice))
         payload: dict
         try:
             payload = json.loads(buffer.getvalue())
@@ -971,7 +971,14 @@ def _provision_from_protocol(args, provision=None) -> int:
     if output == "json":
         print(
             json.dumps(
-                {"ok": ok, "dry_run": dry_run, "protocol": str(args.from_protocol), "practices": results}, indent=2
+                {
+                    "ok": ok,
+                    "dry_run": dry_run,
+                    "protocol": str(args.from_protocol),
+                    "practices": results,
+                    "ignored_from_protocol": [f for f in _INFRASTRUCTURE_FIELDS if f in protocol],
+                },
+                indent=2,
             )
         )
     else:

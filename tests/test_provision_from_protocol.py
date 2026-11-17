@@ -55,19 +55,27 @@ def _run(tmp_path, capsys, **kw):
     return code, json.loads(capsys.readouterr().out), {ns.name: ns for ns in seen}
 
 
-def test_each_practice_gets_its_own_fields_and_the_protocols_mesh(tmp_path, capsys):
-    code, out, seen = _run(tmp_path, capsys)
+def test_each_practice_gets_its_own_fields_and_never_the_protocols_infrastructure(tmp_path, capsys):
+    """A stored profile is person-written: tenant, org, Forgejo and the cockpit profile come from this command's flags or
+    the sign-in, never from the file (cortex, prop_npmgug5zcja6pgvpco5vaiqunm)."""
+    code, out, seen = _run(tmp_path, capsys, cockpit_profile="ada")
     assert (
         code == 0 and out["ok"] and [p["name"] for p in out["practices"]] == [p["name"] for p in PROTOCOL["practices"]]
     )
     coord = seen["ada-coordinator"]
-    assert (coord.type, coord.domain, coord.tenant, coord.org) == ("operations", "operations", "ada", "acme")
-    assert (coord.forgejo_owner, coord.forgejo_host, coord.cockpit_profile) == ("ada", "ssh://git@h:2222", "ada")
+    assert (coord.type, coord.domain) == ("operations", "operations")
+    assert (coord.tenant, coord.org, coord.forgejo_owner, coord.forgejo_host) == (None, None, None, None)
     assert coord.launch is None and coord.second_pane is None  # claude, the default pane
+    assert set(out["ignored_from_protocol"]) == {"mesh", "cockpit_profile"}
     app = seen["acme-app"]
     assert (app.launch, app.second_pane) == ("claude --model claude-opus-5-5", "ecodex")
     assert seen["ada-codex"].launch == "ecodex --model gpt-x"
     assert seen["ada-notes"].cockpit_profile is None and seen["ada-notes"].launch is None  # desktop or web only
+
+
+def test_without_a_cockpit_flag_no_pane_is_added(tmp_path, capsys):
+    _, _, seen = _run(tmp_path, capsys)
+    assert all(ns.cockpit_profile is None and ns.launch is None for ns in seen.values())
 
 
 def test_skills_are_listed_never_installed(tmp_path, capsys):
