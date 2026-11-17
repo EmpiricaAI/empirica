@@ -435,6 +435,12 @@ _LEADING_KEYWORDS = {"do", "then", "else", "elif", "if", "while", "until", "!", 
 _SKIPPED_STATEMENTS = {"done", "fi", "esac", "}", ")", "for", "select"}
 
 
+def _literal_masked(text: str) -> str:
+    """``text`` with its single-quoted parts emptied and backslash-escaped ``$`` and backticks neutralised: what is left
+    is where the shell substitutes (goal f2ab8424)."""
+    return re.sub(r"\\[$`]", "_", re.sub(r"'[^']*'", "''", text))
+
+
 def _without_keywords(words: list[str]) -> list[str]:
     """``words`` with leading shell keywords removed; [] for a statement that only opens or closes a block (``for x in a
     b``, ``done``, ``fi``), which runs nothing by itself."""
@@ -463,6 +469,8 @@ def _ssh_remote_command(args: list[str]) -> str:
             continue
         break
     rest = args[i + 1 :] if i < len(args) else []  # args[i] is the host
+    if rest[:1] == ["--"]:
+        rest = rest[1:]  # `ssh host -- ls`
     return " ".join(rest)
 
 
@@ -471,13 +479,18 @@ def _statements(command: str) -> list[list[str]] | None:
     try:
         lexer = shlex.shlex(command.replace("\n", " ; "), posix=True, punctuation_chars=True)
         lexer.whitespace_split = True
+        lexer.commenters = ""  # bash starts a comment only at the start of a word: `curl -#O` has none (goal f2ab8424)
         tokens = list(lexer)
     except ValueError:
         return None
     out: list[list[str]] = [[]]
+    in_comment = False
     for token in tokens:
         if token in _SEPARATORS:
             out.append([])
+            in_comment = False
+        elif in_comment or token.startswith("#"):
+            in_comment = True
         else:
             out[-1].append(token)
     return [s for s in out if s]
@@ -820,7 +833,7 @@ def _download_writes(program: str, args: list[str], cwd: str | None, project_pat
     if program == "wget" and "--spider" not in args and not _wget_to_stdout(args):
         found |= here  # wget saves a file by default (goal 33ffc93c)
     for i, a in enumerate(args):  # a clustered -sSLo <path> / -LO writes a file too (goal 33ffc93c)
-        cluster = re.fullmatch(r"-[sSLfkvqiIg]*([oO])", a) if program == "curl" and a not in ("-o", "-O") else None
+        cluster = re.fullmatch(r"-[sSLfkvqiIg#]*([oO])", a) if program == "curl" and a not in ("-o", "-O") else None
         if cluster and cluster.group(1) == "O":
             found |= here  # the remote file's name, in the working directory
         elif cluster and i + 1 < len(args) and args[i + 1] not in ("/dev/null", "-"):
@@ -853,16 +866,15 @@ def infer_shell_effects(command: str, *, cwd: str | None, project_path: str | No
     classes: set[str] = set()
     # The commands inside $(...) and backticks run too: classify them (goal e6ee7d01). A nested or unbalanced one is
     # left to the outer parse and marks the result unreliable.
-    for inner in _SUBSTITUTION.findall(text):
+    masked = _literal_masked(text)  # single-quoted and backslash-escaped text is literal: no substitution runs there
+    for inner in _SUBSTITUTION.findall(masked):
         found = infer_shell_effects(
             inner[0] or inner[1], cwd=cwd, project_path=project_path, empirica_is_read=empirica_is_read
         )
         classes |= set(found["classes"])
         reliable = reliable and found["reliable"]
     flattened = _SUBSTITUTION.sub(" x ", text)
-    unquoted = re.sub(
-        r"'[^']*'", "", flattened
-    )  # single-quoted text is literal: grep '`' f is a search, not a substitution
+    unquoted = _literal_masked(flattened)  # grep '`' f is a search, not a substitution
     if "$(" in unquoted or "`" in unquoted:
         classes.add("unknown")  # nested, or containing parentheses: its command cannot be read (goal 33ffc93c)
         reliable = False

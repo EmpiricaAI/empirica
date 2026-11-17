@@ -139,3 +139,42 @@ def test_hidden_or_download_changes_are_not_reads(command, tmp_path):
 def test_second_pass_reads_stay_reads(command, tmp_path):
     verdict = _judge(command, tmp_path)
     assert verdict["trivial"] and verdict.get("read") is True, (command, verdict)
+
+
+# --- 1.17.5 leftovers (goal f2ab8424) ---
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo '$(rm -rf /tmp/x)'",
+        "echo \\$(rm -rf /tmp/x)",
+        "grep -n '`rm -rf x`' f",
+        "ssh host -- ls",
+        "ssh h 'cat x' | head",
+    ],
+)
+def test_literal_text_and_ssh_reads_are_reads(command, tmp_path):
+    verdict = _judge(command, tmp_path)
+    assert verdict["trivial"] and verdict.get("read") is True, (command, verdict)
+
+
+def test_a_double_quoted_substitution_still_runs(tmp_path):
+    assert not _judge('echo "$(rm -rf /tmp/x)"', tmp_path)["trivial"]
+
+
+def test_curl_hash_option_is_a_download(tmp_path):
+    assert not _judge("curl -#O https://x.test/f", tmp_path).get("read")
+
+
+@pytest.mark.parametrize(
+    "command", ["ssh host 'cat x' > notes.txt", "( touch a.txt )", "! touch a.txt", "if true; then touch a.txt; fi"]
+)
+def test_plain_local_changes_wrapped_in_keywords_or_beside_ssh_reads_are_counted(command, tmp_path):
+    verdict = _judge(command, tmp_path)
+    assert verdict["trivial"] and not verdict.get("read"), (command, verdict)
+
+
+def test_git_with_a_global_option_names_the_option(tmp_path):
+    why = _judge("git -C sub commit -m x", tmp_path)["why"]
+    assert "-C" in why and "git sub" not in why

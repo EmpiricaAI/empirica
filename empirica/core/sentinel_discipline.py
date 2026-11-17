@@ -390,6 +390,11 @@ def _plain_local_change(
     if statements is None:
         return "it cannot be parsed" if writes else ""
     for words in statements:
+        words = dr._without_keywords(words)  # `( touch a )`, `! touch a`, `if ...; then touch a; fi` (goal f2ab8424)
+        while words and words[-1] in (")", "}"):
+            words = words[:-1]
+        if not words:
+            continue
         problem = _statement_problem(dr, words, cwd, project_root, unknown_ok=unknown_ok, writes=writes)
         if problem:
             return problem
@@ -414,6 +419,8 @@ def _split_redirects(dr, words: list[str]) -> tuple[list[str], list[str]]:
 
 
 def _git_problem(args: list[str]) -> str:
+    if args and args[0].startswith("-"):
+        return f"git with a global option ({args[0]}) needs a transaction (only add, commit and mv run outside one)"
     verb = next((a for a in args if not a.startswith("-")), "")
     if verb not in _GIT_BUDGETED or any(a.startswith("-") for a in args[: args.index(verb)]):
         return f"git {verb or '(option)'} needs a transaction (only add, commit and mv run outside one)"
@@ -438,8 +445,10 @@ def _statement_problem(
     if program in _WRITE_PROGRAMS:
         positional = dr._positional(args)
         targets += positional[1:] if program == "sed" else positional
-    elif program not in dr._READ_PROGRAMS and not unknown_ok:
-        return f"{program} is not a change discipline mode can read"
+    elif program not in dr._READ_PROGRAMS:
+        found, _ = dr._classify_statement(program, args, cwd, project_root, lambda _words: False)
+        if not (found <= _READ_SHELL or (unknown_ok and found <= _READ_SHELL | {"unknown"})):
+            return f"{program} is not a change discipline mode can read"  # `ssh h 'cat x' > f` reads, then writes f
     outside = next((t for t in targets if not _in_practice(t, cwd, project_root)), None)
     return f"{outside} is outside the practice or protected" if outside else ""
 
@@ -729,8 +738,9 @@ def decide(
     if not verdict["trivial"]:
         return (
             "deny",
-            f"Outside a transaction, and not trivial: {verdict['why']}. Open one with PREFLIGHT (discipline mode lets only "
-            "project-local changes whose effect is readable from the call run without one).",
+            f"Outside a transaction, and not trivial: {verdict['why']}. Open one with PREFLIGHT (outside a transaction, "
+            "discipline mode runs reads freely and counts small acts against a budget per prompt; outward or "
+            "irreversible acts, and changes to protected files, need one).",
         )
     with _ledger_lock(suffix, project_root):
         done = ledger(suffix, project_root)
