@@ -342,17 +342,23 @@ def _read_http_status(proc: subprocess.Popen) -> int | None:
     if proc.stdout is None:
         return None
     status: int | None = None
+    interim = False  # the block read so far is a proxy's CONNECT reply or a 1xx, not the server's answer
     while True:
         line = proc.stdout.readline()
         if not line:
             return status
         line = line.rstrip("\r\n")
         if not line:
+            if interim:  # behind an HTTP proxy curl -i prints its "200 Connection established" first (1.14.20 sweep C7)
+                status, interim = None, False
+                continue
             return status  # blank line = end of headers
         if status is None and line.startswith("HTTP/"):
             parts = line.split(None, 2)
             if len(parts) >= 2 and parts[1].isdigit():
                 status = int(parts[1])
+                reason = parts[2].lower() if len(parts) > 2 else ""
+                interim = 100 <= status < 200 or (status == 200 and reason.startswith("connection established"))
 
 
 def _is_real_event(ntfy_message: dict[str, Any]) -> bool:

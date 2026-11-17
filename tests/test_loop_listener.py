@@ -827,3 +827,21 @@ def test_a_connection_that_lasted_resets_the_backoff_without_an_event(monkeypatc
         _monotonic=lambda: clock[0],
     )
     assert sleeps and all(s == listener_mod._RECONNECT_BASE_SEC for s in sleeps), sleeps
+
+
+def test_a_proxys_connection_established_block_is_not_the_servers_answer():
+    """1.14.20 sweep C7: behind an HTTP proxy, curl -i prints the proxy's CONNECT reply first; a 401 from ntfy then read
+    as 200 and took the short backoff of a healthy drop."""
+    from empirica.core.loop_scheduler import listener as listener_mod
+
+    lines = [
+        "HTTP/1.1 200 Connection established\r\n",
+        "\r\n",
+        "HTTP/2 401\r\n",
+        "content-type: text/plain\r\n",
+        "\r\n",
+    ]
+    proc = type("P", (), {"stdout": io.StringIO("".join(lines))})()
+    assert listener_mod._read_http_status(proc) == 401
+    plain = type("P", (), {"stdout": io.StringIO("HTTP/1.1 200 OK\r\nx: y\r\n\r\n{}\n")})()
+    assert listener_mod._read_http_status(plain) == 200
