@@ -213,7 +213,8 @@ def _user_view(protocol: dict, user_name: str) -> tuple[dict | None, dict, dict]
     """(member, work preferences, domains) for `user_name`, from either protocol shape.
 
     Legacy team shape: `team` list, `work_preferences[<user>]`, `domains[<user>]`. Single-user shape (what
-    /ewm-interview v0.3.0 writes): `user_profile`, a flat `work_preferences`, a flat `domains`. The flat blocks
+    /ewm-interview writes, defined by empirica/schemas/workflow_protocol.schema.json): `user_profile`, a flat
+    `work_preferences`, a flat `domains`. The flat blocks
     belong to the user_profile's user only; for anyone else they are not that person's preferences.
     """
     member = None
