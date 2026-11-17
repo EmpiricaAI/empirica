@@ -328,3 +328,23 @@ def test_a_dirty_list_in_the_older_form_is_still_exported_and_cleared(practice):
         assert gx._dirty(gx._watermarks(str(practice))) == {}
     finally:
         db.close()
+
+
+def test_concurrent_marks_are_all_kept(tmp_path):
+    """Goal 11d666e6: every save read the whole file, changed one key and wrote it back through one shared temp path, so
+    a mark landing between another writer's read and replace was lost (or the file was corrupted and read as {})."""
+    import threading
+
+    (tmp_path / ".empirica").mkdir()
+    root = str(tmp_path)
+
+    def mark(i):
+        gx._update_watermarks(root, lambda m: {**m, "edges_dirty": {**gx._dirty(m), f"src-{i}": "t"}})
+
+    threads = [threading.Thread(target=mark, args=(i,)) for i in range(40)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(gx._dirty(gx._watermarks(root))) == 40
+    assert not list((tmp_path / ".empirica").glob("*.tmp"))  # no temp file left behind

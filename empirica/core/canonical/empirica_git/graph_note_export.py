@@ -11,8 +11,11 @@ writes only the sources with an edge newer than that, at most ``limit`` of them;
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import os
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,17 +37,51 @@ def _watermarks(root: str) -> dict:
         return {}
 
 
-def _save_watermark(root: str, kind: str, value) -> None:
+_THREAD_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _watermark_lock(root: str):
+    """One writer at a time on the watermark file: a thread lock, and an inter-process flock where fcntl exists (on
+    Windows the file lock is skipped, as the credentials refresh lock does)."""
+    with _THREAD_LOCK:
+        try:
+            import fcntl
+        except ImportError:
+            yield
+            return
+        try:
+            directory = Path(root) / ".empirica"
+            directory.mkdir(parents=True, exist_ok=True)
+            fh = open(directory / f".{WATERMARK_FILE}.lock", "a")  # noqa: SIM115 — held for the with-block
+        except OSError as e:
+            logger.warning("notes export watermark lock unavailable, writing unserialised: %s", e)
+            yield
+            return
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            yield
+        finally:
+            fh.close()  # releases the flock
+
+
+def _update_watermarks(root: str, change) -> None:
+    """Read, change and write the watermark file under the lock: a mark another writer adds meanwhile is never lost, and
+    each writer has its own temp file, so two writers cannot corrupt it (goal 11d666e6)."""
     path = Path(root) / ".empirica" / WATERMARK_FILE
-    marks = _watermarks(root)
-    marks[kind] = value
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(marks, indent=2))
-        tmp.replace(path)
-    except OSError as e:
-        logger.warning("notes export watermark not saved (%s): %s", kind, e)
+    with _watermark_lock(root):
+        marks = change(_watermarks(root))
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+            tmp.write_text(json.dumps(marks, indent=2))
+            tmp.replace(path)
+        except OSError as e:
+            logger.warning("notes export watermark not saved: %s", e)
+
+
+def _save_watermark(root: str, kind: str, value) -> None:
+    _update_watermarks(root, lambda marks: {**marks, kind: value})
 
 
 def _write_note(root: str, ref: str, payload: dict) -> bool:
@@ -78,7 +115,7 @@ def mark_edges_dirty(conn, from_ids) -> None:
     token = (
         uuid.uuid4().hex
     )  # a fresh token per mark: an export clears a source only if nobody marked it again meanwhile
-    _save_watermark(root, "edges_dirty", {**_dirty(_watermarks(root)), **dict.fromkeys(ids, token)})
+    _update_watermarks(root, lambda marks: {**marks, "edges_dirty": {**_dirty(marks), **dict.fromkeys(ids, token)}})
 
 
 def _dirty(marks: dict) -> dict:
@@ -145,10 +182,13 @@ def export_edge_notes(conn, root: str, *, limit: int | None = DEFAULT_LIMIT, ful
     if snapshot or done:
         # Clear only what was written from a mark this run read: a source marked again after its note was built (a link
         # deleted meanwhile) carries a new token and stays for the next run (1.16.2 sweep B7).
-        current = _dirty(_watermarks(root))
-        kept = {i: t for i, t in current.items() if not (i in done and t == snapshot.get(i))}
-        if kept != current or isinstance(marks.get("edges_dirty"), list):
-            _save_watermark(root, "edges_dirty", kept)
+        # One locked read-and-write, so a mark added between the read and the write is kept too (goal 11d666e6).
+        def _clear(current_marks: dict) -> dict:
+            current = _dirty(current_marks)
+            kept = {i: t for i, t in current.items() if not (i in done and t == snapshot.get(i))}
+            return {**current_marks, "edges_dirty": kept}
+
+        _update_watermarks(root, _clear)
     if failed:
         return {"written": written, "failed": failed, "remaining": True}
 
