@@ -15,13 +15,13 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "workflow_protocol.schema.json"
-SCHEMA_VERSION = "0.3.0"
+SCHEMA_VERSION = "0.4.0"
 SCHEMA_ID = f"https://getempirica.com/schemas/workflow-protocol/{SCHEMA_VERSION}.json"
 #: The schema file's revision and its SHA-256. Every change to the file bumps the revision in its `$comment` and updates
 #: both here (a test fails otherwise), so a consumer that vendors the file can tell a stale copy from the hash alone
 #: (cortex's suggestion, 2026-11-17).
-SCHEMA_REVISION = 4
-SCHEMA_SHA256 = "b6a0f5a09d27ef40f1da44928658615a0afd91c5cf68194d56960301f69b86bb"
+SCHEMA_REVISION = 5
+SCHEMA_SHA256 = "e97e5af19fc2f3aabceb382c762633ca119248fc2d8d8eac35e82ccf425ef604"
 
 
 @lru_cache(maxsize=1)

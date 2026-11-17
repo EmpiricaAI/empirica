@@ -56,7 +56,22 @@ FULL: dict[str, Any] = {
 def test_the_schema_is_a_valid_2020_12_schema_with_the_published_id():
     Draft202012Validator.check_schema(wp.schema())
     assert wp.schema()["$id"] == wp.SCHEMA_ID
-    assert wp.schema()["properties"]["schema_version"]["const"] == wp.SCHEMA_VERSION
+    assert wp.SCHEMA_VERSION in wp.schema()["properties"]["schema_version"]["enum"]
+    assert "0.3.0" in wp.schema()["properties"]["schema_version"]["enum"]  # profiles stored as 0.3.0 stay valid
+
+
+def test_a_practice_names_a_catalog_template_and_says_why():
+    """Schema 0.4.0 (goal e8c47635): template is one of the catalog's names, so the two cannot drift."""
+    from empirica.core import practice_templates
+
+    item = wp.schema()["properties"]["practices"]["items"]["properties"]
+    assert sorted(item["template"]["enum"]) == sorted(practice_templates.templates())
+    doc = copy.deepcopy(FULL)
+    doc["schema_version"] = "0.4.0"
+    doc["practices"][0].update(template="coordinator", reason="2 practices to coordinate")
+    assert wp.validate(doc) == []
+    doc["practices"][0]["template"] = "wizard"
+    assert wp.validate(doc)
 
 
 def test_a_full_interview_protocol_is_valid():
@@ -80,6 +95,7 @@ def test_the_minimum_is_a_version_and_a_name():
         (("practices", 0, "harness"), "cursor"),
         (("practices", 0, "name"), "Bad Name"),
         (("schema_version",), "0.2.0"),
+        (("schema_version",), "0.5.0"),
         (("user_profile", "created"), "17/11/2026"),
     ],
 )
