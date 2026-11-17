@@ -725,6 +725,23 @@ def handle_provision_practice_command(args) -> int:
     return _provision_one(args)
 
 
+def _registered_practice_dir(name: str) -> Path | None:
+    """The directory of a practice already registered under ``name`` in the workspace registry, when it still exists;
+    without it, provisioning a practice that lives outside ~/empirica made a second directory (goal b45387bd)."""
+    import sqlite3
+
+    db = Path.home() / ".empirica" / "workspace" / "workspace.db"
+    if not db.exists():
+        return None
+    try:
+        with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as conn:
+            rows = conn.execute("SELECT trajectory_path FROM global_projects WHERE name = ?", (name,)).fetchall()
+    except sqlite3.Error:
+        return None
+    dirs = {Path(r[0]).parent for r in rows if r[0] and Path(r[0]).parent.is_dir()}
+    return dirs.pop() if len(dirs) == 1 else None  # two live directories under one name: do not guess
+
+
 def _provision_one(args) -> int:
     """One practice.
 
@@ -745,6 +762,12 @@ def _provision_one(args) -> int:
 
     base_path = Path(getattr(args, "base_path", None) or "~/empirica").expanduser()
     proj_dir = base_path / name
+    registered = None if getattr(args, "base_path", None) else _registered_practice_dir(name)
+    if registered is not None and registered != proj_dir:
+        _narrate(
+            f"  {name} is already registered at {registered}; provisioning it there (give --base-path to override)"
+        )
+        proj_dir = registered
 
     cwd = Path.cwd()
     inferred_tenant, inferred_org = _infer_tenant_org(cwd)
@@ -1017,7 +1040,8 @@ def _provision_from_protocol(args, provision=None) -> int:
     results = []
     for practice in chosen:
         result: dict = {"name": practice["name"]}
-        clone = _clone_step(practice, base_path / practice["name"], dry_run)
+        registered = None if getattr(args, "base_path", None) else _registered_practice_dir(practice["name"])
+        clone = _clone_step(practice, registered or base_path / practice["name"], dry_run)
         if clone and clone.get("error"):
             result.update(ok=False, steps=[clone])
             results.append(result)

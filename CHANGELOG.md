@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The turtle stack no longer certifies a layer it only partly assessed.** A layer missing some of its vectors shows `PARTIAL (k of n)` with the mean of the rest and never reads SAFE TO PROCEED; `trajectory-project --output json` reports an unassessed layer's score as null, with the missing vectors named.
 - **A `claude -p` run is recognised as headless from its own arguments.** Started from VS Code it used to take the pane's place, so cockpit refresh resumed it instead of the pane's conversation; and every pane of a tmux server started by an SDK process was taken for headless.
 - **Adding a practice to a cockpit profile you edited keeps your edits.** The new project and window are inserted into the file's own text, so comments and settings the launcher does not know (`alacritty_args`) survive; when the file cannot be extended that way it is rewritten as before, and `provision-practice` now says so and where the previous version went.
+- **`provision-practice NAME` finds a practice already registered under that name** and provisions it where it lives, instead of creating a second one under `~/empirica`; `--base-path` still decides when given.
 - **`goals-search --status completed` finds older completed goals** that the search index still recorded under the old status name.
 
 ## [1.17.5] - 2026-11-17
