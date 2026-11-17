@@ -189,6 +189,7 @@ empirica = [
     "core/cockpit/guide/*.md",
     "local_server/routes.yaml",
     "plugins/claude-code-integration/**/*",
+    "schemas/*.json",
 ]
 
 [tool.pytest.ini_options]

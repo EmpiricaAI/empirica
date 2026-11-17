@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://getempirica.com/schemas/workflow-protocol/0.3.0.json",
+  "title": "Empirica workflow protocol",
+  "description": "One person's working agreement with AI practitioners: what /ewm-interview writes to workflow-protocol.yaml, what the web onboarding interview returns, and what `empirica provision-practice --from-protocol` reads. Closed: a field this version does not define is refused, and a new field arrives with a new version. Every block but schema_version and user_profile is optional; omit a block with nothing in it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "user_profile"],
+  "properties": {
+    "schema_version": {
+      "description": "The version of this schema the document follows.",
+      "const": "0.3.0"
+    },
+    "user_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 120},
+        "role": {"type": "string", "maxLength": 200},
+        "focus": {"type": "string", "maxLength": 500},
+        "created": {"type": "string", "format": "date", "maxLength": 10},
+        "last_updated": {"type": "string", "format": "date", "maxLength": 10}
+      }
+    },
+    "goals": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "primary": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["description"],
+            "properties": {
+              "description": {"type": "string", "minLength": 1, "maxLength": 500},
+              "success_criteria": {"type": "array", "maxItems": 10, "items": {"type": "string", "maxLength": 300}},
+              "timeline": {"type": "string", "maxLength": 100}
+            }
+          }
+        },
+        "secondary": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 300}}
+      }
+    },
+    "domains": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expert": {"type": "array", "maxItems": 30, "items": {"type": "string", "maxLength": 100}},
+        "learning": {"type": "array", "maxItems": 30, "items": {"type": "string", "maxLength": 100}},
+        "novice": {"type": "array", "maxItems": 30, "items": {"type": "string", "maxLength": 100}}
+      }
+    },
+    "tools": {
+      "description": "Tools in daily use, by category (code_hosting, chat, docs, tracker, ...): each category names its tools.",
+      "type": "object",
+      "maxProperties": 20,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]{0,39}$"},
+      "additionalProperties": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 100}}
+    },
+    "mesh": {
+      "description": "Present only when the person is on an Empirica Cortex mesh.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cortex"],
+      "properties": {
+        "cortex": {"type": "boolean"},
+        "tenant": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"},
+        "org": {"type": "string", "maxLength": 100},
+        "forgejo": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["owner", "host"],
+          "properties": {
+            "owner": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$"},
+            "host": {"type": "string", "pattern": "^ssh://[^\\s]+$", "maxLength": 200}
+          }
+        }
+      }
+    },
+    "practices": {
+      "description": "The practices this person works in: requested by the interview, created by provision-practice. Requesting grants nothing.",
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "description": "The practice's ai_id and directory name.",
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+          },
+          "type": {
+            "description": "What the practice is (`empirica project-init --help` describes each).",
+            "enum": [
+              "web-app", "service", "cli", "library", "desktop-app", "mobile-app", "browser-extension", "infrastructure",
+              "content", "research", "data", "design", "operations", "strategic", "engagement", "legal"
+            ]
+          },
+          "description": {"type": "string", "maxLength": 300},
+          "domain": {
+            "description": "A domain file's name: default, research, operations, consulting, marketing, docs, cybersec, remote-ops, or one of the person's own.",
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,39}$"
+          },
+          "harness": {
+            "description": "What runs in the practice's terminal pane: none means the desktop or web app only.",
+            "enum": ["claude-code", "ecodex", "both", "none"]
+          },
+          "model": {
+            "description": "The model the practice runs; omit for the harness default.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}$"
+          },
+          "skills": {
+            "description": "Skills suggested for the practice. Listed for the person to review; never installed from here.",
+            "type": "array",
+            "maxItems": 30,
+            "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9:_-]{0,79}$"}
+          },
+          "repository": {
+            "description": "An existing shared practice repo to clone instead of creating a new practice.",
+            "type": "string",
+            "pattern": "^(ssh://|https://|git@)[^\\s]+$",
+            "maxLength": 300
+          },
+          "provisioned": {"description": "Set by provisioning, never by the interview.", "type": "boolean"}
+        }
+      }
+    },
+    "cockpit_profile": {
+      "description": "The cockpit layout the practices are added to (`empirica cockpit launch --profile <name>`).",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,39}$"
+    },
+    "work_preferences": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ai_autonomy_level": {
+          "enum": [
+            "collaborative_equal_partner",
+            "collaborative_with_checkpoints",
+            "ai_first_efficiency_maximizing",
+            "full_autonomy",
+            "assistant_mode"
+          ]
+        },
+        "uncertainty_surfacing": {"enum": ["empirica_managed", "always_explicit", "when_material", "minimal"]},
+        "pushback_style": {"enum": ["direct_and_factual", "gentle_reframe", "socratic"]},
+        "calibration_mode": {"enum": ["single_pass", "multi_round"]},
+        "task_splitting": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ai_autonomous": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 200}},
+            "ai_with_checkpoint": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 200}},
+            "human_only": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 200}}
+          }
+        }
+      }
+    },
+    "trust_building": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "current_level": {"enum": ["establishing", "building", "established", "high_trust"]},
+        "autonomy_earned_through": {"type": "array", "maxItems": 10, "items": {"type": "string", "maxLength": 200}},
+        "non_negotiables": {"type": "array", "maxItems": 15, "items": {"type": "string", "maxLength": 300}}
+      }
+    },
+    "anti_agreement_protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "mode": {"description": "Shown as the protocol's mode; direct is the one in use.", "type": "string", "pattern": "^[a-z_]{1,40}$"},
+        "ai_self_regulation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "no_ungrounded_agreement": {"type": "boolean"},
+            "no_hedge_mirroring": {"type": "boolean"},
+            "quantify_confidence": {"type": "boolean"},
+            "name_uncertainties": {"type": "boolean"}
+          }
+        }
+      }
+    }
+  }
+}
