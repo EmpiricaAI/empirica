@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.17.4
-**Generated:** 2026-11-17 10:46:14 UTC
+**Generated:** 2026-11-17 10:58:31 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -2989,7 +2989,7 @@ Show or set the Sentinel mode and the out-of-loop budget
 - `value` — **required** · type=`choice` · choices={strict, discipline, off}
   The mode to set
 - `--max-act-without-gate` — optional · type=`int`
-  Changes allowed outside a transaction before PREFLIGHT is required (0 to 1000)
+  Acts allowed outside a transaction per prompt before PREFLIGHT is required (0 to 1000)
 - `--seat` — optional · flag
   Write ~/.empirica/config.yaml (every practice on this seat) instead of this practice's .empirica/config.yaml
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`

@@ -441,10 +441,10 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ## What's New in 1.17.4
 
-- **Discipline mode no longer refuses every shell command**: outside a transaction, reads run freely (ssh reads included), plain local changes count against the budget, and anything else still needs a transaction.
+- **Discipline mode no longer refuses every shell command**: outside a transaction, reads run freely (ssh reads included), small acts count against a budget that starts again at every prompt, and only outward or irreversible commands need a transaction.
 - **Several teams on one machine**: a team label is now tied to the tokens it was recorded with, so a token written by another tool cannot route under the wrong team.
 
-All 10 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 11 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
