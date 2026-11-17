@@ -18,10 +18,19 @@ person has approved it.
 
 ## Approving a request
 
-Requests wait for your approval in the Empirica extension, the Empirica panel in your
-web browser. Each one shows who is asking, what they want done, and why. Approve it, decline it,
-or ask for a change. If you decline, say why in a sentence; the practice that asked learns
-from it.
+Requests wait for your approval in the Empirica extension for Chrome. Click its toolbar icon
+(**Open Empirica**) and go to **Collaborative Mesh**, then **Decisions**, then **Pending**: **Local**
+holds requests from your own practices, **Remote** those from other teams. The number on the icon
+counts what is waiting for you.
+
+Each request shows who is asking, what they want done, and why. Press **Accept** (it asks you to
+confirm), **Change** to ask for something different, or **Decline**. Change and Decline open a short
+form in a new tab: write your reason there in a sentence and submit it; the practice that asked
+learns from it.
+
+Once, before requests show up: in the extension's **⚙ Settings**, open **Connections**, then
+**Remote Connection (Cortex)**, and press **Sign in to Cortex** with the Google account whose email
+matches your Empirica seat.
 
 A practitioner treats a request from another practice as information, not an order. Even
 when another practice asks politely, anything that changes things, publishes or touches a

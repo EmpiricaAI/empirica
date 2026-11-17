@@ -49,8 +49,9 @@ one option marked **(Recommended)**. Use the **up/down arrow keys** to pick, the
 - **Stop** a practitioner in the middle of something: press **Esc**. It stops and waits.
 - **Scroll back** through the conversation: use the mouse wheel. If the box seems stuck
   after scrolling, press **q** to return to the live view.
-- **Copy and paste**: select text with the mouse to copy; paste with right-click or the usual
-  paste shortcut.
+- **Copy and paste**: select text with the mouse to copy; paste with right-click or the paste
+  shortcut of your terminal: Ctrl+Shift+V on Linux, Cmd+V on a Mac, Ctrl+V in Windows Terminal.
+  In a cockpit opened in a web browser, use the browser's own paste (Ctrl+V, or Cmd+V on a Mac).
 
 ## Where its work ends up
 

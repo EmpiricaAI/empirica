@@ -50,7 +50,7 @@ watch it; it is there when you want to know what the practitioner is doing.
 | Part | Tells you |
 |---|---|
 | practice name | which practice it is working in |
-| stage and sureness | which of the three moments it is in (page 7), and how sure it is right now |
+| stage and sureness | which of the three moments it is in (page 7): `PRE`, `CHK` or `POST`; then 🔍 while it is still finding things out or 🔨 while it makes changes; then how sure it is, as a percentage. After `CHK`, `→` means it is ready to act and `…` that it is still looking |
 | counts | how many goals are open, questions unanswered, assumptions in use, and findings recorded |
 | learning mark | whether its understanding changed during this piece of work |
 | memory in use | how much of its working memory for this conversation is used |
