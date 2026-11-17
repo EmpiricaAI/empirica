@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Onboarding asks what work you do and sets up practices for it.** `/ewm-interview` starts by letting you pick its depth (Quick, about 3 minutes; Standard; Deep), asks which kinds of work you do and how often, and proposes practices from a new catalog of practice templates and ready setups (solo builder, researcher, consultant, small team). Each proposal says which answer it rests on; confident ones are confirmed in one tap, uncertain ones get one question or are left for later. The questions about goals, working style and trust are fewer and come later.
+- **Onboarding ends with a first plan.** The main practice gets a starter goal with two or three tasks from its template (map a codebase, answer a first question, start an engagement...), focused on what you named, so its first session opens with work instead of a blank page. It needs no Cortex.
 - **Workflow protocol 0.4.0:** each practice can name the template it came from and why it was proposed; 0.3.0 protocols stay valid.
 
 ## [1.17.7] - 2026-11-17

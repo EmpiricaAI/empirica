@@ -5,6 +5,9 @@
 # kinds (the interview's workload answers) make it likely. /ewm-interview drafts practices from these as predictions,
 # and a preset is a ready composition of templates a person can start from and adjust.
 #
+# Each template's `starter` is the first plan its practice gets when onboarding ends (goal 88150eae): one goal and its
+# tasks, `{focus}` filled from the person's answers (a repo, a client, a question).
+#
 # Read by empirica.core.practice_templates; tests pin every type, domain and skill to what exists.
 
 workloads:
@@ -24,6 +27,12 @@ templates:
     domain: operations
     skills: [empirica:forecast]
     suggested_by: []          # suggested whenever there are two or more other practices
+    starter:
+      objective: "Plan the first two weeks across your practices"
+      tasks:
+        - "List what each practice should deliver first, with one goal per practice"
+        - "Name the order and what each one waits on"
+        - "Set a check-in date for each goal"
   support:
     title: System support
     for: "looks after your machine and tools: installs, updates, backups, finding what broke"
@@ -31,6 +40,11 @@ templates:
     domain: operations
     skills: []
     suggested_by: []          # suggested for everyone; cheap, and every setup needs it
+    starter:
+      objective: "Check this machine is ready for the practices"
+      tasks:
+        - "Check Empirica, Claude Code and the local server are current and running"
+        - "Check backups of the practice folders"
   research:
     title: Research
     for: investigates questions and keeps what it learns for your other practices to find
@@ -38,6 +52,12 @@ templates:
     domain: research
     skills: [empirica:forecast]
     suggested_by: [research, data]
+    starter:
+      objective: "Answer a first question: {focus}"
+      tasks:
+        - "Write the question and what would count as an answer"
+        - "Gather and log findings, with what is still unknown"
+        - "Summarise what was learned and what to look at next"
   builder:
     title: Builder
     for: builds and maintains one codebase or product; one practice per codebase
@@ -45,6 +65,12 @@ templates:
     domain: default
     skills: [empirica:pre-publish, empirica:code-audit]
     suggested_by: [build_software]
+    starter:
+      objective: "Get to know {focus}: map it and pick the first tasks"
+      tasks:
+        - "Map the architecture: entry points, modules, data flow; log findings with how sure you are"
+        - "Log what is not understood yet as unknowns"
+        - "Propose the first three tasks, smallest first"
   writer:
     title: Writing
     for: drafts, edits and fact-checks documents, posts and reports
@@ -52,6 +78,11 @@ templates:
     domain: docs
     skills: [empirica:epistemic-editing]
     suggested_by: [writing]
+    starter:
+      objective: "Draft a first piece: {focus}"
+      tasks:
+        - "Outline it and name its sources"
+        - "Write the draft and check every claim against a source"
   outreach:
     title: Outreach
     for: prospects, follow-ups and campaigns, with every message waiting for your approval
@@ -59,6 +90,11 @@ templates:
     domain: marketing
     skills: []
     suggested_by: [outreach]
+    starter:
+      objective: "First outreach list: {focus}"
+      tasks:
+        - "Name the people or companies and why each fits"
+        - "Draft the first messages for your approval; nothing is sent without it"
   engagement:
     title: Client engagement
     for: one client's work, kept apart from everything else; one practice per client
@@ -66,6 +102,12 @@ templates:
     domain: consulting
     skills: [empirica:epistemic-editing]
     suggested_by: [client_work]
+    starter:
+      objective: "Start the engagement: {focus}"
+      tasks:
+        - "Write the brief: the client, the outcome they want, the deadline"
+        - "Break it into deliverables, one task each"
+        - "List what is still unknown about the client and ask"
   operations:
     title: Operations
     for: runs and watches live systems and servers, including ones on other machines
@@ -73,6 +115,11 @@ templates:
     domain: remote-ops
     skills: []
     suggested_by: [operations]
+    starter:
+      objective: "First health check: {focus}"
+      tasks:
+        - "List the systems and how each is checked"
+        - "Run the checks and log what is wrong or unknown"
   analyst:
     title: Analysis
     for: "works with your data: pipelines, analyses and the reports that come out of them"
@@ -80,6 +127,12 @@ templates:
     domain: research
     skills: []
     suggested_by: [data]
+    starter:
+      objective: "A first look at the data: {focus}"
+      tasks:
+        - "Describe the data and what question it could answer"
+        - "Form two hypotheses and test them, with how sure you are"
+        - "Report what was found and what to look at next"
 
 presets:
   solo-builder:

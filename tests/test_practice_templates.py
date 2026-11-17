@@ -84,3 +84,18 @@ def test_a_quick_interview_yields_a_protocol_that_validates_and_provisions(tmp_p
     )  # fmt: skip
     assert pp._provision_from_protocol(args, provision=provision) == 0
     assert sorted(seen) == sorted(p["name"] for p in protocol["practices"])
+
+
+def test_every_template_has_a_starter_plan_and_focus_fills_in():
+    for name in pt.templates():
+        plan = pt.starter_plan(name, "acme-app")
+        assert plan and plan.objective and 2 <= len(plan.tasks) <= 3, name
+        assert "{focus}" not in plan.objective + " ".join(plan.tasks), name
+    assert pt.starter_plan("builder", "acme-app").objective == "Get to know acme-app: map it and pick the first tasks"
+    assert "your first piece of work" in pt.starter_plan("research").objective
+
+
+def test_the_first_plan_goes_to_the_most_confident_non_support_practice():
+    candidates = pt.suggest({"build_software": "often", "writing": "sometimes"})
+    assert pt.main_practice(candidates).template == "builder"
+    assert pt.main_practice(pt.suggest({"outreach": "rarely"})) is None  # only support confirmed: no first plan

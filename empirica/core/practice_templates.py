@@ -68,3 +68,28 @@ def route(candidate: Candidate) -> str:
     if candidate.confidence >= 0.5:
         return "ask"
     return "park"
+
+
+@dataclass(frozen=True)
+class StarterPlan:
+    """The first plan a practice gets when onboarding ends (goal 88150eae): one goal and its tasks."""
+
+    objective: str
+    tasks: tuple[str, ...]
+
+
+def starter_plan(template: str, focus: str = "") -> StarterPlan | None:
+    """The template's starter, with ``{focus}`` (a repo, a client, a question from the person's answers) filled in."""
+    spec = (templates().get(template) or {}).get("starter")
+    if not spec:
+        return None
+    fill = focus.strip() or "your first piece of work"
+    return StarterPlan(
+        spec["objective"].replace("{focus}", fill), tuple(t.replace("{focus}", fill) for t in spec["tasks"])
+    )
+
+
+def main_practice(candidates: list[Candidate]) -> Candidate | None:
+    """The practice that gets the first plan: the most confident one that is confirmed and is not support (support's
+    work is the machine, not the person's). None when nothing else was confirmed."""
+    return next((c for c in candidates if c.template != "support" and route(c) == "confirm"), None)

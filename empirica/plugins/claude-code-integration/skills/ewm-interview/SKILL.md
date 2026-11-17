@@ -114,8 +114,29 @@ Per practice, from its template and the answers:
 Tenant, org and Forgejo come from the person's sign-in and these flags, never from a protocol file. **Suggest** the
 template's `skills`; install nothing unread, and only with the person's yes for that download.
 
-Report per practice what happened: provisioned, already existed, or failed and why. Then, when a cockpit profile was
-written, hand them the command from the last call (`empirica cockpit launch --profile <name>`), with two things for day
+Report per practice what happened: provisioned, already existed, or failed and why.
+
+**First plan (every tier).** Give the main practice its first piece of work, so its first session opens with a plan
+instead of a blank page. The main practice is the most confident confirmed one that is not support
+(`practice_templates.main_practice()`); its template's `starter` is one goal with two or three tasks, `{focus}` filled
+from the answers (the repo, the client, the question). Show it in one question: start with this plan? · **Yes
+(Recommended)** · Change the focus · Not now. On yes, in that practice, with no Cortex needed:
+
+```bash
+cd <practice directory>          # the goal and its tasks live in the practice's own database
+SID=$(empirica session-create --ai-id <practice> --output json | jq -r .session_id)
+G=$(empirica goals-create --session-id "$SID" --status planned \
+  --objective "<starter objective>" --description "<why: the person's answer, and that onboarding set it up>" \
+  --output json | jq -r .goal_id)
+empirica goals-add-task --goal-id "$G" --description "<each task>"
+```
+
+A freshly provisioned practice has no session yet, so `goals-create` needs the one created here (checked on a
+new local practice for 1.17.8).
+
+Say where it is: "your <practice> practice has its first plan; open its tab and say *start*."
+
+Then, when a cockpit profile was written, hand them the command from the last call (`empirica cockpit launch --profile <name>`), with two things for day
 one: practices are the tabs at the top, and clicking the line under any pane opens the cockpit's commands (`?` for the
 guide). Do not launch it for them.
 
