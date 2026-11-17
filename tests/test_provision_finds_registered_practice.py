@@ -12,8 +12,12 @@ def _registry(home, name, practice_dir):
     db = home / ".empirica" / "workspace" / "workspace.db"
     db.parent.mkdir(parents=True)
     with sqlite3.connect(db) as conn:
-        conn.execute("CREATE TABLE global_projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, trajectory_path TEXT)")
-        conn.execute("INSERT INTO global_projects VALUES ('p1', ?, ?)", (name, str(practice_dir / ".empirica")))
+        conn.execute(
+            "CREATE TABLE global_projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, trajectory_path TEXT, status TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO global_projects VALUES ('p1', ?, ?, 'active')", (name, str(practice_dir / ".empirica"))
+        )
 
 
 def test_a_registered_practice_is_found_where_it_lives(tmp_path, monkeypatch):
@@ -39,6 +43,7 @@ def test_from_protocol_does_not_clone_a_registered_practice_again(tmp_path, monk
     home = tmp_path / "home"
     practice = tmp_path / "elsewhere" / "shared"
     (practice / ".git").mkdir(parents=True)
+    (practice / ".empirica").mkdir()
     _registry(home, "shared", practice)
     monkeypatch.setenv("HOME", str(home))
     step = pp._clone_step(
@@ -47,3 +52,38 @@ def test_from_protocol_does_not_clone_a_registered_practice_again(tmp_path, monk
         dry_run=True,
     )
     assert step == {"step": "clone", "changed": False, "note": "directory already exists"}
+
+
+def test_through_the_cli_parser_a_registered_practice_is_used(tmp_path, monkeypatch):
+    """The sweep found the lookup dead from the CLI: the parser defaulted --base-path to ~/empirica."""
+    import argparse
+
+    from empirica.cli.parsers.provision_practice_parsers import add_provision_practice_parsers
+
+    home = tmp_path / "home"
+    practice = tmp_path / "elsewhere" / "acme-app"
+    (practice / ".empirica").mkdir(parents=True)
+    _registry(home, "Acme App", practice)  # a display name; the directory carries the practice name
+    monkeypatch.setenv("HOME", str(home))
+    parser = argparse.ArgumentParser()
+    add_provision_practice_parsers(parser.add_subparsers())
+    args = parser.parse_args(["provision-practice", "acme-app", "--dry-run", "--no-cortex", "--output", "json"])
+    assert args.base_path is None
+    seen = {}
+    monkeypatch.setattr(pp, "_init_step", lambda a, proj_dir, *_r: (seen.setdefault("dir", proj_dir), "stop"))
+    pp.handle_provision_practice_command(args)
+    assert seen["dir"] == practice.resolve()
+
+
+def test_a_legacy_row_storing_the_root_resolves_to_that_root(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    practice = tmp_path / "legacy" / "mdview"
+    (practice / ".empirica").mkdir(parents=True)
+    db = home / ".empirica" / "workspace" / "workspace.db"
+    db.parent.mkdir(parents=True)
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE global_projects (id TEXT PRIMARY KEY, name TEXT, trajectory_path TEXT, status TEXT)")
+        conn.execute("INSERT INTO global_projects VALUES ('a', 'mdview', ?, 'active')", (str(practice),))
+        conn.execute("INSERT INTO global_projects VALUES ('b', 'mdview', ?, 'active')", (str(practice / ".empirica"),))
+    monkeypatch.setenv("HOME", str(home))
+    assert pp._registered_practice_dir("mdview") == practice.resolve()

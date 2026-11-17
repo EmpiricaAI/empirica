@@ -56,8 +56,9 @@ Falls back to erroring with a clear message if neither is available.
     p.add_argument(
         "--base-path",
         metavar="PATH",
-        default="~/empirica",
-        help="Parent directory the new practice is created under (default: ~/empirica)",
+        default=None,
+        help="Parent directory the new practice is created under (default: where a practice registered under NAME "
+        "already lives, else ~/empirica)",
     )
     p.add_argument(
         "--type",

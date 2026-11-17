@@ -60,6 +60,8 @@ def test_base_path_default_is_generic():
     """--base-path must default to a product-namespaced dir, not a
     repo-org-specific layout (`~/empirical-ai` was David's convention)."""
     ns = _build_parser().parse_args(["provision-practice", "foo"])
-    assert ns.base_path == "~/empirica"
+    # Unset on the parser so a registered practice can be found first (goal d6a5f502); the fallback is ~/empirica.
+    assert ns.base_path is None
+    assert '"~/empirica"' in _HANDLER_SRC.read_text()
     for src in (_PARSER_SRC, _HANDLER_SRC):
         assert "empirical-ai" not in src.read_text(), f"repo-org layout path resurfaced in {src.name}"

@@ -735,10 +735,19 @@ def _registered_practice_dir(name: str) -> Path | None:
         return None
     try:
         with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as conn:
-            rows = conn.execute("SELECT trajectory_path FROM global_projects WHERE name = ?", (name,)).fetchall()
+            rows = conn.execute("SELECT name, trajectory_path, status FROM global_projects").fetchall()
     except sqlite3.Error:
         return None
-    dirs = {Path(r[0]).parent for r in rows if r[0] and Path(r[0]).parent.is_dir()}
+    dirs: set[Path] = set()
+    for display, trajectory, status in rows:
+        if not trajectory or (status or "active") == "archived":
+            continue
+        path = Path(trajectory)
+        root = path.parent if path.name == ".empirica" else path  # legacy rows store the project root itself
+        # `name` holds a display name (`Empirica Web`); the practice name is the directory's (goal d6a5f502 sweep).
+        if name not in (display, root.name) or not (root / ".empirica").is_dir():
+            continue
+        dirs.add(Path(os.path.realpath(root)))
     return dirs.pop() if len(dirs) == 1 else None  # two live directories under one name: do not guess
 
 
