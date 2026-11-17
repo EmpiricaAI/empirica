@@ -90,8 +90,22 @@ class _Gen:
             return self.substitution() + self.rng.choice(["", "#x", "y", "#"])
         return self.rng.choice(["\\$(x)", "\\`x\\`", "$((1))#q", "x=1#2"])
 
+    SHELL_FORMS = (
+        "bash -c {q}",
+        "bash -o pipefail -c {q}",
+        "bash -c -- {q}",
+        "bash -c -o pipefail {q}",
+        "bash -euo pipefail -c {q}",
+        "bash -oc pipefail {q}",
+        "bash -xc {q} arg0",
+        "sh -c {q} arg0 x",
+        "bash --norc --noprofile -c {q}",
+    )
+
     def statement(self) -> str:
         self.marks += 1
+        if self.rng.random() < 0.12:  # a shell running the statement: the classifier must find bash's command operand
+            return self.rng.choice(self.SHELL_FORMS).format(q=f"'echo MK{self.marks} inner'")
         words = [f"echo MK{self.marks}"] + [self.word() for _ in range(self.rng.randint(0, 3))]
         return " ".join(words)
 
@@ -130,6 +144,12 @@ def _seen(command: str) -> tuple[set[str], set[str]]:
         words = dr._without_keywords(words)
         if len(words) > 1 and words[0] == "echo" and _MARK.fullmatch(words[1]):
             statements.add(words[1])
+        elif words and words[0] in dr._SHELLS:  # what the classifier takes for the command bash runs
+            args = words[1:]
+            options, operand = dr._shell_options(args)
+            has_c = any(re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", args[n]) for n in options)
+            if has_c and operand < len(args):
+                statements |= _seen(args[operand])[0]
     return statements, substitutions
 
 
@@ -167,3 +187,11 @@ def test_the_fuzzer_catches_the_scanners_it_replaced(tmp_path, monkeypatch):
     monkeypatch.undo()
     monkeypatch.setattr(dr, "_literal_masked", lambda text: re.sub(r"'[^']*'", "''", text))  # apostrophes in "" too
     assert _hidden(400, 8, tmp_path), "a scanner that ignores double quotes went unnoticed"
+    monkeypatch.undo()
+
+    def word_after_dash_c(args):  # 1.17.6's first reading: the word after -c is the command
+        i = next((n for n, a in enumerate(args) if a.startswith("-") and "c" in a), None)
+        return ([i] if i is not None else []), (i + 1 if i is not None else len(args))
+
+    monkeypatch.setattr(dr, "_shell_options", word_after_dash_c)
+    assert _hidden(800, 9, tmp_path), "taking the word after -c for bash's command went unnoticed"
