@@ -1347,10 +1347,12 @@ def _clear_waiting_mark(pane_id: str) -> None:
 def _claude_has_conversation(path: str) -> bool | None:
     """Whether Claude Code keeps a conversation whose working directory is ``path``. None when nothing can be read.
 
-    Fast path: a transcript in the folder Claude Code names after the path (``/`` as ``-``). Otherwise one transcript per
-    folder is read for the ``cwd`` it records, the evidence ``resume_ids`` trusts, so a folder named some other way still
-    counts. False only when ``~/.claude/projects`` exists and none of its transcripts is in ``path``: a fresh start then
-    loses nothing, where a wrong False would drop a conversation, so anything unreadable answers None.
+    Fast path: the folder Claude Code names after the path (``/`` as ``-``), confirmed by the ``cwd`` its transcripts
+    record: the name alone collides (``/a/b`` and ``/a-b`` share ``-a-b``, 1.16.3 sweep A5), so every transcript there
+    is read until one is in ``path``. Otherwise one transcript per other folder is read for its ``cwd``, the evidence
+    ``resume_ids`` trusts, so a folder named some other way still counts. False only when ``~/.claude/projects`` exists
+    and none of its transcripts is in ``path``: a fresh start then loses nothing, where a wrong False would drop a
+    conversation, so anything unreadable answers None.
     """
     from empirica.core.cockpit.launcher.resume_ids import _same_dir, _transcript_cwd
 
@@ -1360,10 +1362,17 @@ def _claude_has_conversation(path: str) -> bool | None:
     real = os.path.realpath(os.path.expanduser(path))
     try:
         named = projects / real.replace("/", "-")
-        if named.is_dir() and next(named.glob("*.jsonl"), None) is not None:
-            return True
         unread = False
+        if named.is_dir():
+            for transcript in named.glob("*.jsonl"):
+                cwd = _transcript_cwd(transcript)
+                if cwd is None:
+                    unread = True
+                elif _same_dir(cwd, real):
+                    return True
         for folder in projects.iterdir():
+            if folder == named:
+                continue  # every transcript in it was read above
             sample = next(folder.glob("*.jsonl"), None) if folder.is_dir() else None
             if sample is None:
                 continue

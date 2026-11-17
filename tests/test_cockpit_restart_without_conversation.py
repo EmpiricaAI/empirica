@@ -59,7 +59,30 @@ def test_conversation_lookup_reads_claude_codes_transcript_folder(tmp_path, monk
     folder.mkdir()
     assert T._claude_has_conversation(str(work)) is False  # folder, no transcript
     (folder / "s1.jsonl").write_text(json.dumps({"type": "user"}) + "\n")
+    # A transcript whose cwd cannot be read does not confirm the folder is this directory's (1.16.3 sweep A5): unknown.
+    assert T._claude_has_conversation(str(work)) is None
+    (folder / "s1.jsonl").write_text(json.dumps({"type": "user", "cwd": str(work)}) + "\n")
     assert T._claude_has_conversation(str(work)) is True
+
+
+def test_a_folder_name_shared_by_two_directories_is_confirmed_by_cwd(tmp_path, monkeypatch):
+    """1.16.3 sweep A5: Claude Code's folder name maps ``/`` to ``-``, so ``/x/a/b`` and ``/x/a-b`` share one folder."""
+    import os
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    root = os.path.realpath(tmp_path)
+    nested, dashed = os.path.join(root, "a", "b"), os.path.join(root, "a-b")
+    os.makedirs(nested)
+    os.makedirs(dashed)
+    folder = tmp_path / "home" / ".claude" / "projects" / nested.replace("/", "-")
+    assert folder.name == dashed.replace("/", "-")  # the collision itself
+    folder.mkdir(parents=True)
+    (folder / "s.jsonl").write_text(json.dumps({"type": "user", "cwd": dashed}) + "\n")
+    assert T._claude_has_conversation(dashed) is True
+    assert T._claude_has_conversation(nested) is False  # the shared folder holds only the other directory's
+    (folder / "t.jsonl").write_text(json.dumps({"type": "user", "cwd": nested}) + "\n")
+    assert T._claude_has_conversation(nested) is True
 
 
 def test_a_conversation_filed_under_another_folder_name_is_found_by_its_cwd(tmp_path, monkeypatch):
