@@ -372,14 +372,30 @@ def _patch_project_yaml(
         desired["tenant_slug"] = tenant
     if org:
         desired["org_id"] = org
-    if all(data.get(k) == v for k, v in desired.items()):
+    from empirica.utils.yaml_cache import is_shared_repo
+
+    shared = is_shared_repo(data)
+    # A shared practice repo keeps each person's seat in their clone's untracked project.local.yaml, never in the
+    # tracked file everyone pulls (goal cdc2e27c): a cloned shared repo gets its tenant there (goal 6e349146).
+    person_tenant = desired.pop("tenant_slug", None) if shared else None
+    if all(data.get(k) == v for k, v in desired.items()) and not person_tenant:
         return False
     if dry_run:
-        _narrate(f"  [dry-run] would patch {project_yaml}: {desired}")
+        _narrate(
+            f"  [dry-run] would patch {project_yaml}: {desired}" + (" (+ this clone's seat)" if person_tenant else "")
+        )
         return True
-    data.update(desired)
-    project_yaml.write_text(yaml.safe_dump(data, default_flow_style=False, sort_keys=False))
-    return True
+    changed = False
+    if not all(data.get(k) == v for k, v in desired.items()):
+        data.update(desired)
+        project_yaml.write_text(yaml.safe_dump(data, default_flow_style=False, sort_keys=False))
+        changed = True
+    if person_tenant:
+        from empirica.cli.command_handlers.setup_claude_code import _ensure_local_ignored, _write_local_person_keys
+
+        changed = _write_local_person_keys(project_yaml.parent.parent, data, person_tenant, None) or changed
+        _ensure_local_ignored(project_yaml.parent.parent)
+    return changed
 
 
 _GITIGNORE_RULES = (".empirica/*", "!.empirica/project.yaml")
@@ -674,7 +690,19 @@ def _initial_commit_step(proj_dir: Path, dry_run: bool) -> dict:
 
 
 def handle_provision_practice_command(args) -> int:
-    """``empirica provision-practice <name> [options]``.
+    """``empirica provision-practice <name> [options]``, or ``--from-protocol FILE`` for each practice a protocol lists."""
+    if getattr(args, "from_protocol", None):
+        return _provision_from_protocol(args)
+    if not getattr(args, "name", None):
+        output = getattr(args, "output", "human")
+        msg = "name the practice (NAME) or give --from-protocol FILE"
+        print(json.dumps({"ok": False, "error": msg}) if output == "json" else f"❌ {msg}", file=sys.stderr)
+        return 1
+    return _provision_one(args)
+
+
+def _provision_one(args) -> int:
+    """One practice.
 
     Idempotent — re-running is a clean no-op past whatever step already
     landed: dir exists -> skip mkdir, project.yaml exists -> skip
@@ -815,3 +843,150 @@ def handle_provision_practice_command(args) -> int:
 
     _print_human(name, proj_dir, steps, dry_run, launch_command, any_error)
     return 0 if not any_error else 1
+
+
+# ── --from-protocol: Phase 6 from a workflow protocol file (goal 6e349146) ──────────────────────────────────────────────
+
+
+def _pane_commands(practice: dict) -> tuple[str | None, str | None, bool]:
+    """(--launch, --second-pane, wants a pane) for a practice's harness and model. A model applies to the practice's own
+    pane: with both harnesses that is claude's."""
+    harness = practice.get("harness") or "claude-code"
+    model = practice.get("model")
+    with_model = (lambda program: f"{program} --model {shlex.quote(model)}") if model else (lambda program: None)
+    if harness == "none":
+        return None, None, False
+    if harness == "ecodex":
+        return (with_model("ecodex") or "ecodex"), None, True
+    if harness == "both":
+        return with_model("claude"), "ecodex", True
+    return with_model("claude"), None, True
+
+
+def _practice_args(args, protocol: dict, practice: dict):
+    """The provision-practice arguments for one protocol practice: the practice's own fields, then this command's flags,
+    then the protocol's mesh block and cockpit profile."""
+    import argparse
+
+    mesh = protocol.get("mesh") or {}
+    forgejo = mesh.get("forgejo") or {}
+    profile = getattr(args, "cockpit_profile", None) or protocol.get("cockpit_profile")
+    launch, second, wants_pane = _pane_commands(practice)
+    values = dict(vars(args))
+    values.update(
+        name=practice["name"],
+        from_protocol=None,
+        only=None,
+        output="json",
+        type=practice.get("type") or getattr(args, "type", None),
+        description=practice.get("description") or getattr(args, "description", None),
+        domain=practice.get("domain") or getattr(args, "domain", None),
+        tenant=getattr(args, "tenant", None) or mesh.get("tenant"),
+        org=getattr(args, "org", None) or mesh.get("org"),
+        forgejo_owner=getattr(args, "forgejo_owner", None) or forgejo.get("owner"),
+        forgejo_host=getattr(args, "forgejo_host", None) or forgejo.get("host"),
+        cockpit_profile=profile if wants_pane else None,
+        launch=launch if (profile and wants_pane) else None,
+        second_pane=second if (profile and wants_pane) else None,
+    )
+    return argparse.Namespace(**values)
+
+
+def _clone_step(practice: dict, proj_dir: Path, dry_run: bool, run=subprocess.run) -> dict | None:
+    """Clone a shared practice repo the protocol names, when its directory does not exist yet; None when nothing to do."""
+    repository = practice.get("repository")
+    if not repository:
+        return None
+    if proj_dir.exists():
+        return {"step": "clone", "changed": False, "note": "directory already exists"}
+    if dry_run:
+        _narrate(f"  [dry-run] would clone {repository} into {proj_dir}")
+        return {"step": "clone", "changed": True, "note": "dry-run"}
+    proj_dir.parent.mkdir(parents=True, exist_ok=True)
+    result = run(["git", "clone", "--", repository, str(proj_dir)], capture_output=True, text=True, timeout=600)
+    if result.returncode != 0:
+        return {"step": "clone", "changed": False, "error": (result.stderr or result.stdout).strip()[-400:]}
+    return {"step": "clone", "changed": True}
+
+
+def _provision_from_protocol(args, provision=None) -> int:
+    """Provision each practice a validated protocol lists (or those --only names), and report each one."""
+    import contextlib
+    import io
+
+    from empirica.core import workflow_protocol
+
+    output = getattr(args, "output", "human")
+    provision = provision or _provision_one
+
+    def fail(msg: str, **extra) -> int:
+        if output == "json":
+            print(json.dumps({"ok": False, "error": msg, **extra}))
+        else:
+            print("\n".join([f"❌ {msg}", *(f"   {line}" for line in extra.get("problems") or [])]))
+        return 1
+
+    if getattr(args, "name", None):
+        return fail("give NAME or --from-protocol, not both")
+    protocol, problems = workflow_protocol.load(args.from_protocol)
+    if problems or protocol is None:
+        return fail(
+            f"{args.from_protocol} is not a valid workflow protocol; nothing was provisioned", problems=problems
+        )
+    practices = protocol.get("practices") or []
+    only = getattr(args, "only", None) or []
+    unknown = sorted(set(only) - {p["name"] for p in practices})
+    if unknown:
+        return fail(f"--only names practices the protocol does not list: {', '.join(unknown)}")
+    chosen = [p for p in practices if not only or p["name"] in only]
+    if not chosen:
+        return fail("the protocol lists no practices to provision")
+
+    base_path = Path(getattr(args, "base_path", None) or "~/empirica").expanduser()
+    dry_run = bool(getattr(args, "dry_run", False))
+    results = []
+    for practice in chosen:
+        result: dict = {"name": practice["name"]}
+        clone = _clone_step(practice, base_path / practice["name"], dry_run)
+        if clone and clone.get("error"):
+            result.update(ok=False, steps=[clone])
+            results.append(result)
+            continue
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = provision(_practice_args(args, protocol, practice))
+        try:
+            payload = json.loads(buffer.getvalue())
+        except ValueError:
+            payload = {"ok": False, "error": "provision-practice failed; its message is above"}
+        payload["ok"] = bool(payload.get("ok")) and code == 0
+        if clone:
+            payload["steps"] = [clone, *payload.get("steps", [])]
+        if practice.get("skills"):
+            payload["suggested_skills"] = practice[
+                "skills"
+            ]  # read each one before installing; nothing is installed here
+        results.append({**result, **payload})
+
+    ok = all(r.get("ok") for r in results)
+    if output == "json":
+        print(
+            json.dumps(
+                {"ok": ok, "dry_run": dry_run, "protocol": str(args.from_protocol), "practices": results}, indent=2
+            )
+        )
+    else:
+        _print_protocol_results(results, dry_run)
+    return 0 if ok else 1
+
+
+def _print_protocol_results(results: list[dict], dry_run: bool) -> None:
+    for r in results:
+        mark = "✅" if r.get("ok") else "❌"
+        note = r.get("error") or next((s.get("error") for s in r.get("steps", []) if s.get("error")), "")
+        print(f"{mark} {r['name']}" + (f": {note}" if note else "") + (" (dry run)" if dry_run else ""))
+        if r.get("suggested_skills"):
+            print(f"   suggested skills (read before installing): {', '.join(r['suggested_skills'])}")
+    launch = next((r["launch_command"] for r in results if r.get("launch_command")), None)
+    if launch and not dry_run:
+        print(f"\nLaunch the cockpit: {launch}")

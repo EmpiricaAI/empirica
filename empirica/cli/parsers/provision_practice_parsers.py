@@ -37,7 +37,21 @@ existing practice provisions a sibling under the same tenant/org).
 Falls back to erroring with a clear message if neither is available.
         """,
     )
-    p.add_argument("name", metavar="NAME", help="ai_id / directory name for the new practice")
+    p.add_argument("name", metavar="NAME", nargs="?", help="ai_id / directory name for the new practice")
+    p.add_argument(
+        "--from-protocol",
+        metavar="FILE",
+        help="Provision the practices a workflow protocol lists (as /ewm-interview or the web onboarding writes it, "
+        "schema workflow-protocol 0.3.0) instead of NAME. The file is validated first and nothing runs when it is "
+        "invalid. Each practice gets its own type, description, domain, harness and model; the protocol's mesh block "
+        "and cockpit profile apply unless given here. Suggested skills are listed, never installed",
+    )
+    p.add_argument(
+        "--only",
+        metavar="NAME",
+        action="append",
+        help="With --from-protocol: provision only this practice (repeat for several)",
+    )
     p.add_argument(
         "--base-path",
         metavar="PATH",
