@@ -438,10 +438,54 @@ _LEADING_KEYWORDS = {"do", "then", "else", "elif", "if", "while", "until", "!", 
 _SKIPPED_STATEMENTS = {"done", "fi", "esac", "}", ")", "for", "select"}
 
 
+def _scan(text: str) -> tuple[str, str]:
+    """(``text`` with single-quoted and backslash-escaped characters masked, ``text`` without its comments), read the way
+    bash reads quotes (goal c6a1fdca): an apostrophe inside double quotes is a character, a backslash escapes the next
+    character outside single quotes, and ``#`` starts a comment only at the start of an unquoted word."""
+    masked: list[str] = []
+    kept: list[str] = []
+    quote = ""
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if quote == "'":
+            masked.append("_")
+            kept.append(c)
+            if c == "'":
+                quote = ""
+                masked[-1] = "'"
+        elif c == "\\" and i + 1 < len(text):
+            masked.extend("__")
+            kept.append(text[i : i + 2])
+            i += 2
+            continue
+        elif quote == '"':
+            masked.append(c)
+            kept.append(c)
+            if c == '"':
+                quote = ""
+        elif c in "'\"":
+            quote = c
+            masked.append(c)
+            kept.append(c)
+        elif c == "#" and (not kept or kept[-1][-1:] in " \t\n;&|()"):
+            end = text.find("\n", i)
+            i = len(text) if end < 0 else end
+            continue
+        else:
+            masked.append(c)
+            kept.append(c)
+        i += 1
+    return "".join(masked), "".join(kept)
+
+
 def _literal_masked(text: str) -> str:
-    """``text`` with its single-quoted parts emptied and backslash-escaped ``$`` and backticks neutralised: what is left
-    is where the shell substitutes (goal f2ab8424)."""
-    return re.sub(r"\\[$`]", "_", re.sub(r"'[^']*'", "''", text))
+    """``text`` with single-quoted and escaped characters masked: what is left is where the shell substitutes."""
+    return _scan(text)[0]
+
+
+def _without_comments(text: str) -> str:
+    return _scan(text)[1]
 
 
 def _without_keywords(words: list[str]) -> list[str]:
@@ -480,20 +524,18 @@ def _ssh_remote_command(args: list[str]) -> str:
 def _statements(command: str) -> list[list[str]] | None:
     """The command's statements as word lists, split on ; && || | &; None when the text does not tokenise."""
     try:
-        lexer = shlex.shlex(command.replace("\n", " ; "), posix=True, punctuation_chars=True)
+        # Comments are cut from the raw text, where quoting is still visible: `grep '#x' f > out` has none, and neither has
+        # `curl -#O` (goals f2ab8424, c6a1fdca).
+        lexer = shlex.shlex(_without_comments(command).replace("\n", " ; "), posix=True, punctuation_chars=True)
         lexer.whitespace_split = True
-        lexer.commenters = ""  # bash starts a comment only at the start of a word: `curl -#O` has none (goal f2ab8424)
+        lexer.commenters = ""
         tokens = list(lexer)
     except ValueError:
         return None
     out: list[list[str]] = [[]]
-    in_comment = False
     for token in tokens:
         if token in _SEPARATORS:
             out.append([])
-            in_comment = False
-        elif in_comment or token.startswith("#"):
-            in_comment = True
         else:
             out[-1].append(token)
     return [s for s in out if s]
@@ -859,8 +901,8 @@ def _shell_run(args: list[str], cwd, project_path, empirica_is_read) -> tuple[se
     """A shell judged by what it runs (David, 2026-11-17): ``bash -c '<cmd>'`` by its command; a shell reading its
     commands from a pipe (``curl ... | bash``) runs code nobody can read here, typically downloaded, so it is outward;
     a script file is not read, so it stays unknown."""
-    if "-c" in args:
-        i = args.index("-c")
+    i = next((n for n, a in enumerate(args) if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", a)), -1)  # -c, -lc, -ec
+    if i >= 0:
         if i + 1 < len(args):
             inner = infer_shell_effects(
                 args[i + 1], cwd=cwd, project_path=project_path, empirica_is_read=empirica_is_read
@@ -880,7 +922,11 @@ def _xargs_run(args: list[str], cwd, project_path, empirica_is_read) -> tuple[se
         i += 2 if option in _XARGS_VALUE_OPTIONS else 1
     if i >= len(args):
         return set(), True
-    return _classify_statement(os.path.basename(args[i]), args[i + 1 :], cwd, project_path, empirica_is_read)
+    program = os.path.basename(args[i])
+    found, reliable = _classify_statement(program, args[i + 1 :], cwd, project_path, empirica_is_read)
+    if program not in _READ_PROGRAMS and not found - {"unknown"}:
+        return found | {"unknown"}, False  # `xargs rm`: the paths it changes arrive on stdin (goal c6a1fdca)
+    return found, reliable
 
 
 def _wget_to_stdout(args: list[str]) -> bool:

@@ -28,7 +28,7 @@ def _run(hook, monkeypatch, capsys, tmp_path, prompt):
     tx.write_text(json.dumps({"status": "open", "transaction_id": "t1"}))
     marked, refreshed = [], []
     monkeypatch.setattr(hook, "_find_transaction_file", lambda sid=None: tx)
-    monkeypatch.setattr(hook, "_mark_plan_shaped", lambda p: marked.append(p))
+    monkeypatch.setattr(hook, "_mark_plan_shaped", lambda p, *_a: marked.append(p))
     monkeypatch.setattr(hook, "_refresh_presence", lambda sid: refreshed.append(sid))
     monkeypatch.setattr(hook, "_build_context_usage_output", lambda sid: {})
     monkeypatch.setattr(hook, "_check_artifact_reminder", lambda *a: None)

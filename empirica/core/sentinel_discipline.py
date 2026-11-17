@@ -391,7 +391,7 @@ def _plain_local_change(
         return "it cannot be parsed" if writes else ""
     for words in statements:
         words = dr._without_keywords(words)  # `( touch a )`, `! touch a`, `if ...; then touch a; fi` (goal f2ab8424)
-        while words and words[-1] in (")", "}"):
+        while words and words[-1] == ")":
             words = words[:-1]
         if not words:
             continue
@@ -440,6 +440,22 @@ def _statement_problem(
     program, args = dr._program_and_args(kept)
     if program in ("cd", "pushd", "popd"):
         return "it changes directory, so its paths cannot be checked"
+    # A wrapper is judged by what it runs, as the classifier judges it (goal c6a1fdca): `bash -c 'touch a'` is the touch.
+    # Its own redirects are checked first: `bash -c 'ls' > ~/.bashrc` writes outside the practice whatever runs inside.
+    if program in dr._SHELLS or program == "xargs":
+        outside = next((t for t in targets if not _in_practice(t, cwd, project_root)), None)
+        if outside:
+            return f"{outside} is outside the practice or protected"
+    if program in dr._SHELLS:
+        i = next((n for n, a in enumerate(args) if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", a)), -1)
+        if 0 <= i < len(args) - 1:
+            return _plain_local_change(args[i + 1], cwd, project_root, unknown_ok=unknown_ok, writes=writes)
+    if program == "xargs":
+        j = 0
+        while j < len(args) and args[j].startswith("-"):
+            j += 2 if args[j] in dr._XARGS_VALUE_OPTIONS else 1
+        if j < len(args):
+            return _statement_problem(dr, args[j:], cwd, project_root, unknown_ok=True, writes=writes)
     if program == "git":
         return _git_problem(args)
     if program in _WRITE_PROGRAMS:

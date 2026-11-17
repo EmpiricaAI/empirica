@@ -201,3 +201,45 @@ def test_what_a_shell_or_xargs_runs_is_judged(command, tmp_path):
 def test_a_read_inside_a_shell_or_xargs_is_a_read(command, tmp_path):
     verdict = _judge(command, tmp_path)
     assert verdict["trivial"] and verdict.get("read") is True, (command, verdict)
+
+
+# --- 1.17.5 pre-publish sweep (goal c6a1fdca) ---
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep '#x' f > /etc/out.txt",
+        "echo '#' > /etc/passwd",
+        "cat '#x' > ~/.bashrc",
+        'echo "don\'t" $(git push origin main) "can\'t"',
+        "echo \\\\$(git push)",
+        "bash -lc 'git push origin main'",
+        "bash -ec 'rm -rf build'",
+    ],
+)
+def test_second_sweep_writes_and_pushes_are_not_reads(command, tmp_path):
+    assert not _judge(command, tmp_path)["trivial"], command
+
+
+@pytest.mark.parametrize("command", ["ls | xargs rm", "fd -e pyc | xargs rm", "xargs -r touch", "rm '#notes.txt#'"])
+def test_a_path_program_under_xargs_or_a_hash_name_is_counted(command, tmp_path):
+    verdict = _judge(command, tmp_path)
+    assert not verdict.get("read"), (command, verdict)
+
+
+@pytest.mark.parametrize("command", ["bash -c 'touch a.txt'", "sh -c 'git add .'", "ls | xargs git add"])
+def test_a_plain_change_inside_a_shell_or_xargs_is_counted(command, tmp_path):
+    verdict = _judge(command, tmp_path)
+    assert verdict["trivial"] and not verdict.get("read"), (command, verdict)
+
+
+@pytest.mark.parametrize("command", ["grep '#include' src.c", "ls # list it", "echo hi; # done"])
+def test_comments_and_hash_arguments_still_read(command, tmp_path):
+    verdict = _judge(command, tmp_path)
+    assert verdict["trivial"] and verdict.get("read") is True, (command, verdict)
+
+
+@pytest.mark.parametrize("command", ["bash -c 'ls' > ~/.bashrc", "ls | xargs git add > /etc/x", "sh -c 'touch .env'"])
+def test_a_wrapper_does_not_hide_a_protected_or_outside_write(command, tmp_path):
+    assert not _judge(command, tmp_path)["trivial"], command
