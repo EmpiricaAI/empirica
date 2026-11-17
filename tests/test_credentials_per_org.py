@@ -694,3 +694,66 @@ def test_cores_own_refresh_keeps_the_label(creds):
     loader.cortex_access_token(refresh=lambda rt, ep: {"access_token": "AT_NEW", "refresh_token": "RT_NEW",
                                                       "expires_at": time.time() + 3600})  # fmt: skip
     assert loader.cortex_oauth_org(None) == "org-a"
+
+
+# --- goal 33ffc93c (1.17.4 sweep) ---
+
+
+def test_a_label_from_before_binding_is_bound_at_the_first_rotation(creds):
+    write, _ = creds
+    expired = _set(_AT_A, "org-a", expires_at=time.time() - 60)  # org_id recorded, no org_bound (pre-binding seat)
+    loader = write({"url": _CORTEX, "oauth": expired})
+    loader.cortex_access_token(refresh=lambda rt, ep: {"access_token": _NEW_B, "refresh_token": _RT_ELSEWHERE,
+                                                      "expires_at": time.time() + 3600})  # fmt: skip
+    assert loader.get_cortex_oauth().get("org_bound")  # now bound to the rotated family
+    loader.save_cortex_oauth(access_token=_AT_B, refresh_token=_RT)  # a later token-only writer
+    assert loader.cortex_oauth_org(None) is None
+
+
+def test_a_stale_label_does_not_make_the_default_serve_every_team(creds):
+    write, _ = creds
+    loader = write({"url": _CORTEX, "orgs": {"org-b": _set(_AT_B, "org-b")}})
+    loader.save_cortex_oauth(access_token=_AT_A, refresh_token=_RT, org_id="org-a")  # bound
+    loader.save_cortex_oauth(access_token=_NEW_B, refresh_token=_RT_ELSEWHERE)  # an older writer swaps the tokens
+    assert loader.get_cortex_oauth(org_id="org-c") == {}  # not served by tokens of an unknown team
+
+
+def test_a_json_credentials_file_stays_json(tmp_path, monkeypatch):
+    import json as _json
+
+    from empirica.config.credentials_loader import CredentialsLoader
+
+    path = tmp_path / "credentials.json"
+    path.write_text(_json.dumps({"version": "1.0", "cortex": {"url": _CORTEX, "api_key": "k"}}))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("EMPIRICA_CREDENTIALS_PATH", str(path))
+    CredentialsLoader._instance = None
+    CredentialsLoader._credentials_cache = None
+    try:
+        CredentialsLoader().save_cortex_oauth(access_token=_AT_A, refresh_token=_RT)
+        stored = _json.loads(path.read_text())  # still JSON, still holding the api_key
+        assert stored["cortex"]["api_key"] == "k" and stored["cortex"]["oauth"]["access_token"] == _AT_A
+    finally:
+        CredentialsLoader._instance = None
+        CredentialsLoader._credentials_cache = None
+
+
+def test_a_save_goes_to_the_file_the_reads_came_from(tmp_path, monkeypatch):
+    from empirica.config.credentials_loader import CredentialsLoader
+
+    home_file = tmp_path / ".empirica" / "credentials.yaml"
+    home_file.parent.mkdir(parents=True)
+    home_file.write_text(yaml.safe_dump({"version": "1.0", "cortex": {"url": _CORTEX, "oauth": _set(_AT_A, "org-a")}}))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("EMPIRICA_CREDENTIALS_PATH", str(tmp_path / "missing.yaml"))
+    CredentialsLoader._instance = None
+    CredentialsLoader._credentials_cache = None
+    try:
+        loader = CredentialsLoader()
+        assert loader.get_cortex_oauth()["access_token"] == _AT_A  # reads fall back to the home file
+        loader.save_cortex_oauth(access_token=_AT_B)
+        assert not (tmp_path / "missing.yaml").exists()
+        assert yaml.safe_load(home_file.read_text())["cortex"]["oauth"]["access_token"] == _AT_B
+    finally:
+        CredentialsLoader._instance = None
+        CredentialsLoader._credentials_cache = None

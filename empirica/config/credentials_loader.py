@@ -391,23 +391,9 @@ class CredentialsLoader:
         if url is None and api_key is None:
             raise ValueError("save_cortex_config: at least one of url/api_key required")
 
-        # Resolve target:
-        # 1. Explicit config_path argument
-        # 2. EMPIRICA_CREDENTIALS_PATH env var (even if file doesn't exist —
-        #    we're creating it, so existence check from _find_config_file
-        #    would falsely fall through)
-        # 3. _find_config_file (returns existing files only)
-        # 4. ~/.empirica/credentials.yaml (default home location)
+        # Target: explicit path, else the file reads come from, else EMPIRICA_CREDENTIALS_PATH (created), else home.
         target = config_path
-        if target is None:
-            env_path = os.getenv("EMPIRICA_CREDENTIALS_PATH")
-            if env_path:
-                target = Path(env_path)
-        if target is None:
-            target = self._find_config_file()
-        if target is None:
-            target = Path.home() / ".empirica" / "credentials.yaml"
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target = self._resolve_credentials_target(target)
 
         # Load existing (preserve providers, etc.)
         # A file we cannot parse is refused, not replaced with {}: the saver's docstring promises it never touches `providers:`, and
@@ -492,15 +478,7 @@ class CredentialsLoader:
             raise ValueError("save_ntfy_config: at least one field required")
 
         target = config_path
-        if target is None:
-            env_path = os.getenv("EMPIRICA_CREDENTIALS_PATH")
-            if env_path:
-                target = Path(env_path)
-        if target is None:
-            target = self._find_config_file()
-        if target is None:
-            target = Path.home() / ".empirica" / "credentials.yaml"
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target = self._resolve_credentials_target(target)
 
         # A file we cannot parse is refused, not replaced with {}: the saver's docstring promises it never touches `providers:`, and
         # overwriting discarded every provider key and the OAuth family to record one URL.
@@ -558,23 +536,24 @@ class CredentialsLoader:
     # everyone. Converge them deliberately, afterwards.
 
     def _resolve_credentials_target(self, config_path: Path | None) -> Path:
-        """Same precedence as `save_cortex_config`: explicit → env → existing → home."""
-        target = config_path
+        """explicit → the file reads come from → EMPIRICA_CREDENTIALS_PATH → home.
+
+        Writes go to the file `_find_config_file` reads (goal 33ffc93c): with the env path set to a file that does not exist,
+        reads fall back to ~/.empirica, and a save to the env path made a partial second file that reads then switched to.
+        """
+        target = config_path or self._find_config_file()
         if target is None:
             env_path = os.getenv("EMPIRICA_CREDENTIALS_PATH")
-            if env_path:
-                target = Path(env_path)
-        if target is None:
-            target = self._find_config_file()
-        if target is None:
-            target = Path.home() / ".empirica" / "credentials.yaml"
+            target = Path(env_path) if env_path else Path.home() / ".empirica" / "credentials.yaml"
         target.parent.mkdir(parents=True, exist_ok=True)
         return target
 
     def _read_existing(self, target: Path) -> dict:
-        if not (target.exists() and YAML_AVAILABLE):
+        if not target.exists() or (not YAML_AVAILABLE and target.suffix != ".json"):
             return {}
         try:
+            if target.suffix == ".json":
+                return json.loads(target.read_text(encoding="utf-8") or "{}")
             return yaml.safe_load(target.read_text(encoding="utf-8")) or {}
         except Exception as e:
             # Do NOT silently overwrite a credentials file we failed to parse —
@@ -591,7 +570,10 @@ class CredentialsLoader:
         the TEMP file's mode rather than the destination's. That is load-bearing
         here: this file holds refresh tokens, which mint access tokens indefinitely.
         """
-        if not YAML_AVAILABLE:
+        as_json = (
+            target.suffix == ".json"
+        )  # a JSON file stays JSON: _load_credentials parses .json with json (goal 33ffc93c)
+        if not YAML_AVAILABLE and not as_json:
             raise RuntimeError("PyYAML not installed (`pip install pyyaml`)")
         if "version" not in data:
             data["version"] = "1.0"
@@ -599,7 +581,10 @@ class CredentialsLoader:
         tmp_fd, tmp_path = tempfile.mkstemp(prefix=".credentials-", suffix=".yaml.tmp", dir=str(target.parent))
         try:
             with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+                if as_json:
+                    json.dump(data, f, indent=2)
+                else:
+                    yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
             os.replace(tmp_path, target)
         except Exception:
             try:
@@ -724,7 +709,14 @@ class CredentialsLoader:
         # whose they are (an older empirica, a token bridge), so a stale label stops routing instead of misrouting.
         if org_id is not None:
             oauth_block["org_bound"] = _token_fingerprint(oauth_block.get("refresh_token")) if org_id else None
-        elif rotated and refresh_token is not None and previous_bound == _token_fingerprint(previous_rt):
+        elif (
+            rotated
+            and refresh_token is not None
+            and oauth_block.get("org_id")
+            and (previous_bound is None or previous_bound == _token_fingerprint(previous_rt))
+        ):
+            # Core's own rotation carries the binding forward, and binds a label recorded before binding existed (goal
+            # 33ffc93c): otherwise such a seat would never get the protection.
             oauth_block["org_bound"] = _token_fingerprint(refresh_token)
 
         if slot is None:
@@ -782,7 +774,9 @@ class CredentialsLoader:
         orgs = cortex.get("orgs") if isinstance(cortex.get("orgs"), dict) else {}
         if isinstance(orgs.get(org_id), dict):
             return org_id
-        if default and effective_org(default) in (None, org_id):
+        # The default serves an org it is bound to, or any org when it never recorded one (a pre-orgs sign-in). A label
+        # that no longer describes its tokens serves no named org: they belong to an unknown team (goal 33ffc93c).
+        if default and (effective_org(default) == org_id or not default.get("org_id")):
             return None
         return org_id  # another org's default: this org has no sign-in yet (reads as {})
 
