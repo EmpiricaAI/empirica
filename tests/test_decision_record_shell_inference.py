@@ -67,8 +67,6 @@ def test_a_command_is_classed_by_what_its_text_says_it_does(command, classes):
         "bash -c 'rm -rf x'",
         'node -e \'require("fs").rmSync("x")\'',
         'eval "$CMD"',
-        "echo $(rm -rf x)",
-        "echo `date`",
         "cat <<'EOF' > f\nx\nEOF",
     ],
 )
@@ -245,3 +243,9 @@ def test_another_empirica_verb_is_still_empirica_state_only():
 def test_dry_runs_help_and_branch_creation_are_not_writes(command, classes):
     # pre-publish sweep B3 (goal 4c935e3b): each read as a write, with reliable=True.
     assert infer(command)["classes"] == classes
+
+
+def test_the_commands_inside_a_substitution_are_classified():
+    """Goal e6ee7d01: $(...) and backticks run their commands too; they are classed, not only flagged unreliable."""
+    assert "delete_recursive" in infer("echo $(rm -rf x)")["classes"]
+    assert infer("echo `date`")["classes"] == []

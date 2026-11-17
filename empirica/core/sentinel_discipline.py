@@ -327,14 +327,112 @@ def _in_practice(path: str, cwd: str | None, project_root: str | None) -> bool:
     return True
 
 
-def judge(tool_name: str, tool_input, *, cwd: str | None, project_root: str | None, empirica_is_read=None) -> dict:
-    """Whether this call may run as an out-of-loop act: {"trivial": bool, "classes": [...], "why": str}.
+#: Shell effects a discipline budget covers: changes to the practice itself, its Empirica state, local version control.
+_BUDGETED_SHELL = {"project_write", "empirica_state", "vcs_local"}
+#: Effects that change nothing here: reads, and a read run on a remote host.
+_READ_SHELL = {"none", "remote_read"}
 
-    Only a file edit (Edit, Write, MultiEdit, NotebookEdit, or codex's apply_patch for every path it names, with no delete
-    or move) whose real path is inside the practice, outside its protected
-    directories and files, and not a hard link. Every shell command needs a transaction: an allowlist checked with a Python
-    tokenizer was bypassed ten ways by what bash does and shlex does not model (comments, ANSI-C quoting, brace and IFS
-    expansion, pathspec magic; 1.14.23 sweep, second pass). ``empirica_is_read`` is accepted for the caller's signature."""
+
+def _judge_shell(command: str, cwd: str | None, project_root: str | None, empirica_is_read) -> dict:
+    """A shell command by its inferred effects (goal e6ee7d01, David 2026-11-17). The Sentinel is discipline, not
+    security (David, 2026-11-11): the classifier aims at few false gates, not at every way bash can hide a write, and
+    sampled calls are still checked by effect observation after they run. Reads run uncounted; local changes count
+    against the budget; anything outward or irreversible needs a transaction."""
+    is_read = empirica_is_read or (lambda words: False)
+    effects = _decision_record().infer_shell_effects(
+        command, cwd=cwd, project_path=project_root, empirica_is_read=is_read
+    )
+    classes = set(effects["classes"])
+    if classes <= _READ_SHELL:
+        return {"trivial": True, "read": True, "classes": sorted(classes) or ["none"], "why": ""}
+    outward = sorted(classes - _READ_SHELL - _BUDGETED_SHELL)
+    if outward:
+        return {
+            "trivial": False,
+            "classes": sorted(classes),
+            "why": f"this command's effect ({', '.join(outward)}) needs a transaction even in discipline mode",
+        }
+    unclear = _plain_local_change(command, cwd, project_root)
+    if unclear:
+        return {"trivial": False, "classes": sorted(classes), "why": unclear}
+    return {"trivial": True, "classes": sorted(classes), "why": ""}
+
+
+#: Shell features whose effect cannot be read from the text: expansion, substitution, comments, escapes, globs.
+_SHELL_EXPANSION = re.compile(r"[$`{}#\\*?~]")
+#: Programs whose writes a budgeted change may use: every path they write must be inside the practice.
+_WRITE_PROGRAMS = {"touch", "mkdir", "cp", "mv", "ln", "tee", "rm", "rmdir", "sed", "truncate"}
+#: Git verbs a budgeted change may use: staging and committing the practice's own work.
+_GIT_BUDGETED = {"add", "commit", "mv", "status", "diff", "log", "show"}
+
+
+def _plain_local_change(command: str, cwd: str | None, project_root: str | None) -> str:
+    """ "" when a budgeted shell change is plain enough to read: literal words only, no directory change, git limited to
+    staging and committing, and every path it writes inside the practice and not protected (the check file edits get).
+    Otherwise why it needs a transaction. Reads never come here."""
+    if _SHELL_EXPANSION.search(command):
+        return "it uses shell expansion, a glob or a comment, so what it changes cannot be read from it"
+    dr = _decision_record()
+    statements = dr._statements(command)
+    if statements is None:
+        return "it cannot be parsed"
+    for words in statements:
+        problem = _statement_problem(dr, words, cwd, project_root)
+        if problem:
+            return problem
+    return ""
+
+
+def _split_redirects(dr, words: list[str]) -> tuple[list[str], list[str]]:
+    """(the statement's words without redirects, the files it redirects into)."""
+    kept: list[str] = []
+    targets: list[str] = []
+    i = 0
+    while i < len(words):
+        if words[i] in dr._REDIRECTS and i + 1 < len(words):
+            if words[i + 1] != "/dev/null":
+                targets.append(words[i + 1])
+            i += 2
+            continue
+        kept.append(words[i])
+        i += 1
+    return kept, targets
+
+
+def _git_problem(args: list[str]) -> str:
+    verb = next((a for a in args if not a.startswith("-")), "")
+    if verb not in _GIT_BUDGETED or any(a.startswith("-") for a in args[: args.index(verb)]):
+        return f"git {verb or '(option)'} needs a transaction (only add, commit and mv run outside one)"
+    if verb == "commit" and any(a in ("--amend", "--no-verify", "-n") for a in args):
+        return "an amended or unverified commit needs a transaction"
+    return ""
+
+
+def _statement_problem(dr, words: list[str], cwd: str | None, project_root: str | None) -> str:
+    if any(w in ("sudo", "doas", "su", "pkexec") for w in words):
+        return "it raises privileges, which needs a transaction"
+    kept, targets = _split_redirects(dr, words)
+    program, args = dr._program_and_args(kept)
+    if program in ("cd", "pushd", "popd"):
+        return "it changes directory, so its paths cannot be checked"
+    if program == "git":
+        return _git_problem(args)
+    if program in _WRITE_PROGRAMS:
+        positional = dr._positional(args)
+        targets += positional[1:] if program == "sed" else positional
+    elif program not in dr._READ_PROGRAMS:
+        return f"{program} is not a change discipline mode can read"
+    outside = next((t for t in targets if not _in_practice(t, cwd, project_root)), None)
+    return f"{outside} is outside the practice or protected" if outside else ""
+
+
+def judge(tool_name: str, tool_input, *, cwd: str | None, project_root: str | None, empirica_is_read=None) -> dict:
+    """Whether this call may run as an out-of-loop act: {"trivial": bool, "classes": [...], "why": str, "read"?: True}.
+
+    A file edit (Edit, Write, MultiEdit, NotebookEdit, or codex's apply_patch for every path it names, with no delete or
+    move) whose real path is inside the practice, outside its protected directories and files, and not a hard link; or a
+    shell command judged by `_judge_shell` (goal e6ee7d01, reversing 1.14.23's refuse-every-shell rule: the Sentinel is
+    discipline, not security, David 2026-11-11). A read is trivial and marked ``read``: it is not counted."""
     tool_input = tool_input if isinstance(tool_input, dict) else {}
     if tool_name == "apply_patch":
         lines = _decision_record().patch_lines(str(tool_input.get("command") or ""))
@@ -374,11 +472,7 @@ def judge(tool_name: str, tool_input, *, cwd: str | None, project_root: str | No
             }
         return {"trivial": True, "classes": ["project_write"], "why": ""}
     if tool_name == "Bash":
-        return {
-            "trivial": False,
-            "classes": ["unknown"],
-            "why": "shell commands need a transaction in discipline mode (only file edits inside the practice do not)",
-        }
+        return _judge_shell(str(tool_input.get("command") or ""), cwd, project_root, empirica_is_read)
     return {"trivial": False, "classes": ["external_tool"], "why": f"{tool_name} is not a file edit"}
 
 
@@ -591,6 +685,8 @@ def decide(
     if planning:
         return ("deny", f"Outside a transaction, and this is planned work: {planning}. Open one with PREFLIGHT.")
     verdict = judge(tool_name, tool_input, cwd=cwd, project_root=project_root, empirica_is_read=empirica_is_read)
+    if verdict.get("read"):
+        return ("allow", "A read outside a transaction (discipline mode): it changes nothing, so it is not counted.")
     if not verdict["trivial"]:
         return (
             "deny",

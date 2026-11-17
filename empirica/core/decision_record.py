@@ -232,6 +232,7 @@ EFFECT_CLASSES = (
     "delete_recursive",
     "credential_write",
     "remote_exec",
+    "remote_read",
     "external_tool",
     "unknown",
 )
@@ -379,7 +380,7 @@ def record_outcome(hook_input: dict, outcome: str) -> bool:
 # must measure.
 
 _SEPARATORS = {";", "&&", "||", "|", "&", "|&"}
-_REDIRECTS = {">", ">>", "&>", "&>>", ">|"}
+_REDIRECTS = {">", ">>", "&>", "&>>", ">|", ">&"}
 _INTERPRETERS = {
     "python",
     "python3",
@@ -400,7 +401,7 @@ _READ_PROGRAMS = {
     "uniq", "cut", "tr", "nl", "column", "comm", "diff", "cmp", "echo", "printf", "pwd", "which", "type", "whoami", "id",
     "date", "stat", "file", "du", "df", "ps", "free", "uname", "printenv", "true", "false", "sleep", "cd", "test", "[",
     "xxd", "od", "strings", "basename", "dirname", "realpath", "readlink", "tokei", "scc", "pyright", "mypy", "radon",
-    "vulture", "pip-audit", "jobs", "wait", "export",
+    "vulture", "pip-audit", "jobs", "wait", "export", "read", ":",
 }  # fmt: skip
 _PACKAGE_PROGRAMS = {
     "pip",
@@ -426,6 +427,43 @@ _GIT_READS = {
 _GH_READS = {"list", "view", "status", "diff", "checks", "watch", "download"}
 _SYSTEMCTL_READS = {"status", "show", "list-units", "list-unit-files", "list-timers", "is-active", "is-enabled", "cat"}
 _PATH_ARG_PROGRAMS = {"rm", "mv", "touch", "mkdir", "tee", "truncate", "rmdir", "unlink"}
+
+
+_SUBSTITUTION = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+#: Shell grammar words, not programs: a loop or conditional is judged by the commands it runs (goal e6ee7d01).
+_LEADING_KEYWORDS = {"do", "then", "else", "elif", "if", "while", "until", "!", "{", "(", "time"}
+_SKIPPED_STATEMENTS = {"done", "fi", "esac", "}", ")", "for", "case", "select"}
+
+
+def _without_keywords(words: list[str]) -> list[str]:
+    """``words`` with leading shell keywords removed; [] for a statement that only opens or closes a block (``for x in a
+    b``, ``done``, ``fi``), which runs nothing by itself."""
+    if words and words[0] in _SKIPPED_STATEMENTS:
+        return []
+    i = 0
+    while i < len(words) and words[i] in _LEADING_KEYWORDS:
+        i += 1
+    return words[i:]
+
+
+def _ssh_remote_command(args: list[str]) -> str:
+    """The command an ssh call runs on the remote host ("" for an interactive shell): what follows the host."""
+    takes_value = set("BbcDEeFIiJLlmOoPpQRSWw")
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            i += 1
+            break
+        if a.startswith("-") and len(a) > 1:
+            if a[-1] in takes_value and len(a) == 2:
+                i += 2
+            else:
+                i += 1
+            continue
+        break
+    rest = args[i + 1 :] if i < len(args) else []  # args[i] is the host
+    return " ".join(rest)
 
 
 def _statements(command: str) -> list[list[str]] | None:
@@ -692,7 +730,16 @@ def _classify_statement(
         verbs = set(_positional(args)[:2])
         return ({"install"} if verbs & _PACKAGE_VERBS else {"unknown"}), True
     if program in ("curl", "wget"):
-        return _curl(program, args), True
+        found = _curl(program, args)
+        out_flags = ("-o", "--output", "-O", "--output-document") if program == "curl" else ("-O", "--output-document")
+        for i, a in enumerate(args):  # a download written to a file is a write, not a read (goal e6ee7d01)
+            if a in out_flags and i + 1 < len(args) and not args[i + 1].startswith("-"):
+                found |= _paths_written("tee", [args[i + 1]], cwd, project_path)
+            elif a.startswith("--output=") or a.startswith("--output-document="):
+                found |= _paths_written("tee", [a.split("=", 1)[1]], cwd, project_path)
+            elif program == "curl" and a in ("-O", "--remote-name", "--remote-name-all"):
+                found |= {"project_write"} if cwd and project_path else {"outside_write"}
+        return found, True
     return _classify_other(program, args, cwd, project_path, empirica_is_read)
 
 
@@ -701,7 +748,11 @@ def _classify_other(
 ) -> tuple[set[str], bool]:
     """Remote, process, empirica and file-writing programs; anything else is unknown."""
     if program == "ssh":
-        return {"remote_exec"}, True
+        remote = _ssh_remote_command(args)
+        if not remote:
+            return {"remote_exec"}, True  # an interactive shell: anything can happen there
+        inner = infer_shell_effects(remote, cwd=None, project_path=None, empirica_is_read=empirica_is_read)
+        return ({"remote_read"} if not inner["classes"] else {"remote_exec"}), True
     if program in ("scp", "rsync"):
         remote = any(":" in a and not a.startswith(("/", ".", "~")) for a in _positional(args))
         return ({"network_send"} if remote else _paths_written("cp", args, cwd, project_path)), True
@@ -766,12 +817,23 @@ def infer_shell_effects(command: str, *, cwd: str | None, project_path: str | No
     """{"classes": sorted inferred classes, "reliable": whether the text can settle it}. ``empirica_is_read`` answers
     whether an ``empirica <verb>`` only reads (the gate passes its own is_read_shaped_empirica_verb)."""
     text = command or ""
-    reliable = not any(marker in text for marker in ("$(", "`", "<<"))
-    statements = _statements(text)
+    reliable = "<<" not in text
+    classes: set[str] = set()
+    # The commands inside $(...) and backticks run too: classify them (goal e6ee7d01). A nested or unbalanced one is
+    # left to the outer parse and marks the result unreliable.
+    for inner in _SUBSTITUTION.findall(text):
+        found = infer_shell_effects(
+            inner[0] or inner[1], cwd=cwd, project_path=project_path, empirica_is_read=empirica_is_read
+        )
+        classes |= set(found["classes"])
+        reliable = reliable and found["reliable"]
+    statements = _statements(_SUBSTITUTION.sub(" x ", text))
     if statements is None:
         return {"classes": ["unknown"], "reliable": False}
-    classes: set[str] = set()
     for words in statements:
+        words = _without_keywords(words)
+        if not words:
+            continue
         kept: list[str] = []
         i = 0
         while i < len(words):
