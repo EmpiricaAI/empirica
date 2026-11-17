@@ -51,11 +51,11 @@ def _panes(session):
     """[(key, directory name)] in tmux's pane order.
 
     A pane split a moment ago can still report the directory tmux itself runs in until its process has started, so this
-    waits (up to 2 s) until every pane reports one of the projects' directories.
+    waits (up to 10 s, for a loaded CI runner) until every pane reports one of the projects' directories.
     """
     import time
 
-    deadline = time.monotonic() + 2
+    deadline = time.monotonic() + 10
     while True:
         out = subprocess.run(
             ["tmux", "list-panes", "-t", f"={session}:g", "-F", "#{@empirica_pane}\t#{pane_current_path}"],
@@ -108,6 +108,10 @@ def test_a_pane_stamped_before_identities_keeps_its_key_only_where_it_still_fits
     # The window mesh-support hit: positional stamps, no identity, then a pane inserted mid-group.
     group, cfg = _cfg(tmux_env, "old", ["alpha", "beta"])
     _create_group_window(group, cfg, "old", True, {})
+    # Let the panes report their directories first. A pre-identity pane whose directory is not known yet keeps its key by
+    # design (a stopped pane reports none), so re-keying a moment after the split kept beta at g/1 on a slow CI runner and
+    # spawned a second beta (goal 248b32ff).
+    assert [d for _k, d in _panes("old")] == ["alpha", "beta"]
     subprocess.run(
         ["tmux", "set-option", "-p", "-t", f"={'old'}:g.0", "-u", "@empirica_pane_ident"], capture_output=True
     )
