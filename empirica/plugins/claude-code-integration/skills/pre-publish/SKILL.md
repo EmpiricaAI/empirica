@@ -31,6 +31,10 @@ that, because the defect was an absence.
 5. **Hot path.** If hooks or PREFLIGHT/CHECK/POSTFLIGHT changed, time the real path on the last tag's copy against the new one, same
    inputs, 15 runs each. A per-call cost regression blocks the cut; a removal that was already short-circuited is neutral, not a
    saving.
+   **Parsers.** If the Sentinel's shell reading changed (`decision_record.py`, `sentinel_discipline.py`), run the differential
+   fuzzer wide: `EMPIRICA_FUZZ_COUNT=20000 EMPIRICA_FUZZ_SEED=<n> pytest tests/test_shell_classifier_fuzz.py -m integration`
+   for three seeds (about 80 s each). `--prepare` runs it at 1,500 commands, a smoke check; its first wide run found a hidden
+   `git push` three review passes had missed. Any miss blocks the cut: shrink it to an example test, then fix.
 6. **Gaps.** Code against docs: new verbs and flags documented, removed names still referenced anywhere (docs, prompts, skills,
    scripts), the changelog's top entry is this release.
 7. **Re-run on the exact commit you will release.** Green CI on a neighbouring commit is not green on this one.
