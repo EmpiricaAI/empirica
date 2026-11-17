@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 from pathlib import Path
+from typing import Any
 
 import pytest
 import tomllib
@@ -17,7 +18,7 @@ from empirica.core.project_types import PROJECT_TYPES
 
 _ROOT = Path(__file__).resolve().parent.parent
 
-FULL = {
+FULL: dict[str, Any] = {
     "schema_version": "0.3.0",
     "user_profile": {"name": "Ada", "role": "founder", "focus": "product", "created": "2026-11-17"},
     "goals": {
