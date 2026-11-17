@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`project-register` registers a practice in its own team, or refuses.** With seats in two teams, a practice could be registered in the wrong one: the request names no team, so Cortex used whichever sign-in the command picked up. It now uses the sign-in for the team in the practice's `project.yaml`, asks Cortex which team that sign-in belongs to, refuses a mismatch (and names the `auth login --org` that fixes it), and says which team it registered in.
+
 - **The cockpit's help and command menu say so when the window is too small** instead of showing nothing: the help popup now fits a window narrower than 100 columns, and the menu checks the window's height first. An update or login window that fails stays open with its exit status until a key is pressed; it used to close after 10 seconds as if it had finished. The guide no longer describes the retired inbox chip or a health readout a cockpit may not have.
 
 - **A first `empirica auth login` says it set the Cortex URL.** It always saved the URL it signed in to, but it printed "No credentials config found" and "no URL was configured" on the way, which read as the opposite; it now prints `Cortex URL set to … , saved to …`.

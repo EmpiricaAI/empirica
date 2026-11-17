@@ -1086,7 +1086,17 @@ CORTEX_ADMIN_PATH = "/v1/admin/projects"
 CORTEX_USER_PROJECTS_PATH = "/v1/users/me/projects"
 
 
-def _resolve_cortex_config(args) -> tuple[str | None, str | None]:
+def _signed_in_org(cortex_url: str, bearer: str, timeout: float) -> str | None:
+    """The org a credential is in, from Cortex's /v1/users/me; None when Cortex cannot say (the local server, an error)."""
+    try:
+        from empirica.core.auth.cortex_oauth import _whoami
+
+        return _whoami(cortex_url, bearer).get("org_id") or None
+    except Exception:
+        return None
+
+
+def _resolve_cortex_config(args, org_id: str | None = None) -> tuple[str | None, str | None]:
     """Return (cortex_url, api_key) by precedence:
 
     1. CLI flags (`--cortex-url`, `--api-key`) — explicit per-invocation override
@@ -1108,7 +1118,13 @@ def _resolve_cortex_config(args) -> tuple[str | None, str | None]:
         from empirica.core.mesh_endpoint import mesh_bearer
         from empirica.core.mesh_endpoint import same_local_url as _same_local_url
 
-        creds = mesh_bearer()
+        creds = {}
+        if org_id:  # the sign-in for the practice being registered, not the working directory's (goal 898cfceb)
+            from empirica.core.auth import cortex_bearer
+
+            creds = dict(cortex_bearer(org_id=org_id))
+        if not creds.get("url"):
+            creds = mesh_bearer()
     except Exception:
         creds = {}
     if arg_url and creds.get("edition") == "local" and not _same_local_url(arg_url, creds.get("url")):
@@ -2010,6 +2026,7 @@ def handle_project_register_command(args) -> None:
             skip_link=skip_link,
             force_metadata_update=force_metadata_update,
             timeout=timeout,
+            org_id=project_yaml.get("org_id") or None,
         )
 
         # 5b. Identity reconcile — converge local stores to the cortex-canonical
@@ -2053,8 +2070,13 @@ def _project_register_cortex_step(
     skip_link: bool,
     force_metadata_update: bool,
     timeout: float,
+    org_id: str | None = None,
 ) -> dict[str, Any]:
     """The cortex POST step of handle_project_register_command.
+
+    Cortex registers a project in the org of the calling credential; the request names none. So the step uses the sign-in
+    for the practice's own org (its project.yaml org_id), asks Cortex which org that sign-in is in, and refuses a
+    mismatch before posting (goal 898cfceb: a person with two seats registered a practice in the wrong org).
 
     Extracted to keep the outer handler under the complexity threshold.
     Returns the cortex_outcome dict the handler emits in `result['cortex']`.
@@ -2062,11 +2084,19 @@ def _project_register_cortex_step(
     if no_cortex:
         return {"skipped": True, "reason": "--no-cortex"}
 
-    cortex_url, api_key = _resolve_cortex_config(args)
+    cortex_url, api_key = _resolve_cortex_config(args, org_id=org_id)
     if not (cortex_url and api_key):
         return {
             "skipped": True,
             "reason": "no cortex_url/api_key resolved (configure ~/.empirica/credentials.yaml)",
+        }
+    signed_in = _signed_in_org(cortex_url, api_key, timeout)
+    if org_id and signed_in and signed_in != org_id:
+        return {
+            "ok": False,
+            "reason": f"this machine's sign-in is for {signed_in}, but the practice belongs to {org_id} "
+            f"(project.yaml org_id); nothing was registered. Sign in to that team first: "
+            f"empirica auth login --org {org_id}",
         }
 
     payload: dict[str, Any] = {
@@ -2094,6 +2124,8 @@ def _project_register_cortex_step(
         }
 
     cortex_outcome = _interpret_cortex_register_response(status, body, project_id)
+    if signed_in:
+        cortex_outcome["org"] = signed_in  # where it went, said every time
     if cortex_outcome.get("ok") and not skip_link and cortex_outcome.get("project_id"):
         cortex_outcome["link"] = _link_user_to_project(
             cortex_url,
@@ -2239,7 +2271,8 @@ def _format_project_register_human(result: dict[str, Any]) -> None:
         print(f"\n⊙ Cortex: skipped ({reason})")
     elif cortex.get("ok"):
         verb = "registered" if cortex.get("outcome") == "registered" else "already registered"
-        print(f"\n✅ Cortex: {verb} (status={cortex.get('status')})")
+        where = f" in org {cortex['org']}" if cortex.get("org") else ""
+        print(f"\n✅ Cortex: {verb}{where} (status={cortex.get('status')})")
         if cortex.get("diverged"):
             print(
                 f"   ⚠ project_id divergence: cortex returned "
