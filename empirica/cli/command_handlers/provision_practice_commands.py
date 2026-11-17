@@ -381,11 +381,21 @@ def _patch_project_yaml(
     person_tenant = desired.pop("tenant_slug", None) if shared else None
     if shared:
         desired = {}
+    if person_tenant:
+        local_yaml = project_yaml.parent / "project.local.yaml"
+        try:
+            local = yaml.safe_load(local_yaml.read_text()) or {} if local_yaml.exists() else {}
+        except Exception:
+            local = {}
+        if isinstance(local, dict) and local.get("tenant_slug") == person_tenant:
+            person_tenant = None  # this clone's seat already says so
     if all(data.get(k) == v for k, v in desired.items()) and not person_tenant:
         return False
     if dry_run:
         _narrate(
-            f"  [dry-run] would patch {project_yaml}: {desired}" + (" (+ this clone's seat)" if person_tenant else "")
+            f"  [dry-run] would write this clone's seat (tenant {person_tenant}) to {project_yaml.parent / 'project.local.yaml'}"
+            if shared
+            else f"  [dry-run] would patch {project_yaml}: {desired}"
         )
         return True
     changed = False
@@ -923,11 +933,22 @@ def _provision_captured(provision, practice_args) -> dict:
     import contextlib
     import io
 
-    out, err = io.StringIO(), io.StringIO()
+    class _Tee(io.StringIO):
+        """Keeps what is written to stderr AND shows it: the dry-run narration and warnings go there."""
+
+        def __init__(self, shown):
+            super().__init__()
+            self._shown = shown
+
+        def write(self, text: str) -> int:
+            self._shown.write(text)
+            return super().write(text)
+
+    out, err = io.StringIO(), _Tee(sys.stderr)
     try:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = provision(practice_args)
-    except Exception as e:  # one practice failing must not lose the others' reports
+    except (Exception, SystemExit) as e:  # one practice failing must not lose the others' reports
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
     payload: dict = {}
     for text in (out.getvalue(), err.getvalue()):

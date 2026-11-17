@@ -243,3 +243,8 @@ def test_comments_and_hash_arguments_still_read(command, tmp_path):
 @pytest.mark.parametrize("command", ["bash -c 'ls' > ~/.bashrc", "ls | xargs git add > /etc/x", "sh -c 'touch .env'"])
 def test_a_wrapper_does_not_hide_a_protected_or_outside_write(command, tmp_path):
     assert not _judge(command, tmp_path)["trivial"], command
+
+
+@pytest.mark.parametrize("command", ["echo \\ #x; git push", "echo \\(#x; git push origin main"])
+def test_an_escaped_character_before_a_hash_is_mid_word(command, tmp_path):
+    assert not _judge(command, tmp_path)["trivial"], command

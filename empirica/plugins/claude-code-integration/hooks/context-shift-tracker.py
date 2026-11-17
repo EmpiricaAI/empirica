@@ -157,7 +157,7 @@ _COMPLEX_WORK = re.compile(
 )
 
 
-def _mark_plan_shaped(prompt: str, claude_session_id: str | None = None) -> None:
+def _mark_plan_shaped(prompt: str, claude_session_id: str | None = None, cwd: str | None = None) -> None:
     """Keep the Sentinel's plan-shaped flag in step with the latest prompt (core/sentinel_discipline.py, goal 543fd1c6): in
     discipline mode, planned or multi-step work gets no out-of-loop budget. Loaded by file path; never raises."""
     try:
@@ -176,7 +176,7 @@ def _mark_plan_shaped(prompt: str, claude_session_id: str | None = None) -> None
         module_spec.loader.exec_module(module)
         # The practice found the way the gate finds it (decision_record.project_path_for), so the mark and the ledger share
         # a key when there is no instance id (goal c6a1fdca).
-        root = module._decision_record().project_path_for(claude_session_id, os.getcwd())
+        root = module._decision_record().project_path_for(claude_session_id, cwd or os.getcwd())
         module.mark_plan_shaped(InstanceResolver.instance_suffix(), bool(_COMPLEX_WORK.search(prompt)), root)
     except Exception:
         pass
@@ -406,7 +406,7 @@ def main():
     # the context-shift tally PREFLIGHT reports (goal 3fcde812: notifications outnumber prompts on this seat).
     is_notification = prompt.lstrip().startswith(_NOTIFICATION_STARTS)
     if not is_notification:
-        _mark_plan_shaped(prompt, claude_session_id)
+        _mark_plan_shaped(prompt, claude_session_id, hook_input.get("cwd"))
 
     # Keep practitioner presence fresh each turn (the mesh active-state signal) —
     # best-effort, non-blocking. See _refresh_presence.

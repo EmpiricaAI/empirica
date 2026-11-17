@@ -177,3 +177,26 @@ def test_a_shared_repos_tracked_identity_is_never_rewritten(tmp_path):
     tracked.write_text(yaml.safe_dump(original))
     pp._patch_project_yaml(tracked, ai_id="team-research", tenant="ada", org="acme", substrate="local", dry_run=False)
     assert yaml.safe_load(tracked.read_text()) == original
+
+
+def test_what_a_practice_prints_to_stderr_is_still_shown(tmp_path, capsys):
+    import sys
+
+    def provision(ns):
+        print("  [dry-run] would run: project-init", file=sys.stderr)
+        print(json.dumps({"ok": True, "name": ns.name, "steps": []}))
+        return 0
+
+    pp._provision_from_protocol(_args(tmp_path), provision=provision)
+    assert "[dry-run] would run: project-init" in capsys.readouterr().err
+
+
+def test_a_shared_repo_dry_run_says_where_the_seat_goes(tmp_path, capsys):
+    root = tmp_path / "shared"
+    (root / ".empirica").mkdir(parents=True)
+    tracked = root / ".empirica" / "project.yaml"
+    tracked.write_text(yaml.safe_dump({"ai_id": "shared", "seats": "per-clone"}))
+    assert pp._patch_project_yaml(tracked, ai_id="shared", tenant="ada", org="o", substrate="cortex", dry_run=True)
+    assert "project.local.yaml" in capsys.readouterr().err
+    (root / ".empirica" / "project.local.yaml").write_text(yaml.safe_dump({"tenant_slug": "ada"}))
+    assert not pp._patch_project_yaml(tracked, ai_id="shared", tenant="ada", org="o", substrate="cortex", dry_run=True)

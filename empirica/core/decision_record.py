@@ -468,7 +468,7 @@ def _scan(text: str) -> tuple[str, str]:
             quote = c
             masked.append(c)
             kept.append(c)
-        elif c == "#" and (not kept or kept[-1][-1:] in " \t\n;&|()"):
+        elif c == "#" and (not kept or (len(kept[-1]) == 1 and kept[-1] in " \t\n;&|()")):  # `\ #x` is mid-word
             end = text.find("\n", i)
             i = len(text) if end < 0 else end
             continue
