@@ -177,3 +177,9 @@ def test_a_real_halt_is_not_hidden_by_a_partial_layer(capsys):
     del vectors["signal"]  # USER INTENT is partial; every other layer is fully assessed and below threshold
     mc._display_turtle_stack(vectors)
     assert "HALT RECOMMENDED" in capsys.readouterr().out
+
+
+def test_an_unassessed_user_intent_never_makes_praxic_viable():
+    paths = mc._calculate_trajectory_paths(0.0, 0.9, 0.9, 0.9, 0.7, 0, None)
+    praxic = next(p for p in paths if p["name"].upper().startswith("PRAXIC"))
+    assert praxic["viable"] is False

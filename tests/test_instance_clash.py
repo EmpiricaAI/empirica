@@ -315,3 +315,11 @@ def test_ps_argv_with_node_running_claude_and_a_spaced_path(monkeypatch):
     assert hook._headless_run() is True
     assert hook._is_claude("/home/J Doe/.local/bin/claude") and hook._is_claude("claude bg-spare")
     assert not hook._is_claude("/usr/bin/claude-wrapper") and not hook._is_claude("claudette")
+
+
+def test_ps_argv_with_a_spaced_path_rejoins_to_claude(monkeypatch):
+    hook = _load("si_ps_spaced", "session-init.py")
+    argv = ["node", "/Users/J", "Doe/.local/bin/claude", "-p", "hi"]
+    assert hook._claude_index(argv, exact=False) == 2
+    monkeypatch.setattr(hook, "_claude_argv", lambda: (argv, False))
+    assert hook._headless_run() is True

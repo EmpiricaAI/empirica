@@ -345,8 +345,8 @@ def _print_turtle_overall(layers: list, safe_to_proceed: bool) -> None:
     elif safe_to_proceed and overall_score >= 0.50:
         print(f"STATUS: {overall_moon} [{overall_status}] - PROCEED WITH CAUTION")
         print("        Observer is forming. Consider CHECK before praxic action.")
-    elif any(l["score"] is not None and not l.get("missing") and l["score"] < 0.50 for l in layers):
-        # A fully assessed layer below threshold is a halt, whatever else is incomplete (goal d6a5f502, second pass).
+    elif any(l["score"] is not None and l["score"] < 0.50 for l in layers):
+        # A layer whose assessed vectors are below threshold is a halt, whatever else is incomplete (goal d6a5f502).
         print(f"STATUS: {overall_moon} [{overall_status}] - HALT RECOMMENDED")
         print("        Observer is unstable. Run PREFLIGHT or investigate unknowns.")
     elif len(scored) < len(layers) or any(l.get("missing") for l in layers):
@@ -537,7 +537,8 @@ def _calculate_trajectory_paths(
     paths = []
 
     # PRAXIC path - can we execute?
-    praxic_confidence = min(layer1_score, layer2_score, layer3_score)
+    # Every layer, USER INTENT included: an unassessed one scores 0.0 here, so it can never make PRAXIC viable (goal d6a5f502)
+    praxic_confidence = min(layer0_score, layer1_score, layer2_score, layer3_score)
     praxic_viable = praxic_confidence >= 0.70 and unknowns_count <= 3
     praxic_blockers = []
     if layer1_score < 0.70:

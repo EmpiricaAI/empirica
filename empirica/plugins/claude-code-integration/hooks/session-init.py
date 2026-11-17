@@ -914,7 +914,7 @@ def _headless_run() -> bool:
     found = _claude_argv()
     if found is not None:
         argv, exact = found
-        at = next((i for i, a in enumerate(argv[:2]) if _is_claude(a)), 0)
+        at = _claude_index(argv, exact)
         flags = argv[at + 1 :]  # after `claude`, or after `node …/claude`
         if not exact:  # ps joins the arguments with spaces: only the leading options are certainly options
             flags = flags[: next((i for i, a in enumerate(flags) if not a.startswith("-")), len(flags))]
@@ -948,6 +948,21 @@ def _is_claude(arg: str) -> bool:
     return Path(arg).name == "claude" or Path(arg.split(" ")[0]).name == "claude" or "claude-code" in arg
 
 
+def _claude_index(argv: list[str], exact: bool) -> int | None:
+    """The index of the last word of the claude executable in argv: 0 for `claude …`, 1 for `node …/claude …`. ps joins
+    arguments with spaces, so there a path with a space spans several words (`node /Users/J Doe/…/claude`), rejoined
+    up to the first option (goal d6a5f502, third pass)."""
+    for i, a in enumerate(argv[:2]):
+        if _is_claude(a):
+            return i
+    if not exact and len(argv) > 2:
+        end = next((i for i, a in enumerate(argv) if i > 0 and a.startswith("-")), len(argv))
+        for k in range(2, end):
+            if _is_claude(" ".join(argv[1 : k + 1])):
+                return k
+    return None
+
+
 def _claude_argv() -> tuple[list[str], bool] | None:
     """(arguments, exact) of the claude process this hook runs under: the hook's parent, or a few levels up when a shell
     stands between them. None when no ancestor within three levels looks like claude. A process that renamed itself
@@ -958,7 +973,7 @@ def _claude_argv() -> tuple[list[str], bool] | None:
         if found is None:
             return None
         argv, parent, exact = found
-        if any(_is_claude(a) for a in argv[:2]):
+        if _claude_index(argv, exact) is not None:
             return argv, exact
         if parent <= 1:
             return None

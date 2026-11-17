@@ -280,3 +280,13 @@ def test_version_flags_after_a_script_go_to_the_script(command, tmp_path):
 @pytest.mark.parametrize("command", ["bash script.sh -c 'ls'", "bash ./evil.sh -lc 'cat x'"])
 def test_a_dash_c_after_a_script_is_the_scripts_argument(command, tmp_path):
     assert not _judge(command, tmp_path).get("read"), command
+
+
+@pytest.mark.parametrize("command", ["bash -o pipefail -c 'ls'", "bash -O extglob -c 'cat a'", "bash +x -c 'ls'"])
+def test_shell_options_with_values_still_find_dash_c(command, tmp_path):
+    verdict = _judge(command, tmp_path)
+    assert verdict["trivial"] and verdict.get("read") is True, (command, verdict)
+
+
+def test_after_a_double_dash_dash_c_is_a_script_name(tmp_path):
+    assert not _judge("bash -- -c ls", tmp_path).get("read")
