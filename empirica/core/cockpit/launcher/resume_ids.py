@@ -92,7 +92,31 @@ def codex_session_id(pane_id: str | None, project_path: str, tmux_server_start: 
         return None
     if str(data.get("tmux_server_start")) != str(tmux_server_start) or not _same_dir(recorded, project_path):
         return None
+    # As for Claude panes: trusted only when the session's own transcript was started in this directory (goal e5b1a12e).
+    started_in = _codex_transcript_cwd(sid)
+    if started_in is None or not _same_dir(started_in, project_path):
+        return None
     return sid
+
+
+def _codex_transcript_cwd(session_id: str) -> str | None:
+    """The working directory codex recorded for ``session_id``: the first line of its rollout transcript
+    (``$CODEX_HOME`` or ``~/.codex``, ``sessions/YYYY/MM/DD/rollout-<ts>-<id>.jsonl``) is a session_meta record with
+    ``payload.cwd``. None when there is no such transcript or it says nothing usable."""
+    import os
+
+    base = Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex")) / "sessions"
+    try:
+        found = next(base.glob(f"*/*/*/rollout-*-{session_id}.jsonl"), None)
+        if found is None:
+            return None
+        with found.open(encoding="utf-8") as fh:
+            meta = json.loads(fh.readline() or "{}")
+    except (OSError, ValueError):
+        return None
+    payload = meta.get("payload") if isinstance(meta, dict) else None
+    cwd = payload.get("cwd") if isinstance(payload, dict) else None
+    return cwd if isinstance(cwd, str) and cwd else None
 
 
 _JOB_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$")  # no leading "-": never an option

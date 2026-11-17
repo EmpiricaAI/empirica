@@ -247,6 +247,7 @@ def _pane_record(h, pane="7", **over):
 def test_a_codex_pane_record_is_trusted_when_harness_project_and_server_match(home):
     h, proj = home
     _pane_record(h, project_path=str(proj))
+    _codex_transcript(h, "thread-abc12345", proj)
     assert resume_ids.codex_session_id("%7", str(proj), 1700) == "thread-abc12345"
 
 
@@ -268,3 +269,13 @@ def test_a_codex_pane_record_that_fails_a_guard_is_ignored(home, why, over, serv
 def test_no_record_or_no_server_start_gives_no_codex_id(home):
     assert resume_ids.codex_session_id("%7", str(home[1]), 1700) is None
     assert resume_ids.codex_session_id("%7", str(home[1]), None) is None
+
+
+def _codex_transcript(home, session_id, cwd):
+    """A codex rollout transcript started in ``cwd`` (resume_ids checks it, goal e5b1a12e)."""
+    import json as _json
+
+    day = Path(home) / ".codex" / "sessions" / "2026" / "11" / "17"
+    day.mkdir(parents=True, exist_ok=True)
+    meta = {"type": "session_meta", "payload": {"cwd": str(cwd)}}
+    (day / f"rollout-2026-11-17T01-00-00-{session_id}.jsonl").write_text(_json.dumps(meta) + "\n")

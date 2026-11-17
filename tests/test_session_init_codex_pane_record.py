@@ -47,6 +47,7 @@ def test_a_codex_session_writes_the_record_the_launcher_reads(tmp_path, monkeypa
         "project_path": str(project),
         "tmux_server_start": "1794840000",
     }
+    _codex_transcript(tmp_path, _SID, project)  # the reader also checks the session's transcript (goal e5b1a12e)
     assert codex_session_id("%17", str(project), "1794840000") == _SID  # round-trips through the real reader
 
 
@@ -61,3 +62,13 @@ def test_outside_tmux_or_with_a_malformed_pane_nothing_is_written(tmp_path, monk
         _env(monkeypatch, tmp_path, pane=pane)
         assert session_init._write_codex_pane_record(tmp_path, _SID) is False
     assert not (tmp_path / ".empirica" / "pane_sessions").exists()
+
+
+def _codex_transcript(home, session_id, cwd):
+    """A codex rollout transcript started in ``cwd`` (resume_ids checks it, goal e5b1a12e)."""
+    import json as _json
+
+    day = Path(home) / ".codex" / "sessions" / "2026" / "11" / "17"
+    day.mkdir(parents=True, exist_ok=True)
+    meta = {"type": "session_meta", "payload": {"cwd": str(cwd)}}
+    (day / f"rollout-2026-11-17T01-00-00-{session_id}.jsonl").write_text(_json.dumps(meta) + "\n")
