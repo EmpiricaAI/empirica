@@ -1087,13 +1087,20 @@ CORTEX_USER_PROJECTS_PATH = "/v1/users/me/projects"
 
 
 def _signed_in_org(cortex_url: str, bearer: str, timeout: float) -> str | None:
-    """The org a credential is in, from Cortex's /v1/users/me; None when Cortex cannot say (the local server, an error)."""
+    """The org a credential is in, from /v1/users/me (the local server answers "local"); None when it cannot say."""
     try:
-        from empirica.core.auth.cortex_oauth import _whoami
+        from functools import partial
 
-        return _whoami(cortex_url, bearer).get("org_id") or None
+        from empirica.core.auth.cortex_oauth import _http_json, _whoami
+
+        return _whoami(cortex_url, bearer, http=partial(_http_json, timeout=timeout)).get("org_id") or None
     except Exception:
         return None
+
+
+def _org_refusal(reason: str) -> dict[str, Any]:
+    """A register refused before anything was posted because of which team the sign-in belongs to (goal 898cfceb)."""
+    return {"ok": False, "outcome": "org_mismatch", "reason": reason}
 
 
 def _resolve_cortex_config(args, org_id: str | None = None) -> tuple[str | None, str | None]:
@@ -2085,19 +2092,31 @@ def _project_register_cortex_step(
         return {"skipped": True, "reason": "--no-cortex"}
 
     cortex_url, api_key = _resolve_cortex_config(args, org_id=org_id)
+    if cortex_url and not api_key and org_id and org_id != "local":
+        # A Cortex is configured but there is no sign-in for the practice's team: say so, do not count it as skipped.
+        return _org_refusal(
+            f"no sign-in for {org_id} (project.yaml org_id) on this machine; nothing was registered. "
+            f"Sign in to that team first: empirica auth login --org {org_id}"
+        )
     if not (cortex_url and api_key):
         return {
             "skipped": True,
             "reason": "no cortex_url/api_key resolved (configure ~/.empirica/credentials.yaml)",
         }
     signed_in = _signed_in_org(cortex_url, api_key, timeout)
-    if org_id and signed_in and signed_in != org_id:
-        return {
-            "ok": False,
-            "reason": f"this machine's sign-in is for {signed_in}, but the practice belongs to {org_id} "
-            f"(project.yaml org_id); nothing was registered. Sign in to that team first: "
-            f"empirica auth login --org {org_id}",
-        }
+    if org_id and signed_in != "local":  # the local server is no team: nothing to compare
+        if signed_in is None:
+            return _org_refusal(
+                "could not confirm which team this machine's sign-in belongs to (Cortex's /v1/users/me did not "
+                "answer), and Cortex would register the practice in that team; nothing was registered. Try again "
+                "in a moment"
+            )
+        if signed_in != org_id:
+            return _org_refusal(
+                f"this machine's sign-in is for {signed_in}, but the practice belongs to {org_id} "
+                f"(project.yaml org_id); nothing was registered. Sign in to that team first: "
+                f"empirica auth login --org {org_id}"
+            )
 
     payload: dict[str, Any] = {
         "project_id": project_id,  # ask cortex to adopt the local UUID
@@ -2298,6 +2317,8 @@ def _format_project_register_human(result: dict[str, Any]) -> None:
         if cortex.get("outcome") == "owner_conflict":
             # Re-running won't help an owner-conflict — surface the re-key path instead.
             print(f"\n   → {cortex.get('hint') or _OWNER_CONFLICT_HINT}", file=sys.stderr)
+        elif cortex.get("outcome") == "org_mismatch":
+            pass  # the reason above names what to do; re-running as it is would be refused again
         else:
             print(
                 "\n   Local writes succeeded — re-run 'empirica project register' to retry cortex.",

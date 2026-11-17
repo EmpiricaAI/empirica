@@ -41,3 +41,33 @@ def test_a_practice_naming_no_org_registers_where_the_sign_in_is_and_says_so(mon
     posted: list = []
     out = _step(monkeypatch, practice_org=None, signed_in_org="org-nle", posted=posted)
     assert posted and out.get("org") == "org-nle"
+
+
+def test_no_sign_in_for_the_practices_team_is_a_refusal_not_a_skip(monkeypatch):
+    posted: list = []
+    monkeypatch.setattr(pc, "_resolve_cortex_config", lambda args, org_id=None: ("https://c.test", None))
+    monkeypatch.setattr(pc, "_post_project", lambda *a, **k: posted.append(a) or (200, {}))
+    out = pc._project_register_cortex_step(
+        argparse.Namespace(), project_id="p1", name="n", repo_url=None, no_cortex=False, skip_link=True,
+        force_metadata_update=False, timeout=5.0, org_id="org-consulting",
+    )  # fmt: skip
+    assert out["ok"] is False and out["outcome"] == "org_mismatch" and not posted
+    assert "auth login --org org-consulting" in out["reason"]
+
+
+def test_an_unconfirmed_team_is_refused_and_the_local_server_is_not_a_team(monkeypatch):
+    posted: list = []
+    assert _step(monkeypatch, practice_org="org-a", signed_in_org=None, posted=posted)["ok"] is False and not posted
+    out = _step(monkeypatch, practice_org="org-a", signed_in_org="local", posted=posted)
+    assert posted and out.get("org") == "local"
+
+
+def test_the_team_check_uses_the_commands_timeout(monkeypatch):
+    from empirica.core.auth import cortex_oauth
+
+    seen = {}
+    monkeypatch.setattr(
+        cortex_oauth, "_whoami", lambda url, token, http: seen.setdefault("t", http.keywords["timeout"]) and {}
+    )
+    pc._signed_in_org("https://c.test", "tok", 3.0)
+    assert seen["t"] == 3.0

@@ -500,6 +500,10 @@ def test_mail_turns_that_practice_s_m_chip_orange_and_only_that_one(tmux_env, mo
 
     cfg, config_path = _cockpit(tmux_env, "b9")
     bar.install(cfg, "b9", config_path=config_path, profile=None)
+    # The Client below attaches (and so resizes), and install's hooks would start a background re-layout that races this
+    # test's capture (a synchronous re-layout keeps the chip; checked for 1.17.7). The hooks are tested elsewhere.
+    for hook in ("client-attached", "client-resized", "after-new-window"):
+        _tmux("set-hook", "-u", "-t", "=b9:", hook)
     monkeypatch.setattr(bar, "read_ecosystem_state", dict)
 
     out = bar.refresh_state(
