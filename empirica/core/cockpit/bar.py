@@ -174,7 +174,7 @@ def health_readout(*, answers=_answers) -> str:
         cortex = None
     if cortex:
         parts.append(f"{green if answers(cortex.rstrip('/') + '/health') else red}cortex●")
-    parts.append(f"{green if answers(local_server_url() + '/health') else grey}serve●")
+    parts.append(f"{green if answers(local_server_url() + '/v1/health') else grey}serve●")
     try:
         parts.append(f"{grey}load {os.getloadavg()[0]:.1f}")
     except (OSError, AttributeError):
@@ -255,7 +255,8 @@ def _fits_on_one_line(session_name: str) -> bool:
         width = 0
     listing = _tmux("list-windows", "-t", target, "-F", "#{window_index} #{window_name}").stdout.splitlines()
     tabs = sum(len(f" {line} ") + 5 for line in listing if line)  # room for the active mark and a stopped mark
-    health = re.sub(r"#\[[^\]]*\]", "", _show(target, "#{E:status-right}"))
+    shown = _option(["-t", target], "@empirica_health")
+    health = re.sub(r"#\[[^\]]*\]", "", shown + " 00:00" if shown else _show(target, "#{E:status-right}"))
     if not health.strip():
         # A `#(command)` has not answered yet on its first evaluation: use the room the option reserves.
         try:
@@ -379,7 +380,7 @@ def menu_rows(args: list[str]) -> int:
     while i < len(args):
         i += 1 if args[i] == "" else 3
         lines += 1
-    return lines + 2 + 3  # its border, and the status lines (the bar's two or three) the client also holds
+    return lines + 2 + 1  # its border, and a row of margin: tmux checks the whole client height (measured for 1.17.7)
 
 
 _TOO_SMALL_MENU = "This window is too small for the command menu: make it taller, or press prefix e and a letter"
@@ -862,16 +863,22 @@ def _popup(
         args += ["-c", client]
     if directory:
         args += ["-d", directory]
-    if _tmux(*args, command).returncode != 0:  # tmux shows nothing when it cannot draw the popup (goal 8da5f220)
+    result = _tmux(*args, command)
+    # display-popup -E waits until the popup closes and returns the viewer's own status (or the 10 s timeout): only tmux's
+    # own refusal, which comes at once, means the window was too small (1.17.7 sweep).
+    if "too large" in result.stderr or "too small" in result.stderr:
         _say(client, "This window is too small for the help: make it larger, or open docs/guides/COCKPIT.md")
 
 
 def _window(session: str, name: str, command: str) -> None:
     """Run something that prints or asks questions in a window of its own: its tab is the way out, and it closes when done."""
     # A failure stays on screen until a key is pressed; a success closes by itself (goal 8da5f220: a failed update read as done).
-    shown = (
+    script = (
         f"{command}; rc=$?; echo; if [ $rc -eq 0 ]; then printf 'finished - this window closes in 10 seconds '; sleep 10; "
         "else printf 'FAILED (exit %s) - read the output above, then press Enter to close ' \"$rc\"; read -r _; fi"
+    )
+    shown = (
+        f"sh -c {shlex.quote(script)}"  # under sh, not the user's default-shell (fish cannot parse it; 1.17.7 sweep)
     )
     _tmux("new-window", "-t", _sess_at(session), "-n", name, shown)
 
@@ -903,10 +910,13 @@ def default_update_command(*, package_file: str | None = None, executable: str |
     root = Path(location).parents[3]  # .../empirica/core/cockpit/bar.py -> the directory holding the package
     if (root / ".git").exists() or (root / "pyproject.toml").exists():
         return ""  # running from a source checkout: an upgrade from PyPI would not touch it
-    deploy = f"{shlex.quote(shutil.which('empirica') or 'empirica')} setup-claude-code --force"
+    beside = Path(python).parent / "empirica"  # the empirica of this install, not the first one on PATH
+    deploy = f"{shlex.quote(str(beside) if beside.exists() else shutil.which('empirica') or 'empirica')} setup-claude-code --force"
     if "/pipx/venvs/" in location:
         return f"pipx upgrade empirica && {deploy}"
-    if "/Cellar/" in location or "/homebrew/" in location.lower():
+    if "/uv/tools/" in location:
+        return f"uv tool upgrade empirica && {deploy}"
+    if "/Cellar/" in location:  # a Homebrew formula; pip into Homebrew's Python is a pip install (below)
         return f"brew upgrade empirica && {deploy}"
     return f"{shlex.quote(python)} -m pip install --upgrade empirica && {deploy}"
 

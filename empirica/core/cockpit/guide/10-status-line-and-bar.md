@@ -6,8 +6,8 @@ Three places show how things are going: the **tabs** along the top of the cockpi
 ## The top of the cockpit
 
 Your practices, as tabs. A red **✗** on a tab means a practitioner in that practice has stopped.
-On the right, small green or red dots show whether the Empirica server (`cortex`) and this
-computer's Empirica service (`serve`) answer, then how busy (`load`) and how full (`disk`) this
+On the right, small dots show whether the Empirica server (`cortex`, green or red) and this
+computer's Empirica service (`serve`, green, or grey when it is not running) answer, then how busy (`load`) and how full (`disk`) this
 computer is, and the time. With many practices, they move to a second line.
 
 ## The commands under each box

@@ -356,7 +356,8 @@ def _with_remote_control_name(launch: str, name: str) -> str:
         words = shlex.split(launch)
     except ValueError:
         return launch
-    if not words or os.path.basename(words[0]) != "claude" or any(w.startswith("--remote-control") for w in words):
+    names = any(w == "--remote-control" or w.startswith("--remote-control=") for w in words)  # not ...-name-prefix
+    if not words or os.path.basename(words[0]) != "claude" or names:
         return launch
     return f"{launch} --remote-control {shlex.quote(name)}"
 
@@ -646,7 +647,14 @@ def add_practice_to_profile(
         # A launch or resume that was ASKED for (not left unspecified) and differs from what is there must not be discarded: an accepted
         # flag that does nothing reads as success. Unspecified (None) never conflicts.
         for field_name, wanted_value, have in (
-            ("launch", launch, existing.launch),
+            # As written in the profile: remote_control's added name is not part of it (1.17.7 sweep).
+            (
+                "launch",
+                launch,
+                _without_remote_control_name(existing.launch, existing.name)
+                if config.remote_control
+                else existing.launch,
+            ),
             ("resume", resume, existing.resume),
         ):
             if wanted_value is not None and wanted_value != have:

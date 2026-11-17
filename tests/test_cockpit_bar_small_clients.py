@@ -21,8 +21,9 @@ def test_the_help_popup_fits_a_narrow_client_and_says_when_it_cannot(monkeypatch
     def fake_tmux(*args):
         calls.append(args)
         if args[0] == "display-message" and "-p" in args:
-            return SimpleNamespace(stdout="80\n", returncode=0)
-        return SimpleNamespace(stdout="", returncode=1 if args[0] == "display-popup" else 0)
+            return SimpleNamespace(stdout="80\n", returncode=0, stderr="")
+        refused = args[0] == "display-popup"  # tmux's own refusal, which comes at once
+        return SimpleNamespace(stdout="", returncode=1 if refused else 0, stderr="width too large" if refused else "")
 
     monkeypatch.setattr(bar, "_tmux", fake_tmux)
     monkeypatch.setattr(bar, "_say", lambda client, text, ms=6000: said.append(text))
@@ -94,3 +95,22 @@ def test_u_defaults_to_the_upgrade_that_matches_the_install(tmp_path):
     f.parent.mkdir(parents=True)
     f.write_text("")
     assert bar.default_update_command(package_file=str(f)) == ""  # a source checkout updates by git
+
+
+def test_sweep_fixes_for_1_17_7(monkeypatch, tmp_path):
+    """Fish users' windows, a long-open help popup, the menu guard's height, and a near-miss flag (1.17.7 sweep)."""
+    calls = []
+    monkeypatch.setattr(bar, "_tmux", lambda *a: calls.append(a) or SimpleNamespace(stdout="", returncode=0, stderr=""))
+    bar._window("s", "u", "true")
+    assert calls[-1][-1].startswith("sh -c ")  # never the user's default-shell
+    said = []
+    monkeypatch.setattr(bar, "_say", lambda c, t, ms=6000: said.append(t))
+    monkeypatch.setattr(bar, "_tmux", lambda *a: SimpleNamespace(stdout="120", returncode=124, stderr=""))
+    bar._popup("c", "help")
+    assert not said  # a popup open past the timeout is not "too small"
+    assert bar.menu_rows(bar.menu_args("P")) <= 16
+    from empirica.core.cockpit.launcher.config import _with_remote_control_name
+
+    assert _with_remote_control_name("claude --remote-control-session-name-prefix box", "p").endswith(
+        "--remote-control p"
+    )
