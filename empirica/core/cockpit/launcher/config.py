@@ -111,6 +111,9 @@ class LauncherConfig:
     mouse: bool = True  # click a window name to switch, click a pane to focus
     bar: bool = True  # the cockpit bars: practices and health on top, commands under each pane (core/cockpit/bar.py)
     bar_commands: dict[str, str] = field(default_factory=dict)  # what U, C and S run on this machine, by chip letter
+    remote_control: bool = (
+        False  # claude panes start with --remote-control <practice>, named on the phone (goal 8da5f220)
+    )
 
     def project_names(self) -> list[str]:
         return [p.name for p in self.projects]
@@ -319,27 +322,61 @@ def load_config(path: Path | None = None) -> LauncherConfig:
     surface = str(raw.get("surface") or ("alacritty" if groups else "tmux"))
     alacritty_args = [str(a) for a in _as_list(raw.get("alacritty_args")) if a]
 
-    return LauncherConfig(
-        session_name=str(raw.get("session_name") or "cockpit"),
-        attach_on_launch=bool(raw.get("attach_on_launch", True)),
-        projects=projects,
-        status_windows=status_windows,
-        groups=groups,
-        surface=surface,
-        alacritty_args=alacritty_args,
-        warn_on_abnormal_exit=bool(abnormal.get("warn", True)),
-        auto_prune_dead=bool(abnormal.get("auto_prune_dead", False)),
-        notify_on_abnormal_exit=bool(abnormal.get("notify", True)),
-        mouse=bool(raw.get("mouse", True)),
-        bar=bool(raw.get("bar", True)),
-        bar_commands={
-            str(k).upper(): str(v)
-            for k, v in (raw.get("bar_commands") or {}).items()
-            if isinstance(v, str) and v.strip()
-        }
-        if isinstance(raw.get("bar_commands"), dict)
-        else {},
+    return apply_remote_control(
+        LauncherConfig(
+            session_name=str(raw.get("session_name") or "cockpit"),
+            attach_on_launch=bool(raw.get("attach_on_launch", True)),
+            projects=projects,
+            status_windows=status_windows,
+            groups=groups,
+            surface=surface,
+            alacritty_args=alacritty_args,
+            warn_on_abnormal_exit=bool(abnormal.get("warn", True)),
+            auto_prune_dead=bool(abnormal.get("auto_prune_dead", False)),
+            notify_on_abnormal_exit=bool(abnormal.get("notify", True)),
+            mouse=bool(raw.get("mouse", True)),
+            bar=bool(raw.get("bar", True)),
+            bar_commands={
+                str(k).upper(): str(v)
+                for k, v in (raw.get("bar_commands") or {}).items()
+                if isinstance(v, str) and v.strip()
+            }
+            if isinstance(raw.get("bar_commands"), dict)
+            else {},
+            remote_control=raw.get("remote_control") is True,
+        )
     )
+
+
+def _with_remote_control_name(launch: str, name: str) -> str:
+    """``launch`` with ``--remote-control <name>`` when it starts claude and names no Remote Control session itself."""
+    import shlex
+
+    try:
+        words = shlex.split(launch)
+    except ValueError:
+        return launch
+    if not words or os.path.basename(words[0]) != "claude" or any(w.startswith("--remote-control") for w in words):
+        return launch
+    return f"{launch} --remote-control {shlex.quote(name)}"
+
+
+def _without_remote_control_name(launch: str, name: str) -> str:
+    """The launch line as written in the profile: the name ``remote_control`` added is not saved back into it."""
+    import shlex
+
+    suffix = f" --remote-control {shlex.quote(name)}"
+    return launch[: -len(suffix)] if launch.endswith(suffix) else launch
+
+
+def apply_remote_control(config: LauncherConfig) -> LauncherConfig:
+    """Name each claude pane's Remote Control session after its practice when the profile asks for it (autonomy
+    prop_xqwy3a2pszfwbjrvwh3stke3oe: every session showed as 'Remote control' on the phone; only a name given at connect
+    time sticks). Applied at load, so launch and refresh both carry it."""
+    if config.remote_control:
+        for p in config.projects:
+            p.launch = _with_remote_control_name(p.launch, p.name)
+    return config
 
 
 def _serialize(config: LauncherConfig) -> dict[str, Any]:
@@ -350,7 +387,13 @@ def _serialize(config: LauncherConfig) -> dict[str, Any]:
         "mouse": config.mouse,
         "bar": config.bar,
         **({"bar_commands": config.bar_commands} if config.bar_commands else {}),
-        "projects": [_serialize_project(p) for p in config.projects],
+        "projects": [
+            {**_serialize_project(p), "launch": _without_remote_control_name(p.launch, p.name)}
+            if config.remote_control
+            else _serialize_project(p)
+            for p in config.projects
+        ],
+        **({"remote_control": True} if config.remote_control else {}),
         "status_windows": [{"name": w.name, "command": w.command} for w in config.status_windows],
         "on_abnormal_exit": {
             "warn": config.warn_on_abnormal_exit,

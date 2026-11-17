@@ -40,3 +40,12 @@ back to it, open a terminal (page 0) and run:
 It goes back to the running cockpit instead of starting a second one. If someone set up more
 than one cockpit for you, they will give you its name, and you add it at the end:
 `empirica cockpit launch --profile NAME`.
+
+## Following along on your phone
+
+Claude Code's Remote Control lets you follow and answer a practitioner from the Claude app on
+your phone. Every session is called "Remote control" there unless it was given a name when it
+connected, and a name given later does not reach the phone. So start it with a name: type
+`/remote-control` followed by the practice's name in its conversation. Or ask whoever set up your
+cockpit to turn on `remote_control` in its profile, and every practitioner starts already named
+after its practice.

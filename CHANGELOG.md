@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`remote_control: true` in a cockpit profile** starts each claude pane with `--remote-control <practice>`, so the sessions are told apart in the Claude app on a phone; without a name given at connect time they all read "Remote control". The cockpit guide also explains `/remote-control <name>` and now answers its three open questions (paste shortcuts, the extension's buttons, the status line's symbols).
+
 ### Fixed
 
 - **A first `empirica auth login` says it set the Cortex URL.** It always saved the URL it signed in to, but it printed "No credentials config found" and "no URL was configured" on the way, which read as the opposite; it now prints `Cortex URL set to … , saved to …`.
