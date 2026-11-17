@@ -541,6 +541,8 @@ def _calculate_trajectory_paths(
     praxic_confidence = min(layer0_score, layer1_score, layer2_score, layer3_score)
     praxic_viable = praxic_confidence >= 0.70 and unknowns_count <= 3
     praxic_blockers = []
+    if layer0_score < 0.70:
+        praxic_blockers.append(f"USER INTENT unclear ({layer0_score:.2f})")
     if layer1_score < 0.70:
         praxic_blockers.append(f"NOETIC GRASP too low ({layer1_score:.2f})")
     if layer2_score < 0.70:

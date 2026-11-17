@@ -955,8 +955,8 @@ def _claude_index(argv: list[str], exact: bool) -> int | None:
     for i, a in enumerate(argv[:2]):
         if _is_claude(a):
             return i
-    if not exact and len(argv) > 2:
-        end = next((i for i, a in enumerate(argv) if i > 0 and a.startswith("-")), len(argv))
+    if not exact and len(argv) > 2 and Path(argv[0]).name in ("node", "bun", "deno"):  # an interpreter running claude
+        end = min(next((i for i, a in enumerate(argv) if i > 0 and a.startswith("-")), len(argv)), 12)
         for k in range(2, end):
             if _is_claude(" ".join(argv[1 : k + 1])):
                 return k

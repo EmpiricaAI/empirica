@@ -296,3 +296,17 @@ def test_after_a_double_dash_dash_c_is_a_script_name(tmp_path):
 def test_clustered_and_long_shell_options_still_find_dash_c(command, tmp_path):
     verdict = _judge(command, tmp_path)
     assert verdict["trivial"] and verdict.get("read") is True, (command, verdict)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "bash -c -- 'git push'",
+        "bash -c -o pipefail 'git push'",
+        "bash -c -x 'git push'",
+        "bash -oc pipefail 'git push'",
+    ],
+)
+def test_the_command_bash_runs_is_its_first_operand(command, tmp_path):
+    """Fourth pass (goal d6a5f502): the word after -c was taken for the command, so these pushes were counted."""
+    assert not _judge(command, tmp_path)["trivial"], command

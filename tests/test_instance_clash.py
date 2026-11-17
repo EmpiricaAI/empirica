@@ -323,3 +323,9 @@ def test_ps_argv_with_a_spaced_path_rejoins_to_claude(monkeypatch):
     assert hook._claude_index(argv, exact=False) == 2
     monkeypatch.setattr(hook, "_claude_argv", lambda: (argv, False))
     assert hook._headless_run() is True
+
+
+def test_only_an_interpreter_line_is_rejoined(monkeypatch):
+    hook = _load("si_ps_rejoin_only_node", "session-init.py")
+    assert hook._claude_index(["bash", "run.sh", "/opt/claude", "-x"], exact=False) is None
+    assert hook._claude_index(["node", "/Users/J", "Doe/claude", "-p"], exact=False) == 2

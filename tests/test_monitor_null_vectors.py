@@ -183,3 +183,9 @@ def test_an_unassessed_user_intent_never_makes_praxic_viable():
     paths = mc._calculate_trajectory_paths(0.0, 0.9, 0.9, 0.9, 0.7, 0, None)
     praxic = next(p for p in paths if p["name"].upper().startswith("PRAXIC"))
     assert praxic["viable"] is False
+
+
+def test_an_unclear_user_intent_is_named_as_a_blocker():
+    paths = mc._calculate_trajectory_paths(0.0, 0.9, 0.9, 0.9, 0.7, 0, None)
+    praxic = next(p for p in paths if p["name"].upper().startswith("PRAXIC"))
+    assert any("USER INTENT" in b for b in praxic.get("blockers", [])), praxic

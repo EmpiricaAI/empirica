@@ -920,17 +920,19 @@ def _shell_run(args: list[str], cwd, project_path, empirica_is_read) -> tuple[se
     """A shell judged by what it runs (David, 2026-11-17): ``bash -c '<cmd>'`` by its command; a shell reading its
     commands from a pipe (``curl ... | bash``) runs code nobody can read here, typically downloaded, so it is outward;
     a script file is not read, so it stays unknown."""
-    options = _shell_options(args)
-    # -c, -lc, -ec, but only among bash's own options: after a script or `--`, `-c` is an argument (goal d6a5f502)
+    options, operand = _shell_options(args)
+    # -c, -lc, -ec, but only among bash's own options: after a script or `--`, `-c` is an argument. Its command is bash's
+    # first operand, after every option (`bash -c -o pipefail 'git push'`), not the word after -c (goal d6a5f502).
     i = next((n for n in options if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", args[n])), -1)
     if i >= 0:
-        if i + 1 < len(args):
+        i = operand - 1
+        if operand < len(args):
             inner = infer_shell_effects(
                 args[i + 1], cwd=cwd, project_path=project_path, empirica_is_read=empirica_is_read
             )
             return set(inner["classes"]), inner["reliable"]
         return {"unknown"}, False
-    leading = [args[n] for n in _shell_options(args)]  # after a script they are the script's
+    leading = [args[n] for n in _shell_options(args)[0]]  # after a script they are the script's
     if any(a in ("--version", "--help") for a in leading):
         return set(), True  # it prints and exits (goal 63a44ce6)
     if not [a for a in args if not a.startswith("-")]:
@@ -942,20 +944,22 @@ def _shell_run(args: list[str], cwd, project_path, empirica_is_read) -> tuple[se
 _SHELL_VALUE_OPTIONS = {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}
 
 
-def _shell_options(args: list[str]) -> list[int]:
-    """Indexes of the shell's own options: everything before the first operand, where `--` ends the options and
-    `-o pipefail` / `-O extglob` / `--rcfile r` take a value (goal d6a5f502, third pass)."""
+def _shell_options(args: list[str]) -> tuple[list[int], int]:
+    """(indexes of the shell's own options, index of its first operand): `--` ends the options, and `-o pipefail`,
+    `-O extglob`, `--rcfile r` and a short cluster holding o/O (`-euo pipefail`, `-oc pipefail`) take a value
+    (goal d6a5f502, third and fourth passes)."""
     found: list[int] = []
     i = 0
     while i < len(args):
         a = args[i]
-        if a == "--" or not a.startswith(("-", "+")) or a in ("-", "+"):
+        if a == "--":
+            return found, i + 1
+        if not a.startswith(("-", "+")) or a in ("-", "+"):
             break
         found.append(i)
-        # -o pipefail, and a short-option cluster ending in o/O (-euo pipefail) takes the next word too
-        takes_value = a in _SHELL_VALUE_OPTIONS or bool(re.fullmatch(r"[-+][A-Za-z]*[oO]", a))
+        takes_value = a in _SHELL_VALUE_OPTIONS or bool(re.fullmatch(r"[-+][A-Za-z]*[oO][A-Za-z]*", a))
         i += 2 if takes_value else 1
-    return found
+    return found, i
 
 
 def _xargs_run(args: list[str], cwd, project_path, empirica_is_read) -> tuple[set[str], bool]:
