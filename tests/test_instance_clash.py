@@ -237,6 +237,7 @@ def test_a_headless_run_in_the_pane_leaves_the_pointer(world, monkeypatch, entry
     world.pointer(world.nle, "interactive-session")
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", entrypoint)
     hook = _load(f"si_headless_{entrypoint}", "session-init.py")
+    monkeypatch.setattr(hook, "_claude_argv", lambda: None)  # the process cannot be read: the entrypoint decides
 
     hook._write_instance_projects(str(world.nle), "headless-run", "e2")
 
@@ -254,7 +255,45 @@ def test_an_interactive_session_still_takes_a_stale_pointer(world, monkeypatch, 
     else:
         monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", entrypoint)
     hook = _load(f"si_interactive_{entrypoint}", "session-init.py")
+    monkeypatch.setattr(hook, "_claude_argv", lambda: None)
 
     hook._write_instance_projects(str(world.nle), "new-session", "e2")
 
     assert world.read()["claude_session_id"] == "new-session"
+
+
+# ── headless by the claude process's own arguments (goal 92d57ee3, H4) ────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "argv, entrypoint, headless",
+    [
+        (["claude", "-p", "summarise"], "claude-vscode", True),  # print mode from VS Code keeps claude-vscode
+        (["claude", "--print", "x"], None, True),
+        (["node", "/x/claude", "--output-format", "stream-json", "--input-format", "stream-json"], "sdk-ts", True),
+        (
+            ["claude", "--dangerously-skip-permissions", "--continue"],
+            "sdk-cli",
+            False,
+        ),  # a pane under an SDK-started tmux
+        (["claude"], "cli", False),
+    ],
+)
+def test_headless_is_read_from_the_claude_process(monkeypatch, argv, entrypoint, headless):
+    if entrypoint is None:
+        monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
+    else:
+        monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", entrypoint)
+    hook = _load(f"si_argv_{len(argv)}_{entrypoint}_{headless}", "session-init.py")
+    monkeypatch.setattr(hook, "_claude_argv", lambda: argv)
+    assert hook._headless_run() is headless
+
+
+def test_the_claude_process_is_found_above_a_shell(monkeypatch):
+    hook = _load("si_argv_walk", "session-init.py")
+    table = {10: (["/bin/sh", "-c", "python3 hook.py"], 9), 9: (["claude", "-p", "x"], 1)}
+    monkeypatch.setattr(hook.os, "getppid", lambda: 10)
+    monkeypatch.setattr(hook, "_proc_args_and_parent", lambda pid: table.get(pid))
+    assert hook._claude_argv() == ["claude", "-p", "x"]
+    monkeypatch.setattr(hook, "_proc_args_and_parent", lambda pid: None)
+    assert hook._claude_argv() is None

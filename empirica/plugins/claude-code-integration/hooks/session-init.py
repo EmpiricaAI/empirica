@@ -905,10 +905,54 @@ def _headless_run() -> bool:
 
     A headless run started inside a cockpit pane inherits the pane's instance id, and taking the instance pointer made
     `refresh` resume the headless run instead of the pane's conversation (1.14.23 sweep). Claude Code names its entrypoint
-    in CLAUDE_CODE_ENTRYPOINT: `cli` for the interactive app, `sdk-*` for print mode and the SDKs. Any other value, or none,
-    reads as interactive, which is the behaviour before this check.
+    in CLAUDE_CODE_ENTRYPOINT, but only when the variable is not already set, so `claude -p` started from VS Code keeps
+    `claude-vscode` and every pane of a tmux server started by an SDK process inherits `sdk-*` (1.15.0 sweep H4). The
+    claude process's own arguments decide instead: print mode carries -p/--print, and the SDKs start it with
+    --input-format/--output-format, which only print mode takes (goal 92d57ee3). The entrypoint decides only when that
+    process cannot be read.
     """
+    argv = _claude_argv()
+    if argv is not None:
+        flags = argv[1:]
+        return any(
+            a in ("-p", "--print") or a.startswith(("--print=", "--input-format", "--output-format")) for a in flags
+        )
     return os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").startswith("sdk")
+
+
+def _proc_args_and_parent(pid: int) -> tuple[list[str], int] | None:
+    """(argv, parent pid) of a process: /proc on Linux, ps elsewhere; None when it cannot be read."""
+    try:
+        if Path("/proc").is_dir():
+            argv = Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace").split("\0")
+            stat = Path(f"/proc/{pid}/stat").read_text()
+            return [a for a in argv if a], int(stat.rsplit(")", 1)[1].split()[1])
+        out = subprocess.run(
+            ["ps", "-o", "ppid=", "-o", "args=", "-p", str(pid)], capture_output=True, text=True, timeout=2
+        ).stdout.strip()
+        if not out:
+            return None
+        parent, _, args = out.partition(" ")
+        return args.split(), int(parent)
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return None
+
+
+def _claude_argv() -> list[str] | None:
+    """The arguments of the claude process this hook runs under: the hook's parent, or a few levels up when a shell
+    stands between them. None when no ancestor within three levels looks like claude."""
+    pid = os.getppid()
+    for _ in range(3):
+        found = _proc_args_and_parent(pid)
+        if found is None:
+            return None
+        argv, parent = found
+        if any(Path(a).name == "claude" or "claude-code" in a for a in argv[:2]):
+            return argv
+        if parent <= 1:
+            return None
+        pid = parent
+    return None
 
 
 def _write_instance_projects(project_path: str, claude_session_id: str, empirica_session_id: str) -> bool:
