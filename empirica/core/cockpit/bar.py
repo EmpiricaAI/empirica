@@ -550,9 +550,11 @@ def _listener_chip(ai_id: str, workers: dict[str, int] | None = None) -> tuple[s
     return "", "", bool(status.installed) or running > 0
 
 
-def _poll(ai_id: str, path: str, run, *extra: str) -> list[dict] | None:
+def _poll(ai_id: str, path: str, run, *extra: str, meta: dict | None = None) -> list[dict] | None:
     """One mailbox poll's proposals, or None when it could not be read or was cut short (``matched`` beyond what came back):
-    a partial outbox would drop the replies that answered older mail, and the count would grow (1.16.3 sweep)."""
+    a partial outbox would drop the replies that answered older mail, and the count would grow (1.16.3 sweep).
+
+    ``meta``, when given, receives ``queried_as``: the canonical id the poll resolved this practice to."""
     try:
         result = run(
             [*_empirica_argv(), "mailbox", "poll", "--ai-id", ai_id, *extra, "--limit", "200", "--output", "json"],
@@ -568,15 +570,28 @@ def _poll(ai_id: str, path: str, run, *extra: str) -> list[dict] | None:
     proposals = payload.get("proposals") if isinstance(payload, dict) else None
     if not isinstance(proposals, list):
         return None
+    if meta is not None and isinstance(payload, dict):
+        meta["queried_as"] = payload.get("queried_as")
     matched = payload.get("matched")
     if payload.get("has_more") or (isinstance(matched, int) and matched > len(proposals)):
         return None
     return [p for p in proposals if isinstance(p, dict)]
 
 
-def _names(ai_id: str, wire: object) -> bool:
-    """Whether a wire address (``org.tenant.project``) or a bare name is this practice."""
-    return isinstance(wire, str) and (wire == ai_id or wire.endswith("." + ai_id))
+def _names(ai_id: str, wire: object, canonical: str | None = None) -> bool:
+    """Whether a wire address (``org.tenant.project``) or a bare name is this practice.
+
+    Its exact name, or its own canonical 3-form. A suffix match read another tenant's same-named practice
+    (``empirica.other.<name>``) as this one, so mail it had acked counted while the other tenant's part stayed open
+    (1.16.3 sweep A4). Only when the canonical form is unknown does the suffix stand in, so mail is never hidden.
+    """
+    if not isinstance(wire, str):
+        return False
+    if wire == ai_id:
+        return True
+    if canonical and canonical.count(".") == 2:
+        return wire == canonical
+    return wire.endswith("." + ai_id)
 
 
 def mail_count(ai_id: str, path: str, run=subprocess.run) -> int | None:
@@ -586,7 +601,8 @@ def mail_count(ai_id: str, path: str, run=subprocess.run) -> int | None:
     answered by a message from this practice in reply to it (parent_id). Everything accepted and never archived only ever grew
     (outreach read 108, most of it answered or for other targets: prop_xlduifbf5vdenieiq2hrbk4jk4).
     """
-    inbox = _poll(ai_id, path, run, "--status", "accepted")
+    meta: dict = {}
+    inbox = _poll(ai_id, path, run, "--status", "accepted", meta=meta)
     if inbox is None:
         return None
     if not inbox:
@@ -602,7 +618,7 @@ def mail_count(ai_id: str, path: str, run=subprocess.run) -> int | None:
         if p.get("is_archived") or p.get("id") in answered:
             continue
         pending = p.get("pending_targets") or []
-        if pending and not any(_names(ai_id, w) for w in pending):
+        if pending and not any(_names(ai_id, w, meta.get("queried_as")) for w in pending):
             continue  # sent to several, and this practice has acked its part
         count += 1
     return count
