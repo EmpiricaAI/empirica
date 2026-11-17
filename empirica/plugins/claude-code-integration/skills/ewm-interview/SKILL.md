@@ -91,7 +91,14 @@ A first protocol's `trust_building.current_level` is `establishing`; change it o
 ## Phase 5 — Provision what the answers imply (every tier)
 
 `empirica provision-practice` does the whole chain idempotently: directory, `project-init`, identity, registration
-(Cortex or the local server), an optional Forgejo backup. Always dry-run first and show the result:
+(Cortex or the local server), an optional Forgejo backup.
+
+**Git identity first.** Each practice is a git repository, and until it has a first commit nothing it logs reaches its
+git notes; provisioning will not invent an identity. Check `git config --global user.email`: if it is empty (common on a
+fresh machine), ask once for the name and email to sign the practices' commits with, and set them with
+`git config --global user.name` / `user.email` before provisioning.
+
+Always dry-run first and show the result:
 
 ```bash
 empirica provision-practice <name> --dry-run --output json
