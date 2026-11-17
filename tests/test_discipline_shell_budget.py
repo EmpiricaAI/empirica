@@ -248,3 +248,10 @@ def test_a_wrapper_does_not_hide_a_protected_or_outside_write(command, tmp_path)
 @pytest.mark.parametrize("command", ["echo \\ #x; git push", "echo \\(#x; git push origin main"])
 def test_an_escaped_character_before_a_hash_is_mid_word(command, tmp_path):
     assert not _judge(command, tmp_path)["trivial"], command
+
+
+@pytest.mark.parametrize(
+    "command", ["echo $(true)#x; git push", "echo $((1))#x; rm -rf /tmp/zz", "echo `true`#x; git push"]
+)
+def test_a_hash_right_after_a_substitution_is_mid_word(command, tmp_path):
+    assert not _judge(command, tmp_path)["trivial"], command

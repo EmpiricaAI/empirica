@@ -200,3 +200,24 @@ def test_a_shared_repo_dry_run_says_where_the_seat_goes(tmp_path, capsys):
     assert "project.local.yaml" in capsys.readouterr().err
     (root / ".empirica" / "project.local.yaml").write_text(yaml.safe_dump({"tenant_slug": "ada"}))
     assert not pp._patch_project_yaml(tracked, ai_id="shared", tenant="ada", org="o", substrate="cortex", dry_run=True)
+
+
+def test_a_shared_clone_whose_seat_is_set_still_gets_the_ignore_rule(tmp_path):
+    root = tmp_path / "shared"
+    (root / ".empirica").mkdir(parents=True)
+    tracked = root / ".empirica" / "project.yaml"
+    tracked.write_text(yaml.safe_dump({"ai_id": "shared", "seats": "per-clone"}))
+    (root / ".empirica" / "project.local.yaml").write_text(yaml.safe_dump({"tenant_slug": "ada"}))
+    pp._patch_project_yaml(tracked, ai_id="shared", tenant="ada", org="o", substrate="cortex", dry_run=False)
+    assert ".empirica/project.local.yaml" in (root / ".gitignore").read_text()
+
+
+def test_a_json_list_on_stderr_is_not_a_payload(tmp_path, capsys):
+    import sys
+
+    def provision(_ns):
+        print("[]", file=sys.stderr)
+        return 1
+
+    assert pp._provision_from_protocol(_args(tmp_path), provision=provision) == 1
+    assert all(p["ok"] is False for p in json.loads(capsys.readouterr().out)["practices"])

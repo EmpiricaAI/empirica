@@ -389,6 +389,10 @@ def _patch_project_yaml(
             local = {}
         if isinstance(local, dict) and local.get("tenant_slug") == person_tenant:
             person_tenant = None  # this clone's seat already says so
+    if shared and not dry_run:
+        from empirica.cli.command_handlers.setup_claude_code import _ensure_local_ignored
+
+        _ensure_local_ignored(project_yaml.parent.parent)  # every time: a seat file made by hand may lack the rule
     if all(data.get(k) == v for k, v in desired.items()) and not person_tenant:
         return False
     if dry_run:
@@ -953,10 +957,12 @@ def _provision_captured(provision, practice_args) -> dict:
     payload: dict = {}
     for text in (out.getvalue(), err.getvalue()):
         try:
-            payload = json.loads(text)
-            break
+            parsed = json.loads(text)
         except ValueError:
             continue
+        if isinstance(parsed, dict):
+            payload = parsed
+            break
     if not payload:
         last = (err.getvalue() or out.getvalue()).strip().splitlines()
         payload = {"ok": False, "error": last[-1] if last else "provision-practice failed without a message"}

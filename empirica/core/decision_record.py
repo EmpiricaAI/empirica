@@ -468,7 +468,8 @@ def _scan(text: str) -> tuple[str, str]:
             quote = c
             masked.append(c)
             kept.append(c)
-        elif c == "#" and (not kept or (len(kept[-1]) == 1 and kept[-1] in " \t\n;&|()")):  # `\ #x` is mid-word
+        # `\ #x` and `$(true)#x` are mid-word: only whitespace or an opening operator starts a word (goal c6a1fdca)
+        elif c == "#" and (not kept or (len(kept[-1]) == 1 and kept[-1] in " \t\n;&|(")):
             end = text.find("\n", i)
             i = len(text) if end < 0 else end
             continue
@@ -954,7 +955,7 @@ def infer_shell_effects(command: str, *, cwd: str | None, project_path: str | No
         )
         classes |= set(found["classes"])
         reliable = reliable and found["reliable"]
-    flattened = _SUBSTITUTION.sub(" x ", text)
+    flattened = _SUBSTITUTION.sub("x", text)  # no spaces: `$(true)#x` stays one word, as in bash
     unquoted = _literal_masked(flattened)  # grep '`' f is a search, not a substitution
     if "$(" in unquoted or "`" in unquoted:
         classes.add("unknown")  # nested, or containing parentheses: its command cannot be read (goal 33ffc93c)
