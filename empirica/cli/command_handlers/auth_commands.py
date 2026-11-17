@@ -52,8 +52,9 @@ def handle_auth_login_command(args) -> int:
         try:
             from empirica.config.credentials_loader import get_credentials_loader
 
-            get_credentials_loader().save_cortex_config(url=result["cortex_url"])
+            saved_to = get_credentials_loader().save_cortex_config(url=result["cortex_url"])
             result["cortex_url_saved"] = True
+            result["cortex_url_saved_to"] = str(saved_to)
         except Exception as e:  # the sign-in stands; say the URL was not kept
             result["cortex_url_saved"] = f"not saved: {type(e).__name__}: {e}"
 
@@ -74,8 +75,11 @@ def handle_auth_login_command(args) -> int:
         )
         if result.get("note"):
             print(f"   note: {result['note']}")
-        if result.get("url_source") == "default":
-            print("   (the hosted Cortex: no URL was configured; pass --url for another one)")
+        if result.get("cortex_url_saved") is True:
+            hosted = " (the hosted Cortex; pass --url for another)" if result.get("url_source") == "default" else ""
+            print(
+                f"   Cortex URL set to {result.get('cortex_url')}{hosted}, saved to {result.get('cortex_url_saved_to')}"
+            )
         if isinstance(result.get("cortex_url_saved"), str):
             print(f"⚠️  Cortex URL {result['cortex_url_saved']}: set cortex.url in ~/.empirica/credentials.yaml")
         if not result.get("has_refresh_token"):

@@ -5,6 +5,12 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A first `empirica auth login` says it set the Cortex URL.** It always saved the URL it signed in to, but it printed "No credentials config found" and "no URL was configured" on the way, which read as the opposite; it now prints `Cortex URL set to … , saved to …`.
+
 ## [1.17.6] - 2026-11-17
 
 ### Highlights

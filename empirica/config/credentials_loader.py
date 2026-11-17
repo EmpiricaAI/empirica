@@ -289,7 +289,9 @@ class CredentialsLoader:
                 self._credentials_cache = self._load_from_dotfiles()
 
         else:
-            logger.warning("⚠️ No credentials config found, falling back to legacy dotfiles")
+            # A machine that was never configured has no file yet: normal, not a warning. Printed during a first
+            # `auth login` it read as "Cortex has no URL" right before the login saved one (goal 9a4eb934).
+            logger.debug("No credentials file yet; reading legacy dotfiles if there are any")
             self._credentials_cache = self._load_from_dotfiles()
 
     def _interpolate_env_vars(self, config: dict) -> dict:
