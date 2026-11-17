@@ -323,6 +323,35 @@ def menu_args(position: str) -> list[str]:
     return [*args, "", "✕  Close", "q", ""]
 
 
+def menu_rows(args: list[str]) -> int:
+    """The rows a display-menu needs: one per item or separator, plus its border (a menu taller than the client is not
+    drawn at all, and tmux says nothing)."""
+    i = 7 + len(menu_mouse_flag())  # display-menu [-M] -T title -x pos -y pos
+    lines = 0
+    while i < len(args):
+        i += 1 if args[i] == "" else 3
+        lines += 1
+    return lines + 2 + 3  # its border, and the status lines (the bar's two or three) the client also holds
+
+
+_TOO_SMALL_MENU = "This window is too small for the command menu: make it taller, or press prefix e and a letter"
+
+
+def guarded_menu(position: str, *, target_first: bool = False) -> list[str]:
+    """The command menu, or a message when the client is too short to draw it (goal 8da5f220: at 100x12 a click opened
+    nothing, which small browser windows and phones hit)."""
+    menu = menu_args(position)
+    if target_first:
+        menu = [menu[0], "-t", "=", *menu[1:]]
+    return [
+        "if-shell",
+        "-F",
+        f"#{{e|>=:#{{client_height}},{menu_rows(menu_args(position))}}}",
+        _command_string(menu),
+        _command_string(["display-message", "-d", "8000", _TOO_SMALL_MENU]),
+    ]
+
+
 def _command_string(args: list[str]) -> str:
     """A tmux argument list as one command string, for a binding that takes its command as text."""
     return " ".join(_dq(a) for a in args)
@@ -349,7 +378,7 @@ def install_bindings(mouse: bool = True) -> dict[str, Any]:
     for key in MENU_ONLY + RETIRED_KEYS:
         _tmux("unbind-key", "-q", "-T", KEY_TABLE, key)  # an earlier version bound it
     _tmux("bind-key", "-T", KEY_TABLE, "?", *shlex.split(_action_command("chip", "help")))
-    _tmux("bind-key", "-T", KEY_TABLE, "Space", *menu_args("P"))
+    _tmux("bind-key", "-T", KEY_TABLE, "Space", *guarded_menu("P"))
 
     # An earlier version put the chips in the status line and took the status click. Give that back.
     status_click = _binding("root", "MouseDown1Status")
@@ -367,7 +396,7 @@ def install_bindings(mouse: bool = True) -> dict[str, Any]:
             previous = _as_command_string(previous) if previous else previous
             _tmux("set-option", "-s", _PREV_BORDER_OPTION, previous or "")
         args = ["bind-key", "-T", "root", BORDER_CLICK, "if-shell", "-F", "#{@empirica_bar}"]
-        args.append(_command_string([*menu_args("M")[:1], "-t", "=", *menu_args("M")[1:]]))
+        args.append(_command_string(guarded_menu("M", target_first=True)))
         if previous:
             args.append(previous)
         _tmux(*args)
@@ -771,17 +800,25 @@ def _popup(
     client: str | None, command: str, *, directory: str | None = None, width: str = POPUP_WIDTH, height: str = "80%"
 ) -> None:
     """A popup running the viewer, which draws its own Close button. Nothing else is shown in a popup."""
+    size = _tmux("display-message", "-p", *(["-c", client] if client else []), "#{client_width}").stdout.strip()
+    if size.isdigit() and width.isdigit():
+        width = str(max(20, min(int(width), int(size) - 2)))  # a popup wider than the client is not drawn at all
     args = ["display-popup", "-w", width, "-h", height, "-E"]
     if client:
         args += ["-c", client]
     if directory:
         args += ["-d", directory]
-    _tmux(*args, command)
+    if _tmux(*args, command).returncode != 0:  # tmux shows nothing when it cannot draw the popup (goal 8da5f220)
+        _say(client, "This window is too small for the help: make it larger, or open docs/guides/COCKPIT.md")
 
 
 def _window(session: str, name: str, command: str) -> None:
     """Run something that prints or asks questions in a window of its own: its tab is the way out, and it closes when done."""
-    shown = f"{command}; echo; printf 'finished - this window closes in 10 seconds '; sleep 10"
+    # A failure stays on screen until a key is pressed; a success closes by itself (goal 8da5f220: a failed update read as done).
+    shown = (
+        f"{command}; rc=$?; echo; if [ $rc -eq 0 ]; then printf 'finished - this window closes in 10 seconds '; sleep 10; "
+        "else printf 'FAILED (exit %s) - read the output above, then press Enter to close ' \"$rc\"; read -r _; fi"
+    )
     _tmux("new-window", "-t", _sess_at(session), "-n", name, shown)
 
 

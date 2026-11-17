@@ -154,7 +154,7 @@ routine actions do not need a command line.
 ```
  1 core   2 > cortex   3 ✗ outreach   4 ! research          serve ● cortex ● load 2.1  14:02
  ...
-── waiting: approve Bash  ☰ commands  R restart  A refresh 1  M listener  I inbox 2  C claude  S sessions  L login  ? help ──
+── waiting: approve Bash  ☰ commands  R restart  A refresh 1  M mail 2  C claude  L login  ? help ──
 ```
 
 The top line is your practices, with whatever your tmux `status-right` already shows on the
@@ -184,7 +184,7 @@ then the letter, or `Ctrl+b`, `e`, `Space` for the menu.
 | `M` | Wake this practice so it reads its mail and re-arms its listener | its listener service is down | more than one listener runs for it (every message arrives twice) |
 | `I` | Show this practice's unanswered mail | | mail is waiting |
 | `C` | Update the AI client (asks first) | | a newer release exists |
-| `S` | Restart every practice pane onto new settings (asks first; it ends them) | | settings changed since they started |
+| `S` | In the menu only, no chip and no key: restart every practice pane onto new settings (asks first; it ends them) | | settings changed since they started |
 | `L` | Renew the Cortex login, in a window of its own | the login has expired | it expires soon |
 | `?` | Help: the legend, the commands and a short guide to working with practices | | |
 
@@ -192,8 +192,8 @@ The menu also has **update Empirica on this machine**, near its end. It has no c
 so nobody starts an update of the whole machine by accident, and it asks first like `C` and `S`.
 In what follows it is called `U`.
 
-`U`, `C` and `S` ask first with a menu: Yes and Cancel are both clickable. The help and the inbox
-open in a viewer with a Close button and scroll buttons at the top; the wheel, the arrow keys and
+`U`, `C` and `S` ask first with a menu: Yes and Cancel are both clickable. The help opens in a
+viewer with a Close button and scroll buttons at the top; the wheel, the arrow keys and
 `q` work too. Login and the machine commands run in a window of their own, so you can read what
 they print; the window closes ten seconds after the command finishes.
 

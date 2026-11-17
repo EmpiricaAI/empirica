@@ -6,9 +6,9 @@ Three places show how things are going: the **tabs** along the top of the cockpi
 ## The top of the cockpit
 
 Your practices, as tabs. A red **✗** on a tab means a practitioner in that practice has stopped.
-On the right, small green or red dots show whether Empirica's online services are reachable,
-and how busy and how full this computer is. With many practices, the dots move to a second
-line.
+On the right: if whoever set up your cockpit added the health readout, small green or red dots
+show whether Empirica's online services are reachable and how busy and how full this computer
+is; otherwise this computer's name and the time. With many practices, it moves to a second line.
 
 ## The commands under each box
 
@@ -16,7 +16,7 @@ Each box has a line of commands under it. The colour tells you whether you need 
 
 | Colour | Means |
 |---|---|
-| grey | nothing to do |
+| (not shown) | nothing to do: a command appears on the line only when it needs you |
 | **orange** | recommended: something is waiting for you |
 | **red** | needed now: something has stopped working |
 
@@ -28,10 +28,9 @@ keyboard: `Ctrl+b e` then the letter (page 0), or `Ctrl+b e` then Space for the 
 |---|---|---|---|
 | **R** restart | restarts the practitioner in this box if it has stopped | red: it has stopped | no |
 | **A** refresh | restarts every stopped practitioner in the cockpit | red: one or more have stopped | no |
-| **M** listener | reconnects this practice's message delivery | red: messages are not arriving; orange: more than one listener runs for it, so messages arrive twice | no |
-| **I** inbox | shows messages for this practice that still need an answer | orange: some are waiting | no |
+| **M** mail | wakes this practitioner to read its mail and reconnects its message delivery; it never interrupts one that is working | red: messages are not arriving; orange: mail is waiting, or more than one listener runs for it, so messages arrive twice | no |
 | **C** claude | updates Claude Code (`claude update`), or what this machine's update check names for it | orange: a newer version exists | yes |
-| **S** sessions | restarts the running practitioners so they pick up an update | orange: an update is waiting for them | yes, it interrupts them, so use it at a quiet moment |
+| **S** sessions | in the menu only: restarts the running practitioners so they pick up an update | shown in the menu when an update is waiting for them | yes, it interrupts them, so use it at a quiet moment |
 | **L** login | signs this computer in to the Empirica server again, in a window of its own | orange or red when this machine's update check says the sign-in needs renewing | no |
 | **?** help | opens this guide | none | no |
 

@@ -383,7 +383,9 @@ def test_the_commands_sit_in_their_own_key_table_behind_prefix_e(tmux_env):
     table = _tmux("list-keys", "-T", bar.KEY_TABLE).stdout
     for key in [k for k, _ in bar.CHIPS] + ["?"]:
         assert re.search(rf"-T {bar.KEY_TABLE}\s+\\?{re.escape(key)}\s+run-shell -b", table), key
-    assert re.search(rf"-T {bar.KEY_TABLE}\s+Space\s+display-menu", table), "Space opens the menu"
+    # The menu, behind a height check that says so when the client is too short to draw it (goal 8da5f220).
+    space = re.search(rf"-T {bar.KEY_TABLE}\s+Space\s+if-shell -F \S*client_height\S*.*display-menu", table)
+    assert space and "too small for the command menu" in space.group(0) + table, "Space opens the menu"
     for bare in ("C", "L", "I", "U", "M"):
         assert "empirica.core.cockpit.bar" not in (bar._binding("prefix", bare) or ""), f"prefix {bare} was taken"
     assert bar._binding(bar.KEY_TABLE, "U") is None, "update has no key"

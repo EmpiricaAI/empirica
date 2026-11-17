@@ -42,4 +42,4 @@ client waits for your approval.
   either answers, does the approved work, or tells you it needs your decision.
 - When it finishes work another practice asked for, it replies to say so, with proof. That
   closes the request on the other side.
-- The **I inbox** command under each box turns orange when messages are waiting for an answer.
+- The **M** command under each box turns orange when messages are waiting for an answer.

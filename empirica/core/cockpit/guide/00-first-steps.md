@@ -34,8 +34,7 @@ all together. For `Ctrl+b e R`:
 2. Press **e**.
 3. Press **R** (capital: hold **Shift** and press **r**).
 
-`?` also needs **Shift**. Tabs are numbered from 1 as shown on the tab; `Ctrl+b` then **2**
-goes to tab 2. You can always click a tab, or click the line under a box and choose from
+`?` also needs **Shift**. `Ctrl+b` then a tab's number (as shown on the tab) goes to that tab. You can always click a tab, or click the line under a box and choose from
 the menu, instead.
 
 ## Answering the practitioner's questions

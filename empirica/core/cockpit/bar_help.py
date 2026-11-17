@@ -47,7 +47,8 @@ LEGEND = """\
     The menu also has "S  restart the running sessions" and "update Empirica on this machine".
     They have no chip and no key, so they are not started by accident; both ask first.
 
-    R, A and M never touch a pane that is running. Update, C and S always ask first, with Yes and
+    R and A restart only a pane that has stopped; M wakes an idle practitioner and never
+    interrupts one that is working. Update, C and S always ask first, with Yes and
     Cancel you can click. Every menu has a Close item; this help has a Close button at the top.
 
 """

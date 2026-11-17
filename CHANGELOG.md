@@ -7,13 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The cockpit's help and command menu say so when the window is too small** instead of showing nothing: the help popup now fits a window narrower than 100 columns, and the menu checks the window's height first. An update or login window that fails stays open with its exit status until a key is pressed; it used to close after 10 seconds as if it had finished. The guide no longer describes the retired inbox chip or a health readout a cockpit may not have.
+
+- **A first `empirica auth login` says it set the Cortex URL.** It always saved the URL it signed in to, but it printed "No credentials config found" and "no URL was configured" on the way, which read as the opposite; it now prints `Cortex URL set to … , saved to …`.
+
 ### Added
 
 - **`remote_control: true` in a cockpit profile** starts each claude pane with `--remote-control <practice>`, so the sessions are told apart in the Claude app on a phone; without a name given at connect time they all read "Remote control". The cockpit guide also explains `/remote-control <name>` and now answers its three open questions (paste shortcuts, the extension's buttons, the status line's symbols).
-
-### Fixed
-
-- **A first `empirica auth login` says it set the Cortex URL.** It always saved the URL it signed in to, but it printed "No credentials config found" and "no URL was configured" on the way, which read as the opposite; it now prints `Cortex URL set to … , saved to …`.
 
 ## [1.17.6] - 2026-11-17
 
