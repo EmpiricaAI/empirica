@@ -385,7 +385,19 @@ def _display_turtle_stack(vectors: dict, session_id: str | None = None, prompt: 
             )
             continue
         moon, status = get_moon_phase(score)
-        layers.append({"layer": index, "name": name, "score": score, "moon": moon, "status": status, "detail": shown})
+        if missing:  # a partly assessed layer is shown, never certified (goal 9e7bd20e)
+            status = f"PARTIAL ({len(members) - len(missing)} of {len(members)})"
+        layers.append(
+            {
+                "layer": index,
+                "name": name,
+                "score": score,
+                "moon": moon,
+                "status": status,
+                "detail": shown,
+                "missing": missing,
+            }
+        )
 
     # Display each layer
     for layer in layers:
@@ -396,6 +408,11 @@ def _display_turtle_stack(vectors: dict, session_id: str | None = None, prompt: 
             safe_to_proceed = False
             continue
         print(f"     Score: {layer['score']:.2f} | {layer['detail']}")
+        if layer.get("missing"):
+            print(
+                f"     ⚠️  Warning: {', '.join(layer['missing'])} not assessed, so {layer['name']} cannot be certified"
+            )
+            safe_to_proceed = False
 
         # Check for warnings
         if layer["score"] < 0.50:
@@ -736,12 +753,14 @@ def handle_trajectory_project_command(args):
                 "layers": [
                     {
                         "name": l["name"],
-                        "score": l["score"],
+                        # An unassessed layer has no score: null, not the fail-closed 0.0 the path ranking uses (goal 9e7bd20e).
+                        "score": None if l["name"] in unassessed_layers else l["score"],
                         "moon": l["moon"][0],
                         "status": l["moon"][1],
                         "assessed": l["name"] not in unassessed_layers,
+                        "missing": missing,
                     }
-                    for l in layers
+                    for l, (_score, missing) in zip(layers, layer_results)
                 ],
                 "unassessed_layers": unassessed_layers,
             },

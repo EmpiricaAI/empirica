@@ -144,3 +144,26 @@ def test_trajectory_project_reports_which_layers_were_not_assessed_and_never_cal
     ]
     praxic = next(p for p in result["paths"] if p["name"].upper().startswith("PRAXIC"))
     assert praxic["viable"] is False, praxic
+
+
+def test_a_partly_assessed_layer_shows_its_mean_but_cannot_certify(capsys):
+    """Goal 9e7bd20e: one of three NOETIC GRASP vectors (know=0.9) read CRYSTALLINE and the stack said SAFE TO PROCEED."""
+    vectors = dict(PREFLIGHT, uncertainty=0.1)
+    del vectors["clarity"], vectors["coherence"]
+    mc._display_turtle_stack(vectors)
+    out = capsys.readouterr().out
+    assert "PARTIAL (1 of 3)" in out, out
+    assert "SAFE TO PROCEED" not in out and "PROCEED WITH CAUTION" not in out, out
+
+
+def test_trajectory_project_reports_an_unassessed_layers_score_as_null(db, capsys, monkeypatch):
+    import argparse
+    import json
+
+    monkeypatch.setattr(mc, "_resolve_current_vectors", lambda _db, _sid=None: ({"know": 0.9}, None))
+    mc.handle_trajectory_project_command(
+        argparse.Namespace(session_id=None, output="json", turtle=False, depth=3, verbose=False)
+    )
+    layers = {l["name"]: l for l in json.loads(capsys.readouterr().out)["grounding"]["layers"]}
+    assert layers["USER INTENT"]["score"] is None and layers["USER INTENT"]["assessed"] is False
+    assert layers["NOETIC GRASP"]["score"] == 0.9 and layers["NOETIC GRASP"]["missing"] == ["clarity", "coherence"]

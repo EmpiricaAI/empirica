@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A backtick inside single quotes no longer hides later commands from discipline mode.** It paired with a backtick further on, so the statements between them, a `git push` for instance, went unjudged and the whole command counted as one act. Found by a new differential fuzzer that checks the Sentinel's reading of shell commands against bash itself.
 - **`bash --version` and `--help` are reads** outside a transaction; 1.17.5 required one.
 - **The mesh listener reconnects promptly after a quiet drop.** A connection that stayed up a minute now starts the next reconnect from the shortest delay; before, only an arriving message did, so a quiet listener drifted to a minute between reconnects. Behind an HTTP proxy, the server's own status is read instead of the proxy's `200 Connection established`, so a refused sign-in is no longer taken for a healthy connection.
+- **The turtle stack no longer certifies a layer it only partly assessed.** A layer missing some of its vectors shows `PARTIAL (k of n)` with the mean of the rest and never reads SAFE TO PROCEED; `trajectory-project --output json` reports an unassessed layer's score as null, with the missing vectors named.
 - **`goals-search --status completed` finds older completed goals** that the search index still recorded under the old status name.
 
 ## [1.17.5] - 2026-11-17
