@@ -911,44 +911,49 @@ def _headless_run() -> bool:
     --input-format/--output-format, which only print mode takes (goal 92d57ee3). The entrypoint decides only when that
     process cannot be read.
     """
-    argv = _claude_argv()
-    if argv is not None:
+    found = _claude_argv()
+    if found is not None:
+        argv, exact = found
         flags = argv[1:]
+        if not exact:  # ps joins the arguments with spaces: only the leading options are certainly options
+            flags = flags[: next((i for i, a in enumerate(flags) if not a.startswith("-")), len(flags))]
         return any(
             a in ("-p", "--print") or a.startswith(("--print=", "--input-format", "--output-format")) for a in flags
         )
     return os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").startswith("sdk")
 
 
-def _proc_args_and_parent(pid: int) -> tuple[list[str], int] | None:
-    """(argv, parent pid) of a process: /proc on Linux, ps elsewhere; None when it cannot be read."""
+def _proc_args_and_parent(pid: int) -> tuple[list[str], int, bool] | None:
+    """(argv, parent pid, exact) of a process: /proc on Linux (exact arguments), ps elsewhere (arguments joined by
+    spaces, so not exact; -ww so a long command line is not cut); None when it cannot be read."""
     try:
         if Path("/proc").is_dir():
             argv = Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace").split("\0")
             stat = Path(f"/proc/{pid}/stat").read_text()
-            return [a for a in argv if a], int(stat.rsplit(")", 1)[1].split()[1])
+            return [a for a in argv if a], int(stat.rsplit(")", 1)[1].split()[1]), True
         out = subprocess.run(
-            ["ps", "-o", "ppid=", "-o", "args=", "-p", str(pid)], capture_output=True, text=True, timeout=2
+            ["ps", "-ww", "-o", "ppid=", "-o", "args=", "-p", str(pid)], capture_output=True, text=True, timeout=2
         ).stdout.strip()
         if not out:
             return None
         parent, _, args = out.partition(" ")
-        return args.split(), int(parent)
+        return args.split(), int(parent), False
     except (OSError, ValueError, IndexError, subprocess.SubprocessError):
         return None
 
 
-def _claude_argv() -> list[str] | None:
-    """The arguments of the claude process this hook runs under: the hook's parent, or a few levels up when a shell
-    stands between them. None when no ancestor within three levels looks like claude."""
+def _claude_argv() -> tuple[list[str], bool] | None:
+    """(arguments, exact) of the claude process this hook runs under: the hook's parent, or a few levels up when a shell
+    stands between them. None when no ancestor within three levels looks like claude. A process that renamed itself
+    (`claude bg-spare`) counts by its first word."""
     pid = os.getppid()
     for _ in range(3):
         found = _proc_args_and_parent(pid)
         if found is None:
             return None
-        argv, parent = found
-        if any(Path(a).name == "claude" or "claude-code" in a for a in argv[:2]):
-            return argv
+        argv, parent, exact = found
+        if any(Path(a.split(" ")[0]).name == "claude" or "claude-code" in a for a in argv[:2]):
+            return argv, exact
         if parent <= 1:
             return None
         pid = parent

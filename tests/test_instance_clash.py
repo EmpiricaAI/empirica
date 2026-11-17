@@ -285,15 +285,24 @@ def test_headless_is_read_from_the_claude_process(monkeypatch, argv, entrypoint,
     else:
         monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", entrypoint)
     hook = _load(f"si_argv_{len(argv)}_{entrypoint}_{headless}", "session-init.py")
-    monkeypatch.setattr(hook, "_claude_argv", lambda: argv)
+    monkeypatch.setattr(hook, "_claude_argv", lambda: (argv, True))
     assert hook._headless_run() is headless
 
 
 def test_the_claude_process_is_found_above_a_shell(monkeypatch):
     hook = _load("si_argv_walk", "session-init.py")
-    table = {10: (["/bin/sh", "-c", "python3 hook.py"], 9), 9: (["claude", "-p", "x"], 1)}
+    table = {10: (["/bin/sh", "-c", "python3 hook.py"], 9, True), 9: (["claude", "-p", "x"], 1, True)}
     monkeypatch.setattr(hook.os, "getppid", lambda: 10)
     monkeypatch.setattr(hook, "_proc_args_and_parent", lambda pid: table.get(pid))
-    assert hook._claude_argv() == ["claude", "-p", "x"]
+    assert hook._claude_argv() == (["claude", "-p", "x"], True)
     monkeypatch.setattr(hook, "_proc_args_and_parent", lambda pid: None)
     assert hook._claude_argv() is None
+
+
+def test_from_ps_only_leading_options_count(monkeypatch):
+    """ps joins arguments with spaces: `claude "explain the -p flag"` must not read as print mode (goal d6a5f502 sweep)."""
+    hook = _load("si_ps_split", "session-init.py")
+    monkeypatch.setattr(hook, "_claude_argv", lambda: (["claude", "explain", "the", "-p", "flag"], False))
+    assert hook._headless_run() is False
+    monkeypatch.setattr(hook, "_claude_argv", lambda: (["claude", "-p", "summarise", "this"], False))
+    assert hook._headless_run() is True

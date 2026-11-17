@@ -928,7 +928,12 @@ def _shell_run(args: list[str], cwd, project_path, empirica_is_read) -> tuple[se
             )
             return set(inner["classes"]), inner["reliable"]
         return {"unknown"}, False
-    if any(a in ("--version", "--help") for a in args):
+    leading = []
+    for a in args:  # bash takes options only before the first word; after a script they are the script's
+        if not a.startswith("-"):
+            break
+        leading.append(a)
+    if any(a in ("--version", "--help") for a in leading):
         return set(), True  # it prints and exits (goal 63a44ce6)
     if not [a for a in args if not a.startswith("-")]:
         return {"remote_exec"}, True  # commands from stdin: what is piped in runs

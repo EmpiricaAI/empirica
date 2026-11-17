@@ -269,3 +269,9 @@ def test_a_backtick_inside_single_quotes_does_not_swallow_later_statements(tmp_p
     assert not _judge("grep '`' notes.md && git push origin main && echo `date`", tmp_path)["trivial"]
     verdict = _judge("grep -n '`code`' notes.md && echo `date`", tmp_path)
     assert verdict["trivial"] and verdict.get("read") is True, verdict
+
+
+@pytest.mark.parametrize("command", ["bash script.sh --help", "bash ./install.sh --version"])
+def test_version_flags_after_a_script_go_to_the_script(command, tmp_path):
+    """The script runs; only `bash --version` before any word prints and exits (goal d6a5f502 sweep)."""
+    assert not _judge(command, tmp_path).get("read"), command
