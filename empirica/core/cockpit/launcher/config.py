@@ -686,23 +686,32 @@ def _append_as_text(target: Path, config: LauncherConfig, project: ProjectSpec, 
     the profile a rewrite would have produced; otherwise the caller rewrites, and says so."""
     import tempfile
 
+    candidate: Path | None = None
     try:
-        text = target.read_text(encoding="utf-8")
+        raw = target.read_bytes().decode("utf-8")
+        crlf = "\r\n" in raw
+        text = raw.replace("\r\n", "\n")
         new = _insert_list_item(text, "projects", _serialize_project(project))
         if new is not None and group is not None:
             entry = _serialize(LauncherConfig(session_name="x", groups=[group]))["groups"][0]
             new = _insert_list_item(new, "groups", entry)
         if new is None:
             return False
-        with tempfile.NamedTemporaryFile("w", suffix=".yaml", dir=target.parent, delete=False, encoding="utf-8") as tmp:
-            tmp.write(new)
+        if crlf:  # the file's own line endings, so the change is a few lines, not a whole-file diff
+            new = new.replace("\n", "\r\n")
+        with tempfile.NamedTemporaryFile("wb", suffix=".yaml", dir=target.parent, delete=False) as tmp:
+            tmp.write(new.encode("utf-8"))
         candidate = Path(tmp.name)
         if _serialize(load_config(candidate)) != _serialize(config):
-            candidate.unlink(missing_ok=True)
             return False
+        os.chmod(candidate, target.stat().st_mode & 0o777)  # the file's own mode, not the temp file's 0600
         os.replace(candidate, target)
+        candidate = None
     except (OSError, ValueError):
         return False
+    finally:
+        if candidate is not None:
+            candidate.unlink(missing_ok=True)  # never leave a temp file beside the profiles
     _LAST_WRITE[0] = "appended"
     return True
 
@@ -735,6 +744,7 @@ def _write_profile(profile: str, target: Path, config: LauncherConfig) -> Path:
                 # Someone else wrote this version (by hand, or before this writer existed): keep it before rewriting. A
                 # version this writer produced is not backed up, so the backup is always the latest one it did not write.
                 target.with_suffix(".yaml.bak").write_bytes(current)
+                _LAST_WRITE[0] = "rewritten, backed up"
         tmp = target.with_suffix(".yaml.tmp")
         tmp.write_text(body, encoding="utf-8")
         # The old digest describes the file about to be replaced: drop it first, so a failure from here on cannot leave

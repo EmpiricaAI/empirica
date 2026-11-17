@@ -845,3 +845,10 @@ def test_a_proxys_connection_established_block_is_not_the_servers_answer():
     assert listener_mod._read_http_status(proc) == 401
     plain = type("P", (), {"stdout": io.StringIO("HTTP/1.1 200 OK\r\nx: y\r\n\r\n{}\n")})()
     assert listener_mod._read_http_status(plain) == 200
+
+
+def test_an_interim_reply_then_nothing_is_not_a_connection():
+    from empirica.core.loop_scheduler import listener as listener_mod
+
+    proc = type("P", (), {"stdout": io.StringIO("HTTP/1.1 200 Connection established\r\n")})()
+    assert listener_mod._read_http_status(proc) is None

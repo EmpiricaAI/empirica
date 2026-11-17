@@ -296,7 +296,9 @@ def _open_stream(
     body skips header lines until the empty-line separator.
     """
     config = _curl_header_config(headers)
-    args = ["curl", "-sSN", "-i", "--no-buffer", "--keepalive-time", "30"]
+    # --suppress-connect-headers: behind a proxy, curl -i would print the proxy's CONNECT reply before the server's
+    # (1.14.20 sweep C7); _read_http_status also skips one, whatever its wording.
+    args = ["curl", "-sSN", "-i", "--suppress-connect-headers", "--no-buffer", "--keepalive-time", "30"]
     if config:
         # Headers go through curl's config channel (stdin), never argv: the bearer token would otherwise sit on the command
         # line of a process that lives for days, readable through ps and /proc/<pid>/cmdline by any local user.
@@ -346,7 +348,7 @@ def _read_http_status(proc: subprocess.Popen) -> int | None:
     while True:
         line = proc.stdout.readline()
         if not line:
-            return status
+            return None if interim else status  # a proxy's or a 1xx reply and then nothing: never connected
         line = line.rstrip("\r\n")
         if not line:
             if interim:  # behind an HTTP proxy curl -i prints its "200 Connection established" first (1.14.20 sweep C7)

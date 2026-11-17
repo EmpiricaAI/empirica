@@ -154,6 +154,7 @@ def test_a_partly_assessed_layer_shows_its_mean_but_cannot_certify(capsys):
     out = capsys.readouterr().out
     assert "PARTIAL (1 of 3)" in out, out
     assert "SAFE TO PROCEED" not in out and "PROCEED WITH CAUTION" not in out, out
+    assert "INCOMPLETE (3 of 4 layers fully assessed)" in out and "HALT" not in out, out
 
 
 def test_trajectory_project_reports_an_unassessed_layers_score_as_null(db, capsys, monkeypatch):
@@ -167,3 +168,4 @@ def test_trajectory_project_reports_an_unassessed_layers_score_as_null(db, capsy
     layers = {l["name"]: l for l in json.loads(capsys.readouterr().out)["grounding"]["layers"]}
     assert layers["USER INTENT"]["score"] is None and layers["USER INTENT"]["assessed"] is False
     assert layers["NOETIC GRASP"]["score"] == 0.9 and layers["NOETIC GRASP"]["missing"] == ["clarity", "coherence"]
+    assert layers["NOETIC GRASP"]["status"] == "PARTIAL" and layers["USER INTENT"]["status"] == "NOT ASSESSED"

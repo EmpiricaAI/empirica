@@ -519,8 +519,10 @@ def _add_to_cockpit_profile(
     except ProfileError as exc:
         return {"step": "cockpit-profile", "changed": False, "error": str(exc)}
     note = str(target) if changed else f"already in {target}"
-    if changed and last_profile_write() == "rewritten":  # comments and keys the launcher does not model were not kept
-        note = f"{target} rewritten; your previous version is in {target.with_suffix('.yaml.bak')}"
+    if changed and last_profile_write().startswith("rewritten"):  # comments and unmodelled keys were not kept
+        note = f"{target} rewritten"
+        if last_profile_write() == "rewritten, backed up":
+            note += f"; your previous version is in {target.with_suffix('.yaml.bak')}"
     return {"step": "cockpit-profile", "changed": changed, "note": note, "launch": launch}
 
 

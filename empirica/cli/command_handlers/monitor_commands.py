@@ -345,11 +345,12 @@ def _print_turtle_overall(layers: list, safe_to_proceed: bool) -> None:
     elif safe_to_proceed and overall_score >= 0.50:
         print(f"STATUS: {overall_moon} [{overall_status}] - PROCEED WITH CAUTION")
         print("        Observer is forming. Consider CHECK before praxic action.")
-    elif len(scored) < len(layers):
+    elif len(scored) < len(layers) or any(l.get("missing") for l in layers):
+        complete = sum(1 for l in layers if l["score"] is not None and not l.get("missing"))
         print(
-            f"STATUS: {overall_moon} [{overall_status}] - INCOMPLETE ({len(scored)} of {len(layers)} layers assessed)"
+            f"STATUS: {overall_moon} [{overall_status}] - INCOMPLETE ({complete} of {len(layers)} layers fully assessed)"
         )
-        print("        A layer with no assessed vectors cannot be certified. Run PREFLIGHT or CHECK.")
+        print("        A layer missing any of its vectors cannot be certified. Run PREFLIGHT or CHECK.")
     else:
         print(f"STATUS: {overall_moon} [{overall_status}] - HALT RECOMMENDED")
         print("        Observer is unstable. Run PREFLIGHT or investigate unknowns.")
@@ -755,8 +756,11 @@ def handle_trajectory_project_command(args):
                         "name": l["name"],
                         # An unassessed layer has no score: null, not the fail-closed 0.0 the path ranking uses (goal 9e7bd20e).
                         "score": None if l["name"] in unassessed_layers else l["score"],
-                        "moon": l["moon"][0],
-                        "status": l["moon"][1],
+                        "moon": "⬛" if l["name"] in unassessed_layers else l["moon"][0],
+                        # Only a fully assessed layer carries a certifying status (goal d6a5f502 sweep).
+                        "status": "NOT ASSESSED"
+                        if l["name"] in unassessed_layers
+                        else ("PARTIAL" if missing else l["moon"][1]),
                         "assessed": l["name"] not in unassessed_layers,
                         "missing": missing,
                     }

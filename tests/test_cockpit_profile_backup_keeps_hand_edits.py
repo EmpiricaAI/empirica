@@ -147,4 +147,20 @@ def test_a_profile_text_cannot_be_appended_to_is_rewritten_and_says_so(tmp_path)
 
     add_practice_to_profile("dev", "b", str(tmp_path / "b"))
 
-    assert last_profile_write() == "rewritten" and target.with_suffix(".yaml.bak").exists()
+    assert last_profile_write() == "rewritten, backed up" and target.with_suffix(".yaml.bak").exists()
+
+
+def test_an_append_keeps_the_files_mode_and_line_endings(tmp_path):
+    import os
+
+    target = profile_path("dev")
+    target.parent.mkdir(parents=True)
+    target.write_bytes(_HAND.replace("\n", "\r\n").encode())
+    os.chmod(target, 0o644)
+
+    add_practice_to_profile("dev", "b", str(tmp_path / "b"))
+
+    data = target.read_bytes()
+    assert data.count(b"\r\n") == data.count(b"\n"), "every line keeps CRLF"
+    assert target.stat().st_mode & 0o777 == 0o644
+    assert not list(target.parent.glob("tmp*.yaml")), "no temp file left beside the profile"
