@@ -6,6 +6,6 @@
 
 Produce a **workflow-protocol.yaml** describing how this person wants to work with AI — then actually set up what it implies.
 
-Skill `ewm-interview` · version 0.2.0 · load with `/ewm-interview` in Claude Code.
+Skill `ewm-interview` · version 0.3.0 · load with `/ewm-interview` in Claude Code.
 
 Full skill: [SKILL.md](SKILL.md)
