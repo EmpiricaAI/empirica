@@ -390,7 +390,8 @@ def _split_redirects(dr, words: list[str]) -> tuple[list[str], list[str]]:
     i = 0
     while i < len(words):
         if words[i] in dr._REDIRECTS and i + 1 < len(words):
-            if words[i + 1] != "/dev/null":
+            fd_dup = words[i] == ">&" and (words[i + 1].isdigit() or words[i + 1] == "-")
+            if words[i + 1] != "/dev/null" and not fd_dup:
                 targets.append(words[i + 1])
             i += 2
             continue

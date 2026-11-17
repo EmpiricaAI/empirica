@@ -155,9 +155,13 @@ def test_the_gate_s_read_check_knows_the_reads_whose_names_do_not_say_so(command
         ("curl -XGET https://x/api", "curl -XPOST https://x/api", ["network_send"]),
         ("curl -sXHEAD https://x/api", "curl -sXPUT https://x/api", ["network_send"]),
         ("curl -H 'X-Mode: d' https://x/api", "curl -H 'X-Mode: d' --data=x https://x/api", ["network_send"]),
-        ("wget -q https://x/f", "wget --method=POST https://x/api", ["network_send"]),
-        ("wget -X /private -r https://x/", "wget --post-data=a=1 https://x/api", ["network_send"]),  # -X excludes dirs
-        ("curl -sO https://x/f.tgz", "curl -sO -T f.tgz https://x/up/", ["network_send"]),
+        ("wget -q -O - https://x/f", "wget --method=POST https://x/api", ["network_send", "project_write"]),
+        (
+            "wget --spider -X /private -r https://x/",
+            "wget --post-data=a=1 https://x/api",
+            ["network_send", "project_write"],
+        ),  # -X excludes dirs
+        ("curl -s https://x/f.tgz", "curl -sO -T f.tgz https://x/up/", ["network_send", "project_write"]),
     ],
 )
 def test_a_near_miss_write_is_not_classed_as_its_read_twin(read, write, write_classes):

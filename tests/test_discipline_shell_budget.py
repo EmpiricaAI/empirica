@@ -96,3 +96,29 @@ def test_a_local_change_is_trivial_and_counted(tmp_path):
 )
 def test_outward_or_irreversible_still_needs_a_transaction(command, tmp_path):
     assert not _judge(command, tmp_path)["trivial"]
+
+
+# --- 1.17.4 pre-publish sweep (goal 33ffc93c) ---
+
+
+@pytest.mark.parametrize(
+    "command", ["ls 2>&1 | head", "cat f 2>&1", "ls > /dev/null 2>&1", "ls >&2", "[[ -f x ]] && cat x"]
+)
+def test_ordinary_reads_are_reads(command, tmp_path):
+    verdict = _judge(command, tmp_path)
+    assert verdict["trivial"] and verdict.get("read") is True, verdict
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo \"$(python3 -c 'print(1)')\"",
+        'echo "$(echo $(ls); rm -rf /tmp/x)"',
+        "case x in a) rm -rf /tmp/a;; esac",
+        "wget -q https://x.test/f",
+        "curl -LO https://x.test/f",
+        "curl -fsSLo f https://x.test/f",
+    ],
+)
+def test_hidden_or_download_changes_are_not_reads(command, tmp_path):
+    assert not _judge(command, tmp_path).get("read"), command

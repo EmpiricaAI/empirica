@@ -401,7 +401,7 @@ _READ_PROGRAMS = {
     "uniq", "cut", "tr", "nl", "column", "comm", "diff", "cmp", "echo", "printf", "pwd", "which", "type", "whoami", "id",
     "date", "stat", "file", "du", "df", "ps", "free", "uname", "printenv", "true", "false", "sleep", "cd", "test", "[",
     "xxd", "od", "strings", "basename", "dirname", "realpath", "readlink", "tokei", "scc", "pyright", "mypy", "radon",
-    "vulture", "pip-audit", "jobs", "wait", "export", "read", ":",
+    "vulture", "pip-audit", "jobs", "wait", "export", "read", ":", "[[",
 }  # fmt: skip
 _PACKAGE_PROGRAMS = {
     "pip",
@@ -432,7 +432,7 @@ _PATH_ARG_PROGRAMS = {"rm", "mv", "touch", "mkdir", "tee", "truncate", "rmdir", 
 _SUBSTITUTION = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
 #: Shell grammar words, not programs: a loop or conditional is judged by the commands it runs (goal e6ee7d01).
 _LEADING_KEYWORDS = {"do", "then", "else", "elif", "if", "while", "until", "!", "{", "(", "time"}
-_SKIPPED_STATEMENTS = {"done", "fi", "esac", "}", ")", "for", "case", "select"}
+_SKIPPED_STATEMENTS = {"done", "fi", "esac", "}", ")", "for", "select"}
 
 
 def _without_keywords(words: list[str]) -> list[str]:
@@ -732,6 +732,18 @@ def _classify_statement(
     if program in ("curl", "wget"):
         found = _curl(program, args)
         out_flags = ("-o", "--output", "-O", "--output-document") if program == "curl" else ("-O", "--output-document")
+        if (
+            program == "wget"
+            and not any(a in ("--spider", "-O-", "-qO-") for a in args)
+            and not any(
+                a in ("-O", "--output-document") and i + 1 < len(args) and args[i + 1] == "-"
+                for i, a in enumerate(args)
+            )
+        ):
+            found |= {"project_write"} if cwd and project_path else {"outside_write"}  # wget saves a file by default
+        for a in args:  # a clustered -LO / -sSLo writes a file too (goal 33ffc93c)
+            if program == "curl" and re.fullmatch(r"-[sSLfkvqiIg#]*[oO][sSLfkvqiIg#]*", a) and a not in ("-o", "-O"):
+                found |= {"project_write"} if cwd and project_path else {"outside_write"}
         for i, a in enumerate(args):  # a download written to a file is a write, not a read (goal e6ee7d01)
             if a in out_flags and i + 1 < len(args) and not args[i + 1].startswith("-"):
                 found |= _paths_written("tee", [args[i + 1]], cwd, project_path)
@@ -827,10 +839,18 @@ def infer_shell_effects(command: str, *, cwd: str | None, project_path: str | No
         )
         classes |= set(found["classes"])
         reliable = reliable and found["reliable"]
-    statements = _statements(_SUBSTITUTION.sub(" x ", text))
+    flattened = _SUBSTITUTION.sub(" x ", text)
+    if "$(" in flattened or "`" in flattened:
+        classes.add("unknown")  # nested, or containing parentheses: its command cannot be read (goal 33ffc93c)
+        reliable = False
+    statements = _statements(flattened)
     if statements is None:
         return {"classes": ["unknown"], "reliable": False}
     for words in statements:
+        if words and words[0] == "case":
+            classes.add("unknown")  # its branches are not split into statements here (goal 33ffc93c)
+            reliable = False
+            continue
         words = _without_keywords(words)
         if not words:
             continue
@@ -839,7 +859,10 @@ def infer_shell_effects(command: str, *, cwd: str | None, project_path: str | No
         while i < len(words):
             if words[i] in _REDIRECTS and i + 1 < len(words):
                 target = words[i + 1]
-                if target != "/dev/null" and not target.startswith("&"):
+                fd_dup = words[i] == ">&" and (
+                    target.isdigit() or target == "-"
+                )  # 2>&1, >&2: not a file (goal 33ffc93c)
+                if target != "/dev/null" and not target.startswith("&") and not fd_dup:
                     classes |= _paths_written("tee", [target], cwd, project_path)
                 i += 2
                 continue
