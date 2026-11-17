@@ -191,3 +191,11 @@ def test_a_repository_path_cannot_start_with_a_hyphen():
     doc = copy.deepcopy(FULL)
     doc["practices"][1]["repository"] = "git@github.com:-oProxyCommand=x"
     assert wp.validate(doc)
+
+
+def test_the_published_hash_and_revision_match_the_file():
+    """Change the schema file, bump its revision in $comment, and update SCHEMA_REVISION and SCHEMA_SHA256 together."""
+    import hashlib
+
+    assert hashlib.sha256(wp.SCHEMA_PATH.read_bytes()).hexdigest() == wp.SCHEMA_SHA256
+    assert wp.schema()["$comment"].startswith(f"revision {wp.SCHEMA_REVISION}.")
