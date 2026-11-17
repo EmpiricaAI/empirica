@@ -269,7 +269,7 @@ def search_goals(
         if vector is None:
             return []
 
-        from qdrant_client.models import FieldCondition, Filter, MatchValue
+        from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
 
         conditions = []
 
@@ -280,7 +280,9 @@ def search_goals(
             conditions.append(FieldCondition(key="type", match=MatchValue(value="goal")))
 
         # Filter by status
-        if status:
+        if status == "completed":  # points written before migration 078 still say 'complete' (1.14.20 sweep A5)
+            conditions.append(FieldCondition(key="status", match=MatchAny(any=["completed", "complete"])))
+        elif status:
             conditions.append(FieldCondition(key="status", match=MatchValue(value=status)))
 
         # Filter by AI
@@ -307,7 +309,9 @@ def search_goals(
                 "subtask_id": (r.payload or {}).get("subtask_id"),
                 "session_id": (r.payload or {}).get("session_id"),
                 "ai_id": (r.payload or {}).get("ai_id"),
-                "status": (r.payload or {}).get("status"),
+                "status": "completed"
+                if (r.payload or {}).get("status") == "complete"
+                else (r.payload or {}).get("status"),
                 "is_completed": (r.payload or {}).get("is_completed", False),
                 "scope": (r.payload or {}).get("scope"),
                 "success_criteria": (r.payload or {}).get("success_criteria", []),
