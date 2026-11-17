@@ -590,7 +590,9 @@ def _names(ai_id: str, wire: object, canonical: str | None = None) -> bool:
     if wire == ai_id:
         return True
     if canonical and canonical.count(".") == 2:
-        return wire == canonical
+        # A shorter form stored before the 3-form was enforced (`tenant.project`) counts when it ends this practice's own
+        # canonical id, never another tenant's (goal f2ab8424).
+        return wire == canonical or (wire.count(".") < 2 and canonical.endswith("." + wire))
     return wire.endswith("." + ai_id)
 
 

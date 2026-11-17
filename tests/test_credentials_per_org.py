@@ -781,3 +781,15 @@ def test_a_json_file_that_is_empty_or_not_a_mapping(tmp_path, monkeypatch, conte
     finally:
         CredentialsLoader._instance = None
         CredentialsLoader._credentials_cache = None
+
+
+def test_logout_and_reads_agree_on_a_stale_label(creds):
+    """logout --org acts on what reads serve: a label whose tokens were swapped serves no team (goal f2ab8424)."""
+    from empirica.cli.command_handlers.auth_commands import _block_for
+
+    write, _ = creds
+    loader = write({"url": _CORTEX})
+    loader.save_cortex_oauth(access_token=_AT_A, refresh_token=_RT, org_id="org-a")
+    loader.save_cortex_oauth(access_token=_NEW_B, refresh_token=_RT_ELSEWHERE)  # an older writer swaps the tokens
+    assert _block_for(loader, "org-a") == {} and loader.get_cortex_oauth("org-a") == {}
+    assert _block_for(loader, "org-c") == {} and loader.get_cortex_oauth("org-c") == {}

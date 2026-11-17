@@ -141,3 +141,12 @@ def test_the_outbox_is_read_only_from_the_oldest_waiting_message():
     assert bar.mail_count("empirica-web", "/x", run=run) == 2
     (outbox_call,) = [a for a in seen if "--outbox" in a]
     assert outbox_call[outbox_call.index("--since") + 1] == "2026-11-10T00:00:00Z"
+
+
+def test_a_shorter_form_stored_before_the_3_form_counts_only_for_this_tenant():
+    from empirica.core.cockpit.bar import _names
+
+    canonical = "empirica.david.empirica-outreach"
+    assert _names("empirica-outreach", "david.empirica-outreach", canonical)
+    assert not _names("empirica-outreach", "other.empirica-outreach", canonical)
+    assert not _names("empirica-outreach", "empirica.other.empirica-outreach", canonical)
