@@ -5,7 +5,12 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.17.5] - 2026-11-17
+
+### Highlights
+
+- **One schema for the workflow protocol**, shared by `/ewm-interview`, the web onboarding interview and the installer, and **`provision-practice --from-protocol`** to set up the practices a protocol lists.
+- **Discipline mode reads commands the way bash does**, and judges `curl … | bash`, `bash -c` and `xargs` by what they run.
 
 ### Added
 
