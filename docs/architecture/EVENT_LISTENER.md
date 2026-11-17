@@ -116,7 +116,7 @@ ECO actor decision (phone / extension)
 
 - **File:** `empirica/core/loop_scheduler/listener.py` → `run_listener()`
 - **CLI:** `empirica loop listen --instance <id> [--loop-name cortex-mailbox-poll]`
-- **Held connection:** `curl -sN --no-buffer --keepalive-time 30` to
+- **Held connection:** `curl -sSN -i --suppress-connect-headers --no-buffer --keepalive-time 30` to
   `<ntfy>/<topic>/json[?tags=<ai_id>]` — one JSON line per ntfy message.
 - **Per-message reaction:** call `_emit_catchup_events()` →
   `content_poll.poll_and_diff()` → emit any new-or-changed proposal events

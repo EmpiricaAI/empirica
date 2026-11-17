@@ -920,7 +920,9 @@ def _shell_run(args: list[str], cwd, project_path, empirica_is_read) -> tuple[se
     """A shell judged by what it runs (David, 2026-11-17): ``bash -c '<cmd>'`` by its command; a shell reading its
     commands from a pipe (``curl ... | bash``) runs code nobody can read here, typically downloaded, so it is outward;
     a script file is not read, so it stays unknown."""
-    i = next((n for n, a in enumerate(args) if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", a)), -1)  # -c, -lc, -ec
+    first_word = next((n for n, a in enumerate(args) if not a.startswith("-")), len(args))
+    # -c, -lc, -ec, but only among bash's own options: after a script, `-c` is the script's argument (goal d6a5f502)
+    i = next((n for n, a in enumerate(args[:first_word]) if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", a)), -1)
     if i >= 0:
         if i + 1 < len(args):
             inner = infer_shell_effects(

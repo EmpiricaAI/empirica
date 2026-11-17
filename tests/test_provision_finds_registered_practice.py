@@ -63,7 +63,7 @@ def test_through_the_cli_parser_a_registered_practice_is_used(tmp_path, monkeypa
     home = tmp_path / "home"
     practice = tmp_path / "elsewhere" / "acme-app"
     (practice / ".empirica").mkdir(parents=True)
-    _registry(home, "Acme App", practice)  # a display name; the directory carries the practice name
+    _registry(home, "Acme App", practice)  # a display name; the directory carries the practice name, which selects
     monkeypatch.setenv("HOME", str(home))
     parser = argparse.ArgumentParser()
     add_provision_practice_parsers(parser.add_subparsers())
@@ -87,3 +87,28 @@ def test_a_legacy_row_storing_the_root_resolves_to_that_root(tmp_path, monkeypat
         conn.execute("INSERT INTO global_projects VALUES ('b', 'mdview', ?, 'active')", (str(practice / ".empirica"),))
     monkeypatch.setenv("HOME", str(home))
     assert pp._registered_practice_dir("mdview") == practice.resolve()
+
+
+def test_a_display_name_never_selects_a_practice(tmp_path, monkeypatch):
+    """Second pass (goal d6a5f502): `provision-practice Empirica` matched the display name and would rewrite the
+    practice's ai_id to it. Only the directory name selects."""
+    home = tmp_path / "home"
+    practice = tmp_path / "elsewhere" / "empirica"
+    (practice / ".empirica").mkdir(parents=True)
+    _registry(home, "Empirica", practice)
+    monkeypatch.setenv("HOME", str(home))
+    assert pp._registered_practice_dir("Empirica") is None
+    assert pp._registered_practice_dir("empirica") == practice.resolve()
+
+
+def test_an_older_registry_without_a_status_column_still_answers(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    practice = tmp_path / "elsewhere" / "old"
+    (practice / ".empirica").mkdir(parents=True)
+    db = home / ".empirica" / "workspace" / "workspace.db"
+    db.parent.mkdir(parents=True)
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE global_projects (id TEXT PRIMARY KEY, name TEXT, trajectory_path TEXT)")
+        conn.execute("INSERT INTO global_projects VALUES ('a', 'Old', ?)", (str(practice / ".empirica"),))
+    monkeypatch.setenv("HOME", str(home))
+    assert pp._registered_practice_dir("old") == practice.resolve()

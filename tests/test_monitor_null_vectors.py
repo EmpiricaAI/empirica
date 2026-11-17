@@ -169,3 +169,11 @@ def test_trajectory_project_reports_an_unassessed_layers_score_as_null(db, capsy
     assert layers["USER INTENT"]["score"] is None and layers["USER INTENT"]["assessed"] is False
     assert layers["NOETIC GRASP"]["score"] == 0.9 and layers["NOETIC GRASP"]["missing"] == ["clarity", "coherence"]
     assert layers["NOETIC GRASP"]["status"] == "PARTIAL" and layers["USER INTENT"]["status"] == "NOT ASSESSED"
+
+
+def test_a_real_halt_is_not_hidden_by_a_partial_layer(capsys):
+    vectors = dict.fromkeys(NAMES, 0.15)
+    vectors["uncertainty"] = 0.9
+    del vectors["signal"]  # USER INTENT is partial; every other layer is fully assessed and below threshold
+    mc._display_turtle_stack(vectors)
+    assert "HALT RECOMMENDED" in capsys.readouterr().out

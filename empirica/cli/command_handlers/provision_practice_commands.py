@@ -737,20 +737,32 @@ def _registered_practice_dir(name: str) -> Path | None:
         return None
     try:
         with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as conn:
-            rows = conn.execute("SELECT name, trajectory_path, status FROM global_projects").fetchall()
+            try:
+                rows = conn.execute("SELECT name, trajectory_path, status FROM global_projects").fetchall()
+            except sqlite3.OperationalError:  # an older registry without the status column
+                rows = [(n, t, None) for n, t in conn.execute("SELECT name, trajectory_path FROM global_projects")]
     except sqlite3.Error:
         return None
     dirs: set[Path] = set()
-    for display, trajectory, status in rows:
+    for _display, trajectory, status in rows:
         if not trajectory or (status or "active") == "archived":
             continue
         path = Path(trajectory)
         root = path.parent if path.name == ".empirica" else path  # legacy rows store the project root itself
-        # `name` holds a display name (`Empirica Web`); the practice name is the directory's (goal d6a5f502 sweep).
-        if name not in (display, root.name) or not (root / ".empirica").is_dir():
+        # The directory name only: `name` holds a display name (`Empirica`), and provisioning under a display name would
+        # rewrite the practice's ai_id to it (goal d6a5f502, second pass).
+        if root.name != name or not (root / ".empirica").is_dir():
             continue
         dirs.add(Path(os.path.realpath(root)))
     return dirs.pop() if len(dirs) == 1 else None  # two live directories under one name: do not guess
+
+
+def _existing_ai_id(project_yaml: Path, name: str) -> str:
+    """A registered practice's own ai_id, which reusing it must not rewrite (goal d6a5f502); ``name`` when unreadable."""
+    try:
+        return (yaml.safe_load(project_yaml.read_text()) or {}).get("ai_id") or name
+    except Exception:
+        return name
 
 
 def _provision_one(args) -> int:
@@ -846,8 +858,9 @@ def _provision_one(args) -> int:
     if dry_run and not project_yaml.exists():
         steps.append({"step": "patch-project-yaml", "changed": True, "note": "dry-run, file not yet created"})
     else:
+        ai_id = _existing_ai_id(project_yaml, name) if registered == proj_dir else name
         changed = _patch_project_yaml(
-            project_yaml, ai_id=name, tenant=tenant, org=org, substrate=substrate, dry_run=dry_run
+            project_yaml, ai_id=ai_id, tenant=tenant, org=org, substrate=substrate, dry_run=dry_run
         )
         steps.append({"step": "patch-project-yaml", "changed": changed})
 

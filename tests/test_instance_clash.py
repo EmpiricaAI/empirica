@@ -306,3 +306,12 @@ def test_from_ps_only_leading_options_count(monkeypatch):
     assert hook._headless_run() is False
     monkeypatch.setattr(hook, "_claude_argv", lambda: (["claude", "-p", "summarise", "this"], False))
     assert hook._headless_run() is True
+
+
+def test_ps_argv_with_node_running_claude_and_a_spaced_path(monkeypatch):
+    """Second pass (goal d6a5f502): flags count after the claude token, and a path with a space still names claude."""
+    hook = _load("si_ps_node", "session-init.py")
+    monkeypatch.setattr(hook, "_claude_argv", lambda: (["node", "/opt/homebrew/bin/claude", "-p", "hi"], False))
+    assert hook._headless_run() is True
+    assert hook._is_claude("/home/J Doe/.local/bin/claude") and hook._is_claude("claude bg-spare")
+    assert not hook._is_claude("/usr/bin/claude-wrapper") and not hook._is_claude("claudette")

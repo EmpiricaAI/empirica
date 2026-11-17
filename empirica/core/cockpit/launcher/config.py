@@ -645,7 +645,8 @@ _LAST_WRITE: list[str] = [""]
 
 
 def last_profile_write() -> str:
-    """How the last add changed its profile: "appended" (the file's own text kept) or "rewritten" (re-serialized)."""
+    """How the last add changed its profile: "created", "appended" (the file's own text kept), "rewritten"
+    (re-serialized), or "rewritten, backed up" (re-serialized after saving the previous version to .yaml.bak)."""
     return _LAST_WRITE[0]
 
 

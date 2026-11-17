@@ -345,6 +345,10 @@ def _print_turtle_overall(layers: list, safe_to_proceed: bool) -> None:
     elif safe_to_proceed and overall_score >= 0.50:
         print(f"STATUS: {overall_moon} [{overall_status}] - PROCEED WITH CAUTION")
         print("        Observer is forming. Consider CHECK before praxic action.")
+    elif any(l["score"] is not None and not l.get("missing") and l["score"] < 0.50 for l in layers):
+        # A fully assessed layer below threshold is a halt, whatever else is incomplete (goal d6a5f502, second pass).
+        print(f"STATUS: {overall_moon} [{overall_status}] - HALT RECOMMENDED")
+        print("        Observer is unstable. Run PREFLIGHT or investigate unknowns.")
     elif len(scored) < len(layers) or any(l.get("missing") for l in layers):
         complete = sum(1 for l in layers if l["score"] is not None and not l.get("missing"))
         print(
@@ -702,6 +706,8 @@ def handle_trajectory_project_command(args):
         )
         overall_grounding = (layer0_score + layer1_score + layer2_score + layer3_score) / 4
         overall_moon, overall_status = get_moon_phase(overall_grounding)
+        if unassessed_layers or any(missing for _score, missing in layer_results):
+            overall_status = "INCOMPLETE"  # no certifying overall status while a layer is not fully assessed
 
         layers = [
             {"name": "USER INTENT", "score": layer0_score, "moon": get_moon_phase(layer0_score)},

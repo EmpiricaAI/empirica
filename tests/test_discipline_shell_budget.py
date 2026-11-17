@@ -275,3 +275,8 @@ def test_a_backtick_inside_single_quotes_does_not_swallow_later_statements(tmp_p
 def test_version_flags_after_a_script_go_to_the_script(command, tmp_path):
     """The script runs; only `bash --version` before any word prints and exits (goal d6a5f502 sweep)."""
     assert not _judge(command, tmp_path).get("read"), command
+
+
+@pytest.mark.parametrize("command", ["bash script.sh -c 'ls'", "bash ./evil.sh -lc 'cat x'"])
+def test_a_dash_c_after_a_script_is_the_scripts_argument(command, tmp_path):
+    assert not _judge(command, tmp_path).get("read"), command

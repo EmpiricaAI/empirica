@@ -914,7 +914,8 @@ def _headless_run() -> bool:
     found = _claude_argv()
     if found is not None:
         argv, exact = found
-        flags = argv[1:]
+        at = next((i for i, a in enumerate(argv[:2]) if _is_claude(a)), 0)
+        flags = argv[at + 1 :]  # after `claude`, or after `node …/claude`
         if not exact:  # ps joins the arguments with spaces: only the leading options are certainly options
             flags = flags[: next((i for i, a in enumerate(flags) if not a.startswith("-")), len(flags))]
         return any(
@@ -942,6 +943,11 @@ def _proc_args_and_parent(pid: int) -> tuple[list[str], int, bool] | None:
         return None
 
 
+def _is_claude(arg: str) -> bool:
+    """A claude executable or script: by path (spaces allowed in it), or by the first word of a renamed process."""
+    return Path(arg).name == "claude" or Path(arg.split(" ")[0]).name == "claude" or "claude-code" in arg
+
+
 def _claude_argv() -> tuple[list[str], bool] | None:
     """(arguments, exact) of the claude process this hook runs under: the hook's parent, or a few levels up when a shell
     stands between them. None when no ancestor within three levels looks like claude. A process that renamed itself
@@ -952,7 +958,7 @@ def _claude_argv() -> tuple[list[str], bool] | None:
         if found is None:
             return None
         argv, parent, exact = found
-        if any(Path(a.split(" ")[0]).name == "claude" or "claude-code" in a for a in argv[:2]):
+        if any(_is_claude(a) for a in argv[:2]):
             return argv, exact
         if parent <= 1:
             return None
