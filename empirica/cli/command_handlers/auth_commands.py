@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 
@@ -199,8 +200,19 @@ def handle_auth_logout_command(args) -> int:
 
     revoked = _revoke_remote(loader, oauth)
     # Drop the block by rewriting the file without it (save_* only merges). Another team's sign-in stays.
-    _drop_oauth_block(loader, loader.cortex_oauth_slot(org) if org else None)
-    result = {"ok": True, "remote_revoked": revoked}
+    dropped = _drop_oauth_block(loader, loader.cortex_oauth_slot(org) if org else None)
+    if dropped is None:
+        # The sign-in was read but is still on disk: saying "logged out" here left people signed in (goal 5f3adb52).
+        where = loader._find_config_file()
+        error = (
+            f"the sign-in was not removed from {where}" if where else "no credentials file holds the sign-in"
+        ) + "; you are still signed in"
+        if output == "json":
+            print(json.dumps({"ok": False, "remote_revoked": revoked, "error": error}))
+        else:
+            print(f"❌ logout incomplete: {error}")
+        return 1
+    result = {"ok": True, "remote_revoked": revoked, "credentials_file": str(dropped)}
     if output == "json":
         print(json.dumps(result))
     else:
@@ -241,14 +253,21 @@ def _block_for(loader, org: str | None) -> dict:
     return block
 
 
-def _drop_oauth_block(loader, slot: str | None = None) -> None:
+def _drop_oauth_block(loader, slot: str | None = None) -> Path | None:
     """Remove cortex.oauth (or cortex.orgs.<slot>) from the credentials file, preserving everything
-    else byte-for-byte at the data level (same atomic write as the savers)."""
-    target = loader._resolve_credentials_target(None)
+    else byte-for-byte at the data level (same atomic write as the savers). Returns the file changed, or None when
+    nothing was dropped.
+
+    The file is the one the loader READS (``_find_config_file``), not the save target: the save target follows
+    EMPIRICA_CREDENTIALS_PATH even when that file does not exist, while reads fall back to ~/.empirica, so a drop written
+    there left the sign-in in place (goal 5f3adb52)."""
+    target = loader._find_config_file()
+    if target is None:
+        return None
     existing = loader._read_existing(target)
     cortex_block = existing.get("cortex")
     if not isinstance(cortex_block, dict):
-        return
+        return None
     if slot is None and "oauth" in cortex_block:
         cortex_block.pop("oauth")
         orgs = cortex_block.get("orgs") if isinstance(cortex_block.get("orgs"), dict) else {}
@@ -264,9 +283,9 @@ def _drop_oauth_block(loader, slot: str | None = None) -> None:
         if not cortex_block["orgs"]:
             cortex_block.pop("orgs")
     else:
-        return
+        return None
     existing["cortex"] = cortex_block
-    loader._write_credentials(target, existing)
+    return loader._write_credentials(target, existing)
 
 
 def handle_auth_token_command(args) -> int:

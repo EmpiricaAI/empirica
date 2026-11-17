@@ -254,6 +254,56 @@ def test_logout_without_an_org_drops_the_default_only(creds, monkeypatch, capsys
     assert stored["oauth"]["access_token"] == _AT_B and _AT_A not in str(stored)
 
 
+def test_logout_drops_the_sign_in_from_the_file_it_was_read_from(tmp_path, monkeypatch, capsys):
+    """EMPIRICA_CREDENTIALS_PATH names a file that does not exist, so reads fall back to ~/.empirica/credentials.yaml.
+    Logout wrote to the env path, reported success, and the sign-in stayed (goal 5f3adb52)."""
+    from empirica.config.credentials_loader import CredentialsLoader
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    for var in ("CORTEX_API_KEY", "CORTEX_URL", "CORTEX_REMOTE_URL"):
+        monkeypatch.delenv(var, raising=False)
+    missing = tmp_path / "elsewhere" / "credentials.yaml"
+    monkeypatch.setenv("EMPIRICA_CREDENTIALS_PATH", str(missing))
+    home_file = tmp_path / ".empirica" / "credentials.yaml"
+    home_file.parent.mkdir()
+    home_file.write_text(yaml.safe_dump({"version": "1.0", "cortex": {"url": _CORTEX, "oauth": _set(_AT_A, "org-a")}}))
+    CredentialsLoader._instance = None
+    CredentialsLoader._credentials_cache = None
+    try:
+        loader = CredentialsLoader()
+        assert loader.get_cortex_oauth()["access_token"] == _AT_A  # the read comes from the home file
+        rc, json = _run("handle_auth_logout_command", monkeypatch, loader)
+        out = json.loads(capsys.readouterr().out)
+        assert rc == 0 and out["ok"] is True
+        assert "oauth" not in yaml.safe_load(home_file.read_text())["cortex"]
+        assert not missing.exists()  # nothing was written to a file no read ever used
+    finally:
+        CredentialsLoader._instance = None
+        CredentialsLoader._credentials_cache = None
+
+
+def test_logout_that_dropped_nothing_says_so(creds, monkeypatch, capsys):
+    from empirica.cli.command_handlers import auth_commands
+
+    write, path = creds
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a")})
+    monkeypatch.setattr(auth_commands, "_drop_oauth_block", lambda loader, slot=None: None)
+    rc, json = _run("handle_auth_logout_command", monkeypatch, loader)
+    out = json.loads(capsys.readouterr().out)
+    assert rc != 0 and out["ok"] is False and out.get("error")
+    assert yaml.safe_load(path.read_text())["cortex"]["oauth"]["access_token"] == _AT_A
+
+
+def test_drop_oauth_block_names_the_file_it_changed_or_none(creds):
+    from empirica.cli.command_handlers.auth_commands import _drop_oauth_block
+
+    write, path = creds
+    loader = write({"url": _CORTEX, "oauth": _set(_AT_A, "org-a")})
+    assert _drop_oauth_block(loader, "org-z") is None  # no such team: nothing changed
+    assert _drop_oauth_block(loader) == path
+    assert _drop_oauth_block(loader) is None  # already gone
+
+
 def test_the_sign_in_is_verified_with_the_set_it_stored(creds, monkeypatch):
     """A second team's sign-in is stored beside the default: verifying the default would report the wrong team."""
     import types
