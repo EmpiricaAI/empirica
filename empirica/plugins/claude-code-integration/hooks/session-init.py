@@ -914,7 +914,7 @@ def _headless_run() -> bool:
     found = _claude_argv()
     if found is not None:
         argv, exact = found
-        at = _claude_index(argv, exact)
+        at = _claude_index(argv, exact) or 0  # _claude_argv only returns argv with a claude word in it
         flags = argv[at + 1 :]  # after `claude`, or after `node …/claude`
         if not exact:  # ps joins the arguments with spaces: only the leading options are certainly options
             flags = flags[: next((i for i, a in enumerate(flags) if not a.startswith("-")), len(flags))]
