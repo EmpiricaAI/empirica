@@ -942,3 +942,10 @@ def test_an_unknown_program_does_not_hide_what_the_classifier_can_see(home, comm
 def test_an_unknown_program_beside_a_plain_write_is_one_counted_act(home):
     verdict = _judge(home, "Bash", {"command": "foo > notes.txt"})
     assert verdict["trivial"] is True and not verdict.get("read"), verdict
+
+
+def test_without_an_instance_id_a_prompt_starts_only_its_own_practices_budget_again(home, tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    assert sd.prompt_mark_path("", a) != sd.prompt_mark_path("", b)
+    assert sd.prompt_mark_path("_t1", a) == sd.prompt_mark_path("_t1", b)  # an instance id keys it as before
+    assert sd.prompt_mark_path("_t1").name == "last_prompt_t1.json"

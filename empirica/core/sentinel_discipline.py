@@ -518,25 +518,28 @@ def plan_flag_path(suffix: str) -> Path:
     return Path.home() / ".empirica" / f"plan_shaped{safe}.json"
 
 
-def prompt_mark_path(suffix: str) -> Path:
-    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", suffix or "")
-    return Path.home() / ".empirica" / f"last_prompt{safe}.json"
+def prompt_mark_path(suffix: str, project_root: str | Path | None = None) -> Path:
+    """Keyed like the ledger: per instance, or per practice when there is no instance id, so a prompt in one headless run
+    does not start another practice's budget again (goal f2ab8424)."""
+    return ledger_path(suffix, project_root).with_name(
+        ledger_path(suffix, project_root).stem.replace("out_of_loop", "last_prompt", 1) + ".json"
+    )
 
 
-def _last_prompt_ts(suffix: str) -> float:
+def _last_prompt_ts(suffix: str, project_root: str | Path | None = None) -> float:
     """When the person last sent a prompt to this instance; 0 when unknown (then every act since PREFLIGHT counts)."""
     try:
-        return float(json.loads(prompt_mark_path(suffix).read_text(encoding="utf-8")).get("ts") or 0)
+        return float(json.loads(prompt_mark_path(suffix, project_root).read_text(encoding="utf-8")).get("ts") or 0)
     except (OSError, ValueError, TypeError, AttributeError):
         return 0.0
 
 
-def mark_plan_shaped(suffix: str, prompt_is_plan_shaped: bool) -> None:
+def mark_plan_shaped(suffix: str, prompt_is_plan_shaped: bool, project_root: str | Path | None = None) -> None:
     """Set or clear the prompt signal, and record the prompt's time, which starts the out-of-loop budget again (David,
     2026-11-17). context-shift-tracker calls this on every prompt the person sends (not on task notifications). Never
     raises."""
     try:
-        mark = prompt_mark_path(suffix)
+        mark = prompt_mark_path(suffix, project_root)
         mark.parent.mkdir(parents=True, exist_ok=True)
         mark.write_text(json.dumps({"ts": round(time.time(), 6)}), encoding="utf-8")
     except OSError:
@@ -744,7 +747,7 @@ def decide(
         )
     with _ledger_lock(suffix, project_root):
         done = ledger(suffix, project_root)
-        since = _last_prompt_ts(suffix)
+        since = _last_prompt_ts(suffix, project_root)
         this_prompt = [
             e for e in done if float(e.get("ts") or 0) >= since
         ]  # the budget is per prompt; the ledger is not

@@ -174,7 +174,9 @@ def _mark_plan_shaped(prompt: str) -> None:
             return
         module = importlib.util.module_from_spec(module_spec)
         module_spec.loader.exec_module(module)
-        module.mark_plan_shaped(InstanceResolver.instance_suffix(), bool(_COMPLEX_WORK.search(prompt)))
+        cwd = Path.cwd().resolve()
+        root = next((d for d in (cwd, *cwd.parents) if (d / ".empirica").is_dir() and d != Path.home()), None)
+        module.mark_plan_shaped(InstanceResolver.instance_suffix(), bool(_COMPLEX_WORK.search(prompt)), root)
     except Exception:
         pass
 
