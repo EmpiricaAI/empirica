@@ -57,7 +57,7 @@ def _infer(command):
 
 
 @pytest.mark.parametrize(
-    "command", ["./deploy.sh", "make", "docker compose up -d", "xargs rm -rf", "find . -exec rm {} +"]
+    "command", ["./deploy.sh", "make", "docker compose up -d", "xargs ./cleanup.sh", "find . -exec rm {} +"]
 )
 def test_a_command_the_text_cannot_class_is_unreliable(command):
     got = _infer(command)

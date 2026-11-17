@@ -396,6 +396,9 @@ _INTERPRETERS = {
     "source",
     ".",
 }
+_SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+#: xargs options that take a value as the next word.
+_XARGS_VALUE_OPTIONS = {"-I", "-n", "-P", "-d", "-L", "-E", "-s", "-a", "--max-args", "--max-procs", "--delimiter"}
 _READ_PROGRAMS = {
     "cat", "bat", "less", "more", "head", "tail", "wc", "ls", "tree", "grep", "rg", "ag", "fd", "jq", "yq", "gron", "awk",
     "uniq", "cut", "tr", "nl", "column", "comm", "diff", "cmp", "echo", "printf", "pwd", "which", "type", "whoami", "id",
@@ -729,6 +732,10 @@ def _classify_statement(
     program: str, args: list[str], cwd: str | None, project_path: str | None, empirica_is_read
 ) -> tuple[set[str], bool]:
     """(classes, reliable) for one statement."""
+    if program in _SHELLS:
+        return _shell_run(args, cwd, project_path, empirica_is_read)
+    if program == "xargs":
+        return _xargs_run(args, cwd, project_path, empirica_is_read)
     if program in _INTERPRETERS:
         if program.startswith("python") and args[:3] in (["-m", "pip", "install"], ["-m", "pip", "uninstall"]):
             return {"install"}, True
@@ -846,6 +853,34 @@ def _download_writes(program: str, args: list[str], cwd: str | None, project_pat
         elif program == "curl" and a in ("-O", "--remote-name", "--remote-name-all"):
             found |= {"project_write"} if cwd and project_path else {"outside_write"}
     return found
+
+
+def _shell_run(args: list[str], cwd, project_path, empirica_is_read) -> tuple[set[str], bool]:
+    """A shell judged by what it runs (David, 2026-11-17): ``bash -c '<cmd>'`` by its command; a shell reading its
+    commands from a pipe (``curl ... | bash``) runs code nobody can read here, typically downloaded, so it is outward;
+    a script file is not read, so it stays unknown."""
+    if "-c" in args:
+        i = args.index("-c")
+        if i + 1 < len(args):
+            inner = infer_shell_effects(
+                args[i + 1], cwd=cwd, project_path=project_path, empirica_is_read=empirica_is_read
+            )
+            return set(inner["classes"]), inner["reliable"]
+        return {"unknown"}, False
+    if not [a for a in args if not a.startswith("-")]:
+        return {"remote_exec"}, True  # commands from stdin: what is piped in runs
+    return {"unknown"}, False
+
+
+def _xargs_run(args: list[str], cwd, project_path, empirica_is_read) -> tuple[set[str], bool]:
+    """xargs judged by the command it runs on each input (David, 2026-11-17); with none it echoes, a read."""
+    i = 0
+    while i < len(args) and args[i].startswith("-"):
+        option = args[i]
+        i += 2 if option in _XARGS_VALUE_OPTIONS else 1
+    if i >= len(args):
+        return set(), True
+    return _classify_statement(os.path.basename(args[i]), args[i + 1 :], cwd, project_path, empirica_is_read)
 
 
 def _wget_to_stdout(args: list[str]) -> bool:

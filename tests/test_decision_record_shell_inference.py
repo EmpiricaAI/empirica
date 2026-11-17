@@ -64,7 +64,7 @@ def test_a_command_is_classed_by_what_its_text_says_it_does(command, classes):
     "command",
     [
         "python3 -c 'import os; os.remove(\"x\")'",
-        "bash -c 'rm -rf x'",
+        "bash ./setup.sh",  # bash -c '<cmd>' is judged by its command since goal f2ab8424
         'node -e \'require("fs").rmSync("x")\'',
         'eval "$CMD"',
         "cat <<'EOF' > f\nx\nEOF",
