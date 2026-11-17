@@ -290,3 +290,9 @@ def test_shell_options_with_values_still_find_dash_c(command, tmp_path):
 
 def test_after_a_double_dash_dash_c_is_a_script_name(tmp_path):
     assert not _judge("bash -- -c ls", tmp_path).get("read")
+
+
+@pytest.mark.parametrize("command", ["bash -euo pipefail -c 'ls'", "bash -xc 'ls'", "bash --norc --noprofile -c 'ls'"])
+def test_clustered_and_long_shell_options_still_find_dash_c(command, tmp_path):
+    verdict = _judge(command, tmp_path)
+    assert verdict["trivial"] and verdict.get("read") is True, (command, verdict)

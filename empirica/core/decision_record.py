@@ -952,7 +952,9 @@ def _shell_options(args: list[str]) -> list[int]:
         if a == "--" or not a.startswith(("-", "+")) or a in ("-", "+"):
             break
         found.append(i)
-        i += 2 if a in _SHELL_VALUE_OPTIONS else 1
+        # -o pipefail, and a short-option cluster ending in o/O (-euo pipefail) takes the next word too
+        takes_value = a in _SHELL_VALUE_OPTIONS or bool(re.fullmatch(r"[-+][A-Za-z]*[oO]", a))
+        i += 2 if takes_value else 1
     return found
 
 
