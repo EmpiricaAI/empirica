@@ -20,6 +20,7 @@ __all__ = [
     "_memory_collection",
     "_workspace_index_collection",
     "init_collections",
+    "project_collection_names",
 ]
 
 from empirica.core.qdrant.connection import (
@@ -95,6 +96,28 @@ def _intents_collection(project_id: str) -> str:
 def _workspace_index_collection() -> str:
     """Global workspace index collection (cross-project entity-navigable pointers)."""
     return "workspace_index"
+
+
+#: Every per-project collection, the registry a store is measured against. Collections are created lazily on first write,
+#: so a store may legitimately lack some; a caller that cannot tell whether the store it reached is the only one (the local
+#: server's fallback) must treat a missing one as unknown, not empty (goal 24979a81 B4).
+PROJECT_COLLECTIONS = (
+    _docs_collection,
+    _memory_collection,
+    _epistemics_collection,
+    _eidetic_collection,
+    _episodic_collection,
+    _goals_collection,
+    _calibration_collection,
+    _assumptions_collection,
+    _decisions_collection,
+    _intents_collection,
+)
+
+
+def project_collection_names(project_id: str) -> list[str]:
+    """The names of every collection ``project_id`` can own, from :data:`PROJECT_COLLECTIONS`."""
+    return [name(project_id) for name in PROJECT_COLLECTIONS]
 
 
 def init_collections(project_id: str) -> bool:

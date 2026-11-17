@@ -299,3 +299,27 @@ def test_resolve_canonical_retries_after_empty_fetch():
     assert resolve_canonical_ai_id("empirica", resolve_creds_fn=CREDS, get_fn=_flaky_get) is None
     assert resolve_canonical_ai_id("empirica", resolve_creds_fn=CREDS, get_fn=_flaky_get) == "empirica.david.empirica"
     assert calls["n"] == 2
+
+
+def test_resolve_canonical_fetches_each_teams_map_with_its_own_credentials():
+    # goal 5f3adb52: the map was cached once per process from whichever team's credentials ran first, so with two teams
+    # signed in, the other team's practices went out without ai_id. Each credential now has its own cached map.
+    maps = {
+        "key-team-a": {"projects": [{"slug": "alpha", "ai_id_canonical": "orga.t.alpha"}]},
+        "key-team-b": {"projects": [{"slug": "beta", "ai_id_canonical": "orgb.t.beta"}]},
+    }
+    asked: list[str] = []
+
+    def _get(url, key, timeout):
+        asked.append(key)
+        return maps[key]
+
+    team_a = lambda: ("https://cortex.test/", "key-team-a")  # noqa: E731
+    team_b = lambda: ("https://cortex.test/", "key-team-b")  # noqa: E731
+    assert resolve_canonical_ai_id("alpha", resolve_creds_fn=team_a, get_fn=_get) == "orga.t.alpha"
+    assert resolve_canonical_ai_id("beta", resolve_creds_fn=team_b, get_fn=_get) == "orgb.t.beta"
+    # Cached per credential: asking again does not refetch, and team A never sees team B's map.
+    assert resolve_canonical_ai_id("alpha", resolve_creds_fn=team_a, get_fn=_get) == "orga.t.alpha"
+    assert resolve_canonical_ai_id("beta", resolve_creds_fn=team_a, get_fn=_get) is None
+    assert resolve_canonical_ai_id("beta", resolve_creds_fn=team_b, get_fn=_get) == "orgb.t.beta"
+    assert asked == ["key-team-a", "key-team-b"]

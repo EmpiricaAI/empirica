@@ -116,17 +116,26 @@ def _default_get(url: str, api_key: str, timeout: float) -> dict[str, Any]:
         return json.loads(resp.read().decode("utf-8"))
 
 
-# Cached slug → canonical-3-form map (bootstrap-once; the canonical id is stable
-# for the process lifetime — it only changes on org/tenant/project rename, which
-# would require a restart anyway). Only a NON-empty fetch is cached, so a
-# transient failure retries on the next heartbeat.
-_CANONICAL_MAP: dict[str, str] | None = None
+# Cached slug → canonical-3-form maps, one per credential: ``(cortex url, bearer fingerprint)``. The canonical id is stable
+# for the process lifetime (it only changes on an org/tenant/project rename, which needs a restart anyway), but WHICH map
+# answers depends on the team: /v1/users/me/projects lists the projects of the bearer's team. One process-wide map, filled
+# by whichever team beat first, sent every other team's practices without ai_id (goal 5f3adb52). A rotated OAuth token is a
+# new key, so it costs one refetch; the cache is capped so rotations cannot grow it without bound. Only a NON-empty fetch is
+# cached, so a transient failure retries on the next heartbeat.
+_CANONICAL_MAP: dict[tuple[str, str], dict[str, str]] = {}
+_CANONICAL_MAP_MAX = 16
 
 
 def _reset_canonical_cache() -> None:  # pyright: ignore[reportUnusedFunction]
-    """Test seam — clear the cached canonical map (referenced from tests only)."""
-    global _CANONICAL_MAP
-    _CANONICAL_MAP = None
+    """Test seam — clear the cached canonical maps (referenced from tests only)."""
+    _CANONICAL_MAP.clear()
+
+
+def _credential_key(url: str, bearer: str) -> tuple[str, str]:
+    """The cache key for one credential: the url and a fingerprint of the bearer (the token itself is never held twice)."""
+    import hashlib
+
+    return url.rstrip("/"), hashlib.sha256(bearer.encode("utf-8")).hexdigest()[:16]
 
 
 def _fetch_canonical_map(
@@ -166,17 +175,24 @@ def resolve_canonical_ai_id(
     ai_id is the PRACTICE ANCHOR cortex stores as practice_id; a bare basename
     fails cortex's strict-canonical resolver, so the emitter must send the
     canonical 3-form. Returns None when unresolvable → the emitter omits ai_id
-    (graceful NULL practice_id, the back-compat path).
+    (graceful NULL practice_id, the back-compat path). The map is the one of the credential in use (each team's own).
     """
-    global _CANONICAL_MAP
     if not practice_basename:
         return None
-    if _CANONICAL_MAP is None:
-        fetched = _fetch_canonical_map(resolve_creds_fn, get_fn, timeout)
-        if fetched:  # cache only a successful (non-empty) fetch
-            _CANONICAL_MAP = fetched
-        return fetched.get(practice_basename)
-    return _CANONICAL_MAP.get(practice_basename)
+    url, bearer = resolve_creds_fn()
+    if not url or not bearer:
+        return None
+    key = _credential_key(url, bearer)
+    cached = _CANONICAL_MAP.get(key)
+    if cached is not None:
+        return cached.get(practice_basename)
+    # Fetch with the SAME credential the key names (not a second resolve, which could pick another team).
+    fetched = _fetch_canonical_map(lambda: (url, bearer), get_fn, timeout)
+    if fetched:  # cache only a successful (non-empty) fetch
+        while len(_CANONICAL_MAP) >= _CANONICAL_MAP_MAX:
+            _CANONICAL_MAP.pop(next(iter(_CANONICAL_MAP)))
+        _CANONICAL_MAP[key] = fetched
+    return fetched.get(practice_basename)
 
 
 def _practitioner_body(
