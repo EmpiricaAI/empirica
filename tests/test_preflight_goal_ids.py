@@ -232,3 +232,54 @@ def test_an_ambiguous_prefix_is_refused(world):
     world.goal()
     with pytest.raises(ValueError, match="ambiguous"):
         wp._preflight_resolve_goal_ids(["goal00"], world.sid, world.db)
+
+
+# ── the response reports goal_ids only when the transaction file actually holds them (1.16.3 sweep B5) ───────────────────
+
+
+def _enrich(tmp_path, monkeypatch, goal_ids):
+    monkeypatch.setattr(wp.R, "instance_suffix", lambda: "")
+    parsed = dict.fromkeys(("work_context", "work_type", "domain", "criticality", "predicted_check_outcomes"))
+    parsed["goal_ids"] = goal_ids
+    wp._preflight_enrich_transaction_file(str(tmp_path), parsed)
+    result: dict = {}
+    wp._attach_goal_ids(result, parsed)
+    return result
+
+
+def test_goal_ids_are_echoed_when_the_transaction_file_stored_them(tmp_path, monkeypatch):
+    tx_file = tmp_path / ".empirica" / "active_transaction.json"
+    tx_file.parent.mkdir(parents=True)
+    tx_file.write_text(json.dumps({"transaction_id": "tx-now", "status": "open"}))
+    result = _enrich(tmp_path, monkeypatch, ["g-1"])
+    assert result["goal_ids"] == ["g-1"]
+    assert "goal_ids_not_stored" not in result
+
+
+def test_goal_ids_are_not_echoed_as_bound_when_the_transaction_file_is_missing(tmp_path, monkeypatch):
+    result = _enrich(tmp_path, monkeypatch, ["g-1"])  # no .empirica/active_transaction.json: enrichment skips
+    assert "goal_ids" not in result
+    assert result["goal_ids_not_stored"]["goal_ids"] == ["g-1"]
+    assert result["goal_ids_not_stored"]["reason"]
+
+
+def test_goal_ids_are_not_echoed_as_bound_when_the_write_fails(tmp_path, monkeypatch):
+    tx_file = tmp_path / ".empirica" / "active_transaction.json"
+    tx_file.parent.mkdir(parents=True)
+    tx_file.write_text("{not json")  # the load raises inside the swallowed block
+    result = _enrich(tmp_path, monkeypatch, ["g-1"])
+    assert "goal_ids" not in result
+    assert result["goal_ids_not_stored"]["goal_ids"] == ["g-1"]
+
+
+def test_enrichment_that_never_ran_does_not_claim_the_ids():
+    result: dict = {}
+    wp._attach_goal_ids(result, {"goal_ids": ["g-1"]})
+    assert "goal_ids" not in result
+    assert result["goal_ids_not_stored"]["goal_ids"] == ["g-1"]
+
+
+def test_no_goal_ids_adds_nothing():
+    result: dict = {}
+    wp._attach_goal_ids(result, {"goal_ids": []})
+    assert result == {}

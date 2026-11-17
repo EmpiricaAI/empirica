@@ -494,10 +494,27 @@ def _preflight_bind_goal_ids(parsed, session_id) -> dict | None:
     return None
 
 
+_GOAL_IDS_STORED = "_goal_ids_stored"  # set on ``parsed`` by enrichment: True, or the reason the ids did not land
+
+
 def _attach_goal_ids(result: dict, parsed: dict) -> None:
-    """Echo the full ids PREFLIGHT bound, so a prefix the caller typed is confirmed against what was stored."""
-    if parsed.get("goal_ids"):
+    """Echo the full ids PREFLIGHT bound, only when the transaction file holds them.
+
+    The Sentinel and the artifact resolver read goal_ids from the transaction file, so an echo after enrichment skipped
+    (no file) or swallowed an error would tell the caller the goals are in play when nothing downstream can see them.
+    Then the ids go under ``goal_ids_not_stored`` with the reason instead (1.16.3 sweep B5).
+    """
+    if not parsed.get("goal_ids"):
+        return
+    stored = parsed.get(_GOAL_IDS_STORED)
+    if stored is True:
         result["goal_ids"] = parsed["goal_ids"]
+        return
+    result["goal_ids_not_stored"] = {
+        "goal_ids": parsed["goal_ids"],
+        "reason": stored or "transaction file enrichment did not run",
+        "effect": "the Sentinel will not count these goals as in play; name them again at the next PREFLIGHT",
+    }
 
 
 def _preflight_enrich_transaction_file(resolved_project_path, parsed):
@@ -539,6 +556,7 @@ def _preflight_enrich_transaction_file(resolved_project_path, parsed):
         tx_file = Path(resolved_project_path) / ".empirica" / f"active_transaction{suffix}.json"
         if not tx_file.exists():
             logger.warning(f"Transaction file not found for enrichment: {tx_file}")
+            parsed[_GOAL_IDS_STORED] = f"transaction file not found: {tx_file}"
             return
 
         with open(tx_file) as f:
@@ -572,6 +590,7 @@ def _preflight_enrich_transaction_file(resolved_project_path, parsed):
         tx_d["cascade_profile"] = selected_profile
         with open(tx_file, "w") as f:
             _json.dump(tx_d, f, indent=2)
+        parsed[_GOAL_IDS_STORED] = True
         logger.debug(f"Transaction enriched: work_type={work_type}, domain={domain}, criticality={criticality}")
         if selected_profile != "default":
             logger.info(
@@ -579,6 +598,7 @@ def _preflight_enrich_transaction_file(resolved_project_path, parsed):
             )
     except Exception as e:
         logger.warning(f"Transaction enrichment failed: {e}")
+        parsed[_GOAL_IDS_STORED] = f"transaction enrichment failed: {e}"
 
 
 def _preflight_take_out_of_loop(resolved_project_path) -> list[dict]:
