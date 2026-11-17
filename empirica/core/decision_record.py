@@ -471,7 +471,9 @@ def _scan(text: str) -> tuple[str, str]:
         # `\ #x` and `$(true)#x` are mid-word: only whitespace or an opening operator starts a word (goal c6a1fdca)
         elif c == "#" and (not kept or (len(kept[-1]) == 1 and kept[-1] in " \t\n;&|(")):
             end = text.find("\n", i)
-            i = len(text) if end < 0 else end
+            end = len(text) if end < 0 else end
+            masked.append("_" * (end - i))  # masked, not removed: positions in `masked` index `text` (goal 63a44ce6)
+            i = end
             continue
         else:
             masked.append(c)
@@ -483,6 +485,22 @@ def _scan(text: str) -> tuple[str, str]:
 def _literal_masked(text: str) -> str:
     """``text`` with single-quoted and escaped characters masked: what is left is where the shell substitutes."""
     return _scan(text)[0]
+
+
+def _substitutions(text: str) -> list[tuple[int, int, str]]:
+    """(start, end, command) of each $( ) and backtick substitution where bash substitutes: found on the masked text, so a
+    backtick inside single quotes never pairs with one outside them and swallows the statements between (goal 63a44ce6,
+    found by the differential fuzzer). The masked text keeps every position, so the spans index the original."""
+    masked = _literal_masked(text)
+    return [(m.start(), m.end(), text[m.start(1) : m.end(1)] if m.group(1) is not None else text[m.start(2) : m.end(2)])
+            for m in _SUBSTITUTION.finditer(masked)]  # fmt: skip
+
+
+def _flatten_substitutions(text: str) -> str:
+    """``text`` with each substitution bash would make replaced by one word."""
+    for start, end, _command in reversed(_substitutions(text)):
+        text = text[:start] + "x" + text[end:]
+    return text
 
 
 def _without_comments(text: str) -> str:
@@ -950,14 +968,12 @@ def infer_shell_effects(command: str, *, cwd: str | None, project_path: str | No
     classes: set[str] = set()
     # The commands inside $(...) and backticks run too: classify them (goal e6ee7d01). A nested or unbalanced one is
     # left to the outer parse and marks the result unreliable.
-    masked = _literal_masked(text)  # single-quoted and backslash-escaped text is literal: no substitution runs there
-    for inner in _SUBSTITUTION.findall(masked):
-        found = infer_shell_effects(
-            inner[0] or inner[1], cwd=cwd, project_path=project_path, empirica_is_read=empirica_is_read
-        )
+    # Single-quoted and backslash-escaped text is literal: no substitution runs there.
+    for _start, _end, inner in _substitutions(text):
+        found = infer_shell_effects(inner, cwd=cwd, project_path=project_path, empirica_is_read=empirica_is_read)
         classes |= set(found["classes"])
         reliable = reliable and found["reliable"]
-    flattened = _SUBSTITUTION.sub("x", text)  # no spaces: `$(true)#x` stays one word, as in bash
+    flattened = _flatten_substitutions(text)  # one word, no spaces: `$(true)#x` stays one word, as in bash
     unquoted = _literal_masked(flattened)  # grep '`' f is a search, not a substitution
     if "$(" in unquoted or "`" in unquoted:
         classes.add("unknown")  # nested, or containing parentheses: its command cannot be read (goal 33ffc93c)

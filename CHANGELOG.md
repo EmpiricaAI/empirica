@@ -5,6 +5,13 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A backtick inside single quotes no longer hides later commands from discipline mode.** It paired with a backtick further on, so the statements between them, a `git push` for instance, went unjudged and the whole command counted as one act. Found by a new differential fuzzer that checks the Sentinel's reading of shell commands against bash itself.
+- **`bash --version` and `--help` are reads** outside a transaction; 1.17.5 required one.
+
 ## [1.17.5] - 2026-11-17
 
 ### Highlights

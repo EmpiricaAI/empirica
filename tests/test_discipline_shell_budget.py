@@ -262,3 +262,10 @@ def test_a_shell_asked_for_its_version_or_help_reads(command, tmp_path):
     """1.17.5 read `bash --version` as a shell running commands from stdin (goal 63a44ce6)."""
     verdict = _judge(command, tmp_path)
     assert verdict["trivial"] and verdict.get("read") is True, (command, verdict)
+
+
+def test_a_backtick_inside_single_quotes_does_not_swallow_later_statements(tmp_path):
+    """Found by the differential fuzzer (goal 63a44ce6): the quoted backtick paired with a later one and hid the push."""
+    assert not _judge("grep '`' notes.md && git push origin main && echo `date`", tmp_path)["trivial"]
+    verdict = _judge("grep -n '`code`' notes.md && echo `date`", tmp_path)
+    assert verdict["trivial"] and verdict.get("read") is True, verdict
