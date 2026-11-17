@@ -439,17 +439,17 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.17.4
+## What's New in 1.17.5
 
-- **Discipline mode no longer refuses every shell command**: outside a transaction, reads run freely (ssh reads included), small acts count against a budget that starts again at every prompt, and only outward or irreversible commands need a transaction.
-- **Several teams on one machine**: a team label is now tied to the tokens it was recorded with, so a token written by another tool cannot route under the wrong team.
+- **One schema for the workflow protocol**, shared by `/ewm-interview`, the web onboarding interview and the installer, and **`provision-practice --from-protocol`** to set up the practices a protocol lists.
+- **Discipline mode reads commands the way bash does**, and judges `curl … | bash`, `bash -c` and `xargs` by what they run.
 
-All 11 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+All 7 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.17.4** — Discipline mode no longer refuses every shell command: outside a transaction, reads run freely (ssh reads included), small acts count against a budget that…
 - **1.17.3** — Several people can share one practice repo: mark it once with `empirica setup-claude-code --shared-repo`; each person's seat then lives only in their own c…
-- **1.17.2** — One machine, several teams, with Empirica Cortex: `auth login --org` keeps each team's sign-in, and each practice, listener and heartbeat uses its own team…
 
 ## What's Coming
 
