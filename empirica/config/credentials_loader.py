@@ -552,9 +552,8 @@ class CredentialsLoader:
         if not target.exists() or (not YAML_AVAILABLE and target.suffix != ".json"):
             return {}
         try:
-            if target.suffix == ".json":
-                return json.loads(target.read_text(encoding="utf-8") or "{}")
-            return yaml.safe_load(target.read_text(encoding="utf-8")) or {}
+            text = target.read_text(encoding="utf-8")
+            data = (json.loads(text) if text.strip() else {}) if target.suffix == ".json" else yaml.safe_load(text)
         except Exception as e:
             # Do NOT silently overwrite a credentials file we failed to parse —
             # that discards working keys for every provider to save a token.
@@ -562,6 +561,14 @@ class CredentialsLoader:
                 f"credentials file at {target} is unreadable ({e}); refusing to overwrite it. "
                 "Fix or move the file, then retry."
             ) from e
+        if not data:
+            return {}  # empty, whitespace only, or an empty list: nothing to keep (goal f2ab8424)
+        if not isinstance(data, dict):
+            raise RuntimeError(
+                f"credentials file at {target} does not hold a mapping; refusing to overwrite it. Fix or move the file, "
+                "then retry."
+            )
+        return data
 
     def _write_credentials(self, target: Path, data: dict) -> Path:
         """Atomic write via mkstemp + replace.

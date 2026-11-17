@@ -7,6 +7,7 @@ lives at `cortex.orgs.<org_id>` with the same fields, and each block records its
 
 from __future__ import annotations
 
+import json
 import time
 
 import pytest
@@ -754,6 +755,29 @@ def test_a_save_goes_to_the_file_the_reads_came_from(tmp_path, monkeypatch):
         loader.save_cortex_oauth(access_token=_AT_B)
         assert not (tmp_path / "missing.yaml").exists()
         assert yaml.safe_load(home_file.read_text())["cortex"]["oauth"]["access_token"] == _AT_B
+    finally:
+        CredentialsLoader._instance = None
+        CredentialsLoader._credentials_cache = None
+
+
+@pytest.mark.parametrize("content, kept", [("[]", True), ("  \n", True), ('["x"]', False)])
+def test_a_json_file_that_is_empty_or_not_a_mapping(tmp_path, monkeypatch, content, kept):
+    from empirica.config.credentials_loader import CredentialsLoader
+
+    path = tmp_path / "credentials.json"
+    path.write_text(content)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("EMPIRICA_CREDENTIALS_PATH", str(path))
+    CredentialsLoader._instance = None
+    CredentialsLoader._credentials_cache = None
+    try:
+        if kept:
+            CredentialsLoader().save_cortex_oauth(access_token=_AT_A, refresh_token=_RT)
+            assert json.loads(path.read_text())["cortex"]["oauth"]["access_token"] == _AT_A
+        else:
+            with pytest.raises(RuntimeError, match="does not hold a mapping"):
+                CredentialsLoader().save_cortex_oauth(access_token=_AT_A, refresh_token=_RT)
+            assert path.read_text() == content  # untouched
     finally:
         CredentialsLoader._instance = None
         CredentialsLoader._credentials_cache = None
