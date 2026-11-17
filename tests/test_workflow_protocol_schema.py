@@ -161,3 +161,32 @@ def test_a_repository_is_a_plain_url_of_inert_characters(url, ok):
     doc = copy.deepcopy(FULL)
     doc["practices"][1]["repository"] = url
     assert (wp.validate(doc) == []) is ok, url
+
+
+@pytest.mark.parametrize(
+    "path, value",
+    [
+        (("practices", 0, "name"), "ada-coordinator\n"),
+        (("practices", 1, "repository"), "git@h:a/b\n"),
+        (("user_profile", "name"), "Ada\x1b[31m"),
+    ],
+)
+def test_no_control_character_passes(path, value):
+    doc = copy.deepcopy(FULL)
+    target = doc
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+    assert wp.validate(doc), path
+
+
+def test_practice_names_are_unique():
+    doc = copy.deepcopy(FULL)
+    doc["practices"].append({"name": "ada-coordinator"})
+    assert any("unique" in p for p in wp.validate(doc))
+
+
+def test_a_repository_path_cannot_start_with_a_hyphen():
+    doc = copy.deepcopy(FULL)
+    doc["practices"][1]["repository"] = "git@github.com:-oProxyCommand=x"
+    assert wp.validate(doc)

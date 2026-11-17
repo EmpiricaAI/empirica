@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://getempirica.com/schemas/workflow-protocol/0.3.0.json",
   "title": "Empirica workflow protocol",
-  "description": "One person's working agreement with AI practitioners: what /ewm-interview writes to workflow-protocol.yaml, what the web onboarding interview returns, and what `empirica provision-practice --from-protocol` reads. Closed: a field this version does not define is refused, and a new field arrives with a new version. Every block but schema_version and user_profile is optional; omit a block with nothing in it.",
+  "description": "One person's working agreement with AI practitioners: what /ewm-interview writes to workflow-protocol.yaml, what the web onboarding interview returns, and what `empirica provision-practice --from-protocol` reads. Closed: a field this version does not define is refused, and a new field arrives with a new version. Every block but schema_version and user_profile is optional; omit a block with nothing in it. Two rules JSON Schema cannot state, which every validator also enforces: no key or value holds a control character (a Python validator's `$` matches before a final newline), and practice names are unique.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "user_profile"],
@@ -125,7 +125,7 @@
           "repository": {
             "description": "An existing shared practice repo to clone instead of creating a new practice: a plain https, ssh or git@ URL of inert characters, with no password, query or fragment (the rule cortex enforces).",
             "type": "string",
-            "pattern": "^(https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?/[A-Za-z0-9._~/%+=-]+|ssh://([A-Za-z0-9._-]+@)?[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?/[A-Za-z0-9._~/%+=-]+|git@[A-Za-z0-9][A-Za-z0-9.-]*:[A-Za-z0-9._~/%+=-]+)$",
+            "pattern": "^(https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?/[A-Za-z0-9._~%+=][A-Za-z0-9._~/%+=-]*|ssh://([A-Za-z0-9._-]+@)?[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?/[A-Za-z0-9._~%+=][A-Za-z0-9._~/%+=-]*|git@[A-Za-z0-9][A-Za-z0-9.-]*:[A-Za-z0-9._~/%+=][A-Za-z0-9._~/%+=-]*)$",
             "maxLength": 300
           },
           "provisioned": {"description": "Set by provisioning, never by the interview.", "type": "boolean"}

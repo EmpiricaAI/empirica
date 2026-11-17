@@ -9,6 +9,7 @@ provisions anything.
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -29,7 +30,38 @@ def validate(document: Any) -> list[str]:
 
     validator = Draft202012Validator(schema(), format_checker=FormatChecker())
     errors = sorted(validator.iter_errors(document), key=lambda e: list(e.absolute_path))
-    return [f"{'.'.join(str(p) for p in e.absolute_path) or '(top)'}: {e.message}" for e in errors]
+    problems = [f"{'.'.join(str(p) for p in e.absolute_path) or '(top)'}: {e.message}" for e in errors]
+    return problems + _beyond_the_schema(document)
+
+
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _beyond_the_schema(document: Any) -> list[str]:
+    """What JSON Schema cannot say, checked by every validator of the protocol (cortex does the same, goal c6a1fdca): no
+    control character in any key or value (Python's ``re`` lets a pattern's ``$`` match before a final newline, so
+    ``name: "ada\\n"`` passed every pattern), and practice names unique."""
+    problems: list[str] = []
+
+    def walk(value: Any, path: str) -> None:
+        if isinstance(value, dict):
+            for k, v in value.items():
+                if isinstance(k, str) and _CONTROL.search(k):
+                    problems.append(f"{path or '(top)'}: a key holds a control character")
+                walk(v, f"{path}.{k}" if path else str(k))
+        elif isinstance(value, list):
+            for i, v in enumerate(value):
+                walk(v, f"{path}.{i}")
+        elif isinstance(value, str) and _CONTROL.search(value):
+            problems.append(f"{path}: holds a control character")
+
+    walk(document, "")
+    if isinstance(document, dict) and isinstance(document.get("practices"), list):
+        names = [p.get("name") for p in document["practices"] if isinstance(p, dict)]
+        dupes = sorted({n for n in names if isinstance(n, str) and names.count(n) > 1})
+        if dupes:
+            problems.append(f"practices: names must be unique ({', '.join(dupes)})")
+    return problems
 
 
 def load(path: str | Path) -> tuple[dict | None, list[str]]:

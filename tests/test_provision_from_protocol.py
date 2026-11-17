@@ -133,3 +133,47 @@ def test_a_cloned_shared_repo_keeps_the_persons_tenant_out_of_the_tracked_file(t
     pp._patch_project_yaml(tracked, ai_id="shared", tenant="ada", org="acme", substrate="cortex", dry_run=False)
     assert "tenant_slug" not in yaml.safe_load(tracked.read_text())
     assert yaml.safe_load((root / ".empirica" / "project.local.yaml").read_text())["tenant_slug"] == "ada"
+
+
+def test_a_refusal_on_stderr_and_an_exception_are_that_practices_error(tmp_path, capsys):
+    import sys
+
+    def provision(ns):
+        if ns.name == "acme-app":
+            raise PermissionError("denied")
+        print(json.dumps({"ok": False, "error": "--tenant/--org not given"}), file=sys.stderr)
+        return 1
+
+    code = pp._provision_from_protocol(_args(tmp_path), provision=provision)
+    out = json.loads(capsys.readouterr().out)
+    errors = {p["name"]: p.get("error") for p in out["practices"]}
+    assert code == 1 and len(errors) == len(PROTOCOL["practices"])  # every practice reported
+    assert errors["acme-app"] == "PermissionError: denied" and errors["ada-coordinator"] == "--tenant/--org not given"
+
+
+def test_a_protocol_without_practices_is_valid_and_does_nothing(tmp_path, capsys):
+    code = pp._provision_from_protocol(
+        _args(tmp_path, protocol={"schema_version": "0.3.0", "user_profile": {"name": "A"}})
+    )
+    assert code == 0 and json.loads(capsys.readouterr().out)["practices"] == []
+
+
+def test_a_clone_without_git_or_into_a_foreign_folder_is_an_error(tmp_path):
+    practice = {"name": "shared", "repository": "ssh://git@h:2222/acme/shared.git"}
+
+    def no_git(*_a, **_kw):
+        raise FileNotFoundError("git")
+
+    assert "FileNotFoundError" in pp._clone_step(practice, tmp_path / "shared", dry_run=False, run=no_git)["error"]
+    (tmp_path / "other").mkdir()
+    assert "not a git clone" in pp._clone_step(practice, tmp_path / "other", dry_run=False, run=no_git)["error"]
+
+
+def test_a_shared_repos_tracked_identity_is_never_rewritten(tmp_path):
+    root = tmp_path / "shared"
+    (root / ".empirica").mkdir(parents=True)
+    tracked = root / ".empirica" / "project.yaml"
+    original = {"ai_id": "research", "org_id": "teamorg", "seats": "per-clone", "substrate": "cortex"}
+    tracked.write_text(yaml.safe_dump(original))
+    pp._patch_project_yaml(tracked, ai_id="team-research", tenant="ada", org="acme", substrate="local", dry_run=False)
+    assert yaml.safe_load(tracked.read_text()) == original

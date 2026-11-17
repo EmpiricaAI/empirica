@@ -376,8 +376,11 @@ def _patch_project_yaml(
 
     shared = is_shared_repo(data)
     # A shared practice repo keeps each person's seat in their clone's untracked project.local.yaml, never in the
-    # tracked file everyone pulls (goal cdc2e27c): a cloned shared repo gets its tenant there (goal 6e349146).
+    # tracked file everyone pulls (goal cdc2e27c): a cloned shared repo gets its tenant there (goal 6e349146), and its
+    # tracked identity (ai_id, org, substrate) is the repo's, not this person's to rewrite (goal c6a1fdca).
     person_tenant = desired.pop("tenant_slug", None) if shared else None
+    if shared:
+        desired = {}
     if all(data.get(k) == v for k, v in desired.items()) and not person_tenant:
         return False
     if dry_run:
@@ -898,22 +901,50 @@ def _clone_step(practice: dict, proj_dir: Path, dry_run: bool, run=subprocess.ru
     if not repository:
         return None
     if proj_dir.exists():
+        if not (proj_dir / ".git").exists():  # an unrelated folder must not become the practice (goal c6a1fdca)
+            return {"step": "clone", "changed": False, "error": f"{proj_dir} exists and is not a git clone"}
         return {"step": "clone", "changed": False, "note": "directory already exists"}
     if dry_run:
         _narrate(f"  [dry-run] would clone {repository} into {proj_dir}")
         return {"step": "clone", "changed": True, "note": "dry-run"}
     proj_dir.parent.mkdir(parents=True, exist_ok=True)
-    result = run(["git", "clone", "--", repository, str(proj_dir)], capture_output=True, text=True, timeout=600)
+    try:
+        result = run(["git", "clone", "--", repository, str(proj_dir)], capture_output=True, text=True, timeout=600)
+    except (OSError, subprocess.TimeoutExpired) as e:  # no git, or a clone that hangs
+        return {"step": "clone", "changed": False, "error": f"{type(e).__name__}: {e}"}
     if result.returncode != 0:
         return {"step": "clone", "changed": False, "error": (result.stderr or result.stdout).strip()[-400:]}
     return {"step": "clone", "changed": True}
 
 
-def _provision_from_protocol(args, provision=None) -> int:
-    """Provision each practice a validated protocol lists (or those --only names), and report each one."""
+def _provision_captured(provision, practice_args) -> dict:
+    """One practice's provisioning as its JSON report, whatever it printed and wherever: a refusal printed to stderr and an
+    exception both come back as that practice's error, and the run goes on to the next (goal c6a1fdca)."""
     import contextlib
     import io
 
+    out, err = io.StringIO(), io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = provision(practice_args)
+    except Exception as e:  # one practice failing must not lose the others' reports
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    payload: dict = {}
+    for text in (out.getvalue(), err.getvalue()):
+        try:
+            payload = json.loads(text)
+            break
+        except ValueError:
+            continue
+    if not payload:
+        last = (err.getvalue() or out.getvalue()).strip().splitlines()
+        payload = {"ok": False, "error": last[-1] if last else "provision-practice failed without a message"}
+    payload["ok"] = bool(payload.get("ok")) and code == 0
+    return payload
+
+
+def _provision_from_protocol(args, provision=None) -> int:
+    """Provision each practice a validated protocol lists (or those --only names), and report each one."""
     from empirica.core import workflow_protocol
 
     output = getattr(args, "output", "human")
@@ -939,8 +970,13 @@ def _provision_from_protocol(args, provision=None) -> int:
     if unknown:
         return fail(f"--only names practices the protocol does not list: {', '.join(unknown)}")
     chosen = [p for p in practices if not only or p["name"] in only]
-    if not chosen:
-        return fail("the protocol lists no practices to provision")
+    if not chosen:  # a valid protocol with no practices: checked, nothing to do
+        print(
+            json.dumps({"ok": True, "practices": [], "note": "valid; it lists no practices"})
+            if output == "json"
+            else "✅ valid; it lists no practices to provision"
+        )
+        return 0
 
     base_path = Path(getattr(args, "base_path", None) or "~/empirica").expanduser()
     dry_run = bool(getattr(args, "dry_run", False))
@@ -952,15 +988,7 @@ def _provision_from_protocol(args, provision=None) -> int:
             result.update(ok=False, steps=[clone])
             results.append(result)
             continue
-        buffer = io.StringIO()
-        with contextlib.redirect_stdout(buffer):
-            code = provision(_practice_args(args, practice))
-        payload: dict
-        try:
-            payload = json.loads(buffer.getvalue())
-        except ValueError:
-            payload = {"ok": False, "error": "provision-practice failed; its message is above"}
-        payload["ok"] = bool(payload.get("ok")) and code == 0
+        payload = _provision_captured(provision, _practice_args(args, practice))
         if clone:
             payload["steps"] = [clone, *payload.get("steps", [])]
         if practice.get("skills"):  # read each one before installing; nothing is installed here

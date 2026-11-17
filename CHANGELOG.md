@@ -10,7 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **A versioned schema for the workflow protocol.** `empirica/schemas/workflow_protocol.schema.json` (`https://getempirica.com/schemas/workflow-protocol/0.3.0.json`) defines one person's `workflow-protocol.yaml`: closed, with fixed values for the working-style fields, and a required `schema_version`. Each practice can now carry its harness, model, suggested skills and a shared repository to clone. `/ewm-interview` writes 0.3.0.
-- **`empirica provision-practice --from-protocol <file>`** provisions the practices a protocol lists, after validating it (`--only <name>` to pick, `--dry-run` to preview). Tenant, org, Forgejo and the cockpit profile come from the command's flags and your sign-in, never from the file. Suggested skills are listed, never installed. A shared repo is cloned only from a plain https, ssh or git@ URL, and keeps your seat in your own clone.
+- **Discipline mode looks inside what a command runs.** `curl … | bash` needs a transaction; `bash -c '…'` and `xargs <cmd>` are judged by the command they run, so `bash -c 'ls'` stays a read and `xargs rm -rf` needs a transaction.
+- **`empirica provision-practice --from-protocol <file>`** provisions the practices a protocol lists, after validating it (`--only <name>` to pick, `--dry-run` to preview). Tenant, org, Forgejo and the cockpit profile come from the command's flags and your sign-in, never from the file. Suggested skills are listed, never installed. A shared repo is cloned only from a plain https, ssh or git@ URL into a folder that does not exist yet; its tracked identity is left as it is, and your seat stays in your own clone. One practice failing is reported and the others still run.
+
+### Fixed
+
+- **Discipline mode reads quotes and comments the way bash does.** A quoted `'#'`, a single-quoted or escaped `$(…)`, and an apostrophe inside double quotes no longer change what a command is judged to do; `curl -#O` is a download; `ssh host -- ls` and `ssh host 'cat x' > notes.txt` are a read and one counted write; `( touch a )` and `if …; then …; fi` count as the change inside them; `git -C dir …` names the option in its refusal; and the refusal says what discipline mode does run.
+- **The per-prompt budget is kept per practice** when a run has no instance id, so a prompt in one headless run no longer starts another practice's budget again.
+- **A `credentials.json` that is empty or holds only whitespace or `[]`** is read as empty instead of crashing a save; a file that holds anything other than a mapping is refused untouched.
+- **Cockpit mail count:** a `tenant.practice` target stored before the three-part form counts when it is this practice's own.
 
 ## [1.17.4] - 2026-11-17
 

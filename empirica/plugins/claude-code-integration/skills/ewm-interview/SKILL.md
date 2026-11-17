@@ -106,7 +106,9 @@ silently resolving it.
 | What earns more autonomy from you? | multi | Accuracy that holds up · Flagging its own gaps · Catching problems unprompted · Admitting mistakes fast |
 | Absolute non-negotiables? | multi | Never act against my interests · Never hide uncertainty behind agreeable language · Never take irreversible actions unasked · Never send anything externally without approval |
 
-Capture `trust_building.*`.
+Capture `trust_building.*`. A first protocol's `current_level` is `establishing` whatever the
+start answer; record the answer itself in `autonomy_earned_through` and the non-negotiables. Move it
+to `building`, `established` or `high_trust` only when re-running the interview later.
 
 ---
 
@@ -314,8 +316,7 @@ practices:                     # Phase 6 — requested here, created by provisio
     harness: "{claude-code|ecodex|both|none}"
     model: "{model}"             # omit for the harness default
     skills: ["{skill}"]          # suggestions only; never installed from the protocol
-    repository: "{git url}"      # only for a shared practice repo to clone
-    provisioned: true            # set by provisioning, never by the interview
+    repository: "{git url}"      # only for a shared practice repo to clone: plain https, ssh or git@
 cockpit_profile: "{name}"      # Phase 6 — `empirica cockpit launch --profile {name}`; omit if none was written
 
 work_preferences:
