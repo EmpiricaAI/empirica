@@ -14,6 +14,7 @@ import yaml
 
 _AT_A, _AT_B, _RT, _NEW_B, _AT_A2 = "AT_A", "AT_B", "RT", "NEW_B", "AT_A2"  # fake fixtures, not credentials
 _VALID = "valid"
+_RT_ELSEWHERE = "RT_FROM_ELSEWHERE"  # fake fixture
 _CORTEX = "https://cortex.getempirica.com"  # several teams need Empirica Cortex (David, 2026-11-16)
 _AT_C, _NEW_A = "AT_C", "NEW_None"  # the default is renewed by its slot (None)
 
@@ -620,3 +621,26 @@ def test_logout_never_promotes_a_team_that_is_not_readable_here(creds, monkeypat
     _run("handle_auth_logout_command", monkeypatch, loader)
     stored = yaml.safe_load(path.read_text())["cortex"]
     assert "oauth" not in stored  # org-b belongs to another Cortex: it is not made the default for this one
+
+
+# --- goal 5f3adb52: a team label an older writer left beside new tokens ---
+
+
+def test_a_label_left_by_an_older_writer_is_not_trusted(creds):
+    """A 1.17.1 login (or a token-only bridge) swapped the default's tokens and kept org_id: the label must not route."""
+    write, _ = creds
+    loader = write({"url": _CORTEX})
+    loader.save_cortex_oauth(access_token=_AT_A, refresh_token=_RT, org_id="org-a")  # core labels it, bound to _RT
+    assert loader.get_cortex_oauth()["org_id"] == "org-a" and loader.cortex_oauth_org(None) == "org-a"
+    loader.save_cortex_oauth(access_token=_AT_B, refresh_token=_RT_ELSEWHERE)  # an older writer: no org given
+    assert loader.cortex_oauth_org(None) is None  # the label no longer describes these tokens
+
+
+def test_cores_own_refresh_keeps_the_label(creds):
+    write, _ = creds
+    expired = _set(_AT_A, expires_at=time.time() - 60)
+    loader = write({"url": _CORTEX, "oauth": expired})
+    loader.save_cortex_oauth(org_id="org-a")  # labelled by core: bound to the current refresh token
+    loader.cortex_access_token(refresh=lambda rt, ep: {"access_token": "AT_NEW", "refresh_token": "RT_NEW",
+                                                      "expires_at": time.time() + 3600})  # fmt: skip
+    assert loader.cortex_oauth_org(None) == "org-a"

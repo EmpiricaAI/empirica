@@ -298,6 +298,7 @@ def default_refresh(loader, *, http=_http_json, org_id: str | None = None) -> Ca
         slot = {"slot": loader.cortex_oauth_slot(org_id)} if org_id else {}  # the same org's block, never another's
         loader.save_cortex_oauth(
             **slot,
+            rotated=True,  # core's own rotation keeps the team label bound
             access_token=out.get("access_token"),
             refresh_token=out.get("refresh_token"),  # rotation — persist or die
             expires_at=_expires_at(out, now=now),
@@ -666,7 +667,7 @@ def login(
     # over it (a token is bound to one user in one org; goal da0396f8).
     identity = _whoami(base_url, tokens["access_token"], http=http)
     new_org = identity.get("org_id") or None
-    previous_org = loader.get_cortex_oauth().get("org_id")
+    previous_org = loader.cortex_oauth_org(None)
     if not _same_cortex(loader, base_url) and len(loader.cortex_oauth_sets()) > 1:
         loader.clear_other_teams()  # they belong to the Cortex being left; never sent to the new one
     slot = _slot_for_new_sign_in(loader, new_org, base_url, http=http)
@@ -750,7 +751,9 @@ def _slot_for_new_sign_in(loader, new_org: str | None, base_url: str, *, http=_h
     default = loader.get_cortex_oauth()
     if not default or not new_org:
         return None
-    known = default.get("org_id")
+    from empirica.config.credentials_loader import effective_org
+
+    known = effective_org(default)
     if not known:
         try:
             refresh_cb, owner = custody_refresh(loader, http=http)

@@ -102,6 +102,24 @@ def is_empirica_cortex_url(url: str | None) -> bool:
     return parsed.scheme == "https" and (host == EMPIRICA_CORTEX_DOMAIN or host.endswith("." + EMPIRICA_CORTEX_DOMAIN))
 
 
+def _token_fingerprint(token: Any) -> str | None:
+    import hashlib
+
+    return hashlib.sha256(str(token).encode()).hexdigest()[:16] if token else None
+
+
+def effective_org(block: dict[str, Any] | None) -> str | None:
+    """The org a token set acts in: its recorded org_id while the label is bound to its current refresh token. A label
+    recorded before binding existed (no org_bound) is trusted as before; one an older writer left beside new tokens is
+    not (goal 5f3adb52)."""
+    if not isinstance(block, dict) or not block.get("org_id"):
+        return None
+    bound = block.get("org_bound")
+    if bound is None or bound == _token_fingerprint(block.get("refresh_token")):
+        return str(block["org_id"])
+    return None
+
+
 def _oauth_refresh_lock(directory: Path):
     """An exclusive inter-process lock for the OAuth refresh, or a no-op.
 
@@ -621,6 +639,7 @@ class CredentialsLoader:
         slot: str | None = None,
         org_id: str | None = None,
         org_name: str | None = None,
+        rotated: bool = False,
     ) -> Path:
         """Persist the OAuth token set under `cortex.oauth`, or under `cortex.orgs.<slot>` for another team's sign-in.
         ``org_id`` / ``org_name`` record which org the set acts in (from /v1/users/me).
@@ -669,6 +688,7 @@ class CredentialsLoader:
         # Frankenstein pairing is what corrupted David's auth-login family when the
         # extension bridged token-only over it (prop_qybz3yc4). A write that omits
         # client_id is a same-family field update and merges as before.
+        previous_rt, previous_bound = oauth_block.get("refresh_token"), oauth_block.get("org_bound")
         existing_cid = oauth_block.get("client_id")
         if client_id is not None and existing_cid is not None and client_id != existing_cid:
             oauth_block = {}
@@ -699,6 +719,13 @@ class CredentialsLoader:
         ):
             if value is not None:
                 oauth_block[key] = value
+        # The team label is bound to the refresh-token family it was recorded with (goal 5f3adb52): set when core records
+        # the org, carried forward when core rotates the token, and NOT by a writer that swaps tokens without saying
+        # whose they are (an older empirica, a token bridge), so a stale label stops routing instead of misrouting.
+        if org_id is not None:
+            oauth_block["org_bound"] = _token_fingerprint(oauth_block.get("refresh_token")) if org_id else None
+        elif rotated and refresh_token is not None and previous_bound == _token_fingerprint(previous_rt):
+            oauth_block["org_bound"] = _token_fingerprint(refresh_token)
 
         if slot is None:
             cortex_block["oauth"] = oauth_block
@@ -735,6 +762,14 @@ class CredentialsLoader:
         does not get it by configuration. No override, since an override would be the trivial way around it."""
         return is_empirica_cortex_url((self.get_cortex_config() or {}).get("url"))
 
+    def cortex_oauth_org(self, slot: str | None) -> str | None:
+        """The team a stored sign-in acts in, when its label still describes its tokens (see `effective_org`)."""
+        if slot is None:
+            return effective_org(self.get_cortex_oauth())
+        orgs = self._cortex_block().get("orgs")
+        block = orgs.get(slot) if isinstance(orgs, dict) else None
+        return effective_org(block) if isinstance(block, dict) else None
+
     @staticmethod
     def _oauth_slot_of(cortex: dict[str, Any], org_id: str | None) -> str | None:
         """Where an org's token set lives: None for the default block `cortex.oauth`, else the key under `cortex.orgs`.
@@ -747,7 +782,7 @@ class CredentialsLoader:
         orgs = cortex.get("orgs") if isinstance(cortex.get("orgs"), dict) else {}
         if isinstance(orgs.get(org_id), dict):
             return org_id
-        if default and default.get("org_id") in (None, "", org_id):
+        if default and effective_org(default) in (None, org_id):
             return None
         return org_id  # another org's default: this org has no sign-in yet (reads as {})
 
@@ -889,6 +924,7 @@ class CredentialsLoader:
 
         self.save_cortex_oauth(
             slot=slot,  # back into the block it was read from: one org's refresh never touches another's
+            rotated=True,  # core's own rotation: the team label stays bound to the family
             access_token=new_access,
             expires_at=renewed.get("expires_at"),
             # Rotating auth servers issue a new refresh token on every use; dropping
