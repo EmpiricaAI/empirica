@@ -955,6 +955,7 @@ def _provision_from_protocol(args, provision=None) -> int:
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer):
             code = provision(_practice_args(args, protocol, practice))
+        payload: dict
         try:
             payload = json.loads(buffer.getvalue())
         except ValueError:
@@ -962,10 +963,8 @@ def _provision_from_protocol(args, provision=None) -> int:
         payload["ok"] = bool(payload.get("ok")) and code == 0
         if clone:
             payload["steps"] = [clone, *payload.get("steps", [])]
-        if practice.get("skills"):
-            payload["suggested_skills"] = practice[
-                "skills"
-            ]  # read each one before installing; nothing is installed here
+        if practice.get("skills"):  # read each one before installing; nothing is installed here
+            payload["suggested_skills"] = practice["skills"]
         results.append({**result, **payload})
 
     ok = all(r.get("ok") for r in results)

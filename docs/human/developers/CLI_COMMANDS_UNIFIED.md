@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.17.4
-**Generated:** 2026-11-17 11:10:25 UTC
+**Generated:** 2026-11-17 12:52:24 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1737,6 +1737,10 @@ Create + register a new local practice/practitioner in one command
 
 - `name` — **required**
   ai_id / directory name for the new practice
+- `--from-protocol` — optional
+  Provision the practices a workflow protocol lists (as /ewm-interview or the web onboarding writes it, schema workflow-protocol 0.3.0) instead of NAME. The file is validated first and nothing runs when it is invalid. Each practice gets its own type, description, domain, harness and model; the protocol's mesh block and cockpit profile apply unless given here. Suggested skills are listed, never installed
+- `--only` — optional
+  With --from-protocol: provision only this practice (repeat for several)
 - `--base-path` — optional · default=`~/empirica`
   Parent directory the new practice is created under (default: ~/empirica)
 - `--type` — optional · type=`_project_type_arg`
