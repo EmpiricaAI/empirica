@@ -5,6 +5,31 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.4] - 2026-11-17
+
+### Highlights
+
+- **Discipline mode no longer refuses every shell command**: outside a transaction, reads run freely (ssh reads included), plain local changes count against the budget, and anything else still needs a transaction.
+- **Several teams on one machine**: a team label is now tied to the tokens it was recorded with, so a token written by another tool cannot route under the wrong team.
+
+### Changed
+
+- **Discipline mode judges a shell command by what it does.** Reads (including `ssh host '<read>'`, loops and conditionals around reads) run uncounted. A plain local change inside the practice (a file write, an `empirica` artifact command, `git add`/`commit`/`mv`) counts against the budget. Anything that cannot be read plainly (`cd`, `sudo`, shell expansion, a write outside the practice or into protected files, a push, a remote command that changes something) still needs a transaction. Downloads to a file, `2>&1`-style redirects and command substitutions are classified correctly.
+
+### Fixed
+
+- **A team label stays with its own tokens.** The label is bound to the sign-in's refresh-token family; a label that no longer matches its tokens stops routing that team instead of misrouting, and labels recorded before this release are bound at their next refresh.
+- **Credentials are written to the file they are read from.** With `EMPIRICA_CREDENTIALS_PATH` naming a missing file, a refresh used to write a partial second file and the sign-in went dark. A `credentials.json` now stays JSON.
+- **`auth logout` drops the sign-in from the file it was read from**, and says so (exit 1) when there was nothing to drop.
+- **The practitioner heartbeat fetches each team's practice map with that team's credentials** instead of reusing the first team's for the whole process.
+- **PREFLIGHT reports `goal_ids_not_stored`** when the goal ids could not be written to the transaction, instead of echoing them as if they were.
+- **Cockpit:** the mail count no longer counts another tenant's practice of the same name; a Claude Code conversation is matched to its directory by the transcript's recorded folder (`/a/b` and `/a-b` no longer collide); `CLAUDE_CONFIG_DIR` is honoured; an ecodex pane resumes only a session that started in its directory.
+- **`project-switch` no longer guesses** between two live sessions on one instance id.
+- **The notes watermark file has one writer at a time**, and a filesystem without file locks degrades to an unserialised write instead of failing.
+- **`doctor --scrub-secrets`:** when only the local fallback store answers, the project's collections it lacks are listed under `missing_collections` with a warning (an error when it holds none of them).
+
+Several of these fixes close findings from the 1.16 release reviews.
+
 ## [1.17.3] - 2026-11-16
 
 ### Highlights
