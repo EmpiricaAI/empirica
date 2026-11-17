@@ -45,3 +45,20 @@ def test_the_pane_s_own_instance_is_still_used(tmp_path, monkeypatch):  # contro
     monkeypatch.setattr("empirica.core.statusline_cache.get_instance_id", lambda: "tmux_9")
     got = pc._attach_session_from_global_registry("p-target", None, "json", claude_session_id=None)
     assert got and got["session_id"] == "someone-else"
+
+
+def test_an_instance_shared_by_several_active_sessions_attaches_none(tmp_path, monkeypatch):
+    """Goal 56f557b6: an instance id carried by several conversations (EMPIRICA_INSTANCE_ID set to a practice name, a
+    reused tmux pane) made the switch attach and move whichever of them was newest."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    conn = _registry(tmp_path)
+    conn.execute(
+        "INSERT INTO global_sessions (session_id, ai_id, origin_project_id, current_project_id, instance_id, status,"
+        " created_at, last_activity) VALUES ('another', 'other', 'p-x', 'p-x', 'tmux_9', 'active', ?, ?)",
+        (time.time(), time.time() + 1),  # both active within minutes of each other
+    )
+    conn.commit()
+    monkeypatch.setattr("empirica.core.statusline_cache.get_instance_id", lambda: "tmux_9")
+    assert pc._attach_session_from_global_registry("p-target", None, "json", claude_session_id=None) is None
+    moved = conn.execute("SELECT count(*) FROM global_sessions WHERE current_project_id = 'p-target'").fetchone()[0]
+    assert moved == 0

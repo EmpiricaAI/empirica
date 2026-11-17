@@ -52,8 +52,9 @@ def _row(home, sid, created, last=None, status="active", instance="tmux_6", ai_i
 
 
 def test_a_newer_session_beats_an_old_one_that_merely_has_last_activity(home):
-    _row(home, "april", created=100.0, last=150.0, ai_id="claude-code")
-    _row(home, "today", created=200.0, last=None)
+    day = 86400.0
+    _row(home, "april", created=1_000_000.0, last=1_000_050.0, ai_id="claude-code")
+    _row(home, "today", created=1_000_000.0 + 200 * day, last=None)
     attached = pc._attach_session_from_global_registry("p", None, "json")
     assert attached["session_id"] == "today"
 
@@ -89,3 +90,10 @@ def test_the_pane_file_takes_the_new_session_ids(home):
     pc._write_marker_files(home / ".empirica", "/work/empirica", "empirica", None, "pts-9", "conv-1", "mine")
     data = json.loads((tty / "pts-9.json").read_text())
     assert (data["empirica_session_id"], data["claude_session_id"]) == ("mine", "conv-1")
+
+
+def test_two_sessions_active_together_in_one_pane_attach_none(home):
+    """Goal 56f557b6: the newest of two recently active sessions on one instance may not be the caller's."""
+    _row(home, "a", created=5_000_000.0, last=5_000_100.0)
+    _row(home, "b", created=5_000_050.0, last=5_000_200.0)
+    assert pc._attach_session_from_global_registry("p", None, "json") is None

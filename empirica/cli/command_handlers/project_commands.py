@@ -599,6 +599,17 @@ def _own_active_session(cursor, claude_session_id: str | None) -> "sqlite3.Row |
     return cursor.fetchone()
 
 
+#: Two sessions on one instance seen within this many seconds of each other are both taken as live.
+_SEEN_TOGETHER_S = 6 * 3600
+
+
+def _seen_together(newest, second) -> bool:
+    try:
+        return float(newest) - float(second) < _SEEN_TOGETHER_S
+    except (TypeError, ValueError):
+        return True  # cannot tell: treat as ambiguous rather than guess
+
+
 def _attach_session_from_global_registry(project_id, project_path, output_format, claude_session_id=None):
     """Update global session registry with new project and mirror session to target DB.
 
@@ -635,13 +646,23 @@ def _attach_session_from_global_registry(project_id, project_path, output_format
     elif current_instance_id:
         cursor.execute(
             """
-            SELECT session_id, ai_id, created_at
+            SELECT session_id, ai_id, created_at, COALESCE(last_activity, created_at) AS seen
             FROM global_sessions
             WHERE instance_id = ? AND status = 'active'
             ORDER BY COALESCE(last_activity, created_at) DESC
-            LIMIT 1
+            LIMIT 2
         """,
             (current_instance_id,),
+        )
+        rows = cursor.fetchall()
+        if not rows or (len(rows) == 2 and _seen_together(rows[0]["seen"], rows[1]["seen"])):
+            # Two conversations active together on this instance id (EMPIRICA_INSTANCE_ID set to a practice name, a
+            # reused tmux pane): nothing says which is the caller's, and moving the newest re-homed someone else's
+            # (goal 56f557b6). An older row long idle is a stale leftover: the newest is the pane's own, as before.
+            conn.close()
+            return None
+        cursor.execute(
+            "SELECT session_id, ai_id, created_at FROM global_sessions WHERE session_id = ?", (rows[0]["session_id"],)
         )
     else:
         # No session of its own and no pane to tell whose: attach nothing. The newest active session in the registry
