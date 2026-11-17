@@ -792,6 +792,7 @@ def _run_listener_body(  # noqa: C901 — held-connection loop; clarity beats de
     _stream_factory=_open_stream,
     _sleep=time.sleep,
     _initial_catchup: bool = True,
+    _monotonic=time.monotonic,
 ) -> int:
     """Held-ntfy-connection main loop. Runs forever (or until SIGTERM).
 
@@ -1051,6 +1052,7 @@ def _run_listener_body(  # noqa: C901 — held-connection loop; clarity beats de
 
     try:
         while True:
+            opened_at = _monotonic()
             proc = _stream_factory(url, headers)
             stats.bump("connects")
             if proc.stdout is None:
@@ -1211,6 +1213,10 @@ def _run_listener_body(  # noqa: C901 — held-connection loop; clarity beats de
                 _sleep(_AUTH_FAIL_BACKOFF_SEC)
                 backoff = _RECONNECT_BASE_SEC
             else:
+                if _monotonic() - opened_at >= _RECONNECT_MAX_SEC:
+                    # A connection that stayed up a minute proves the path works: start again from the base. Resetting only on
+                    # a message let a quiet but healthy listener drift to the maximum between drops (1.14.20 sweep C5).
+                    backoff = _RECONNECT_BASE_SEC
                 _sleep(backoff)
                 backoff = min(backoff * 2, _RECONNECT_MAX_SEC)
     except ListenerStopped as e:

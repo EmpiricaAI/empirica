@@ -790,3 +790,40 @@ def _canonical_tag_resolves(monkeypatch):
     listener now (correctly) refuses to run, so give it one. The refusal itself is tested in
     tests/test_listener_never_subscribes_as_basename.py."""
     monkeypatch.setattr(listener_mod, "resolve_tag_filter", lambda *_a, **_k: "empirica.test.instance")
+
+
+def test_a_connection_that_lasted_resets_the_backoff_without_an_event(monkeypatch):
+    """1.14.20 sweep C5: the backoff reset only on a message, so a quiet but healthy listener (keepalives, then the
+    server or a proxy closes the stream) drifted to 60 s between drops. A connection that stayed up a minute proves the
+    path works, so the next reconnect starts from the base again."""
+    from empirica.config.credentials_loader import get_credentials_loader
+    from empirica.core.loop_scheduler import listener as listener_mod
+
+    monkeypatch.setattr(listener_mod, "_emit_catchup_events", lambda *a, **k: 0)
+    monkeypatch.setattr(listener_mod, "_check_version_drift", lambda: None)
+    monkeypatch.setattr(
+        get_credentials_loader(),
+        "get_ntfy_config",
+        lambda: {"url": "https://ntfy.test", "topic": "t", "user": "u", "password": "p"},
+    )
+    clock = [1000.0]
+    sleeps: list[float] = []
+
+    def factory(url, headers):
+        clock[0] += 120.0  # each connection stays up two minutes, then drops with no event
+        return _FakeProc([])
+
+    def fake_sleep(s):
+        sleeps.append(s)
+        if len(sleeps) >= 4:
+            raise ListenerStopped("test")
+
+    listener_mod._run_listener_body(
+        "cortex",
+        output_stream=io.StringIO(),
+        err_stream=io.StringIO(),
+        _stream_factory=factory,
+        _sleep=fake_sleep,
+        _monotonic=lambda: clock[0],
+    )
+    assert sleeps and all(s == listener_mod._RECONNECT_BASE_SEC for s in sleeps), sleeps
