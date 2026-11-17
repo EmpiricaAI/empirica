@@ -1,6 +1,6 @@
 # Extending Empirica
 
-**Version:** 1.17.5 | **Status:** Production
+**Version:** 1.17.6 | **Status:** Production
 
 Build applications on top of Empirica's epistemic foundation.
 

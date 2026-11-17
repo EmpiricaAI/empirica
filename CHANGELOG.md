@@ -5,9 +5,16 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.17.6] - 2026-11-17
+
+### Highlights
+
+- **A differential fuzzer checks the Sentinel's reading of shell commands against bash itself**, and its first run found a `git push` that a quoted backtick hid from discipline mode; fixed.
+- **Hand-edited cockpit profiles keep their edits** when a practice is added, and `provision-practice` finds a practice where it already lives.
 
 ### Fixed
+
+- **Discipline mode reads `bash -c` the way bash does:** the command is bash's first operand after all of its options (`bash -c -o pipefail '…'`, `bash -euo pipefail -c '…'`, `bash -c -- '…'`), `--` ends bash's options, and `--version` or `-c` after a script name belong to the script.
 
 - **A backtick inside single quotes no longer hides later commands from discipline mode.** It paired with a backtick further on, so the statements between them, a `git push` for instance, went unjudged and the whole command counted as one act. Found by a new differential fuzzer that checks the Sentinel's reading of shell commands against bash itself.
 - **`bash --version` and `--help` are reads** outside a transaction; 1.17.5 required one.
