@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 
-HOOK_VINTAGE = "1.17.6"
+HOOK_VINTAGE = "1.17.7"
 
 
 def _parse(version: object) -> tuple[int, int, int] | None:

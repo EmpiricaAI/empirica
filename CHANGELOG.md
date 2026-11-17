@@ -5,7 +5,12 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.17.7] - 2026-11-17
+
+### Highlights
+
+- **The cockpit bar works on a fresh machine and in a small window:** its own health readout, a help and menu that fit or say why not, failed updates that stay on screen, and an update command that needs no configuration.
+- **`project-register` registers a practice in its own team or refuses**, and a first `auth login` says it saved the Cortex URL.
 
 ### Fixed
 
