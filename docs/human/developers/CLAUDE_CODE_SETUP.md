@@ -51,7 +51,7 @@ fresh, which picks up a changed timeout or matcher after an upgrade.
 
 | Hook | Event | Purpose |
 |---|---|---|
-| `sentinel-gate.py` | PreToolUse (Edit/Write, Bash) | Discipline gate — holds Edit/Write and state-changing Bash until the transaction is certified by grounded PREFLIGHT `claims` or a CHECK (outside a transaction, a small budget of project-local edits runs and is recorded); records each decision in `.empirica/decisions.jsonl` |
+| `sentinel-gate.py` | PreToolUse (Edit/Write, Bash) | Discipline gate — holds Edit/Write and state-changing Bash until the transaction is certified by grounded PREFLIGHT `claims` or a CHECK (outside a transaction, reads run freely and a small budget of acts per prompt runs and is recorded); records each decision in `.empirica/decisions.jsonl` |
 | `ruling-shape.py` | PreToolUse (AskUserQuestion) | Reminder when a single-select question has no `(Recommended)` option; never blocks. Marks a cockpit pane as waiting on a question |
 | `pane-waiting.py` | PermissionRequest, Notification | Marks a cockpit pane as waiting on a permission dialog, and sends a desktop notification when one goes unanswered; never decides |
 | `tool-router.py` | UserPromptSubmit | Suggests a domain agent, skill or workflow for the prompt, from whole-word keywords and the session's vectors |

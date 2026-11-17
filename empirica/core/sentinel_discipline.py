@@ -1,9 +1,10 @@
 """The Sentinel's discipline mode: small, project-local work outside a transaction, up to a budget the user sets (goal 543fd1c6).
 
 mesh-support's design, accepted by David 2026-11-05: the Sentinel is a discipline and measurement layer, not a security boundary.
-In ``discipline`` mode a write or an effectful command outside a transaction is allowed while it stays trivial: it changes only
-the practice's own files (or its own Empirica state, or makes a local commit), its effect is readable from its text, and fewer
-than ``max_act_without_gate`` such acts have happened since the person's last prompt (David, 2026-11-17). Each one is written to an out-of-loop ledger
+In ``discipline`` mode a write or an effectful command outside a transaction is allowed while it stays trivial: every change the
+classifier can see is to the practice's own files (or its own Empirica state, or a local commit), a command it cannot classify
+is counted rather than refused, and fewer than ``max_act_without_gate`` such acts have happened since the person's last prompt
+(David, 2026-11-17). Each one is written to an out-of-loop ledger
 that the next PREFLIGHT reads. Anything outward or irreversible (a push, a tag, a publish, an install, a recursive delete, a
 remote command, a network send, an edit to a file that runs code or holds secrets, or outside the practice) always
 needs a transaction.
@@ -348,15 +349,17 @@ def _judge_shell(command: str, cwd: str | None, project_root: str | None, empiri
     if classes <= _READ_SHELL:
         return {"trivial": True, "read": True, "classes": sorted(classes) or ["none"], "why": ""}
     outward = sorted(classes - _READ_SHELL - _BUDGETED_SHELL - {"unknown"})
-    if not outward and "unknown" in classes:
-        return {"trivial": True, "classes": sorted(classes), "why": ""}
     if outward:
         return {
             "trivial": False,
             "classes": sorted(classes),
             "why": f"this command's effect ({', '.join(outward)}) needs a transaction even in discipline mode",
         }
-    unclear = _plain_local_change(command, cwd, project_root)
+    # An unknown program is counted, but what the classifier CAN see is still checked: a protected or outside write, a git
+    # verb, a directory change or sudo beside it gates as it would alone (second-pass review, goal 6063a146).
+    unclear = _plain_local_change(
+        command, cwd, project_root, unknown_ok="unknown" in classes, writes=bool(classes & _BUDGETED_SHELL)
+    )
     if unclear:
         return {"trivial": False, "classes": sorted(classes), "why": unclear}
     return {"trivial": True, "classes": sorted(classes), "why": ""}
@@ -370,18 +373,24 @@ _WRITE_PROGRAMS = {"touch", "mkdir", "cp", "mv", "ln", "tee", "rm", "rmdir", "se
 _GIT_BUDGETED = {"add", "commit", "mv", "status", "diff", "log", "show"}
 
 
-def _plain_local_change(command: str, cwd: str | None, project_root: str | None) -> str:
+def _plain_local_change(
+    command: str, cwd: str | None, project_root: str | None, *, unknown_ok: bool = False, writes: bool = True
+) -> str:
     """ "" when a budgeted shell change is plain enough to read: literal words only, no directory change, git limited to
     staging and committing, and every path it writes inside the practice and not protected (the check file edits get).
-    Otherwise why it needs a transaction. Reads never come here."""
-    if _SHELL_EXPANSION.search(command):
+    Otherwise why it needs a transaction. Reads never come here.
+
+    ``unknown_ok``: a program the classifier cannot read is a counted act rather than a refusal (David, 2026-11-17).
+    ``writes``: the command also makes a change the classifier can see, so its text must be literal enough to check;
+    without one, only a privilege raise is refused."""
+    if writes and _SHELL_EXPANSION.search(command):
         return "it uses shell expansion, a glob or a comment, so what it changes cannot be read from it"
     dr = _decision_record()
     statements = dr._statements(command)
     if statements is None:
-        return "it cannot be parsed"
+        return "it cannot be parsed" if writes else ""
     for words in statements:
-        problem = _statement_problem(dr, words, cwd, project_root)
+        problem = _statement_problem(dr, words, cwd, project_root, unknown_ok=unknown_ok, writes=writes)
         if problem:
             return problem
     return ""
@@ -413,9 +422,13 @@ def _git_problem(args: list[str]) -> str:
     return ""
 
 
-def _statement_problem(dr, words: list[str], cwd: str | None, project_root: str | None) -> str:
+def _statement_problem(
+    dr, words: list[str], cwd: str | None, project_root: str | None, *, unknown_ok: bool = False, writes: bool = True
+) -> str:
     if any(w in ("sudo", "doas", "su", "pkexec") for w in words):
         return "it raises privileges, which needs a transaction"
+    if not writes:
+        return ""
     kept, targets = _split_redirects(dr, words)
     program, args = dr._program_and_args(kept)
     if program in ("cd", "pushd", "popd"):
@@ -425,7 +438,7 @@ def _statement_problem(dr, words: list[str], cwd: str | None, project_root: str 
     if program in _WRITE_PROGRAMS:
         positional = dr._positional(args)
         targets += positional[1:] if program == "sed" else positional
-    elif program not in dr._READ_PROGRAMS:
+    elif program not in dr._READ_PROGRAMS and not unknown_ok:
         return f"{program} is not a change discipline mode can read"
     outside = next((t for t in targets if not _in_practice(t, cwd, project_root)), None)
     return f"{outside} is outside the practice or protected" if outside else ""
@@ -516,7 +529,7 @@ def mark_plan_shaped(suffix: str, prompt_is_plan_shaped: bool) -> None:
     try:
         mark = prompt_mark_path(suffix)
         mark.parent.mkdir(parents=True, exist_ok=True)
-        mark.write_text(json.dumps({"ts": round(time.time(), 3)}), encoding="utf-8")
+        mark.write_text(json.dumps({"ts": round(time.time(), 6)}), encoding="utf-8")
     except OSError:
         pass
     path = plan_flag_path(suffix)
@@ -675,7 +688,7 @@ def take_ledger(suffix: str, project_root: str | Path | None = None, *, count: i
 
 
 def _entry(dr, tool_name: str, tool_input: dict, classes: list[str], cwd: str | None) -> dict:
-    entry: dict = {"ts": round(time.time(), 3), "tool": tool_name, "classes": classes}
+    entry: dict = {"ts": round(time.time(), 6), "tool": tool_name, "classes": classes}
     if tool_name in _FILE_TOOLS:
         entry["paths"] = _file_paths(dr, tool_name, tool_input, cwd)
     else:

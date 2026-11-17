@@ -746,6 +746,10 @@ def _classify_other(
             return {"remote_exec"}, True  # an interactive shell: anything can happen there
         inner = infer_shell_effects(remote, cwd=None, project_path=None, empirica_is_read=empirica_is_read)
         return ({"remote_read"} if not inner["classes"] else {"remote_exec"}), True
+    if _positional(args)[:1] == ["publish"] or (program == "docker" and "push" in _positional(args)[:1]):
+        return {"network_send"}, True  # poetry/hatch/flit publish, docker push (goal 6063a146)
+    if "--push" in args and program in ("docker", "podman", "buildah"):
+        return {"network_send"}, True  # docker buildx build --push
     if program == "twine":
         return ({"network_send"} if "upload" in args else {"unknown"}), True
     if program in ("scp", "rsync"):

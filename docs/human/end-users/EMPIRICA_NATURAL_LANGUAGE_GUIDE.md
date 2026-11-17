@@ -148,9 +148,10 @@ changing things (praxic work) waits until the AI has said what that change rests
 PREFLIGHT or at CHECK.
 
 This isn't bureaucracy. It catches the most common AI failure mode: **acting before
-understanding**. A few small edits inside the project may run outside a transaction, up to
-a small budget (3 by default; you can change it), and each one is recorded; commands that change state, files that run code
-or hold secrets, and anything that reaches outside the machine always need a transaction.
+understanding**. Outside a transaction, reads run freely and a few small acts per prompt (edits
+inside the project, plain local commands) run within a small budget (3 by default; you can change it), each one recorded;
+files that run code or hold secrets, and anything outward or irreversible (a push, a publish, an install, a recursive
+delete), always need a transaction.
 
 You don't need to manage the Sentinel directly. It works automatically through hooks.
 If the AI says "CHECK returned investigate — I need to learn more before proceeding,"

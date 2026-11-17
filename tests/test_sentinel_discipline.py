@@ -919,3 +919,26 @@ def test_an_unknown_command_is_counted_not_gated(home, monkeypatch, command):
 def test_clearly_outward_or_irreversible_commands_still_need_a_transaction(home, monkeypatch, command):
     monkeypatch.setenv(sd.ENV_MODE, "discipline")
     assert _decide(home, command)[0] == "deny"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "foo; echo x > conftest.py",
+        "foo && touch .env",
+        "foo; echo x > .git/hooks/pre-commit",
+        "foo && git reset --hard",
+        "foo && git tag v1",
+        "foo; cd /tmp && touch a",
+        "sudo foo",
+        "poetry publish",
+        "docker push x",
+    ],
+)
+def test_an_unknown_program_does_not_hide_what_the_classifier_can_see(home, command):
+    assert _judge(home, "Bash", {"command": command})["trivial"] is False, command
+
+
+def test_an_unknown_program_beside_a_plain_write_is_one_counted_act(home):
+    verdict = _judge(home, "Bash", {"command": "foo > notes.txt"})
+    assert verdict["trivial"] is True and not verdict.get("read"), verdict
