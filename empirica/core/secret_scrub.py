@@ -180,18 +180,28 @@ def scrub_qdrant(
     """Scrub the payloads of this project's collections (and the shared ones if asked). Returns
     ``{"points": {collection: n}, "applied": bool}``, plus ``"error"`` if the store could not be read.
 
-    ``empty_is_unknown``: the store is the local server's fallback, reached because nothing else answered; if it holds none of
-    this project's collections, a Qdrant that does may be down, so the scrub is incomplete, not clean (1.16.0 sweep)."""
+    ``empty_is_unknown``: the store is the local server's fallback, reached because nothing else answered. A Qdrant that
+    holds this project's collections may be down, so unless the fallback holds every collection the registry names
+    (``project_collection_names``), the scrub is incomplete, not clean: what is there is scrubbed, and the absent ones are
+    listed under ``"missing_collections"`` with an ``"error"`` (1.16.0 sweep; SOME present was read as complete until goal
+    24979a81 B4)."""
     points: dict[str, int] = {}
+    missing: list[str] = []
     try:
         names = client.list_collections()
         targets = _project_collections(names, project_id)
-        if empty_is_unknown and not targets:
-            return {
-                "points": points,
-                "applied": apply,
-                "error": "only the local server's fallback store answered, and it holds none of this project's collections",
-            }
+        if empty_is_unknown:
+            from empirica.core.qdrant.collections import project_collection_names
+
+            missing = [n for n in project_collection_names(project_id) if n not in names]
+            if not targets:
+                return {
+                    "points": points,
+                    "applied": apply,
+                    "missing_collections": missing,
+                    "error": "only the local server's fallback store answered, and it holds none of this project's "
+                    "collections",
+                }
         if include_global:
             targets += [n for n in GLOBAL_COLLECTIONS if n in names]
         for collection in targets:
@@ -208,6 +218,14 @@ def scrub_qdrant(
                 points[collection] = changed
     except Exception as exc:  # an unreachable store is a result, not a crash
         return {"points": points, "applied": apply, "error": f"{type(exc).__name__}: {exc}"}
+    if missing:
+        return {
+            "points": points,
+            "applied": apply,
+            "missing_collections": missing,
+            "error": f"only the local server's fallback store answered, and it lacks {len(missing)} of this project's "
+            "collections; they may be on a store that did not answer",
+        }
     return {"points": points, "applied": apply}
 
 

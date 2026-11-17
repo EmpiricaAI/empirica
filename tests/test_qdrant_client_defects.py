@@ -350,3 +350,34 @@ def test_epistemics_search_fills_its_limit_past_the_first_fetch(monkeypatch):
     assert es.upsert_epistemics("p1", near + far) == 63
     found = es.search_epistemics("p1", "q", filters={"deltas.know": {"$gte": 0.2}}, limit=3)
     assert sorted(r["session_id"] for r in found) == ["f0", "f1", "f2"]
+
+
+def test_a_scrub_of_a_fallback_store_holding_some_of_the_project_names_what_is_missing():
+    # goal 24979a81 B4: a fallback holding SOME of the project's collections was read as the whole project. The others may
+    # sit on a store that did not answer, so the scrub is incomplete until every collection the registry names is there.
+    from empirica.core import secret_scrub as ss
+    from empirica.core.qdrant.collections import project_collection_names
+
+    expected = project_collection_names("p1")
+    present = ["project_p1_memory", "project_p1_decisions"]
+    scrolled: list[str] = []
+
+    class Store:
+        def __init__(self, names):
+            self.names = names
+
+        def list_collections(self):
+            return list(self.names)
+
+        def scroll(self, collection):
+            scrolled.append(collection)
+            return []
+
+    out = ss.scrub_qdrant(Store(present), "p1", empty_is_unknown=True)
+    assert "error" in out and "fallback" in out["error"]
+    assert sorted(out["missing_collections"]) == sorted(set(expected) - set(present))
+    assert sorted(scrolled) == sorted(present)  # what is there is still scrubbed
+
+    complete = ss.scrub_qdrant(Store(expected), "p1", empty_is_unknown=True)
+    assert "error" not in complete and not complete.get("missing_collections")
+    assert "error" not in ss.scrub_qdrant(Store(present), "p1")  # a configured store is its own answer
