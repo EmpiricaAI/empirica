@@ -40,7 +40,11 @@ def _gate(home: Path, session: str, blocked: bool = True) -> dict:
     }
     argv = [sys.executable, "-c", _BLOCKED] if blocked else [sys.executable, str(GATE)]
     env = {"HOME": str(home), "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
-    r = subprocess.run(argv, input=json.dumps(event), capture_output=True, text=True, env=env, timeout=60, check=False)
+    # cwd is the temporary home, not wherever pytest runs: from a linked git worktree the gate takes the call for a
+    # subagent's and exempts it (goal 014e0e5b), so the test measured the box it ran in.
+    r = subprocess.run(
+        argv, input=json.dumps(event), capture_output=True, text=True, env=env, cwd=home, timeout=60, check=False
+    )
     return json.loads(r.stdout.strip().splitlines()[-1])
 
 
