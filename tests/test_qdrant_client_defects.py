@@ -374,7 +374,9 @@ def test_a_scrub_of_a_fallback_store_holding_some_of_the_project_names_what_is_m
             return []
 
     out = ss.scrub_qdrant(Store(present), "p1", empty_is_unknown=True)
-    assert "error" in out and "fallback" in out["error"]
+    # Collections are created lazily (34 of 417 projects on one box held all 10), so a partial fallback is a warning
+    # naming what it lacks, not an error on nearly every project (goal 33ffc93c); holding none stays an error.
+    assert "error" not in out and "fallback" in out["warning"]
     assert sorted(out["missing_collections"]) == sorted(set(expected) - set(present))
     assert sorted(scrolled) == sorted(present)  # what is there is still scrubbed
 

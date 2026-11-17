@@ -182,9 +182,10 @@ def scrub_qdrant(
 
     ``empty_is_unknown``: the store is the local server's fallback, reached because nothing else answered. A Qdrant that
     holds this project's collections may be down, so unless the fallback holds every collection the registry names
-    (``project_collection_names``), the scrub is incomplete, not clean: what is there is scrubbed, and the absent ones are
-    listed under ``"missing_collections"`` with an ``"error"`` (1.16.0 sweep; SOME present was read as complete until goal
-    24979a81 B4)."""
+    (``project_collection_names``), the scrub may be incomplete: what is there is scrubbed and the absent ones are listed
+    under ``"missing_collections"`` with a ``"warning"`` (goal 24979a81 B4). Collections are created lazily, so most
+    projects lack some, and an error there fired on nearly every project (goal 33ffc93c); a fallback holding NONE of the
+    project's collections is still an ``"error"``."""
     points: dict[str, int] = {}
     missing: list[str] = []
     try:
@@ -223,8 +224,8 @@ def scrub_qdrant(
             "points": points,
             "applied": apply,
             "missing_collections": missing,
-            "error": f"only the local server's fallback store answered, and it lacks {len(missing)} of this project's "
-            "collections; they may be on a store that did not answer",
+            "warning": f"only the local server's fallback store answered, and it lacks {len(missing)} of this project's "
+            "collections; most are never created, but any that live on a store that did not answer were not scrubbed",
         }
     return {"points": points, "applied": apply}
 

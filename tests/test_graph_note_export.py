@@ -348,3 +348,18 @@ def test_concurrent_marks_are_all_kept(tmp_path):
         t.join()
     assert len(gx._dirty(gx._watermarks(root))) == 40
     assert not list((tmp_path / ".empirica").glob("*.tmp"))  # no temp file left behind
+
+
+def test_a_filesystem_without_locks_still_saves_the_mark(tmp_path, monkeypatch):
+    """flock raising ENOLCK (NFS mounted nolock, some FUSE/SMB) degrades to an unserialised write (goal 33ffc93c)."""
+    import errno
+    import fcntl
+
+    from empirica.core.canonical.empirica_git import graph_note_export as gne
+
+    def no_locks(*_a):
+        raise OSError(errno.ENOLCK, "No locks available")
+
+    monkeypatch.setattr(fcntl, "flock", no_locks)
+    gne._save_watermark(str(tmp_path), "edges", 7)
+    assert gne._watermarks(str(tmp_path))["edges"] == 7

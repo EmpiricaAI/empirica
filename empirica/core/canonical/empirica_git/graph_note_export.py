@@ -59,7 +59,10 @@ def _watermark_lock(root: str):
             yield
             return
         try:
-            fcntl.flock(fh, fcntl.LOCK_EX)
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX)
+            except OSError as e:  # ENOLCK on NFS mounted nolock, some FUSE/SMB: best effort, as above (goal 33ffc93c)
+                logger.warning("notes export watermark lock unavailable, writing unserialised: %s", e)
             yield
         finally:
             fh.close()  # releases the flock
