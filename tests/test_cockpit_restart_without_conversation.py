@@ -50,6 +50,7 @@ def test_a_chained_launch_is_left_alone(tmp_path):
 
 def test_conversation_lookup_reads_claude_codes_transcript_folder(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     work = tmp_path / "work" / "p"
     work.mkdir(parents=True)
     assert T._claude_has_conversation(str(work)) is None  # no ~/.claude/projects at all: unknown
@@ -88,6 +89,7 @@ def test_a_folder_name_shared_by_two_directories_is_confirmed_by_cwd(tmp_path, m
 def test_a_conversation_filed_under_another_folder_name_is_found_by_its_cwd(tmp_path, monkeypatch):
     # resume_ids trusts the cwd a transcript records, not the folder name; so does this.
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     work = tmp_path / "w"
     work.mkdir()
     other = tmp_path / "home" / ".claude" / "projects" / "-renamed"
@@ -106,6 +108,7 @@ def test_refresh_respawns_a_dead_pane_with_no_conversation_fresh(tmp_path, monke
     from empirica.core.cockpit.launcher.config import GroupSpec, LauncherConfig, PaneSpec
 
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     (tmp_path / "home" / ".claude" / "projects").mkdir(parents=True)
     work = tmp_path / "research"
     work.mkdir()

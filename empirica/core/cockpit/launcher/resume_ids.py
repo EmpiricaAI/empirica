@@ -17,6 +17,13 @@ _SESSION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 _HEAD_BYTES = 64 * 1024  # the first records of a transcript carry its cwd
 
 
+def claude_config_dir() -> Path:
+    """Claude Code's config directory: ``$CLAUDE_CONFIG_DIR`` when set, else ``~/.claude``. Its transcripts live under
+    ``projects/`` there; reading ``~/.claude`` directly saw no conversation on a box that sets the variable (1.16.3 sweep A6)."""
+    configured = os.environ.get("CLAUDE_CONFIG_DIR")
+    return Path(configured).expanduser() if configured else Path.home() / ".claude"
+
+
 def _same_dir(a: str, b: str) -> bool:
     return os.path.realpath(os.path.expanduser(a)) == os.path.realpath(os.path.expanduser(b))
 
@@ -59,7 +66,7 @@ def last_session_id(instance_id: str | None, project_path: str) -> str | None:
         return None
     if not _same_dir(recorded, project_path):
         return None
-    for transcript in (home / ".claude" / "projects").glob(f"*/{sid}.jsonl"):
+    for transcript in (claude_config_dir() / "projects").glob(f"*/{sid}.jsonl"):
         cwd = _transcript_cwd(transcript)
         if cwd and _same_dir(cwd, project_path):
             return sid

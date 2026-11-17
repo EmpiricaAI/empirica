@@ -1350,13 +1350,13 @@ def _claude_has_conversation(path: str) -> bool | None:
     Fast path: the folder Claude Code names after the path (``/`` as ``-``), confirmed by the ``cwd`` its transcripts
     record: the name alone collides (``/a/b`` and ``/a-b`` share ``-a-b``, 1.16.3 sweep A5), so every transcript there
     is read until one is in ``path``. Otherwise one transcript per other folder is read for its ``cwd``, the evidence
-    ``resume_ids`` trusts, so a folder named some other way still counts. False only when ``~/.claude/projects`` exists
+    ``resume_ids`` trusts, so a folder named some other way still counts. False only when Claude Code's ``projects`` folder exists
     and none of its transcripts is in ``path``: a fresh start then loses nothing, where a wrong False would drop a
     conversation, so anything unreadable answers None.
     """
-    from empirica.core.cockpit.launcher.resume_ids import _same_dir, _transcript_cwd
+    from empirica.core.cockpit.launcher.resume_ids import _same_dir, _transcript_cwd, claude_config_dir
 
-    projects = Path.home() / ".claude" / "projects"
+    projects = claude_config_dir() / "projects"
     if not projects.is_dir():
         return None
     real = os.path.realpath(os.path.expanduser(path))
