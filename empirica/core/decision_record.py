@@ -728,6 +728,8 @@ def _classify_statement(
         return _gh(args), True
     if program in _PACKAGE_PROGRAMS:
         verbs = set(_positional(args)[:2])
+        if verbs & {"publish", "push", "upload"}:
+            return {"network_send"}, True  # npm/cargo/uv publish, gem push: a release, outward (goal 6063a146)
         return ({"install"} if verbs & _PACKAGE_VERBS else {"unknown"}), True
     if program in ("curl", "wget"):
         return _curl(program, args) | _download_writes(program, args, cwd, project_path), True
@@ -744,6 +746,8 @@ def _classify_other(
             return {"remote_exec"}, True  # an interactive shell: anything can happen there
         inner = infer_shell_effects(remote, cwd=None, project_path=None, empirica_is_read=empirica_is_read)
         return ({"remote_read"} if not inner["classes"] else {"remote_exec"}), True
+    if program == "twine":
+        return ({"network_send"} if "upload" in args else {"unknown"}), True
     if program in ("scp", "rsync"):
         remote = any(":" in a and not a.startswith(("/", ".", "~")) for a in _positional(args))
         return ({"network_send"} if remote else _paths_written("cp", args, cwd, project_path)), True

@@ -275,13 +275,14 @@ PREFLIGHT → [noetic: investigate] → CHECK → [praxic: implement] → POSTFL
   (`unknown-resolve`) BEFORE `postflight-submit`. The measurement window closes at
   POSTFLIGHT — anything logged after is invisible to grounded calibration.
 - **Outside a transaction** (after POSTFLIGHT, or before the first PREFLIGHT) the default discipline mode lets reads run
-  freely (shell reads too, loops and pipelines included, and an ssh command that only reads) and a few small local changes
-  (file edits inside the practice, a plain shell write to practice files, `git add` / `git commit`), each counted against
-  the practice's budget and declared at your next PREFLIGHT. An edit to agent instructions or to files that run code or hold
-  secrets (pyproject.toml, package.json, conftest.py, .env, Makefile, CI and git config), a shell change whose effect cannot
-  be read from its text, and anything outward (push, publish, install, remote change) still need a transaction, and so does
-  everything once the work is plan-shaped. The `empirica` artifact verbs still run. Open the next transaction, with
-  `claims`, before real work; `empirica sentinel mode` shows the mode and budget in force.
+  freely (shell reads too, loops and pipelines included, and an ssh command that only reads) and a few acts per prompt
+  (file edits inside the practice, plain shell writes, `git add` / `git commit`, and commands it cannot classify), each
+  counted against the practice's budget, which starts again at every prompt, and declared at your next PREFLIGHT. An edit
+  to agent instructions or to files that run code or hold secrets (pyproject.toml, package.json, conftest.py, .env,
+  Makefile, CI and git config) and anything outward or irreversible (push, publish, install, recursive delete, remote
+  change, network send) still need a transaction, and so does everything once the work is plan-shaped. The `empirica`
+  artifact verbs still run. Open the next transaction, with `claims`, before real work; `empirica sentinel mode` shows the
+  mode and budget in force.
 - **The Sentinel counts a goal as in play** when PREFLIGHT named it in `goal_ids`, or it was created in this transaction, or a
   task was created or completed since PREFLIGHT (`goals-add-task` / `goals-complete-task`), or a finding was logged against it.
   A goal carried over from an earlier transaction counts only by one of those: name it in `goal_ids` (full id or unique

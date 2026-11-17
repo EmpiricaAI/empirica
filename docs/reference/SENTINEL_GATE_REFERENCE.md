@@ -191,11 +191,11 @@ The project root comes from the shared project resolver: `instance_projects/{ins
 
 ## Modes: strict, discipline, off
 
-`discipline` is the default since 1.15.0: small, project-local work runs without a transaction, up to a budget, and is
-declared at the next PREFLIGHT. `strict` refuses every change outside a transaction, as described above; `off` allows every call outside a transaction. Inside an
+`discipline` is the default since 1.15.0: reads run freely, and small work runs without a transaction, up to a budget per
+prompt, and is declared at the next PREFLIGHT. `strict` refuses every change outside a transaction, as described above; `off` allows every call outside a transaction. Inside an
 open transaction the usual rules apply in every mode.
 
-In `discipline`, only a file edit may run outside a transaction: an Edit, Write, MultiEdit or NotebookEdit, or codex's
+In `discipline`, a file edit may run outside a transaction when it is an Edit, Write, MultiEdit or NotebookEdit, or codex's
 `apply_patch` for every file the patch names (a patch that deletes or moves a file, or names none it can read, always needs a
 transaction; `apply_patch` run through the shell is a command), to a file whose
 real path (symlinks followed) is inside the practice, not a hard link to another file, not inside the running empirica
@@ -208,13 +208,22 @@ that runs code, holds secrets or instructs the agent when something else reads i
 `.pypirc`, `Makefile`, `justfile`, `Taskfile.yml`, `*.pth`, `sitecustomize.py`); CI files (`.gitlab-ci.yml`, `.travis.yml`,
 `Jenkinsfile`, `azure-pipelines.yml`, `bitbucket-pipelines.yml`, `.drone.yml`); container files (`Dockerfile`,
 `Containerfile` and their `.<variant>` forms, `docker-compose*.yml`, `compose*.yaml`); and secrets (`.env`, `.env.*`,
-`*.env`). `_PROTECTED_PARTS` and `_PROTECTED_NAMES` in `empirica/core/sentinel_discipline.py` are the full list. Every shell command needs a transaction: a shell allowlist checked with a Python tokenizer was
-bypassed ten ways by what bash does and the tokenizer does not model (comments, ANSI-C quoting, brace and `$IFS`
-expansion, git pathspec magic).
+`*.env`). `_PROTECTED_PARTS` and `_PROTECTED_NAMES` in `empirica/core/sentinel_discipline.py` are the full list.
 
-Each allowed change is written to an out-of-loop ledger for the instance, and once `max-act-without-gate` of them have run
-the next is refused with what was already changed and a request to PREFLIGHT. The next PREFLIGHT reports the ledger as
-`prior_untracked`, keeps it in the transaction file, and only then clears it, so the budget starts again. When the call's
+A shell command is judged by the effect `decision_record.infer_shell_effects` reads from its text (since 1.17.4). A read
+(including an ssh command that only reads) runs and is not counted. A plain local change (a write to practice files, an
+`empirica` artifact verb, `git add`/`commit`/`mv`, literal words only, no `cd` or `sudo`) and a command the classifier
+cannot read (an unknown program, an interpreter, a substitution it cannot parse) are counted acts. Anything clearly outward
+or irreversible (a push, a publish, an install, a recursive delete, a remote command that changes something, a network
+send, a write outside the practice or into a protected file) needs a transaction. The Sentinel is discipline, not
+security (David, 2026-11-11 and 2026-11-17): the budget, not a list of known programs, keeps out-of-loop work small, and
+the classifier aims at few false gates rather than at every way bash can hide a write.
+
+Each counted act is written to an out-of-loop ledger for the instance. The budget counts the acts since the person's last
+prompt (the prompt hook records its time; task notifications do not reset it), and once `max-act-without-gate` of them
+have run for one prompt the next is refused with what was already changed and a request to PREFLIGHT. The next PREFLIGHT
+reports the whole ledger, from every prompt since the last transaction, as `prior_untracked`, keeps it in the transaction
+file, and only then clears it. When the call's
 practice cannot be found, every write counts as outside it. Planned work gets no budget at all: when the latest prompt
 contains a planning word (plan, planning, implement, implementation, spec, specification, transaction, preflight,
 artifact, epistemic, decompose, complex, multi-step, "break this down", "how should I approach"; matched as whole

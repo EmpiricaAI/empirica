@@ -164,7 +164,6 @@ def test_a_project_local_change_readable_from_the_call_is_trivial(home, tool, to
         ("Bash", {"command": "sudo touch x"}),
         ("Bash", {"command": 'git commit -m "$(rm -rf ~)"'}),
         ("Bash", {"command": "kill 1234"}),
-        ("Bash", {"command": "python3 -c 'print(1)'"}),
         ("Edit", {"file_path": "/etc/hosts", "old_string": "a", "new_string": "b"}),
         ("Edit", {"file_path": ".git/config", "old_string": "a", "new_string": "b"}),
         ("Write", {"file_path": ".claude/settings.json", "content": "{}"}),
@@ -857,12 +856,15 @@ def test_text_that_is_not_a_patch_names_nothing_and_needs_a_transaction(home):
     assert verdict["trivial"] is False and verdict["classes"] == ["unknown"], verdict
 
 
-def test_the_shell_form_of_apply_patch_stays_a_gated_command(home):
-    """ecodex: `apply_patch <<EOF` through the shell arrives as Bash with the heredoc in command; it is not special-cased."""
-    verdict = _judge(
-        home, "Bash", {"command": "apply_patch <<'EOF'\n*** Begin Patch\n*** Add File: a.md\n+x\n*** End Patch\nEOF"}
-    )
-    assert verdict["trivial"] is False, verdict
+@pytest.mark.parametrize(
+    "command",
+    ["apply_patch <<'EOF'\n*** Begin Patch\n*** Add File: a.md\n+x\n*** End Patch\nEOF", "python3 -c 'print(1)'"],
+)
+def test_a_command_the_classifier_cannot_read_is_a_counted_act(home, command):
+    """An interpreter, or ecodex's shell `apply_patch <<EOF`: its effect cannot be read, so it is counted against the budget
+    rather than gated (David 2026-11-17: discipline, not security; goal 6063a146)."""
+    verdict = _judge(home, "Bash", {"command": command})
+    assert verdict["trivial"] is True and not verdict.get("read"), verdict
 
 
 def test_the_gate_spends_the_budget_on_an_apply_patch_and_refuses_a_delete(gate, home, monkeypatch):
@@ -884,3 +886,36 @@ def test_an_out_of_loop_decision_is_recorded_as_outside_any_transaction(gate, ho
     decision, _ = gate._handle_no_preflight("Edit", _edit(home[1]), "s-1", "")
     assert decision == "allow" and gate._decision_rule == "discipline-budget"
     assert gate._tx_meta == {"transaction_id": None, "tx_status": "none"}
+
+
+# --- David 2026-11-17: discipline, not security (goal 6063a146) ---
+
+
+def test_a_new_prompt_starts_the_budget_again_and_the_ledger_keeps_every_act(home, monkeypatch):
+    monkeypatch.setenv(sd.ENV_MODE, "discipline")
+    monkeypatch.setenv(sd.ENV_BUDGET, "1")
+    assert _decide(home)[0] == "allow"
+    assert _decide(home)[0] == "deny"  # the same prompt: over budget
+    sd.mark_plan_shaped("_t1", False)  # the person sends the next prompt
+    assert _decide(home)[0] == "allow"
+    assert len(sd.ledger("_t1")) == 2  # both acts still go to the next PREFLIGHT
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "loginctl list-sessions",
+        "DISPLAY=:0 nvidia-settings -q CurrentMetaMode -t 2>&1 | head -2",
+        "xrandr --listmonitors",
+    ],
+)
+def test_an_unknown_command_is_counted_not_gated(home, monkeypatch, command):
+    monkeypatch.setenv(sd.ENV_MODE, "discipline")
+    assert _decide(home, command)[0] == "allow"
+    assert len(sd.ledger("_t1")) == 1
+
+
+@pytest.mark.parametrize("command", ["git push", "rm -rf build", "pip install x", "curl -X POST https://x.test/api"])
+def test_clearly_outward_or_irreversible_commands_still_need_a_transaction(home, monkeypatch, command):
+    monkeypatch.setenv(sd.ENV_MODE, "discipline")
+    assert _decide(home, command)[0] == "deny"

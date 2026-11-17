@@ -224,10 +224,10 @@ def _add_sentinel_group(subparsers):
         help="Show or set the Sentinel mode and the out-of-loop budget",
         description=(
             "strict refuses every change outside a transaction. discipline (the default) lets reads run freely (shell reads "
-            "and ssh reads included) and small local changes (file edits inside the practice, plain shell writes to practice "
-            "files, git add and commit) run without one, up to --max-act-without-gate since the last PREFLIGHT, recording "
-            "each for the next PREFLIGHT; edits to agent instructions or to files that run code or hold secrets, shell "
-            "changes whose effect cannot be read from the text, and anything outward still need a transaction. "
+            "and ssh reads included) and small acts (file edits inside the practice, plain shell writes, git add and commit, "
+            "commands it cannot classify) run without one, up to --max-act-without-gate per prompt, recording each for the "
+            "next PREFLIGHT; edits to agent instructions or to files that run code or hold secrets, and anything outward or "
+            "irreversible (push, publish, install, recursive delete, remote change), still need a transaction. "
             "An unrecognised mode resolves to strict. "
             "off allows every call outside a transaction. Precedence: "
             "EMPIRICA_SENTINEL_MODE / EMPIRICA_MAX_ACT_WITHOUT_GATE, then this practice's .empirica/config.yaml, then "
@@ -240,7 +240,7 @@ def _add_sentinel_group(subparsers):
         dest="max_act_without_gate",
         type=int,
         metavar="N",
-        help="Changes allowed outside a transaction before PREFLIGHT is required (0 to 1000)",
+        help="Acts allowed outside a transaction per prompt before PREFLIGHT is required (0 to 1000)",
     )
     mode.add_argument(
         "--seat",

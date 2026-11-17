@@ -3,7 +3,7 @@
 mesh-support's design, accepted by David 2026-11-05: the Sentinel is a discipline and measurement layer, not a security boundary.
 In ``discipline`` mode a write or an effectful command outside a transaction is allowed while it stays trivial: it changes only
 the practice's own files (or its own Empirica state, or makes a local commit), its effect is readable from its text, and fewer
-than ``max_act_without_gate`` such acts have happened since the last transaction. Each one is written to an out-of-loop ledger
+than ``max_act_without_gate`` such acts have happened since the person's last prompt (David, 2026-11-17). Each one is written to an out-of-loop ledger
 that the next PREFLIGHT reads. Anything outward or irreversible (a push, a tag, a publish, an install, a recursive delete, a
 remote command, a network send, an edit to a file that runs code or holds secrets, or outside the practice) always
 needs a transaction.
@@ -337,7 +337,9 @@ def _judge_shell(command: str, cwd: str | None, project_root: str | None, empiri
     """A shell command by its inferred effects (goal e6ee7d01, David 2026-11-17). The Sentinel is discipline, not
     security (David, 2026-11-11): the classifier aims at few false gates, not at every way bash can hide a write, and
     sampled calls are still checked by effect observation after they run. Reads run uncounted; local changes count
-    against the budget; anything outward or irreversible needs a transaction."""
+    against the budget; anything outward or irreversible needs a transaction. A command the classifier cannot read
+    (``unknown``: loginctl, xrandr, a vendor tool) is counted, not gated (David, 2026-11-17): the budget, not a list of
+    known programs, is what keeps out-of-loop work small."""
     is_read = empirica_is_read or (lambda words: False)
     effects = _decision_record().infer_shell_effects(
         command, cwd=cwd, project_path=project_root, empirica_is_read=is_read
@@ -345,7 +347,9 @@ def _judge_shell(command: str, cwd: str | None, project_root: str | None, empiri
     classes = set(effects["classes"])
     if classes <= _READ_SHELL:
         return {"trivial": True, "read": True, "classes": sorted(classes) or ["none"], "why": ""}
-    outward = sorted(classes - _READ_SHELL - _BUDGETED_SHELL)
+    outward = sorted(classes - _READ_SHELL - _BUDGETED_SHELL - {"unknown"})
+    if not outward and "unknown" in classes:
+        return {"trivial": True, "classes": sorted(classes), "why": ""}
     if outward:
         return {
             "trivial": False,
@@ -492,8 +496,29 @@ def plan_flag_path(suffix: str) -> Path:
     return Path.home() / ".empirica" / f"plan_shaped{safe}.json"
 
 
+def prompt_mark_path(suffix: str) -> Path:
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", suffix or "")
+    return Path.home() / ".empirica" / f"last_prompt{safe}.json"
+
+
+def _last_prompt_ts(suffix: str) -> float:
+    """When the person last sent a prompt to this instance; 0 when unknown (then every act since PREFLIGHT counts)."""
+    try:
+        return float(json.loads(prompt_mark_path(suffix).read_text(encoding="utf-8")).get("ts") or 0)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 0.0
+
+
 def mark_plan_shaped(suffix: str, prompt_is_plan_shaped: bool) -> None:
-    """Set or clear the prompt signal; context-shift-tracker calls this on every prompt. Never raises."""
+    """Set or clear the prompt signal, and record the prompt's time, which starts the out-of-loop budget again (David,
+    2026-11-17). context-shift-tracker calls this on every prompt the person sends (not on task notifications). Never
+    raises."""
+    try:
+        mark = prompt_mark_path(suffix)
+        mark.parent.mkdir(parents=True, exist_ok=True)
+        mark.write_text(json.dumps({"ts": round(time.time(), 3)}), encoding="utf-8")
+    except OSError:
+        pass
     path = plan_flag_path(suffix)
     try:
         if prompt_is_plan_shaped:
@@ -696,11 +721,16 @@ def decide(
         )
     with _ledger_lock(suffix, project_root):
         done = ledger(suffix, project_root)
-        if len(done) >= budget:
+        since = _last_prompt_ts(suffix)
+        this_prompt = [
+            e for e in done if float(e.get("ts") or 0) >= since
+        ]  # the budget is per prompt; the ledger is not
+        if len(this_prompt) >= budget:
             return (
                 "deny",
-                f"No longer trivial: {len(done)} change(s) already made outside a transaction (budget {budget}, from "
-                f"{settings['budget_source']}). PREFLIGHT, declaring what was already changed: {_describe(done)}.",
+                f"No longer trivial: {len(this_prompt)} change(s) already made for this prompt outside a transaction "
+                f"(budget {budget} per prompt, from {settings['budget_source']}). PREFLIGHT, declaring what was already "
+                f"changed: {_describe(done)}.",
             )
         dr = _decision_record()
         entry = _entry(dr, tool_name, tool_input if isinstance(tool_input, dict) else {}, verdict["classes"], cwd)
@@ -716,5 +746,6 @@ def decide(
             )
     return (
         "allow",
-        f"Out of loop, act {len(done) + 1} of {budget} (discipline mode): recorded, and declared at the next PREFLIGHT.",
+        f"Out of loop, act {len(this_prompt) + 1} of {budget} for this prompt (discipline mode): recorded, and declared at "
+        "the next PREFLIGHT.",
     )

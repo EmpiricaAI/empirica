@@ -9,12 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Highlights
 
-- **Discipline mode no longer refuses every shell command**: outside a transaction, reads run freely (ssh reads included), plain local changes count against the budget, and anything else still needs a transaction.
+- **Discipline mode no longer refuses every shell command**: outside a transaction, reads run freely (ssh reads included), small acts count against a budget that starts again at every prompt, and only outward or irreversible commands need a transaction.
 - **Several teams on one machine**: a team label is now tied to the tokens it was recorded with, so a token written by another tool cannot route under the wrong team.
 
 ### Changed
 
-- **Discipline mode judges a shell command by what it does.** Reads (including `ssh host '<read>'`, loops and conditionals around reads) run uncounted. A plain local change inside the practice (a file write, an `empirica` artifact command, `git add`/`commit`/`mv`) counts against the budget. Anything that cannot be read plainly (`cd`, `sudo`, shell expansion, a write outside the practice or into protected files, a push, a remote command that changes something) still needs a transaction. Downloads to a file, `2>&1`-style redirects and command substitutions are classified correctly.
+- **Discipline mode judges a shell command by what it does.** Reads (including `ssh host '<read>'`, loops and conditionals around reads) run uncounted. A plain local change inside the practice (a file write, an `empirica` artifact command, `git add`/`commit`/`mv`) and a command it cannot classify (`loginctl`, `xrandr`, an interpreter) count against the budget. A push, a publish, an install, a recursive delete, a remote command that changes something, a network send, or a write outside the practice or into protected files still needs a transaction. Downloads to a file, `2>&1`-style redirects and command substitutions are classified correctly.
+- **The out-of-transaction budget is per prompt.** It counts the acts since your last prompt instead of since the last transaction, so a long conversation of small requests no longer runs out. The next PREFLIGHT still declares every act since the last transaction.
 
 ### Fixed
 
