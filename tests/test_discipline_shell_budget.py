@@ -255,3 +255,10 @@ def test_an_escaped_character_before_a_hash_is_mid_word(command, tmp_path):
 )
 def test_a_hash_right_after_a_substitution_is_mid_word(command, tmp_path):
     assert not _judge(command, tmp_path)["trivial"], command
+
+
+@pytest.mark.parametrize("command", ["bash --version", "sh --help", "zsh --version | head -1"])
+def test_a_shell_asked_for_its_version_or_help_reads(command, tmp_path):
+    """1.17.5 read `bash --version` as a shell running commands from stdin (goal 63a44ce6)."""
+    verdict = _judge(command, tmp_path)
+    assert verdict["trivial"] and verdict.get("read") is True, (command, verdict)
