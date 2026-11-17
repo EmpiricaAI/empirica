@@ -493,7 +493,12 @@ def _add_to_cockpit_profile(
 ) -> dict:
     """The ``cockpit-profile`` step. Skipped, and said so, when an earlier step failed:
     a profile listing a practice that never came up would launch an empty pane."""
-    from empirica.core.cockpit.launcher.config import ProfileError, add_practice_to_profile, profile_path
+    from empirica.core.cockpit.launcher.config import (
+        ProfileError,
+        add_practice_to_profile,
+        last_profile_write,
+        profile_path,
+    )
 
     launch = f"empirica cockpit launch --profile {profile}"
     try:
@@ -514,6 +519,8 @@ def _add_to_cockpit_profile(
     except ProfileError as exc:
         return {"step": "cockpit-profile", "changed": False, "error": str(exc)}
     note = str(target) if changed else f"already in {target}"
+    if changed and last_profile_write() == "rewritten":  # comments and keys the launcher does not model were not kept
+        note = f"{target} rewritten; your previous version is in {target.with_suffix('.yaml.bak')}"
     return {"step": "cockpit-profile", "changed": changed, "note": note, "launch": launch}
 
 

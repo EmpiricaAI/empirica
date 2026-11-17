@@ -627,13 +627,84 @@ def add_practice_to_profile(
             f"a window named {name!r} already exists in {target} (the default TUI window is 'monitor'); "
             "provision under another name, nothing was changed"
         )
-    config.projects.append(ProjectSpec(name=name, path=str(wanted), launch=launch or "claude", resume=resume))
+    project = ProjectSpec(name=name, path=str(wanted), launch=launch or "claude", resume=resume)
+    config.projects.append(project)
+    group = None
     if config.is_groups_mode():
-        config.groups.append(GroupSpec(name=group_name, panes=[PaneSpec(project_ref=name)]))
+        group = GroupSpec(name=group_name, panes=[PaneSpec(project_ref=name)])
+        config.groups.append(group)
     # else: a projects-only profile opens one window per project on its own. Adding a group would
     # flip it to groups mode, where only the groups are windows and the existing projects vanish.
 
+    if target.exists() and _append_as_text(target, config, project, group):
+        return target, True
     return _write_profile(profile, target, config), True
+
+
+_LAST_WRITE: list[str] = [""]
+
+
+def last_profile_write() -> str:
+    """How the last add changed its profile: "appended" (the file's own text kept) or "rewritten" (re-serialized)."""
+    return _LAST_WRITE[0]
+
+
+def _insert_list_item(text: str, key: str, item: dict) -> str | None:
+    """``text`` with ``item`` added as the last entry of the block list under the top-level ``key``; None when there is no
+    such block list to extend (no key, flow style, empty)."""
+    import re
+
+    import yaml
+
+    lines = text.splitlines(keepends=True)
+    start = next((i for i, line in enumerate(lines) if re.match(rf"^{key}:[ \t]*(#.*)?$", line.rstrip("\r\n"))), None)
+    if start is None:
+        return None
+    end, indent = start + 1, None
+    while end < len(lines):
+        line = lines[end]
+        stripped = line.lstrip()
+        if stripped and not line[0].isspace() and not stripped.startswith(("-", "#")):
+            break  # the next top-level key
+        if indent is None and stripped.startswith("- "):
+            indent = len(line) - len(stripped)
+        end += 1
+    if indent is None:
+        return None
+    while end > start + 1 and (not lines[end - 1].strip() or lines[end - 1].lstrip().startswith("#")):
+        end -= 1  # after the last item, before trailing blanks and comments
+    dumped = yaml.safe_dump([item], default_flow_style=False, sort_keys=False)
+    block = "".join(" " * indent + line if line.strip() else line for line in dumped.splitlines(keepends=True))
+    if not lines[end - 1].endswith("\n"):
+        block = "\n" + block
+    return "".join(lines[:end]) + block + "".join(lines[end:])
+
+
+def _append_as_text(target: Path, config: LauncherConfig, project: ProjectSpec, group: GroupSpec | None) -> bool:
+    """Add the new project (and its window) to the file's own text, so comments and keys the launcher does not model
+    survive (goal 39280461: a 30-line header and alacritty_args were lost). Kept only when the result parses to exactly
+    the profile a rewrite would have produced; otherwise the caller rewrites, and says so."""
+    import tempfile
+
+    try:
+        text = target.read_text(encoding="utf-8")
+        new = _insert_list_item(text, "projects", _serialize_project(project))
+        if new is not None and group is not None:
+            entry = _serialize(LauncherConfig(session_name="x", groups=[group]))["groups"][0]
+            new = _insert_list_item(new, "groups", entry)
+        if new is None:
+            return False
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", dir=target.parent, delete=False, encoding="utf-8") as tmp:
+            tmp.write(new)
+        candidate = Path(tmp.name)
+        if _serialize(load_config(candidate)) != _serialize(config):
+            candidate.unlink(missing_ok=True)
+            return False
+        os.replace(candidate, target)
+    except (OSError, ValueError):
+        return False
+    _LAST_WRITE[0] = "appended"
+    return True
 
 
 def _write_profile(profile: str, target: Path, config: LauncherConfig) -> Path:
@@ -646,6 +717,7 @@ def _write_profile(profile: str, target: Path, config: LauncherConfig) -> Path:
         f"# Launch: empirica cockpit launch --profile {profile}    Guide: docs/guides/COCKPIT.md\n"
     )
     body = header + yaml.safe_dump(_serialize(config), default_flow_style=False, sort_keys=False)
+    _LAST_WRITE[0] = "rewritten" if target.exists() else "created"
     import hashlib
 
     written = target.with_suffix(".yaml.written")  # sha256 of what this writer last wrote

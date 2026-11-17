@@ -100,7 +100,8 @@ def test_the_first_backup_is_kept_across_later_runs(tmp_path):
     add_practice_to_profile("me", "b", str(tmp_path / "b"))
     add_practice_to_profile("me", "c", str(tmp_path / "c"))
 
-    assert "# my note" in f.with_suffix(".yaml.bak").read_text(), "the second run overwrote the user's backup"
+    # Since goal 39280461 the new entries are inserted as text, so the note stays in the profile itself.
+    assert "# my note" in f.read_text(), "the user's comment was lost"
 
 
 def test_an_unwritable_profile_dir_is_a_profile_error(tmp_path, monkeypatch):

@@ -61,7 +61,7 @@ def test_an_edited_profile_is_backed_up_before_it_is_rewritten(tmp_path):
 
     add_practice_to_profile("me", "b", str(tmp_path / "b"))
 
-    assert "# my note" in f.with_suffix(".yaml.bak").read_text()
+    assert "# my note" in f.read_text()  # inserted as text since goal 39280461: the edit stays in the profile itself
 
 
 @pytest.mark.parametrize("content", ["session_name: [unclosed", "- just\n- a list\n", "42"])
