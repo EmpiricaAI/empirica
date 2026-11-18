@@ -1461,7 +1461,10 @@ def _build_postflight_result(
         # These go to DB/breadcrumbs for trajectory tracking, not to the AI.
         # The AI should calibrate from evidence_summary + calibration_reflection,
         # not from per-vector divergence scores (Goodhart's Law).
-        calibration_for_ai = {k: v for k, v in grounded_verification.items() if not k.startswith("_internal_")}
+        # Also no per-vector gaps/updates: the summary carries them for the readers since 1.17.9 (sweep finding).
+        from empirica.core.post_test.grounded_calibration import ai_facing_summary
+
+        calibration_for_ai = ai_facing_summary(grounded_verification)
 
     result = {
         "ok": True,

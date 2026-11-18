@@ -1695,4 +1695,6 @@ def run_grounded_verification(
                 _f.write(f"Error: {e}\n\n{tb_str}")
         except Exception as log_err:
             logger.debug(f"Could not write crash log: {log_err}")
-        return None
+        # Raised to the handler, whose soft stage turns it into a POSTFLIGHT warning; returning None read as "no evidence"
+        # (1.17.9 sweep). The crash log above is kept.
+        raise

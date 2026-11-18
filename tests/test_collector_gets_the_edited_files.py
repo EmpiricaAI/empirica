@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from empirica.core.post_test import grounded_calibration as gc
 from empirica.core.post_test.collector import PostTestCollector
 
@@ -52,11 +54,13 @@ def test_run_grounded_verification_hands_the_list_to_the_collector(monkeypatch):
             raise RuntimeError("stop after construction")
 
     monkeypatch.setattr(gc, "PostTestCollector", _Collector)
-    gc.run_grounded_verification(
-        session_id="s",
-        postflight_vectors={"know": 0.5},
-        db=MagicMock(),
-        work_type="code",
-        edited_files=["x.py"],
-    )
+    # A failure inside verification now reaches the caller (it becomes a POSTFLIGHT warning there; 1.17.9 sweep).
+    with pytest.raises(RuntimeError, match="stop after construction"):
+        gc.run_grounded_verification(
+            session_id="s",
+            postflight_vectors={"know": 0.5},
+            db=MagicMock(),
+            work_type="code",
+            edited_files=["x.py"],
+        )
     assert seen.get("edited_files") == ["x.py"]

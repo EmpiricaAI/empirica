@@ -48,7 +48,7 @@ def conn() -> sqlite3.Connection:
     # as a fixture gap rather than as an OperationalError mid-assertion.
     c.execute(
         "CREATE TABLE project_unknowns (id TEXT PRIMARY KEY, session_id TEXT, "
-        "transaction_id TEXT, is_resolved INTEGER DEFAULT 0, resolved_timestamp)"
+        "transaction_id TEXT, is_resolved INTEGER DEFAULT 0, resolved_timestamp, epistemic_source TEXT)"
     )
     c.execute("CREATE TABLE assumptions (id TEXT PRIMARY KEY, session_id TEXT, transaction_id TEXT)")
     c.execute("CREATE TABLE decisions (id TEXT PRIMARY KEY, session_id TEXT)")
@@ -57,7 +57,7 @@ def conn() -> sqlite3.Connection:
 
 def _add(conn, uid, tx, resolved_at=None):
     conn.execute(
-        "INSERT INTO project_unknowns VALUES (?, 's1', ?, ?, ?)",
+        "INSERT INTO project_unknowns (id, session_id, transaction_id, is_resolved, resolved_timestamp) VALUES (?, 's1', ?, ?, ?)",
         (uid, tx, 1 if resolved_at is not None else 0, resolved_at),
     )
 
@@ -104,7 +104,7 @@ def test_identical_work_scores_identically_whatever_the_backlog(conn):
     for c in (conn, big):
         c.execute(
             "CREATE TABLE IF NOT EXISTS project_unknowns (id TEXT PRIMARY KEY, session_id TEXT, "
-            "transaction_id TEXT, is_resolved INTEGER DEFAULT 0, resolved_timestamp)"
+            "transaction_id TEXT, is_resolved INTEGER DEFAULT 0, resolved_timestamp, epistemic_source TEXT)"
         )
         c.execute("CREATE TABLE IF NOT EXISTS assumptions (id TEXT PRIMARY KEY, session_id TEXT)")
         c.execute("CREATE TABLE IF NOT EXISTS decisions (id TEXT PRIMARY KEY, session_id TEXT)")

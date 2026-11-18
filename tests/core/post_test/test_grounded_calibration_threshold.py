@@ -183,14 +183,20 @@ def test_wrapper_handles_non_grounded_phase_without_typeerror(monkeypatch):
     # No phase_boundary → combined mode. The wrapper still computes a
     # holistic score, and with our fix, it should gracefully produce
     # holistic_calibration_score=None when no phase is grounded.
-    result = run_grounded_verification(
-        session_id="wrapper-regression-test",
-        postflight_vectors={"know": 0.7, "uncertainty": 0.3},
-        db=None,
-        phase_boundary=None,  # → combined mode
-        phase_tool_counts=None,
-        work_type="code",
-    )
+    # Failures now reach the caller (1.17.9 sweep); the property guarded here is only that none is a TypeError.
+    try:
+        result = run_grounded_verification(
+            session_id="wrapper-regression-test",
+            postflight_vectors={"know": 0.7, "uncertainty": 0.3},
+            db=None,
+            phase_boundary=None,  # → combined mode
+            phase_tool_counts=None,
+            work_type="code",
+        )
+    except TypeError:
+        raise
+    except Exception:
+        result = None  # db=None fails elsewhere; production always passes a database
 
     # The wrapper should not crash. Result may be None (if the pipeline
     # short-circuits on error) or a dict with holistic_calibration_score=None.

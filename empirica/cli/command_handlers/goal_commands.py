@@ -613,7 +613,7 @@ def _goal_post_create_integrations(
                 "duration": scope_duration if scope_duration >= 0.5 else None,
             },
             "suggested_timing": "after 1-2 tasks or 30+ minutes",
-            "command": f"empirica check --session-id {session_id}",
+            "command": "empirica check-submit -",  # the gate; `empirica check` is a probe that certifies nothing
         }
 
     # Git notes storage

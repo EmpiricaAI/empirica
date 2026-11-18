@@ -369,3 +369,54 @@ def test_an_unreadable_criteria_store_becomes_a_postflight_warning(monkeypatch):
     warnings: list = []
     _soft_run("goal_criteria", warnings, _run_postflight_goal_criteria, "S", "tx", None)
     assert [w.get("stage") for w in warnings] == ["goal_criteria"]
+
+
+def test_the_ai_facing_postflight_result_carries_no_per_vector_gaps():
+    """1.17.9 sweep: the summary now carries gaps for its readers; the AI's copy must not (Goodhart rule)."""
+    from empirica.cli.command_handlers import _workflow_postflight as wp
+
+    gv = {"_internal_calibration_score": 0.2, "gaps": {"know": 0.3}, "evidence_summary": "e", "grounded_coverage": 0.5}
+    from empirica.core.post_test.grounded_calibration import ai_facing_summary
+
+    out = ai_facing_summary(gv)
+    assert "gaps" not in out and "_internal_calibration_score" not in out and out["evidence_summary"] == "e"
+    assert "ai_facing_summary(grounded_verification)" in __import__("inspect").getsource(wp)
+
+
+def test_a_failure_inside_grounded_verification_reaches_the_postflight_warnings(monkeypatch, tmp_path):
+    """1.17.9 sweep: run_grounded_verification caught everything and returned None, below the stage's re-raise."""
+    from empirica.cli.command_handlers import _workflow_postflight as wp
+    from empirica.cli.command_handlers._workflow_shared import _soft_run
+    from empirica.core.post_test import collector, grounded_calibration, phase_boundary
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    class _DB:
+        def get_session(self, sid):
+            return {"project_id": "P"}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(wp, "_get_db_for_session", lambda sid: _DB())
+    monkeypatch.setattr(collector.EvidenceProfile, "resolve", staticmethod(lambda **k: None))
+    monkeypatch.setattr(phase_boundary, "detect_phase_boundary", lambda *a, **k: None)
+    monkeypatch.setattr(
+        grounded_calibration,
+        "PostTestCollector",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("collector broke")),
+    )
+    warnings: list = []
+    _soft_run(
+        "grounded_verification",
+        warnings,
+        wp._run_grounded_verification,
+        "S",
+        {},
+        {},
+        None,
+        "code",
+        "tx",
+        project_path=str(tmp_path),
+    )
+    assert [w.get("stage") for w in warnings] == ["grounded_verification"]
