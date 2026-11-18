@@ -64,6 +64,8 @@ class SuccessCriterion:
     threshold: float | None = None  # For metric-based criteria
     is_required: bool = True  # vs. optional/nice-to-have
     is_met: bool = False  # Completion status
+    # "<=" or ">=" as written in "method:metric@op:threshold"; None = infer from the metric's direction
+    operator: str | None = None
 
 
 @dataclass
@@ -152,6 +154,7 @@ class Goal:
                     "threshold": sc.threshold,
                     "is_required": sc.is_required,
                     "is_met": sc.is_met,
+                    "operator": sc.operator,
                 }
                 for sc in self.success_criteria
             ],
@@ -221,6 +224,7 @@ class Goal:
             threshold=sc.get("threshold"),
             is_required=sc.get("is_required", True),
             is_met=sc.get("is_met", False),
+            operator=sc.get("operator") if sc.get("operator") in ("<=", ">=") else None,
         )
 
     @staticmethod

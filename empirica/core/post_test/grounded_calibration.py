@@ -856,7 +856,9 @@ class GroundedCalibrationManager:
                 f.writelines(new_lines)
             return True
         except Exception as e:
-            logger.debug(f"Failed to export grounded calibration: {e}")
+            # WARNING, not DEBUG: a persistent write failure (read-only file, full
+            # disk) was invisible, and the summary reported nothing either.
+            logger.warning(f"Failed to export grounded calibration to {breadcrumbs_path}: {e}")
             return False
 
     def export_grounded_calibration(
@@ -1406,10 +1408,14 @@ def _build_verification_summary(
     phase_boundary: dict | None = None,
     phase_tool_counts: dict[str, int] | None = None,
     transaction_id: str | None = None,
+    git_root: str | None = None,
 ) -> dict:
     """Build unified verification summary from per-phase results.
 
     Extracted from run_grounded_verification to reduce complexity.
+
+    `git_root` is the project whose .breadcrumbs.yaml (and calibration
+    exclusions) the export uses; None keeps the old cwd-based resolution.
     """
     all_gaps = {}
     all_updates = {}
@@ -1446,9 +1452,11 @@ def _build_verification_summary(
         (session_id,),
     )
     row = cursor.fetchone()
+    breadcrumbs_exported = False
     if row:
-        manager.export_grounded_calibration(
+        breadcrumbs_exported = manager.export_grounded_calibration(
             row[0],
+            git_root=git_root,
             phase_weights=phase_weights,
             holistic_calibration_score=holistic_calibration_score,
             holistic_gaps=holistic_gaps,
@@ -1469,6 +1477,15 @@ def _build_verification_summary(
         epistemic_provenance=epistemic_provenance,
     )
 
+    # POSTFLIGHT's readers index `gaps` by vector name and subtract them from the
+    # POSTFLIGHT (praxic) vectors, and read `grounded_coverage`; both existed only
+    # as _internal_* keys, so the readers saw {} and 0. The praxic phase when there
+    # is one, else the one phase that ran. `calibration_score` is NOT exposed: its
+    # presence wakes the cortex cache-feedback POST in _workflow_postflight
+    # (dormant today because the key is absent), a network call per low-scoring
+    # POSTFLIGHT. Readers that want it read `_internal_calibration_score`.
+    reader_phase = next((results[p] for p in ("praxic", "combined", "noetic") if p in results), None) or {}
+
     return {
         # === AI-facing output ===
         "evidence_summary": {
@@ -1484,6 +1501,9 @@ def _build_verification_summary(
         "verification_ids": verification_ids,
         "phase_aware": phase_boundary is not None and phase_boundary.get("has_check", False),
         "phase_weights": phase_weights,
+        "gaps": dict(reader_phase.get("_internal_gaps") or {}),
+        "grounded_coverage": reader_phase.get("grounded_coverage", 0),
+        "breadcrumbs_exported": bool(breadcrumbs_exported),
         # === Internal storage (NOT for AI optimization) ===
         "_internal_calibration_score": holistic_calibration_score,
         "_internal_gaps": all_gaps,
@@ -1535,6 +1555,7 @@ def run_grounded_verification(
     per_vector_weights: dict[str, dict[str, float]] | None = None,
     transaction_id: str | None = None,
     edited_files: list[str] | None = None,
+    project_path: str | None = None,
 ) -> dict | None:
     """
     Full grounded verification pipeline.
@@ -1548,6 +1569,10 @@ def run_grounded_verification(
 
     phase_tool_counts: {'noetic_tool_calls': int, 'praxic_tool_calls': int}
     from Sentinel's phase-split counting. Used to weight the holistic score.
+
+    project_path: the root the transaction is bound to. The .breadcrumbs.yaml
+    export and its calibration exclusions use it; None falls back to resolving
+    the repo from cwd, which names whatever repo the process stands in.
 
     Returns verification summary dict, or None on failure.
     """
@@ -1641,6 +1666,7 @@ def run_grounded_verification(
             phase_boundary=phase_boundary,
             phase_tool_counts=phase_tool_counts,
             transaction_id=transaction_id,
+            git_root=project_path,
         )
 
     except Exception as e:

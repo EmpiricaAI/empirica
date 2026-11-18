@@ -19,9 +19,14 @@ class _DB:
         self.conn = sqlite3.connect(":memory:")
         self.conn.execute(
             "CREATE TABLE calibration_trajectory (ai_id TEXT, phase TEXT, self_assessed REAL, grounded REAL,"
-            " timestamp REAL, practitioner_model TEXT)"
+            " timestamp REAL, practitioner_model TEXT, transaction_id TEXT)"
         )
-        self.conn.executemany("INSERT INTO calibration_trajectory VALUES (?,?,?,?,?,?)", rows)
+        # transaction_id NULL: each row has its own timestamp, so each is one transaction
+        self.conn.executemany(
+            "INSERT INTO calibration_trajectory (ai_id, phase, self_assessed, grounded, timestamp, practitioner_model)"
+            " VALUES (?,?,?,?,?,?)",
+            rows,
+        )
 
 
 def _points(model, n, self_assessed, grounded, start=0):

@@ -172,13 +172,14 @@ class EvidenceMetricEvaluator:
     """Evaluate `quality_gate` criteria against a named metric in EvidenceBundle.
 
     The criterion's `description` field carries the metric name to look up
-    (e.g. "prose_stylometry_adherence", "ruff_violation_density"). The
-    evaluator reads it from the bundle, applies the metric's declared
-    direction, and compares against the criterion's threshold.
+    (e.g. "prose_stylometry_composite_drift", "ruff_violation_density"). The
+    evaluator reads it from the bundle and compares it against the criterion's
+    threshold with the criterion's own operator when it has one.
 
     Threshold semantics:
-      - higher_is_better: passes when value >= threshold
-      - lower_is_better: passes when value <= threshold
+      - operator "<=" / ">=" (written as "@<=" / "@>="): used as written
+      - no operator (legacy criteria): inferred from the metric's direction —
+        higher_is_better passes when value >= threshold, lower_is_better when <=
 
     Skips with a clear summary if:
       - The metric isn't present in the bundle (collector didn't run, or
@@ -224,7 +225,12 @@ class EvidenceMetricEvaluator:
             )
 
         direction = ctx.evidence.direction(metric)
-        if direction == "lower_is_better":
+        # The author's operator wins over the inferred one: *_density metrics carry a
+        # higher-is-better score, so inference evaluated "@<=0.25" as ">= 0.25".
+        operator = getattr(ctx.criterion, "operator", None)
+        if operator not in ("<=", ">="):
+            operator = "<=" if direction == "lower_is_better" else ">="
+        if operator == "<=":
             passed = value <= threshold
             op_repr = "<="
         else:

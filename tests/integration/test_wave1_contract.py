@@ -160,7 +160,7 @@ class TestWave1Integration:
         assert result is not None
         assert result.checks_run >= 2
         # With real runners, status depends on actual project state
-        assert result.status in ("complete", "iteration_needed")
+        assert result.status in ("complete", "complete_with_deferred", "iteration_needed")
 
 
 # ---------------------------------------------------------------------------

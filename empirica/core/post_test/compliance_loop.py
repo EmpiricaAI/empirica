@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +41,10 @@ class ComplianceResult:
     #: counted in checks_passed, so "3 run, 3 passed" was the rendering of one
     #: pass, one skip and one error.
     checks_skipped: int = 0
+    #: Ids of the checks deferred to a higher tier (goal_completion, release).
+    #: POSTFLIGHT runs at the `always` tier, so these never ran; while any are
+    #: listed the status is `complete_with_deferred`, never `complete`.
+    checks_deferred: list[str] = field(default_factory=list)
 
     @property
     def is_complete(self) -> bool:
@@ -55,6 +59,7 @@ class ComplianceResult:
             "checks_passed": self.checks_passed,
             "checks_failed": self.checks_failed,
             "checks_skipped": self.checks_skipped,
+            "checks_deferred": list(self.checks_deferred),
             "check_results": self.check_results,
         }
         if self.next_transaction:
@@ -78,6 +83,13 @@ def run_compliance_checks(
 
     Returns None if no domain/checklist applies (legacy behavior).
     Returns ComplianceResult with status and check results otherwise.
+    Raises when the loop itself fails (checklist resolution, registry): the
+    caller reports that as compliance_error. Returning None here read as "no
+    checklist applies", so a broken loop was indistinguishable from an absent one.
+
+    Checks above `execution_tier` are deferred, not run. When nothing failed but
+    something was deferred the status is `complete_with_deferred` and
+    `checks_deferred` names them.
     """
     if not domain and not work_type:
         return None
@@ -124,6 +136,7 @@ def run_compliance_checks(
         check_results = []
         passed_count = 0
         skipped_count = 0
+        deferred_ids: list[str] = []
         failed_checks = []
 
         for check_id in checklist.required:
@@ -142,6 +155,7 @@ def run_compliance_checks(
                 if result.deferred:
                     result_dict["deferred"] = True
                     result_dict["tier"] = result.tier
+                    deferred_ids.append(result.check_id)
                 # A check that could not answer says so in its details:
                 # {"skipped": True} when the tool is absent, {"error": ...} when
                 # it raised and chose not to block. Neither is a pass.
@@ -185,7 +199,7 @@ def run_compliance_checks(
 
         # Determine status
         if checks_failed == 0:
-            status = "complete"
+            status = "complete_with_deferred" if deferred_ids else "complete"
             next_tx = None
         elif iteration_number >= checklist.max_iterations:
             status = "max_iterations_exceeded"
@@ -212,11 +226,12 @@ def run_compliance_checks(
             next_transaction=next_tx,
             iteration_number=iteration_number,
             checks_skipped=skipped_count,
+            checks_deferred=deferred_ids,
         )
 
     except Exception as e:
         logger.warning("Compliance check failed: %s", e)
-        return None
+        raise
 
 
 def _store_check_result(

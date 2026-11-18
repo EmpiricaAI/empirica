@@ -136,6 +136,7 @@ class WebEvidenceCollector:
         db=None,
         phase: str = "combined",
         check_timestamp: float | None = None,
+        project_path: str | Path | None = None,
     ):
         self.session_id = session_id
         self.project_id = project_id
@@ -143,8 +144,13 @@ class WebEvidenceCollector:
         self.check_timestamp = check_timestamp
         self._db = db
         self._owns_db = False
-        self._project_path: Path | None = None
+        # The project the caller already resolved (PostTestCollector passes its
+        # transaction-bound root). Without it, `git rev-parse` from cwd, which
+        # names whatever repo the process happens to stand in.
+        self._project_path: Path | None = Path(project_path) if project_path else None
         self._web_config: dict[str, Any] | None = None
+        #: source name -> why it produced nothing (e.g. the build was not opted in)
+        self.notes: dict[str, str] = {}
 
     def _get_db(self):
         if self._db is None:
@@ -161,7 +167,7 @@ class WebEvidenceCollector:
             self._owns_db = False
 
     def _get_project_path(self) -> Path | None:
-        """Detect project root from git."""
+        """The project root given at construction; otherwise detected from git in cwd."""
         if self._project_path is not None:
             return self._project_path
         try:
@@ -307,17 +313,27 @@ class WebEvidenceCollector:
     # --- Build Verification ---
 
     def _collect_build_verification(self) -> list[EvidenceItem]:
-        """Run project build and check exit code."""
-        items = []
-        build_info = self._detect_build_tool()
-        if not build_info:
-            return items
+        """Run the project's build and check its exit code, only when the project opts in.
 
+        This runs inside POSTFLIGHT, so an auto-detected `npm run build` (up to
+        120 s) was a full build per transaction nobody asked for. It runs only
+        when `.empirica/project.yaml` declares `web_evidence.build_command`;
+        otherwise it is skipped and `notes["web_build"]` says why.
+        """
+        items: list[EvidenceItem] = []
         project_path = self._get_project_path()
         if not project_path:
             return items
 
         config = self._get_web_config()
+        if not config.get("build_command"):
+            self.notes["web_build"] = (
+                "build not run: set web_evidence.build_command in .empirica/project.yaml to verify the build at POSTFLIGHT"
+            )
+            return items
+        build_info = self._detect_build_tool()
+        if not build_info:
+            return items
         timeout = config.get("build_timeout", 120)
 
         start = time.time()
@@ -445,8 +461,8 @@ class WebEvidenceCollector:
                 links = re.findall(r'(?:href|src)=["\']([^"\']+)["\']', content)
 
                 for link in links:
-                    # Skip external links, anchors, data URIs, mailto, tel
-                    if link.startswith(("http://", "https://", "mailto:", "tel:", "data:", "#", "javascript:")):
+                    # Skip external links (protocol-relative //host/x included), anchors, data URIs, mailto, tel
+                    if link.startswith(("http://", "https://", "//", "mailto:", "tel:", "data:", "#", "javascript:")):
                         external_count += 1
                         continue
 
@@ -460,11 +476,13 @@ class WebEvidenceCollector:
                         valid_links += 1
                         continue
 
-                    # Strip leading slash for resolution
-                    clean_path = link_path.lstrip("/")
-
-                    # Try resolving against output directory
-                    resolved = output_dir / clean_path
+                    # A browser resolves '/x' against the site root and 'x' / '../x'
+                    # against the page's own directory. Resolving every link against
+                    # the root reported dist/blog/a.html -> b.html as broken.
+                    if link_path.startswith("/"):
+                        resolved = output_dir / link_path.lstrip("/")
+                    else:
+                        resolved = html_file.parent / link_path
                     if resolved.exists():
                         valid_links += 1
                     elif (resolved.parent / (resolved.name + ".html")).exists():

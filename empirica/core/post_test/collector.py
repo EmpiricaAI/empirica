@@ -484,8 +484,12 @@ class PostTestCollector:
             transaction_id=self.transaction_id,
             preflight_timestamp=self.preflight_timestamp,
         )
+        # prose_stylometry: ~4 ms per 2,000 words (median of 10, 2026-11-18). It was
+        # missing here, and this list is the only one POSTFLIGHT runs, so the
+        # prose_stylometry gate goals-create advertises never had evidence.
         return [
             ("prose_quality", prose._collect_prose_quality),
+            ("prose_stylometry", prose._collect_prose_stylometry),
             ("document_metrics", prose._collect_document_metrics),
             ("source_quality", prose._collect_source_quality),
             ("action_verification", prose._collect_action_verification),
@@ -501,8 +505,16 @@ class PostTestCollector:
             db=self._get_db(),
             phase=self.phase,
             check_timestamp=self.check_timestamp,
+            project_path=self._resolve_project_root(),
         )
-        return [("web", lambda: web.collect_all())]
+
+        def _collect_web() -> list[EvidenceItem]:
+            items = web.collect_all()
+            if web.notes:
+                self._source_notes["web"] = "; ".join(f"{k}: {v}" for k, v in web.notes.items())
+            return items
+
+        return [("web", _collect_web)]
 
     def collect_all(self) -> EvidenceBundle:
         """Collect evidence from all available sources.
@@ -1177,7 +1189,15 @@ class PostTestCollector:
         db = self._get_db()
         cursor = db.conn.cursor()
 
-        tx_sql, tx_params = self._tx_filter()
+        # auto_captured_issues has no transaction_id or created_timestamp, so
+        # _tx_filter() does not apply: it made every query raise, and the
+        # swallowed error read as "no issues". The window is its created_at
+        # (an ISO string, UTC) at or after PREFLIGHT; without a PREFLIGHT
+        # timestamp the session is the only window there is.
+        window_sql, window_params = "", ()
+        if self.preflight_timestamp:
+            window_sql = "AND (julianday(created_at) - 2440587.5) * 86400.0 >= ?"
+            window_params = (float(self.preflight_timestamp),)
         try:
             cursor.execute(
                 f"""
@@ -1186,12 +1206,13 @@ class PostTestCollector:
                     SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) as resolved,
                     SUM(CASE WHEN severity = 'blocker' OR severity = 'high' THEN 1 ELSE 0 END) as severe
                 FROM auto_captured_issues
-                WHERE session_id = ? {tx_sql}
+                WHERE session_id = ? {window_sql}
             """,
-                (self.session_id, *tx_params),
+                (self.session_id, *window_params),
             )
             row = cursor.fetchone()
-        except Exception:
+        except Exception as e:
+            logger.warning("issues evidence: auto_captured_issues query failed: %s", e)
             return items
 
         if row and row[0] > 0:
@@ -2525,17 +2546,9 @@ class PostTestCollector:
             if result.returncode == 0:
                 all_files.update(f.strip() for f in result.stdout.strip().split("\n") if f.strip())
 
-            # Fallback if nothing found: recent commits
-            if not all_files:
-                result = subprocess.run(
-                    ["git", "diff", "--name-only", "--diff-filter=ACMR", "HEAD~5..HEAD"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                    cwd=project_root,
-                )
-                if result.returncode == 0:
-                    all_files.update(f.strip() for f in result.stdout.strip().split("\n") if f.strip())
+            # No fallback to recent commits when nothing changed: HEAD~5..HEAD
+            # graded other transactions' work as this one's and made the
+            # INSUFFICIENT profile unreachable inside any repo with history.
 
             # Filter to existing files only (paths are relative to project root)
             root = Path(project_root) if project_root else Path.cwd()

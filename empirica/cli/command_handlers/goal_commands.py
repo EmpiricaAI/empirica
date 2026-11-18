@@ -46,11 +46,13 @@ def _parse_criterion_entry(entry):
        about the typed syntax.
 
     2. Typed expression "method:metric@op:threshold" — e.g.
-         "quality_gate:prose_stylometry_adherence@<=0.25"
+         "quality_gate:prose_stylometry_composite_drift@<=0.25"
          "completion:subtask_ratio@>=0.9"
        Parsed into SuccessCriterion(validation_method=method,
-       description=metric, threshold=threshold). The op is informational —
-       the evaluator's direction inference handles comparison semantics.
+       description=metric, threshold=threshold, operator=op). The op is kept
+       and the quality_gate evaluator compares with it: a *_density metric
+       carries a higher-is-better score, so inferring the comparison from the
+       metric's direction evaluated "@<=0.25" as ">= 0.25".
 
     3. dict {description, validation_method, threshold, is_required} —
        passed through directly. Used by programmatic callers.
@@ -69,6 +71,7 @@ def _parse_criterion_entry(entry):
             threshold=entry.get("threshold"),
             is_required=entry.get("is_required", True),
             is_met=entry.get("is_met", False),
+            operator=entry.get("operator") if entry.get("operator") in ("<=", ">=") else None,
         )
 
     raw = str(entry)
@@ -100,6 +103,7 @@ def _parse_criterion_entry(entry):
         threshold=threshold,
         is_required=True,
         is_met=False,
+        operator=m.group("op"),
     )
 
 
@@ -529,7 +533,7 @@ def _build_and_save_goal(
     # Each entry can be either:
     #   1. A bare string (e.g. "All subtasks complete") → completion criterion
     #   2. A typed expression "method:metric@op:threshold" e.g.
-    #      "quality_gate:prose_stylometry_adherence@<=0.25"
+    #      "quality_gate:prose_stylometry_composite_drift@<=0.25"
     #      "completion:subtask_ratio@>=1.0"
     #   3. A pre-built dict {description, validation_method, threshold, ...}
     success_criteria_objects = []

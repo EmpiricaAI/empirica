@@ -16,6 +16,8 @@ class ComplianceStatus(str, Enum):
 
     # Phase 2+ compliance loop states
     COMPLETE = "complete"
+    # Nothing failed, but checks above the run's tier were deferred and never ran
+    COMPLETE_WITH_DEFERRED = "complete_with_deferred"
     ITERATION_NEEDED = "iteration_needed"
     ITERATION_IN_PROGRESS = "iteration_in_progress"
     MAX_ITERATIONS_EXCEEDED = "max_iterations_exceeded"

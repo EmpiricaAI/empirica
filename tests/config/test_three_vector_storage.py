@@ -42,6 +42,7 @@ class TestComplianceStatus:
             "insufficient_evidence",
             "ungrounded_remote_ops",
             "complete",
+            "complete_with_deferred",
             "iteration_needed",
             "iteration_in_progress",
             "max_iterations_exceeded",

@@ -247,6 +247,42 @@ def compute_brier_decomposition(
     )
 
 
+# One POSTFLIGHT writes one calibration_trajectory row per vector per phase, all
+# with the same timestamp. A transaction is therefore its transaction_id, or for
+# rows written before migration 070 (transaction_id NULL) its POSTFLIGHT timestamp.
+_TX_KEY = "COALESCE(transaction_id, CAST(timestamp AS TEXT))"
+
+
+def _recent_transaction_points(
+    cursor, ai_id: str, phase: str, lookback: int, practitioner_model: str | None = None
+) -> tuple[list[tuple], int]:
+    """(self_assessed, grounded) rows of the last `lookback` TRANSACTIONS, and how many transactions that is.
+
+    Counting rows measured vectors: two transactions of 12 vectors read as 24 and
+    cleared a minimum of 5. One statement on idx_calibration_trajectory_phase.
+    """
+    model_sql = " AND practitioner_model = ?" if practitioner_model else ""
+    params: tuple = (ai_id, phase, practitioner_model) if practitioner_model else (ai_id, phase)
+    cursor.execute(
+        f"""
+        SELECT self_assessed, grounded, {_TX_KEY}
+        FROM calibration_trajectory
+        WHERE ai_id = ? AND phase = ? AND grounded IS NOT NULL{model_sql}
+          AND {_TX_KEY} IN (
+            SELECT {_TX_KEY}
+            FROM calibration_trajectory
+            WHERE ai_id = ? AND phase = ? AND grounded IS NOT NULL{model_sql}
+            GROUP BY {_TX_KEY}
+            ORDER BY MAX(timestamp) DESC
+            LIMIT ?
+          )
+        """,
+        (*params, *params, lookback),
+    )
+    fetched = cursor.fetchall()
+    return [(r[0], r[1]) for r in fetched], len({r[2] for r in fetched})
+
+
 def compute_dynamic_thresholds(
     ai_id: str,
     db,
@@ -338,40 +374,21 @@ def compute_dynamic_thresholds(
             basis = "practice"
             practitioner_points = None
             rows = []
+            n_txns = 0
             if practitioner_model:
-                cursor.execute(
-                    """
-                    SELECT self_assessed, grounded
-                    FROM calibration_trajectory
-                    WHERE ai_id = ? AND phase = ? AND grounded IS NOT NULL AND practitioner_model = ?
-                    ORDER BY timestamp DESC
-                    LIMIT ?
-                """,
-                    (ai_id, phase, practitioner_model, lb),
-                )
-                rows = cursor.fetchall()
-                # Capped by `lb`, so it is "points read", not "points that exist".
+                rows, n_txns = _recent_transaction_points(cursor, ai_id, phase, lb, practitioner_model)
+                # Capped by `lb`, so it is "transactions read", not "transactions that exist".
                 # Reported with the cap beside it rather than as a bare count.
-                practitioner_points = len(rows)
-                if len(rows) >= min_txns:
+                practitioner_points = n_txns
+                if n_txns >= min_txns:
                     basis = "practitioner"
             if basis == "practice":
-                cursor.execute(
-                    """
-                    SELECT self_assessed, grounded
-                    FROM calibration_trajectory
-                    WHERE ai_id = ? AND phase = ? AND grounded IS NOT NULL
-                    ORDER BY timestamp DESC
-                    LIMIT ?
-                """,
-                    (ai_id, phase, lb),
-                )
-                rows = cursor.fetchall()
+                rows, n_txns = _recent_transaction_points(cursor, ai_id, phase, lb)
 
-            if len(rows) < min_txns:
+            if n_txns < min_txns:
                 result[phase] = {
                     **static_phase,
-                    "transactions_analyzed": len(rows),
+                    "transactions_analyzed": n_txns,
                     "practitioner_points": practitioner_points,
                 }
                 continue
@@ -395,8 +412,9 @@ def compute_dynamic_thresholds(
             # noisy. Scale inflation by confidence in the estimate to prevent the
             # "death spiral" where high inflation from noisy data blocks CHECK,
             # preventing new data from being collected to correct the estimate.
-            # Ramp: 5 txns = 25% confidence, 10 = 50%, 20+ = 100%
-            confidence = min(1.0, decomp.n_predictions / 20.0)
+            # Ramp: 5 txns = 25% confidence, 10 = 50%, 20+ = 100%. Transactions,
+            # not predictions: each transaction contributes ~12 vector rows.
+            confidence = min(1.0, n_txns / 20.0)
             inflation = raw_inflation * confidence
 
             # Apply inflation: raise know threshold, lower uncertainty tolerance
@@ -415,7 +433,8 @@ def compute_dynamic_thresholds(
                 "brier_resolution": decomp.resolution,
                 "brier_uncertainty": decomp.uncertainty,
                 "threshold_inflation": round(inflation, 3),
-                "transactions_analyzed": decomp.n_predictions,
+                "transactions_analyzed": n_txns,
+                "points_analyzed": decomp.n_predictions,
                 "basis": basis,
                 "practitioner_points": practitioner_points,
                 "lookback": lb,
