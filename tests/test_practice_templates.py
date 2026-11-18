@@ -35,7 +35,7 @@ def test_suggest_grounds_each_practice_in_an_answer_and_routes_it():
     assert pt.route(candidates["research"]) == "confirm" and "research" in candidates["research"].reason
     assert pt.route(candidates["writer"]) == "ask"
     assert pt.route(candidates["analyst"]) == "park"  # data, rarely: not enough to propose it now
-    assert candidates["coordinator"].reason == "2 practices to coordinate"
+    assert "coordinator" not in candidates  # one confirmed practice: nothing to coordinate until the writer is a yes
     assert pt.route(candidates["support"]) == "confirm"
 
 
@@ -99,3 +99,25 @@ def test_the_first_plan_goes_to_the_most_confident_non_support_practice():
     candidates = pt.suggest({"build_software": "often", "writing": "sometimes"})
     assert pt.main_practice(candidates).template == "builder"
     assert pt.main_practice(pt.suggest({"outreach": "rarely"})) is None  # only support confirmed: no first plan
+
+
+def test_a_coordinator_needs_two_confirmed_practices_from_two_answers():
+    # two 'sometimes' answers are asked about, not confirmed: nothing confirmed to coordinate (1.17.8 sweep)
+    assert "coordinator" not in {c.template for c in pt.suggest({"research": "sometimes", "writing": "sometimes"})}
+    # one answer that suggests two templates does not justify a coordinator by itself
+    assert "coordinator" not in {c.template for c in pt.suggest({"data": "often"})}
+    assert "coordinator" in {c.template for c in pt.suggest({"build_software": "often", "writing": "often"})}
+
+
+def test_unknown_work_kinds_and_frequencies_are_refused_not_absorbed():
+    import pytest
+
+    with pytest.raises(ValueError, match="build_softwar"):
+        pt.suggest({"build_softwar": "often"})
+    with pytest.raises(ValueError, match="weekly"):
+        pt.suggest({"research": "weekly"})
+
+
+def test_a_tie_gives_the_first_plan_to_the_persons_own_work_not_research():
+    assert pt.main_practice(pt.suggest({"build_software": "often", "research": "often"})).template == "builder"
+    assert pt.main_practice(pt.suggest({"data": "often"})).template == "analyst"

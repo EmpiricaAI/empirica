@@ -8,6 +8,9 @@
 # Each template's `starter` is the first plan its practice gets when onboarding ends (goal 88150eae): one goal and its
 # tasks, `{focus}` filled from the person's answers (a repo, a client, a question).
 #
+# Order matters on a tie: the person's own work (builder, writer, engagement, analyst...) comes before research, so
+# it gets the first plan.
+#
 # Read by empirica.core.practice_templates; tests pin every type, domain and skill to what exists.
 
 workloads:
@@ -45,19 +48,6 @@ templates:
       tasks:
         - "Check Empirica, Claude Code and the local server are current and running"
         - "Check backups of the practice folders"
-  research:
-    title: Research
-    for: investigates questions and keeps what it learns for your other practices to find
-    type: research
-    domain: research
-    skills: [empirica:forecast]
-    suggested_by: [research, data]
-    starter:
-      objective: "Answer a first question: {focus}"
-      tasks:
-        - "Write the question and what would count as an answer"
-        - "Gather and log findings, with what is still unknown"
-        - "Summarise what was learned and what to look at next"
   builder:
     title: Builder
     for: builds and maintains one codebase or product; one practice per codebase
@@ -133,6 +123,20 @@ templates:
         - "Describe the data and what question it could answer"
         - "Form two hypotheses and test them, with how sure you are"
         - "Report what was found and what to look at next"
+
+  research:
+    title: Research
+    for: investigates questions and keeps what it learns for your other practices to find
+    type: research
+    domain: research
+    skills: [empirica:forecast]
+    suggested_by: [research, data]
+    starter:
+      objective: "Answer a first question: {focus}"
+      tasks:
+        - "Write the question and what would count as an answer"
+        - "Gather and log findings, with what is still unknown"
+        - "Summarise what was learned and what to look at next"
 
 presets:
   solo-builder:

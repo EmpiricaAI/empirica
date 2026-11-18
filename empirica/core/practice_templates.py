@@ -42,21 +42,29 @@ class Candidate:
 def suggest(workloads: dict[str, str]) -> list[Candidate]:
     """Candidate practices from workload answers ``{work kind: how often}`` (often / sometimes / rarely), most confident
     first. A work kind done often grounds its template strongly; sometimes, moderately; rarely, not enough to propose it
-    (it is parked by the interview). Support is proposed for everyone, and a coordinator once there are two or more other
-    practices to coordinate."""
+    (it is parked by the interview). Support is proposed for everyone, and a coordinator once two or more confirmed
+    practices, grounded in two or more different answers, need coordinating. Ties keep the catalog's order, which lists
+    the person's own work before research. An unknown work kind or frequency raises ValueError rather than being read as
+    'rarely'."""
     weight = {"often": 0.85, "sometimes": 0.6, "rarely": 0.3}
     labels = catalog().get("workloads") or {}
+    unknown = sorted(k for k in workloads if k not in labels)
+    if unknown:
+        raise ValueError(f"unknown work kind {', '.join(unknown)}; known: {', '.join(labels)}")
+    bad = sorted(f"{k}={v}" for k, v in workloads.items() if v not in weight)
+    if bad:
+        raise ValueError(f"unknown frequency {', '.join(bad)}; use one of {', '.join(weight)}")
     found: dict[str, Candidate] = {}
     for name, spec in templates().items():
         for kind in spec.get("suggested_by") or []:
             if kind in workloads:
-                confidence = weight.get(workloads[kind], 0.3)
+                confidence = weight[workloads[kind]]
                 reason = f"you said {labels.get(kind, kind).lower()}: {workloads[kind]}"
                 if name not in found or confidence > found[name].confidence:
                     found[name] = Candidate(name, confidence, reason)
-    others = [c for c in found.values() if c.confidence >= 0.6]
-    if len(others) >= 2:
-        found["coordinator"] = Candidate("coordinator", 0.7, f"{len(others)} practices to coordinate")
+    confirmed = [c for c in found.values() if route(c) == "confirm"]
+    if len(confirmed) >= 2 and len({c.reason for c in confirmed}) >= 2:
+        found["coordinator"] = Candidate("coordinator", 0.7, f"{len(confirmed)} practices to coordinate")
     found["support"] = Candidate("support", 0.8, "every setup needs its machine and tools looked after")
     return sorted(found.values(), key=lambda c: -c.confidence)
 

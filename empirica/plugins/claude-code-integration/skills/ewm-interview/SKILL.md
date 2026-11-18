@@ -53,7 +53,9 @@ Draft the practices as **predictions**, the way `/forecast` drafts directions, f
 
 - each work kind suggests its templates (`suggested_by`); **often** grounds a practice strongly (0.85), **sometimes**
   moderately (0.6), **rarely** not enough (0.3);
-- **support** is proposed for everyone; a **coordinator** once there are two or more other practices;
+- **support** is proposed for everyone; a **coordinator** once two or more practices from different answers are
+  confirmed (check again after the 'ask' questions: two yeses there can bring it in);
+- an unknown work kind or frequency is an error, not a 'rarely': use the catalog's keys and often / sometimes / rarely;
 - every candidate carries its **reason**: the answer it rests on ("you said research and synthesis: often").
 
 Route each candidate (`route()`), and spend questions only where they change the setup:
