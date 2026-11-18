@@ -286,3 +286,15 @@ def test_a_cortex_sync_that_did_not_happen_becomes_a_postflight_warning(monkeypa
     warnings: list = []
     _soft_run("cortex_sync", warnings, wp._run_postflight_cortex_sync, "S", "r", None)
     assert [w.get("stage") for w in warnings] == ["cortex_sync"]
+
+
+def test_postflight_readers_see_the_summarys_score_and_the_feedback_stays_off(monkeypatch):
+    """#4/#21: readers asked for calibration_score, which the summary keeps as _internal_calibration_score."""
+    from empirica.cli.command_handlers import _workflow_postflight as wp
+
+    summary = {"_internal_calibration_score": 0.12, "gaps": {}, "grounded_coverage": 0.5}
+    assert wp._summary_score(summary) == 0.12
+    calls: list = []
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: calls.append(a))
+    wp._pipeline_cortex_cache_feedback("S", {}, summary)  # a low score, but the opt-in feedback stays off
+    assert calls == []

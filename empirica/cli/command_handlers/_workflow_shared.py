@@ -1266,6 +1266,7 @@ def _maybe_add_deferred_proposals_note(cursor, session_id: str, retro: dict) -> 
     — it is a prompt, not an accusation.
     """
     try:
+        # Both namings match: the legacy 'Process proposal prop_...' and the prompt's 'Process inbox/<status>: <id>' (0f68032f #13).
         # open-goal-ok: an abandoned proposal goal still owes the peer a reply (wont_fix), so this reader keeps it
         cursor.execute(
             """
@@ -1274,7 +1275,6 @@ def _maybe_add_deferred_proposals_note(cursor, session_id: str, retro: dict) -> 
             WHERE s.project_id = (
                 SELECT project_id FROM sessions WHERE session_id = ?
               )
-              -- both namings: the legacy one, and the prompt's 'Process inbox/<status>: <id>' (0f68032f #13)
               AND (g.objective LIKE 'Process proposal prop_%' OR g.objective LIKE 'Process inbox/%')
               AND (
                 g.is_completed = 0

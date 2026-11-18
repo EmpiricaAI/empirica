@@ -85,7 +85,7 @@ def _pipeline_embed_grounded_calibration(
             grounded_vectors=grounded_vectors,
             calibration_gaps=grounded_verification.get("gaps", {}),
             grounded_coverage=grounded_verification.get("grounded_coverage", 0),
-            calibration_score=grounded_verification.get("calibration_score", 0),
+            calibration_score=_summary_score(grounded_verification),
             evidence_count=grounded_verification.get("evidence_count", 0),
             sources=grounded_verification.get("sources", []),
             goal_id=goal_id,
@@ -104,6 +104,14 @@ def _pipeline_embed_grounded_calibration(
         logger.debug(f"Embedded grounded calibration for {session_id[:8]}")
     except Exception as e:
         logger.debug(f"Grounded calibration embedding skipped: {e}")
+
+
+def _summary_score(grounded_verification: dict | None) -> float:
+    """The calibration score a grounded-verification summary carries. The summary keeps it as _internal_calibration_score
+    and has no top-level calibration_score, so these readers always read 0 (0f68032f #4/#21). Deliberately not added to the
+    summary: _pipeline_cortex_cache_feedback gates its HTTP call on that key, and it stays off until a consumer exists."""
+    gv = grounded_verification or {}
+    return float(gv.get("calibration_score", gv.get("_internal_calibration_score", 0)) or 0)
 
 
 def _pipeline_cortex_cache_feedback(session_id, vectors, grounded_verification):
@@ -163,7 +171,7 @@ def _build_episodic_narrative(reasoning, deltas, grounded_verification):
     if not grounded_verification or grounded_verification.get("evidence_count", 0) <= 0:
         return narrative
 
-    cal_score = grounded_verification.get("calibration_score", 0)
+    cal_score = _summary_score(grounded_verification)
     coverage = grounded_verification.get("grounded_coverage", 0)
     gaps = grounded_verification.get("gaps", {})
     sig = {v: g for v, g in gaps.items() if abs(g) > 0.15}
@@ -721,6 +729,7 @@ def _run_grounded_verification(
             per_vector_weights=tier2_weights,
             transaction_id=transaction_id,
             edited_files=edited_files,
+            project_path=project_path,  # the breadcrumbs export writes this project's file, not cwd's (0f68032f #23)
         )
 
         if result:
@@ -2095,7 +2104,7 @@ def _postflight_format_human_output(
         if deltas:
             print(f"   Learning deltas: {len(deltas)} vectors changed")
         if grounded_verification:
-            cal_score = grounded_verification.get("calibration_score", 0)
+            cal_score = _summary_score(grounded_verification)
             print(f"   Grounded calibration: {cal_score:.2f}")
             # Display evidence summary signals if available
             evidence_summary = grounded_verification.get("evidence_summary", {})

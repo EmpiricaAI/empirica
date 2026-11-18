@@ -253,13 +253,20 @@ def compute_brier_decomposition(
 _TX_KEY = "COALESCE(transaction_id, CAST(timestamp AS TEXT))"
 
 
+#: Rows one transaction writes per phase: one per vector (13), with headroom. The fetch below reads this many per wanted
+#: transaction in timestamp order, the index path the row-count version used.
+_ROWS_PER_TRANSACTION = 16
+
+
 def _recent_transaction_points(
     cursor, ai_id: str, phase: str, lookback: int, practitioner_model: str | None = None
 ) -> tuple[list[tuple], int]:
     """(self_assessed, grounded) rows of the last `lookback` TRANSACTIONS, and how many transactions that is.
 
-    Counting rows measured vectors: two transactions of 12 vectors read as 24 and
-    cleared a minimum of 5. One statement on idx_calibration_trajectory_phase.
+    Counting rows measured vectors: two transactions of 12 vectors read as 24 and cleared a minimum of 5. A GROUP BY over
+    every transaction found the right rows but cost ~20 ms more per CHECK on core's 11k-row trajectory (32 ms against 13,
+    measured 2026-11-18), so this reads the newest rows in timestamp order, as before, with room for `lookback`
+    transactions, and keeps the first `lookback` distinct ones.
     """
     model_sql = " AND practitioner_model = ?" if practitioner_model else ""
     params: tuple = (ai_id, phase, practitioner_model) if practitioner_model else (ai_id, phase)
@@ -268,19 +275,20 @@ def _recent_transaction_points(
         SELECT self_assessed, grounded, {_TX_KEY}
         FROM calibration_trajectory
         WHERE ai_id = ? AND phase = ? AND grounded IS NOT NULL{model_sql}
-          AND {_TX_KEY} IN (
-            SELECT {_TX_KEY}
-            FROM calibration_trajectory
-            WHERE ai_id = ? AND phase = ? AND grounded IS NOT NULL{model_sql}
-            GROUP BY {_TX_KEY}
-            ORDER BY MAX(timestamp) DESC
-            LIMIT ?
-          )
+        ORDER BY timestamp DESC
+        LIMIT ?
         """,
-        (*params, *params, lookback),
+        (*params, max(lookback, 0) * _ROWS_PER_TRANSACTION),
     )
-    fetched = cursor.fetchall()
-    return [(r[0], r[1]) for r in fetched], len({r[2] for r in fetched})
+    kept: list[tuple] = []
+    seen: list = []
+    for self_assessed, grounded, key in cursor.fetchall():
+        if key not in seen:
+            if len(seen) >= lookback:
+                break
+            seen.append(key)
+        kept.append((self_assessed, grounded))
+    return kept, len(seen)
 
 
 def compute_dynamic_thresholds(
