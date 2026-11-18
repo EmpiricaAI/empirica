@@ -149,7 +149,9 @@ class ChatApp(App):
         # Establish the chat session — replay if requested, else resume,
         # else create new.
         if self.replay_session_id:
-            self._session = ChatSession.load(self.replay_session_id)
+            # read_only: the replayed file is never written, not even by
+            # the notices below.
+            self._session = ChatSession.load(self.replay_session_id, read_only=True)
             self._convo().render_existing(self._session.turns)
             self._emit_system(
                 f"replay mode — read-only view of session "
@@ -186,10 +188,15 @@ class ChatApp(App):
         # Compose the system prompt and append it as turn 0 so the user
         # can see what the AI was told. The full text is what gets sent
         # as LLM instructions; the rendered turn shows a short preview.
-        # Resumed sessions skip this — the original turn 0 is already in
-        # the session's turn list and instructions persist from prior run.
-        if self.enable_system_prompt and self.session_id_to_resume is None:
+        # Replay installs nothing (read-only, nothing dispatches). Resume
+        # re-renders the instructions without a new turn: the original turn 0
+        # is in the file, but the instructions themselves lived in memory only.
+        if self.replay_mode:
+            pass
+        elif self.enable_system_prompt and self.session_id_to_resume is None:
             self._install_system_prompt()
+        elif self.enable_system_prompt:
+            self.instructions = self._render_instructions()
         elif self.user_instructions:
             # System prompt disabled but user supplied --system: pass
             # their text straight through as instructions.
@@ -277,11 +284,15 @@ class ChatApp(App):
         assert provider is not None and model is not None  # noqa: S101 — gated
 
         # Build request from prior history (exclude the just-appended user turn).
-        history = [
-            {"role": _to_translator_role(t.kind), "text": t.text}
-            for t in self._session.turns[:-1]
-            if t.kind in (TurnKind.USER, TurnKind.AGENT_TEXT)
-        ]
+        # SYSTEM turns stay UI-only unless they are model context (a card's
+        # 'discuss', the compact-recovery note); those go as a user-role
+        # context line, the one role both clients accept mid-history.
+        history: list[dict[str, Any]] = []
+        for t in self._session.turns[:-1]:
+            if t.kind in (TurnKind.USER, TurnKind.AGENT_TEXT):
+                history.append({"role": _to_translator_role(t.kind), "text": t.text})
+            elif t.kind == TurnKind.SYSTEM and _is_model_context(t):
+                history.append({"role": "user", "text": f"[empirica chat context] {t.text}"})
 
         # Allocate a single AgentTurn we mutate as deltas arrive.
         # Phase 14: default source='intuition'; Phase 2b will flip to
@@ -294,6 +305,8 @@ class ChatApp(App):
         self.call_from_thread(self._convo().append_turn, agent_turn)
 
         accumulated: list[str] = []
+        error: str | None = None
+        finished = False
         try:
             event_stream = self._dispatch(provider, model, user_text, history)
             for ev in event_stream:
@@ -308,16 +321,36 @@ class ChatApp(App):
                             "".join(accumulated),
                         )
                 elif etype == "completed":
-                    agent_turn.text = "".join(accumulated)
-                    self._session.append(agent_turn)
+                    finished = True
+                    agent_turn.text = "".join(accumulated) or (ev.get("text") or "")
+                    if agent_turn.text:
+                        self._session.append(agent_turn)
+                    else:
+                        self._append_system_from_thread(f"{provider.name} returned an empty reply")
+                    break
+                elif etype == "error":
+                    error = f"{provider.name} error: {ev.get('message') or 'stream failed'}"
+                    break
         except (TranslatorError, ProviderError) as e:
-            err = Turn.new(TurnKind.SYSTEM, f"{provider.name} error: {e}")
-            self._session.append(err)
-            self.call_from_thread(self._convo().append_turn, err)
+            error = f"{provider.name} error: {e}"
         except Exception as e:
-            err = Turn.new(TurnKind.SYSTEM, f"agent stream error: {type(e).__name__}: {e}")
-            self._session.append(err)
-            self.call_from_thread(self._convo().append_turn, err)
+            error = f"agent stream error: {type(e).__name__}: {e}"
+        if not finished and error is None:
+            error = f"{provider.name} error: stream ended before the reply completed"
+        if error is not None:
+            # Keep what arrived, marked incomplete, then say why it stopped.
+            if accumulated:
+                agent_turn.text = "".join(accumulated)
+                agent_turn.metadata["incomplete"] = True
+                self._session.append(agent_turn)
+            self._append_system_from_thread(error)
+
+    def _append_system_from_thread(self, text: str) -> None:
+        """Worker thread: persist a SystemTurn and render it on the main thread."""
+        assert self._session is not None  # noqa: S101 — type narrowing
+        turn = Turn.new(TurnKind.SYSTEM, text)
+        self._session.append(turn)
+        self.call_from_thread(self._convo().append_turn, turn)
 
     def _dispatch(
         self,
@@ -350,6 +383,10 @@ class ChatApp(App):
                             if c.get("type") in ("output_text", "text"):
                                 text += c.get("text", "")
                     yield {"type": "completed", "text": text}
+                    return
+                elif t in ("response.failed", "response.incomplete", "error"):
+                    yield {"type": "error", "message": _responses_error_message(ev)}
+                    return
             return
 
         # Default: direct chat-completions path (Ollama, llama.cpp, vLLM, …)
@@ -399,6 +436,9 @@ class ChatApp(App):
                 self._emit_system(f"/{cmd}: handler missing — internal error, please report")
             else:
                 self._emit_system(f"unknown slash command: /{cmd} — try /help")
+            return
+        if self.replay_mode and cmd in REPLAY_REFUSED_COMMANDS:
+            self._emit_system(f"/{cmd}: replay mode is read-only — start a new session to change artifacts")
             return
         handler(self, rest)
 
@@ -453,7 +493,8 @@ class ChatApp(App):
         self._emit_system(
             f"/compact: breadcrumb saved → {path.name} "
             f"({len(recent)} recent turns captured). "
-            f"On next session resume, you'll get a recovery system message."
+            f"The conversation is not trimmed; resuming this session with "
+            f"--session-id gives the model a recovery note."
         )
 
     def _slash_autonomy(self, rest: str) -> None:
@@ -730,10 +771,10 @@ class ChatApp(App):
         self._session.append(turn)
         self.call_from_thread(self._convo().append_turn, turn)
 
-    def _emit_system(self, text: str) -> None:
+    def _emit_system(self, text: str, metadata: dict[str, Any] | None = None) -> None:
         """Append a SystemTurn from any thread (uses call_from_thread if needed)."""
         assert self._session is not None  # noqa: S101 — type narrowing
-        turn = Turn.new(TurnKind.SYSTEM, text)
+        turn = Turn.new(TurnKind.SYSTEM, text, metadata=metadata)
         self._session.append(turn)
         # If we're already on the main thread, append directly; otherwise
         # call_from_thread. Textual's threading model makes both safe enough.
@@ -750,18 +791,22 @@ class ChatApp(App):
         except Exception:  # noqa: S110 — best-effort subtitle refresh (pre-mount or test context)
             pass
 
-    def _install_system_prompt(self) -> None:
-        """Render system prompt → set self.instructions → append turn 0."""
-        assert self._session is not None  # noqa: S101 — type narrowing
+    def _render_instructions(self) -> str:
+        """Render the empirica system prompt for the active provider/model/mode."""
         provider = self.registry.active()
         provider_name = provider.name if provider else "(none)"
         model = self.registry.active_model or "(none)"
-        prompt = render_system_prompt(
+        return render_system_prompt(
             provider=provider_name,
             model=model,
             autonomy_mode=self.autonomy_mode,
             user_instructions=self.user_instructions,
         )
+
+    def _install_system_prompt(self) -> None:
+        """Render system prompt → set self.instructions → append turn 0."""
+        assert self._session is not None  # noqa: S101 — type narrowing
+        prompt = self._render_instructions()
         self.instructions = prompt
         # Visual turn 0 — short preview, full prompt available via /help debug
         # (Phase 16). Stored as SYSTEM so the LLM history filter naturally
@@ -822,13 +867,20 @@ class ChatApp(App):
         atype = event.artifact_type
         artifact_id = event.artifact_id
 
+        if self.replay_mode:
+            self._emit_system(f"{action}: replay mode is read-only — card actions are disabled")
+            return
         if action == "pin":
             self._pin_artifact(atype, artifact_id, event.turn_id)
             return
         if action == "discuss":
+            assert self._session is not None  # noqa: S101 — type narrowing
+            card_text = next((t.text for t in self._session.turns if t.turn_id == event.turn_id), "")
+            body = f": {card_text}" if card_text else ""
             self._emit_system(
-                f"discussion context attached: {atype} {(artifact_id or 'unknown')[:8]} — "
-                f"the next agent turn will see this as system context"
+                f"discussion context attached: {atype} {(artifact_id or 'unknown')[:8]}{body} — "
+                f"the next agent turn will see this as context",
+                metadata={"discuss_context": True, "artifact_type": atype, "artifact_id": artifact_id},
             )
             return
         if atype == "unknown" and action == "resolve":
@@ -951,6 +1003,33 @@ ChatApp.SLASH_HANDLERS = {
     "resolve-batch": ChatApp._slash_resolve_batch,
     "delete-batch": ChatApp._slash_delete_batch,
 }
+
+
+# Slash commands that write (artifacts, or the breadcrumb a resume reads);
+# replay refuses them so a read-only view stays read-only.
+REPLAY_REFUSED_COMMANDS = frozenset(
+    {"finding", "decision", "unknown", "batch", "resolve-batch", "delete-batch", "compact"}
+)
+
+
+def _is_model_context(turn: Turn) -> bool:
+    """A SYSTEM turn meant for the model, not just the screen."""
+    meta = turn.metadata or {}
+    return bool(meta.get("compact_recovery") or meta.get("discuss_context"))
+
+
+def _responses_error_message(ev: dict[str, Any]) -> str:
+    """Pull a readable reason out of a Responses failed/incomplete/error event."""
+    if ev.get("type") == "error":
+        return str(ev.get("message") or ev.get("code") or "error event")
+    response = ev.get("response") or {}
+    err = response.get("error") or {}
+    if isinstance(err, dict) and err.get("message"):
+        return str(err["message"])
+    details = response.get("incomplete_details") or {}
+    if isinstance(details, dict) and details.get("reason"):
+        return f"response incomplete: {details['reason']}"
+    return str(ev.get("type"))
 
 
 def _to_translator_role(kind: TurnKind) -> str:

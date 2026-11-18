@@ -158,6 +158,8 @@ class StatuslineSummary:
     open_goals: int | None
     artifact_count: int | None  # alias for open_goals; kept for backwards compat
     raw: dict[str, Any] | None
+    open_unknowns: int | None = None
+    goal_linked_unknowns: int | None = None
 
 
 def calculate_confidence(vectors: dict[str, Any]) -> float:
@@ -263,6 +265,7 @@ def _live_statusline_from_db(
             pass
 
         open_goals = _count_open_goals(cur, project_id)
+        open_unknowns, goal_linked_unknowns = _count_open_unknowns(cur, project_id)
 
         conn.close()
     except sqlite3.Error:
@@ -288,6 +291,8 @@ def _live_statusline_from_db(
         open_goals=open_goals,
         artifact_count=open_goals,
         raw={"vectors": vectors, "source": "epistemic_snapshots"},
+        open_unknowns=open_unknowns,
+        goal_linked_unknowns=goal_linked_unknowns,
     )
 
 
@@ -333,7 +338,16 @@ def _statusline_from_cache(
         open_goals=int(open_goals) if open_goals is not None else None,
         artifact_count=int(open_goals) if open_goals is not None else None,
         raw={**data, "source": "statusline_cache"},
+        open_unknowns=_safe_int(data.get("open_unknowns")),
+        goal_linked_unknowns=_safe_int(data.get("goal_linked_unknowns")),
     )
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _safe_float(value: Any) -> float | None:
@@ -451,6 +465,28 @@ def _count_open_goals(cur: sqlite3.Cursor, project_id: str | None) -> int | None
     except sqlite3.Error:
         pass
     return None
+
+
+def _count_open_unknowns(cur: sqlite3.Cursor, project_id: str | None) -> tuple[int | None, int | None]:
+    """Count unresolved unknowns and the goal-linked ones among them (blockers).
+
+    Mirrors statusline_empirica.get_open_counts: project_unknowns with
+    is_resolved = 0, project-scoped when project_id is available.
+    Returns (None, None) when the table is absent.
+    """
+    try:
+        if project_id:
+            cur.execute(
+                "SELECT COUNT(*), COUNT(goal_id) FROM project_unknowns WHERE is_resolved = 0 AND project_id = ?",
+                (project_id,),
+            )
+        else:
+            cur.execute("SELECT COUNT(*), COUNT(goal_id) FROM project_unknowns WHERE is_resolved = 0")
+        row = cur.fetchone()
+        total, linked = int(row[0] or 0), int(row[1] or 0)
+    except sqlite3.Error:
+        return None, None
+    return total, linked
 
 
 # ─── notifications list (placeholder companion to notification_summary) ────

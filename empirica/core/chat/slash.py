@@ -40,7 +40,11 @@ SLASH_TABLE: tuple[SlashCmd, ...] = (
         takes_arg=True,
         arg_label="MODE",
     ),
-    SlashCmd("compact", "save a chat breadcrumb (pre-compact lifecycle hook)", user_facing=True),
+    SlashCmd(
+        "compact",
+        "save a breadcrumb the next --session-id resume shows the model (does not trim the conversation)",
+        user_facing=True,
+    ),
     # ─── Dev/QA (only via /help debug) ──────────────────────────────
     SlashCmd("providers", "list configured providers", user_facing=False),
     SlashCmd("provider", "switch active provider", user_facing=False, takes_arg=True, arg_label="NAME"),

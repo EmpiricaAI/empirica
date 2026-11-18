@@ -11,6 +11,7 @@ Both clients return the SAME event-dict shapes so chat dispatch logic
 stays uniform:
   {"type": "text_delta", "delta": "..."}
   {"type": "completed", "text": "...", "finish_reason": "..."}
+  {"type": "error", "message": "...", "text": "<partial>"}   (terminal, failed)
 
 Used when Provider.wire == "chat_completions". When Provider.wire ==
 "responses", chat falls back to translator_client (codex-server-style
@@ -80,6 +81,8 @@ def stream_chat_completions(
       {"type": "completed", "text": "...",
        "finish_reason": "stop|length|tool_calls",
        "response_id": "..."}                        (terminal)
+      {"type": "error", "message": "...",
+       "text": "<partial>"}                         (terminal, on an error chunk)
 
     Raises ProviderError on non-2xx.
     """
@@ -101,9 +104,7 @@ def stream_chat_completions(
             if raw is None:
                 continue
             line = raw.strip()
-            if not line:
-                continue
-            if not line.startswith("data:"):
+            if not line.startswith("data:"):  # also skips blank keep-alive lines
                 continue
             data = line[len("data:") :].strip()
             if not data:
@@ -120,6 +121,13 @@ def stream_chat_completions(
                 chunk = json.loads(data)
             except json.JSONDecodeError:
                 continue
+
+            # An error body arrives as a chunk without choices. It ends the
+            # reply: report it, never a (possibly empty) completed.
+            message = _chunk_error(chunk)
+            if message is not None:
+                yield {"type": "error", "message": message, "text": "".join(accumulated)}
+                return
 
             if response_id is None:
                 rid = chunk.get("id")
@@ -143,6 +151,15 @@ def stream_chat_completions(
         "finish_reason": finish_reason,
         "response_id": response_id,
     }
+
+
+def _chunk_error(chunk: Any) -> str | None:
+    """The message of an `{"error": ...}` chunk, or None for a normal chunk."""
+    err = chunk.get("error") if isinstance(chunk, dict) else None
+    if not err:
+        return None
+    message = err.get("message") if isinstance(err, dict) else None
+    return str(message or err)
 
 
 def resolve_api_key(api_key_env: str | None) -> str | None:

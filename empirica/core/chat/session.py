@@ -83,6 +83,8 @@ class ChatSession:
     session_id: str
     jsonl_path: Path
     turns: list[Turn] = field(default_factory=list)
+    # Replay mode: turns are kept in memory only, the jsonl is never written.
+    read_only: bool = False
 
     @classmethod
     def create(cls, root: Path | None = None) -> ChatSession:
@@ -95,17 +97,19 @@ class ChatSession:
         return cls(session_id=session_id, jsonl_path=jsonl_path, turns=[])
 
     @classmethod
-    def load(cls, session_id: str, root: Path | None = None) -> ChatSession:
+    def load(cls, session_id: str, root: Path | None = None, read_only: bool = False) -> ChatSession:
         root = root or _default_chat_root()
         jsonl_path = root / f"{session_id}.jsonl"
         if not jsonl_path.exists():
             raise FileNotFoundError(f"chat session {session_id} not found at {jsonl_path}")
         turns = list(load_turns(jsonl_path))
-        return cls(session_id=session_id, jsonl_path=jsonl_path, turns=turns)
+        return cls(session_id=session_id, jsonl_path=jsonl_path, turns=turns, read_only=read_only)
 
     def append(self, turn: Turn) -> None:
-        """Append a turn to memory + flush to jsonl."""
+        """Append a turn to memory + flush to jsonl (memory only when read_only)."""
         self.turns.append(turn)
+        if self.read_only:
+            return
         with self.jsonl_path.open("a", encoding="utf-8") as f:
             f.write(turn.to_jsonl() + "\n")
             f.flush()

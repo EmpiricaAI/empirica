@@ -78,6 +78,38 @@ _FULL_LABELS: tuple[tuple[str, str], ...] = (
 )
 
 
+_VECTOR_KEYS: tuple[str, ...] = (
+    "know",
+    "uncertainty",
+    "context",
+    "clarity",
+    "coherence",
+    "signal",
+    "density",
+    "state",
+    "change",
+    "completion",
+    "impact",
+)
+
+
+def _summary_vectors(summary) -> dict[str, float]:
+    """The summary's vectors. The full set lives in summary.raw["vectors"];
+    the dataclass only promotes know/uncertainty/context/completion to attributes."""
+    raw = getattr(summary, "raw", None)
+    raw_vectors = raw.get("vectors") if isinstance(raw, dict) else None
+    if not isinstance(raw_vectors, dict):
+        raw_vectors = {}
+    vectors: dict[str, float] = {}
+    for k in _VECTOR_KEYS:
+        v = raw_vectors.get(k)
+        if v is None:
+            v = getattr(summary, k, None)
+        if isinstance(v, (int, float)):
+            vectors[k] = float(v)
+    return vectors
+
+
 class StatuslinePanel(Static):
     """One-line statusline strip rendered just below the Header."""
 
@@ -171,23 +203,7 @@ class StatuslinePanel(Static):
 
         # Marshal summary fields into the dict shapes the shared
         # renderers expect (same shapes the CC plugin uses).
-        vectors: dict[str, float] = {}
-        for k in (
-            "know",
-            "uncertainty",
-            "context",
-            "clarity",
-            "coherence",
-            "signal",
-            "density",
-            "state",
-            "change",
-            "completion",
-            "impact",
-        ):
-            v = getattr(summary, k, None)
-            if v is not None:
-                vectors[k] = v
+        vectors = _summary_vectors(summary)
         open_counts = {
             "open_goals": getattr(summary, "open_goals", None) or 0,
             "open_unknowns": getattr(summary, "open_unknowns", None) or 0,
@@ -237,6 +253,7 @@ class StatuslinePanel(Static):
             v = vectors.get(k)
             if v is not None:
                 parts.append(format_vector_colored(lbl, v, backend=_BACKEND))
-        if getattr(summary, "artifact_count", None) is not None:
-            parts.append(f"artifacts {summary.artifact_count}")
+        # artifact_count is an alias for open_goals (enrichment.py) — say so.
+        if getattr(summary, "open_goals", None) is not None:
+            parts.append(f"goals {summary.open_goals}")
         return " │ ".join(parts)

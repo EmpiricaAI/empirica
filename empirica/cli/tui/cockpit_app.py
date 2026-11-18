@@ -876,7 +876,10 @@ class CockpitApp(App):
             return
 
         # Decide target state from current state: any-unpaused → pause all.
-        any_unpaused = any(not v.get("paused") for v in loops.values()) or any(
+        # Loops go through _loop_is_off: a systemd loop's on/off lives in
+        # systemd_active, which loop disable/enable flip; its `paused` sidecar
+        # never changes, so reading it here could never resume one.
+        any_unpaused = any(not self._loop_is_off(v) for v in loops.values()) or any(
             not v.get("paused") for v in listeners.values()
         )
         target_paused = bool(any_unpaused)
