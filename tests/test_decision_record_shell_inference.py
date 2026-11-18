@@ -265,7 +265,15 @@ def test_the_commands_inside_a_substitution_are_classified():
         ("git tag --points-at HEAD", []),
         ("git branch --sort -committerdate", []),
         ("git branch newname", ["vcs_local"]),  # near miss: a bare name still creates a branch
-        ("git branch --merged main newname", ["vcs_local"]),  # a name after the value still creates one
+        # --contains/--merged/--points-at put branch and tag in list mode: a trailing word is a pattern (git creates
+        # nothing; checked 2026-11-18). The earlier row asserting vcs_local here was wrong.
+        ("git branch --merged main newname", []),
+        ("git branch --merged main 'feature/*'", []),
+        ("git tag --contains HEAD 'v1.*'", []),
+        ("git branch --contains=HEAD newname", []),
+        ("git branch newname --merged main", []),
+        ("git branch --sort -committerdate newb", ["vcs_local"]),  # near miss: --sort takes a value but creates newb
+        ("git branch --merged main -D old", ["vcs_local"]),  # a delete is a delete in any mode
         ("git tag v9", ["vcs_local"]),
     ],
 )

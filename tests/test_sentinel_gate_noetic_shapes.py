@@ -347,3 +347,17 @@ def test_file_compiling_a_magic_file_is_praxic_and_reading_one_is_not(gate):
 )
 def test_git_ls_remote_is_a_read(gate, command, noetic):
     assert gate._classify_tool_phase("Bash", {"command": command}) is noetic
+
+
+@pytest.mark.parametrize(
+    ("command", "noetic"),
+    [
+        ("git branch --merged main 'feature/*'", True),  # list mode: the word is a pattern
+        ("git tag --contains HEAD 'v1.*'", True),
+        ("git branch newname --merged main", True),  # git applies the flag wherever it stands
+        ("git branch --sort refname newb", False),  # near miss: --sort takes a value but still creates newb
+        ("git branch --merged main -D old", False),
+    ],
+)
+def test_ref_listings_in_list_mode_are_reads(gate, command, noetic):
+    assert gate._classify_tool_phase("Bash", {"command": command}) is noetic

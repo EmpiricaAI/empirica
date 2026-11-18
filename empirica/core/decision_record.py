@@ -608,6 +608,9 @@ _GIT_LISTING_FLAGS = {
 #: Listing flags of branch and tag that take a value: the value names a commit, a pattern or a format, not a new ref. Mirrors
 #: the hook's _GIT_REF_VALUE_FLAGS; ``git branch --merged main`` was read as creating a branch named "main" (2026-11-18).
 _GIT_REF_VALUE_FLAGS = {"--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--sort", "--format"}
+#: Of those, the ones that put branch and tag into list mode, wherever they stand: a remaining word is a pattern, not a
+#: new ref (git creates nothing for `git branch --merged main newname`; checked 2026-11-18). --sort and --format do not.
+_GIT_LIST_MODE_FLAGS = {"--contains", "--no-contains", "--merged", "--no-merged", "--points-at"}
 _GIT_BRANCH_WRITE_FLAGS = {
     "-d",
     "-D",
@@ -668,7 +671,8 @@ def _git(args: list[str]) -> set[str]:
         names = [
             a for i, a in enumerate(tail) if not a.startswith("-") and not (i and tail[i - 1] in _GIT_REF_VALUE_FLAGS)
         ]
-        if not writes and (not names or any(a in _GIT_LISTING_FLAGS[verb] for a in tail)):
+        list_mode = any(a in _GIT_LISTING_FLAGS[verb] or a.split("=", 1)[0] in _GIT_LIST_MODE_FLAGS for a in tail)
+        if not writes and (not names or list_mode):
             return set()
         return {"vcs_local"}
     worktree = {"project_write"} if _rewrites_worktree(verb, tail) else set()

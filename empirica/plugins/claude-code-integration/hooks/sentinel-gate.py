@@ -2539,6 +2539,9 @@ _GIT_TAG_READ_FLAGS = frozenset(
 _GIT_REF_VALUE_FLAGS = frozenset(
     {"--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--sort", "--format"}
 )
+#: The value flags that put branch and tag into list mode wherever they stand, so a remaining word is a pattern (git creates
+#: nothing for `git branch --merged main newname`; checked 2026-11-18). --sort and --format do not.
+_GIT_LIST_MODE_FLAGS = frozenset({"--contains", "--no-contains", "--merged", "--no-merged", "--points-at"})
 
 
 def _git_ref_command_mutates(cmd: str) -> bool:
@@ -2552,14 +2555,13 @@ def _git_ref_command_mutates(cmd: str) -> bool:
             rest = rest[1:]
         return bool(rest) and rest[0] not in ("show", "get-url")
     read_flags = _GIT_BRANCH_READ_FLAGS if sub == "branch" else _GIT_TAG_READ_FLAGS
-    listing = False
+    # list mode is decided by the whole command, not left to right: git applies the flag wherever it stands
+    listing = any(t in ("--list", "-l") or t.split("=", 1)[0] in _GIT_LIST_MODE_FLAGS for t in rest)
     expect_value = False
     for tok in rest:
         if expect_value:
             expect_value = False
             continue
-        if tok in ("--list", "-l"):
-            listing = True
         if tok in _GIT_REF_VALUE_FLAGS:
             expect_value = True
         elif (

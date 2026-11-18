@@ -112,7 +112,7 @@ These are distinct from `empirica sentinel pause|resume|status`, which control t
 - **`NoeticFilter` / `AxiologicGate`**: pattern-based filters for investigation paths and for actions with required vectors. They are defined in `orchestrator.py`; no code outside it references them, so neither the hook nor any CLI verb applies them.
 - **`EpistemicLoopTracker` / `LoopRecord`**: records PREFLIGHT-to-POSTFLIGHT vector deltas and decides whether another loop is warranted: it stops at `max_loops` (derived from scope breadth and duration when unset), when `know` and `uncertainty` deltas stay under `convergence_threshold` for `convergence_window` loops, or when the last uncertainty is under 0.25. `LoopMode` is `USER`, `AI` or `SENTINEL`.
 - **`DecisionLogic` / `PersonaMatch`**: persona selection by semantic match, using Qdrant at the host and port given to `Sentinel`.
-- **`Sentinel`**: ties these together. `check_compliance()`, `orchestrate()`, `auto_orchestrate()` (loop tracking plus agent wiring plus orchestrate), `from_goal()` (scope vectors read from a goal), `load_domain_profile()`, `init_loop_tracking()`.
+- **`Sentinel`**: ties these together. `check_compliance()`, `orchestrate()`, `auto_orchestrate()` (loop tracking plus orchestrate; core has no agent executor, so a run that asks for agents fails with "no agent ran" unless spawn and aggregate functions are registered), `from_goal()` (scope vectors read from a goal), `load_domain_profile()`, `init_loop_tracking()`.
 - **`MergeStrategy`**: `CONSENSUS`, `BEST_SCORE`, `WEIGHTED`, `UNION`, `INTERSECTION`. The CLI offers the first four plus `union`; `INTERSECTION` is reachable only from Python.
 
 ### Compliance decision

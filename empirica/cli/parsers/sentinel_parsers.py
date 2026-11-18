@@ -26,7 +26,7 @@ def add_sentinel_parsers(subparsers):
         "--max-agents", type=int, default=3, help="Maximum parallel agents to spawn (optional, default: 3)"
     )
     orchestrate_parser.add_argument(
-        "--profile", help="Domain profile name: general, healthcare, finance, or custom (optional)"
+        "--profile", help="Domain profile name: general, healthcare or finance (optional; another name is refused)"
     )
     orchestrate_parser.add_argument(
         "--scope-breadth",
