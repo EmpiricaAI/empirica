@@ -3,6 +3,7 @@
 import argparse
 
 from empirica.core.project_types import accepted_types, type_list_text, validate_input
+from empirica.data.epistemic_source import EPISTEMIC_SOURCES
 from empirica.data.id_guard import is_blank_id
 from empirica.data.resolution_kind import RESOLUTION_KIND_HELP, RESOLUTION_KINDS
 
@@ -306,8 +307,8 @@ def add_checkpoint_parsers(subparsers):
     )
     mistake_log_parser.add_argument(
         "--epistemic-source",
-        choices=["intuition", "search", "mixed"],
-        help="How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.",
+        choices=list(EPISTEMIC_SOURCES),
+        help="How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).",
     )
     mistake_log_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     mistake_log_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
@@ -1071,8 +1072,8 @@ def add_checkpoint_parsers(subparsers):
     )
     finding_log_parser.add_argument(
         "--epistemic-source",
-        choices=["intuition", "search", "mixed"],
-        help="How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.",
+        choices=list(EPISTEMIC_SOURCES),
+        help="How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).",
     )
     finding_log_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     finding_log_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
@@ -1162,8 +1163,8 @@ def add_checkpoint_parsers(subparsers):
     )
     unknown_log_parser.add_argument(
         "--epistemic-source",
-        choices=["intuition", "search", "mixed"],
-        help="How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.",
+        choices=list(EPISTEMIC_SOURCES),
+        help="How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).",
     )
     unknown_log_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     unknown_log_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
@@ -1341,8 +1342,8 @@ def add_checkpoint_parsers(subparsers):
     )
     deadend_log_parser.add_argument(
         "--epistemic-source",
-        choices=["intuition", "search", "mixed"],
-        help="How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.",
+        choices=list(EPISTEMIC_SOURCES),
+        help="How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).",
     )
     deadend_log_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     deadend_log_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
@@ -1397,8 +1398,8 @@ def add_checkpoint_parsers(subparsers):
     )
     assumption_log_parser.add_argument(
         "--epistemic-source",
-        choices=["intuition", "search", "mixed"],
-        help="How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.",
+        choices=list(EPISTEMIC_SOURCES),
+        help="How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).",
     )
     assumption_log_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
@@ -1469,8 +1470,8 @@ def add_checkpoint_parsers(subparsers):
     )
     decision_log_parser.add_argument(
         "--epistemic-source",
-        choices=["intuition", "search", "mixed"],
-        help="How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.",
+        choices=list(EPISTEMIC_SOURCES),
+        help="How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).",
     )
     decision_log_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 

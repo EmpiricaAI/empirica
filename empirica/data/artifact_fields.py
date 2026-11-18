@@ -243,10 +243,14 @@ def sibling_updates(artifact_type: str, updates: dict, now: float) -> dict:
     if artifact_type == "goal" and "status" in updates:
         done = updates["status"] == "completed"
         return {"is_completed": 1 if done else 0, "completed_timestamp": now if done else None}
+    moved: dict = {}
+    if updates.get("epistemic_source") == "harvested":
+        # A harvested artifact is stored outside every graded window, as the writers store it (graded_transaction).
+        moved["transaction_id"] = None
     if artifact_type == "decision" and "outcome" in updates:
         # The assessment and when it was made are one fact, as resolve-artifacts writes them.
-        return {"outcome_assessed_at": now if updates["outcome"] is not None else None}
-    return {}
+        moved["outcome_assessed_at"] = now if updates["outcome"] is not None else None
+    return moved
 
 
 def normalized_values(updates: dict) -> dict:

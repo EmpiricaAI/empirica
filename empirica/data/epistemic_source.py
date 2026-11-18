@@ -11,6 +11,9 @@ with how the AI arrived at it:
   this session (file read, grep, glob, web fetch, MCP tool call,
   project_search, etc.).
 - ``mixed``      — both intuition and search contributed.
+- ``harvested``  — back-filled by /graph-harvest from material that already existed (a document, a conversation),
+  not observed in the transaction that logged it. Stored with no transaction id, so calibration never counts it
+  (``graded_transaction``).
 - ``None``       — legacy / not yet tagged. Default for back-compat.
 
 The Sentinel uses per-goal source ratios as a calibration signal: vectors
@@ -24,9 +27,9 @@ deferred until calibration history accumulates.
 
 from typing import Literal
 
-EpistemicSource = Literal["intuition", "search", "mixed"]
+EpistemicSource = Literal["intuition", "search", "mixed", "harvested"]
 
-EPISTEMIC_SOURCES: tuple[str, ...] = ("intuition", "search", "mixed")
+EPISTEMIC_SOURCES: tuple[str, ...] = ("intuition", "search", "mixed", "harvested")
 
 
 def normalize_epistemic_source(value: str | None) -> str | None:
@@ -43,3 +46,14 @@ def normalize_epistemic_source(value: str | None) -> str | None:
     if v in EPISTEMIC_SOURCES:
         return v
     return None
+
+
+def graded_transaction(epistemic_source: str | None, transaction_id: str | None) -> str | None:
+    """The transaction an artifact is stored under: none for a harvested one.
+
+    Every artifact count calibration grades is scoped to the graded transaction or its session, and the writers take
+    the transaction from whatever one is open. A harvested artifact was not observed in that transaction, so it is
+    stored outside every graded window here, at the one place all writers share, rather than filtered out of each
+    evidence query (goal 3e9cb368).
+    """
+    return None if normalize_epistemic_source(epistemic_source) == "harvested" else transaction_id

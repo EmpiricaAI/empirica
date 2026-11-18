@@ -45,6 +45,7 @@ except ImportError:
     CANONICAL_AVAILABLE = False
 
 # Import formatters
+from .epistemic_source import graded_transaction  # noqa: E402 — after conditional canonical import
 from .formatters import generate_context_markdown  # noqa: E402 — after conditional canonical import
 
 
@@ -2726,6 +2727,7 @@ class SessionDatabase:
         description: str | None = None,
     ) -> str:
         """Log a project finding (delegates to BreadcrumbRepository)"""
+        transaction_id = graded_transaction(epistemic_source, transaction_id)
         # Auto-derive impact from latest CASCADE if not provided
         if impact is None:
             impact = self._get_latest_impact_score(session_id)
@@ -2829,6 +2831,7 @@ class SessionDatabase:
         source_ids: list[str] | None = None,
     ) -> str:
         """Log a project unknown (delegates to BreadcrumbRepository)"""
+        transaction_id = graded_transaction(epistemic_source, transaction_id)
         # Auto-derive impact from latest CASCADE if not provided
         if impact is None:
             impact = self._get_latest_impact_score(session_id)
@@ -2897,6 +2900,7 @@ class SessionDatabase:
             impact: Impact score 0.0-1.0 (importance). If None, auto-derives from latest CASCADE.
             transaction_id: Optional epistemic transaction ID.
         """
+        transaction_id = graded_transaction(epistemic_source, transaction_id)
         # Auto-derive impact from latest CASCADE if not provided
         if impact is None:
             impact = self._get_latest_impact_score(session_id)
@@ -3136,6 +3140,7 @@ class SessionDatabase:
         Returns:
             mistake_id: UUID string
         """
+        transaction_id = graded_transaction(epistemic_source, transaction_id)
         return self.breadcrumbs.log_mistake(
             session_id,
             mistake,
@@ -3184,6 +3189,7 @@ class SessionDatabase:
         source_ids: list[str] | None = None,
     ) -> str:
         """Log an unverified belief (delegates to BreadcrumbRepository)."""
+        transaction_id = graded_transaction(epistemic_source, transaction_id)
         return self.breadcrumbs.log_assumption(
             project_id,
             session_id,
@@ -3220,6 +3226,7 @@ class SessionDatabase:
         source_ids: list[str] | None = None,
     ) -> str:
         """Log a decision choice point (delegates to BreadcrumbRepository)."""
+        transaction_id = graded_transaction(epistemic_source, transaction_id)
         return self.breadcrumbs.log_decision(
             project_id,
             session_id,
