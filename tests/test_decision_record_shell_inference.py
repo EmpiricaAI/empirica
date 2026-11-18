@@ -289,3 +289,7 @@ def test_git_ref_listings_with_value_flags_read(command, classes):
 def test_branch_config_writes_are_writes(command):
     """Third review pass: both write branch config."""
     assert infer(command)["classes"] == ["vcs_local"]
+
+
+def test_a_joined_set_upstream_is_a_write():
+    assert infer("git branch --set-upstream-to=origin/main")["classes"] == ["vcs_local"]

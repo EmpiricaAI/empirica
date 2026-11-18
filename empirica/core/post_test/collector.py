@@ -253,6 +253,24 @@ class EvidenceProfile:
         return EvidenceProfile.AUTO
 
 
+def _session_start_epoch(value) -> int | None:
+    """sessions.start_time as epoch seconds. Stored as epoch, as ISO with an offset, or as ISO without one (SQLite's
+    CURRENT_TIMESTAMP, which is UTC): a naive value is UTC, not local time (fourth review pass, 2026-11-18)."""
+    try:
+        return int(float(str(value)))
+    except (ValueError, TypeError):
+        pass
+    try:
+        from datetime import datetime, timezone
+
+        parsed = datetime.fromisoformat(str(value))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return int(parsed.timestamp())
+    except (ValueError, TypeError):
+        return None
+
+
 class PostTestCollector:
     """Collects objective evidence from multiple sources."""
 
@@ -1989,12 +2007,8 @@ class PostTestCollector:
             (self.session_id,),
         )
         row = cursor.fetchone()
-        if row:
-            try:
-                return "@" + str(int(float(str(row[0]))))
-            except (ValueError, TypeError):
-                pass
-        return None
+        epoch = _session_start_epoch(row[0]) if row else None
+        return f"@{epoch}" if epoch is not None else None
 
     def _collect_git_loc_amd_tree(self, since: str, project_root: str) -> list[EvidenceItem]:
         """Collect LOC delta, A/M/D file ratio, and working-tree cleanliness evidence."""
@@ -2514,16 +2528,9 @@ class PostTestCollector:
                 (self.session_id,),
             )
             row = cursor.fetchone()
-            if row:
-                try:
-                    since = "@" + str(int(float(str(row[0]))))
-                except (ValueError, TypeError):
-                    try:  # most sessions store start_time as ISO text (850 of 865 in core), not epoch seconds
-                        from datetime import datetime
-
-                        since = "@" + str(int(datetime.fromisoformat(str(row[0])).timestamp()))
-                    except (ValueError, TypeError):
-                        pass
+            epoch = _session_start_epoch(row[0]) if row else None
+            if epoch is not None:
+                since = f"@{epoch}"
 
         try:
             # 1. Committed changes since transaction/session start

@@ -16,6 +16,8 @@ import subprocess
 import time
 from datetime import datetime, timezone
 
+import pytest
+
 from empirica.core.post_test.collector import EvidenceProfile, PostTestCollector
 
 _ISSUES_DDL = """
@@ -152,3 +154,18 @@ def test_a_file_moved_in_during_the_transaction_counts_despite_its_old_mtime(tmp
     os.utime(f, (1_000_000_000, 1_000_000_000))  # an old mtime, as cp -a keeps; ctime is now
     st = f.stat()
     assert max(st.st_mtime, st.st_ctime) >= time.time() - 60
+
+
+@pytest.mark.parametrize(
+    ("value", "epoch"),
+    [
+        ("1700000000.5", 1700000000),
+        ("2026-11-18T11:38:02+00:00", 1795001882),
+        ("2026-01-10 12:00:00", 1768046400),  # naive SQLite CURRENT_TIMESTAMP text is UTC, not local time
+        ("not a time", None),
+    ],
+)
+def test_session_start_times_in_every_stored_form(value, epoch):
+    from empirica.core.post_test.collector import _session_start_epoch
+
+    assert _session_start_epoch(value) == epoch

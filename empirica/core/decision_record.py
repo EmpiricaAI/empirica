@@ -684,7 +684,7 @@ def _git(args: list[str]) -> set[str]:
     if verb == "push":
         return {"vcs_remote"}
     if verb in ("branch", "tag"):
-        writes = verb == "branch" and any(a in _GIT_BRANCH_WRITE_FLAGS for a in tail)
+        writes = verb == "branch" and any(a.split("=", 1)[0] in _GIT_BRANCH_WRITE_FLAGS for a in tail)
         # A word another flag consumes as its value is neither a name nor a flag: `git branch --format --contains newb`
         # creates newb (second review pass, 2026-11-18). git tag's message and file flags take one too.
         value_flags = _GIT_REF_VALUE_FLAGS | (_GIT_TAG_VALUE_FLAGS if verb == "tag" else set())
