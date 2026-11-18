@@ -162,3 +162,14 @@ def test_committed_counts_commits_not_the_normalised_score():
 def test_tests_pass_honours_the_operator(op, passes):
     crit = _parse_criterion_entry(f"tests_pass:test_pass_rate@{op}0.9")
     assert dispatch(_Ctx(crit, _bundle([_pass_rate_item(1, 2)]))).passed is passes
+
+
+@pytest.mark.parametrize("metric", ["radon_avg_complexity", "test_coverage_percent", "mistake_ratio"])
+def test_an_operator_on_a_score_valued_metric_is_skipped_not_misread(metric):
+    """Second review pass: `radon_avg_complexity@<=10` passed at complexity 25 because the value is a normalised score."""
+    item = EvidenceItem(source="s", metric_name=metric, value=0.9, raw_value=None, quality=EvidenceQuality.OBJECTIVE,
+                        supports_vectors=["know"])  # fmt: skip
+    r = dispatch(_Ctx(_parse_criterion_entry(f"quality_gate:{metric}@<=0.5"), _bundle([item])))
+    assert r.skipped is True and "score" in (r.summary or "")
+    legacy = {"description": metric, "validation_method": "quality_gate", "threshold": 0.5}  # no operator: the score
+    assert dispatch(_Ctx(_parse_criterion_entry(legacy), _bundle([item]))).skipped is False

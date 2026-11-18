@@ -611,6 +611,8 @@ _GIT_REF_VALUE_FLAGS = {"--contains", "--no-contains", "--merged", "--no-merged"
 #: Of those, the ones that put branch and tag into list mode, wherever they stand: a remaining word is a pattern, not a
 #: new ref (git creates nothing for `git branch --merged main newname`; checked 2026-11-18). --sort and --format do not.
 _GIT_LIST_MODE_FLAGS = {"--contains", "--no-contains", "--merged", "--no-merged", "--points-at"}
+#: git tag flags whose next word is a value (a message, a file, a key), not a name or a flag.
+_GIT_TAG_VALUE_FLAGS = {"-m", "--message", "-F", "--file", "-u", "--local-user", "--cleanup"}
 _GIT_BRANCH_WRITE_FLAGS = {
     "-d",
     "-D",
@@ -654,6 +656,19 @@ def _rewrites_worktree(verb: str, tail: list[str]) -> bool:
     return True
 
 
+def _unconsumed(tokens: list[str], value_flags: set[str]) -> list[str]:
+    """``tokens`` without the words a value flag consumes, walked left to right: a consumed word consumes nothing."""
+    out: list[str] = []
+    skip = False
+    for tok in tokens:
+        if skip:
+            skip = False
+            continue
+        out.append(tok)
+        skip = tok in value_flags
+    return out
+
+
 def _git(args: list[str]) -> set[str]:
     rest = list(args)
     while rest and rest[0].startswith("-"):
@@ -668,10 +683,12 @@ def _git(args: list[str]) -> set[str]:
         return {"vcs_remote"}
     if verb in ("branch", "tag"):
         writes = verb == "branch" and any(a in _GIT_BRANCH_WRITE_FLAGS for a in tail)
-        names = [
-            a for i, a in enumerate(tail) if not a.startswith("-") and not (i and tail[i - 1] in _GIT_REF_VALUE_FLAGS)
-        ]
-        list_mode = any(a in _GIT_LISTING_FLAGS[verb] or a.split("=", 1)[0] in _GIT_LIST_MODE_FLAGS for a in tail)
+        # A word another flag consumes as its value is neither a name nor a flag: `git branch --format --contains newb`
+        # creates newb (second review pass, 2026-11-18). git tag's message and file flags take one too.
+        value_flags = _GIT_REF_VALUE_FLAGS | (_GIT_TAG_VALUE_FLAGS if verb == "tag" else set())
+        own = _unconsumed(tail, value_flags)
+        names = [a for a in own if not a.startswith("-")]
+        list_mode = any(a in _GIT_LISTING_FLAGS[verb] or a.split("=", 1)[0] in _GIT_LIST_MODE_FLAGS for a in own)
         if not writes and (not names or list_mode):
             return set()
         return {"vcs_local"}

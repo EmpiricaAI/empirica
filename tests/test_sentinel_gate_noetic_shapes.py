@@ -357,6 +357,9 @@ def test_git_ls_remote_is_a_read(gate, command, noetic):
         ("git branch newname --merged main", True),  # git applies the flag wherever it stands
         ("git branch --sort refname newb", False),  # near miss: --sort takes a value but still creates newb
         ("git branch --merged main -D old", False),
+        ("git branch --format --contains newb", False),  # --contains is --format's value: newb is created
+        ("git branch --sort --merged newc", False),
+        ("git tag --format --points-at v9", False),
     ],
 )
 def test_ref_listings_in_list_mode_are_reads(gate, command, noetic):

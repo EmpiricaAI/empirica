@@ -60,7 +60,8 @@ def _setup_db() -> sqlite3.Connection:
             session_id TEXT,
             transaction_id TEXT,
             is_resolved INTEGER DEFAULT 0,
-            resolved_timestamp REAL
+            resolved_timestamp REAL,
+            epistemic_source TEXT
         )
     """)
     c.execute("""

@@ -274,6 +274,10 @@ def test_the_commands_inside_a_substitution_are_classified():
         ("git branch newname --merged main", []),
         ("git branch --sort -committerdate newb", ["vcs_local"]),  # near miss: --sort takes a value but creates newb
         ("git branch --merged main -D old", ["vcs_local"]),  # a delete is a delete in any mode
+        # a word another flag consumes as its value never switches list mode on (second pass, 2026-11-18; checked in git)
+        ("git branch --format --contains newb", ["vcs_local"]),
+        ("git branch --sort --merged newc", ["vcs_local"]),
+        ("git tag -m --contains v1", ["vcs_local"]),
         ("git tag v9", ["vcs_local"]),
     ],
 )

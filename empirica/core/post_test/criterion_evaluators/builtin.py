@@ -45,6 +45,14 @@ NAMED_MEASURE_KEYS = {
 }
 
 
+#: Metrics whose `value` is a transformed score (inverted, scaled or normalised) with no raw measure mapped above. A written
+#: operator on one cannot be honoured: on the score, `radon_avg_complexity@<=10` passed at complexity 25 and
+#: `test_coverage_percent@>=80` failed at 92% (second review pass, 2026-11-18). Such a criterion is skipped, visibly.
+SCORE_VALUED_METRICS = frozenset(
+    {"radon_avg_complexity", "test_coverage_percent", "mistake_ratio", "ruff_error_ratio", "loc_delta", "files_changed"}
+)
+
+
 def _named_measure(evidence, metric: str) -> float | None:
     """The quantity `metric`'s name promises, read from its raw_value; None when the metric is not one of these or the measure is absent.
 
@@ -276,6 +284,19 @@ class EvidenceMetricEvaluator:
                     threshold=threshold,
                     summary=f"metric {metric!r} carries no {NAMED_MEASURE_KEYS[metric]!r} measure to compare",
                 )
+        if operator in ("<=", ">=") and metric in SCORE_VALUED_METRICS:
+            return CriterionResult(
+                criterion_id=ctx.criterion.id,
+                goal_id=ctx.goal.id,
+                validation_method=self.validation_method,
+                passed=False,
+                skipped=True,
+                threshold=threshold,
+                summary=(
+                    f"{metric!r} is stored as a normalised score, so '@{operator}{threshold}' cannot be read as written; "
+                    "a threshold on the score itself goes in the dict form {description, validation_method, threshold}"
+                ),
+            )
         passed, op_repr = _compare(value, threshold, operator, direction)
 
         return CriterionResult(

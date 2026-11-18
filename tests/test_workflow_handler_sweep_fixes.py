@@ -420,3 +420,20 @@ def test_a_failure_inside_grounded_verification_reaches_the_postflight_warnings(
         project_path=str(tmp_path),
     )
     assert [w.get("stage") for w in warnings] == ["grounded_verification"]
+
+
+def test_episodic_memory_carries_no_calibration_numbers():
+    """Second review pass: once the summary had gaps, the narrative put per-vector divergence into retrievable memory."""
+    from empirica.cli.command_handlers._workflow_postflight import _build_episodic_narrative
+
+    gv = {"evidence_count": 5, "_internal_calibration_score": 0.4, "grounded_coverage": 0.6, "gaps": {"know": 0.3}}
+    text = _build_episodic_narrative("did the work", {}, gv)
+    assert text == "did the work" and "gap" not in text and "score" not in text
+
+
+def test_edges_to_a_local_artifact_are_recognised_for_dropping(db):
+    """Second review pass: a shared finding's edge to a local finding carried the local id off the machine."""
+    from empirica.cli.command_handlers._workflow_postflight import _cortex_local_source_ids
+
+    fid = db.log_finding("P", "S", "a private observation", visibility="local")
+    assert fid in _cortex_local_source_ids(db, {fid, "other"})

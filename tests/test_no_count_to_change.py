@@ -31,7 +31,7 @@ def _db() -> sqlite3.Connection:
     )
     conn.execute(
         "CREATE TABLE project_unknowns (id TEXT PRIMARY KEY, session_id TEXT, transaction_id TEXT, "
-        "is_resolved INTEGER DEFAULT 0, resolved_timestamp REAL)"
+        "is_resolved INTEGER DEFAULT 0, resolved_timestamp REAL, epistemic_source TEXT)"
     )
     conn.execute(
         "CREATE TABLE subtasks (id TEXT PRIMARY KEY, goal_id TEXT, status TEXT, "
@@ -56,7 +56,11 @@ def _busy_triage_transaction():
     now = time.time()
     conn.execute("INSERT INTO sessions VALUES ('s1', ?)", (now - 3600,))
     for i in range(6):
-        conn.execute("INSERT INTO project_unknowns VALUES (?, 's1', NULL, 1, ?)", (f"u{i}", now - 30))
+        conn.execute(
+            "INSERT INTO project_unknowns (id, session_id, transaction_id, is_resolved, resolved_timestamp) "
+            "VALUES (?, 's1', NULL, 1, ?)",
+            (f"u{i}", now - 30),
+        )
     for i in range(2):
         conn.execute("INSERT INTO goals VALUES (?, 's1', NULL, 'completed', ?, ?)", (f"g{i}", now - 100, now - 20))
     conn.commit()

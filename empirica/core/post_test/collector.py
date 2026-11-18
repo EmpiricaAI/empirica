@@ -315,10 +315,10 @@ class PostTestCollector:
         prefix = f"{table_alias}." if table_alias else ""
         if self.transaction_id:
             return (f"AND {prefix}transaction_id = ?", (self.transaction_id,))
+        extra = f" AND {not_harvested(table_alias)}" if artifacts else ""
         if self.preflight_timestamp:
-            extra = f" AND {not_harvested(table_alias)}" if artifacts else ""
             return (f"AND {prefix}created_timestamp >= ?{extra}", (self.preflight_timestamp,))
-        return ("", ())
+        return (extra, ())  # session-only: the session's harvested rows are still not this session's work
 
     def _get_session_goal_ids(self) -> list[str]:
         """Get goal IDs for this session (cached)."""
@@ -1410,10 +1410,11 @@ class PostTestCollector:
             WHERE is_resolved = 1
               AND resolved_timestamp >= ?
               AND resolved_timestamp IS NOT NULL
+              AND COALESCE(epistemic_source, '') != 'harvested'
         """,
             (scope_start,),
         )
-        unknowns_resolved = cursor.fetchone()[0]
+        unknowns_resolved = cursor.fetchone()[0]  # a harvested unknown resolved is bookkeeping, not work (second pass)
 
         if unknowns_resolved > 0:
             # Resolving unknowns IS doing work — epistemic action.
@@ -2563,14 +2564,18 @@ class PostTestCollector:
                 timeout=5,
                 cwd=project_root,
             )
-            if result.returncode == 0:
-                start = float(since[1:]) if since and since.startswith("@") else None
+            start = float(since[1:]) if since and since.startswith("@") else None
+            if (
+                result.returncode == 0 and start is not None
+            ):  # no window known: no untracked file can be shown to be ours
                 base = Path(project_root) if project_root else Path.cwd()
                 for f in (f.strip() for f in result.stdout.split("\n")):
                     if not f:
                         continue
                     try:
-                        if start is None or (base / f).stat().st_mtime >= start:
+                        st = (base / f).stat()
+                        # ctime too: mv, cp -a and unpacking keep an old mtime but are this transaction's (second pass)
+                        if max(st.st_mtime, st.st_ctime) >= start:
                             all_files.add(f)
                     except OSError:
                         continue

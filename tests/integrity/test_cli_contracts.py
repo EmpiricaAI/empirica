@@ -92,7 +92,9 @@ KNOWN_NO_OK_FIELD = {
 RUNNABLE_STATELESS = [cmd for cmd in STATELESS_COMMANDS if cmd in ALL_JSON_COMMANDS]
 
 
-def _run_empirica(*args, timeout=30, practice: Path | None = None):
+# 120 s, not 30: project-bootstrap against the checkout's real store takes ~1.1 s alone but passed 30 s under a full
+# `-n auto` run, timing out the three bootstrap probes intermittently (captured 2026-11-18: subprocess.TimeoutExpired).
+def _run_empirica(*args, timeout=120, practice: Path | None = None):
     """Run an empirica CLI command and return the CompletedProcess. ``practice``: run inside that throwaway practice instead
     of the checkout, for probes that fail on purpose (a failure is auto-captured as an issue into the practice's store)."""
     # These are read-only contract probes against the checkout's own store. The

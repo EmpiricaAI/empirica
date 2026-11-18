@@ -165,22 +165,12 @@ def _pipeline_trajectory_storage(session_id, project_id):
 
 
 def _build_episodic_narrative(reasoning, deltas, grounded_verification):
-    """Build narrative string for episodic memory, enriched with calibration gaps."""
+    """Build narrative string for episodic memory: the reasoning, without calibration numbers (see below)."""
     narrative = reasoning or f"Session completed with learning delta: {deltas}"
 
-    if not grounded_verification or grounded_verification.get("evidence_count", 0) <= 0:
-        return narrative
-
-    cal_score = _summary_score(grounded_verification)
-    coverage = grounded_verification.get("grounded_coverage", 0)
-    gaps = grounded_verification.get("gaps", {})
-    sig = {v: g for v, g in gaps.items() if abs(g) > 0.15}
-    if sig:
-        gap_desc = "; ".join(f"{v}: {'over' if g > 0 else 'under'} by {abs(g):.2f}" for v, g in sig.items())
-        narrative += (
-            f" Grounded calibration: score={cal_score:.3f}, coverage={coverage:.0%}. Significant gaps: {gap_desc}."
-        )
-
+    # No calibration score or per-vector gaps: episodic memory is retrieved back to the AI (project-search), and the
+    # Goodhart rule keeps both from it, as the AI-facing POSTFLIGHT copy does. This enrichment never ran while the
+    # summary had no gaps; once it had them (1.17.9) it would have leaked them (second review pass).
     return narrative
 
 
@@ -669,6 +659,7 @@ def _run_grounded_verification(
 
     Returns grounded_verification dict or None if unavailable. Non-fatal.
     """
+    db = None
     try:
         import os
 
@@ -758,6 +749,11 @@ def _run_grounded_verification(
                 f.write(f"Error: {e}\n\n{tb}")
         except Exception:
             pass
+        if db is not None:
+            try:
+                db.close()  # the re-raise must not leave the connection open (second review pass)
+            except Exception:
+                pass
         raise  # _soft_run records it as a POSTFLIGHT warning; returning None hid the failure (0f68032f #9)
 
 
@@ -1713,18 +1709,30 @@ def _cortex_graph_artifact_nodes(sdb, tx_id):
 
 
 def _cortex_local_source_ids(sdb, targets) -> set[str]:
-    """The edge targets that are sources marked visibility='local' (no-egress)."""
+    """The edge targets marked visibility='local' (no-egress): sources and artifacts alike. A shared artifact's edge to a
+    local one carried the local id off the machine though its node stayed (second review pass, 2026-11-18)."""
     ids = [t for t in targets if t]
     if not ids:
         return set()
-    try:
-        ph = ",".join("?" * len(ids))
-        rows = sdb.conn.execute(
-            f"SELECT id FROM epistemic_sources WHERE id IN ({ph}) AND visibility = 'local'", tuple(ids)
-        ).fetchall()
-        return {r[0] for r in rows}
-    except Exception:
-        return set()
+    ph = ",".join("?" * len(ids))
+    local: set[str] = set()
+    for table in (
+        "epistemic_sources",
+        "project_findings",
+        "project_unknowns",
+        "project_dead_ends",
+        "mistakes_made",
+        "assumptions",
+        "decisions",
+    ):
+        try:
+            rows = sdb.conn.execute(
+                f"SELECT id FROM {table} WHERE id IN ({ph}) AND visibility = 'local'", tuple(ids)
+            ).fetchall()
+            local.update(r[0] for r in rows)
+        except Exception:
+            continue  # a table without the column (pre-visibility databases) has no local rows
+    return local
 
 
 def _cortex_graph_edges(sdb, seen_ids):

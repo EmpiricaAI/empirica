@@ -468,7 +468,7 @@ class ProseEvidenceCollector:
         # saturated `finding_production` for every transaction in it, whatever that one did (cortex, 2026-10-04).
         scope_sql, scope_params, scope = self._transaction_scope("project_findings")
         cursor.execute(
-            f"SELECT finding FROM project_findings WHERE {scope_sql}",
+            f"SELECT finding FROM project_findings WHERE {scope_sql} AND COALESCE(epistemic_source, '') != 'harvested'",
             scope_params,
         )
         findings = cursor.fetchall()
@@ -744,7 +744,7 @@ class ProseEvidenceCollector:
         # every transaction of a long session.
         scope_sql, scope_params, scope = self._transaction_scope("assumptions")
         cursor.execute(
-            f"SELECT COUNT(*) FROM assumptions WHERE {scope_sql}",
+            f"SELECT COUNT(*) FROM assumptions WHERE {scope_sql} AND COALESCE(epistemic_source, '') != 'harvested'",
             scope_params,
         )
         assumption_count = cursor.fetchone()[0]
@@ -771,7 +771,7 @@ class ProseEvidenceCollector:
         # every transaction of a long session, like the two proxies fixed beside it.
         scope_sql, scope_params, scope = self._transaction_scope("decisions")
         cursor.execute(
-            f"SELECT COUNT(*) FROM decisions WHERE {scope_sql}",
+            f"SELECT COUNT(*) FROM decisions WHERE {scope_sql} AND COALESCE(epistemic_source, '') != 'harvested'",
             scope_params,
         )
         decision_count = cursor.fetchone()[0]

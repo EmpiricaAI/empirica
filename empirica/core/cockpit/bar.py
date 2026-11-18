@@ -471,8 +471,10 @@ def _relayout_shell(session_name: str) -> str:
     lock = shlex.quote(str(lock_path))
     dirty = shlex.quote(str(lock_path.with_suffix(".dirty")))
     drain = f"while [ -e {dirty} ]; do rm -f {dirty}; {run}; done"
+    folder = shlex.quote(str(lock_path.parent))
     return (
-        f"touch {dirty} 2>/dev/null; "
+        # recreated if it went away after install: touch failing silently left relayout dead (second review pass)
+        f"mkdir -p {folder} 2>/dev/null; touch {dirty} 2>/dev/null; "
         "if command -v flock >/dev/null 2>&1; then "
         f"while [ -e {dirty} ]; do ( flock -n 9 || exit 1; {drain}; exit 0 ) 9>>{lock} 2>/dev/null || break; done; "
         f"else rm -f {dirty}; {run}; fi; exit 0"

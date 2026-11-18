@@ -50,8 +50,10 @@ def conn() -> sqlite3.Connection:
         "CREATE TABLE project_unknowns (id TEXT PRIMARY KEY, session_id TEXT, "
         "transaction_id TEXT, is_resolved INTEGER DEFAULT 0, resolved_timestamp, epistemic_source TEXT)"
     )
-    c.execute("CREATE TABLE assumptions (id TEXT PRIMARY KEY, session_id TEXT, transaction_id TEXT)")
-    c.execute("CREATE TABLE decisions (id TEXT PRIMARY KEY, session_id TEXT)")
+    c.execute(
+        "CREATE TABLE assumptions (id TEXT PRIMARY KEY, session_id TEXT, transaction_id TEXT, epistemic_source TEXT)"
+    )
+    c.execute("CREATE TABLE decisions (id TEXT PRIMARY KEY, session_id TEXT, epistemic_source TEXT)")
     return c
 
 
@@ -106,8 +108,10 @@ def test_identical_work_scores_identically_whatever_the_backlog(conn):
             "CREATE TABLE IF NOT EXISTS project_unknowns (id TEXT PRIMARY KEY, session_id TEXT, "
             "transaction_id TEXT, is_resolved INTEGER DEFAULT 0, resolved_timestamp, epistemic_source TEXT)"
         )
-        c.execute("CREATE TABLE IF NOT EXISTS assumptions (id TEXT PRIMARY KEY, session_id TEXT)")
-        c.execute("CREATE TABLE IF NOT EXISTS decisions (id TEXT PRIMARY KEY, session_id TEXT)")
+        c.execute(
+            "CREATE TABLE IF NOT EXISTS assumptions (id TEXT PRIMARY KEY, session_id TEXT, epistemic_source TEXT)"
+        )
+        c.execute("CREATE TABLE IF NOT EXISTS decisions (id TEXT PRIMARY KEY, session_id TEXT, epistemic_source TEXT)")
 
     for i in range(3):  # three closures in each, in-window
         _add(conn, f"c{i}", "tx_old", resolved_at=IN_WINDOW)

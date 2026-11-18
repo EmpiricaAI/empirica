@@ -136,8 +136,8 @@ def test_no_prose_observation_still_grounds_uncertainty_or_change_from_a_count(w
 def test_a_database_old_enough_to_lack_transaction_id_falls_back_to_the_session_instead_of_raising(world):
     """Counting the session beats an OperationalError that loses every observation in the method."""
     world.db.conn.execute("DROP TABLE assumptions")
-    world.db.conn.execute("CREATE TABLE assumptions (id TEXT PRIMARY KEY, session_id TEXT)")
-    world.db.conn.execute("INSERT INTO assumptions VALUES ('a1', ?)", (world.sid,))
+    world.db.conn.execute("CREATE TABLE assumptions (id TEXT PRIMARY KEY, session_id TEXT, epistemic_source TEXT)")
+    world.db.conn.execute("INSERT INTO assumptions (id, session_id) VALUES ('a1', ?)", (world.sid,))
     world.db.conn.commit()
 
     item = _item(_collector(world, "tx-A")._collect_action_verification(), "assumption_logging")

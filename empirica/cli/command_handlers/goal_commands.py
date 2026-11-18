@@ -54,7 +54,10 @@ def _parse_criterion_entry(entry):
        committed) compares with it, against the quantity the metric's name
        promises: ruff_violation_density@<=0.25 reads the per-100-lines density
        in raw_value, not the higher-is-better score stored as value
-       (criterion_evaluators.builtin.NAMED_MEASURE_KEYS).
+       (criterion_evaluators.builtin.NAMED_MEASURE_KEYS). A metric stored only
+       as a transformed score (SCORE_VALUED_METRICS: radon_avg_complexity,
+       test_coverage_percent, ...) cannot honour an operator: such a criterion
+       is skipped with the reason, not compared on the wrong quantity.
 
     3. dict {description, validation_method, threshold, is_required} —
        passed through directly. Used by programmatic callers.

@@ -2555,8 +2555,17 @@ def _git_ref_command_mutates(cmd: str) -> bool:
             rest = rest[1:]
         return bool(rest) and rest[0] not in ("show", "get-url")
     read_flags = _GIT_BRANCH_READ_FLAGS if sub == "branch" else _GIT_TAG_READ_FLAGS
-    # list mode is decided by the whole command, not left to right: git applies the flag wherever it stands
-    listing = any(t in ("--list", "-l") or t.split("=", 1)[0] in _GIT_LIST_MODE_FLAGS for t in rest)
+    # list mode is decided by the whole command, not left to right: git applies the flag wherever it stands. A word a
+    # value flag consumes (`git branch --format --contains newb`) is not a flag (second review pass, 2026-11-18).
+    own: list[str] = []
+    _skip = False
+    for t in rest:  # left to right: a consumed word consumes nothing
+        if _skip:
+            _skip = False
+            continue
+        own.append(t)
+        _skip = t in _GIT_REF_VALUE_FLAGS
+    listing = any(t in ("--list", "-l") or t.split("=", 1)[0] in _GIT_LIST_MODE_FLAGS for t in own)
     expect_value = False
     for tok in rest:
         if expect_value:

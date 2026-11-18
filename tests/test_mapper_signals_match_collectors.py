@@ -23,9 +23,9 @@ class _DB:
         self.conn.executescript(
             """
             CREATE TABLE reflexes (session_id TEXT, phase TEXT, reflex_data TEXT, timestamp REAL);
-            CREATE TABLE project_unknowns (session_id TEXT, transaction_id TEXT, created_timestamp REAL);
-            CREATE TABLE project_dead_ends (session_id TEXT, transaction_id TEXT, created_timestamp REAL);
-            CREATE TABLE project_findings (session_id TEXT, transaction_id TEXT, created_timestamp REAL);
+            CREATE TABLE project_unknowns (session_id TEXT, transaction_id TEXT, created_timestamp REAL, epistemic_source TEXT);
+            CREATE TABLE project_dead_ends (session_id TEXT, transaction_id TEXT, created_timestamp REAL, epistemic_source TEXT);
+            CREATE TABLE project_findings (session_id TEXT, transaction_id TEXT, created_timestamp REAL, epistemic_source TEXT);
             """
         )
         for i, decision in enumerate(decisions):

@@ -127,9 +127,12 @@ def test_a_transaction_that_only_creates_untracked_files_lists_them(tmp_path, mo
     (repo / "base.py").write_text("x = 1\n")
     _git(repo, "add", ".", env={**os.environ, **old})
     _git(repo, "commit", "-q", "-m", "base", env={**os.environ, **old})
-    start = time.time() - 60
-    (repo / "leftover.py").write_text("y = 0\n")
-    os.utime(repo / "leftover.py", (start - 3600, start - 3600))  # untracked, but from before this transaction
+    # A real leftover is old in ctime too (utime cannot backdate ctime, and the filter reads both since a moved or
+    # copied file keeps an old mtime), so the window opens after the leftover is written.
+    (repo / "leftover.py").write_text("y = 0\n")  # untracked, but from before this transaction
+    time.sleep(1.1)  # the window is read in whole seconds
+    start = time.time()
+    time.sleep(1.1)
     (repo / "new.py").write_text("z = 2\n")
     (repo / "debug.log").write_text("ignored\n")
 
@@ -138,3 +141,14 @@ def test_a_transaction_that_only_creates_untracked_files_lists_them(tmp_path, mo
     c = PostTestCollector(session_id="s1", db=db, preflight_timestamp=start)
     c._project_root = str(repo)
     assert c._get_session_changed_files() == ["new.py"]
+
+
+def test_a_file_moved_in_during_the_transaction_counts_despite_its_old_mtime(tmp_path):
+    """Second review pass: mv / cp -a keep an old mtime; the change time says when it arrived."""
+    import os
+
+    f = tmp_path / "moved.py"
+    f.write_text("a = 1\n")
+    os.utime(f, (1_000_000_000, 1_000_000_000))  # an old mtime, as cp -a keeps; ctime is now
+    st = f.stat()
+    assert max(st.st_mtime, st.st_ctime) >= time.time() - 60

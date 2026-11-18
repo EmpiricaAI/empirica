@@ -147,7 +147,7 @@ def stream_chat_completions(
 
             for choice in chunk.get("choices", []) or []:
                 fr = choice.get("finish_reason")
-                if isinstance(fr, str):
+                if isinstance(fr, str) and fr:  # an empty finish_reason mid-stream finishes nothing (second pass)
                     finish_reason = fr
                 delta = choice.get("delta") or {}
                 content = delta.get("content")

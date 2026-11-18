@@ -656,7 +656,10 @@ def _run_assumptions_flagged_check(context: dict[str, Any]) -> CheckResult:
                 ran_at=time.time(),
             )
 
-        cursor.execute("SELECT COUNT(*) FROM assumptions WHERE session_id = ?", (session_id,))
+        cursor.execute(
+            "SELECT COUNT(*) FROM assumptions WHERE session_id = ? AND COALESCE(epistemic_source, '') != 'harvested'",
+            (session_id,),
+        )
         total = cursor.fetchone()[0]
 
         if total == 0:
@@ -672,7 +675,7 @@ def _run_assumptions_flagged_check(context: dict[str, Any]) -> CheckResult:
 
         # Check how many have confidence scores
         cursor.execute(
-            "SELECT COUNT(*) FROM assumptions WHERE session_id = ? AND confidence IS NOT NULL AND confidence > 0",
+            "SELECT COUNT(*) FROM assumptions WHERE session_id = ? AND confidence IS NOT NULL AND confidence > 0 AND COALESCE(epistemic_source, '') != 'harvested'",
             (session_id,),
         )
         scored = cursor.fetchone()[0]
@@ -719,13 +722,13 @@ def _run_unknowns_resolved_check(context: dict[str, Any]) -> CheckResult:
             )
 
         cursor.execute(
-            "SELECT COUNT(*) FROM project_unknowns WHERE session_id = ? AND is_resolved = 0",
+            "SELECT COUNT(*) FROM project_unknowns WHERE session_id = ? AND is_resolved = 0 AND COALESCE(epistemic_source, '') != 'harvested'",
             (session_id,),
         )
         unresolved = cursor.fetchone()[0]
 
         cursor.execute(
-            "SELECT COUNT(*) FROM project_unknowns WHERE session_id = ?",
+            "SELECT COUNT(*) FROM project_unknowns WHERE session_id = ? AND COALESCE(epistemic_source, '') != 'harvested'",
             (session_id,),
         )
         total = cursor.fetchone()[0]
@@ -909,7 +912,10 @@ def _run_finding_sourced_check(context: dict[str, Any]) -> CheckResult:
                 ran_at=time.time(),
             )
 
-        cursor.execute("SELECT COUNT(*) FROM project_findings WHERE session_id = ?", (session_id,))
+        cursor.execute(
+            "SELECT COUNT(*) FROM project_findings WHERE session_id = ? AND COALESCE(epistemic_source, '') != 'harvested'",
+            (session_id,),
+        )
         total = cursor.fetchone()[0]
 
         if total == 0:
@@ -924,7 +930,7 @@ def _run_finding_sourced_check(context: dict[str, Any]) -> CheckResult:
             )
 
         cursor.execute(
-            "SELECT COUNT(*) FROM project_findings WHERE session_id = ? AND source_refs IS NOT NULL",
+            "SELECT COUNT(*) FROM project_findings WHERE session_id = ? AND source_refs IS NOT NULL AND COALESCE(epistemic_source, '') != 'harvested'",
             (session_id,),
         )
         sourced = cursor.fetchone()[0]

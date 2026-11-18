@@ -385,6 +385,9 @@ class WebEvidenceCollector:
             )
             duration_ms = (time.time() - start) * 1000
             success = result.returncode == 0
+            self._build_ran = (
+                success  # a failed build wrote no fresh output: grade it only if it is fresh (second pass)
+            )
 
             items.append(
                 EvidenceItem(
@@ -403,6 +406,7 @@ class WebEvidenceCollector:
             )
 
         except subprocess.TimeoutExpired:
+            self._build_ran = False  # timed out: the output on disk may be the old one
             items.append(
                 EvidenceItem(
                     source="web_build",
