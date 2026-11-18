@@ -439,17 +439,18 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.17.7
+## What's New in 1.17.8
 
-- **The cockpit bar works on a fresh machine and in a small window:** its own health readout, a help and menu that fit or say why not, failed updates that stay on screen, and an update command that needs no configuration.
-- **`project-register` registers a practice in its own team or refuses**, and a first `auth login` says it saved the Cortex URL.
+- Onboarding asks what work you do and sets up practices for it
+- Onboarding ends with a first plan
+- Workflow protocol 0.4.0:
 
-All 6 entries for this release, with the measurements behind each highlight, are in the [CHANGELOG](CHANGELOG.md).
+The full entry is in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.17.7** — The cockpit bar works on a fresh machine and in a small window: its own health readout, a help and menu that fit or say why not, failed updates that stay o…
 - **1.17.6** — A differential fuzzer checks the Sentinel's reading of shell commands against bash itself, and its first run found a `git push` that a quoted backtick hid…
-- **1.17.5** — One schema for the workflow protocol, shared by `/ewm-interview`, the web onboarding interview and the installer, and **`provision-practice --from-protocol…
 
 ## What's Coming
 

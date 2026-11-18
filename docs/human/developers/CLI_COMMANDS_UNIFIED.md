@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.17.7
-**Generated:** 2026-11-17 22:13:44 UTC
+**Framework version:** 1.17.8
+**Generated:** 2026-11-18 11:48:04 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1738,7 +1738,7 @@ Create + register a new local practice/practitioner in one command
 - `name` — **required**
   ai_id / directory name for the new practice
 - `--from-protocol` — optional
-  Provision the practices a workflow protocol lists (as /ewm-interview or the web onboarding writes it, schema workflow-protocol 0.3.0) instead of NAME. The file is validated first and nothing runs when it is invalid. Each practice gets its own type, description, domain, harness and model. Tenant, org, Forgejo and the cockpit profile come from this command's flags and the sign-in, never from the file: a profile requests practices, it grants nothing. Suggested skills are listed, never installed
+  Provision the practices a workflow protocol lists (as /ewm-interview or the web onboarding writes it, schema workflow-protocol 0.3.0 or 0.4.0) instead of NAME. The file is validated first and nothing runs when it is invalid. Each practice gets its own type, description, domain, harness and model. Tenant, org, Forgejo and the cockpit profile come from this command's flags and the sign-in, never from the file: a profile requests practices, it grants nothing. Suggested skills are listed, never installed
 - `--only` — optional
   With --from-protocol: provision only this practice (repeat for several)
 - `--base-path` — optional
