@@ -55,7 +55,8 @@ def add_sentinel_parsers(subparsers):
 
     # sentinel-load-profile
     profile_parser = subparsers.add_parser(
-        "sentinel-load-profile", help="Load domain compliance profile for gate enforcement"
+        "sentinel-load-profile",
+        help="Load a domain profile (gates and thresholds); audit and tool settings are configuration only, not enforced",
     )
     profile_parser.add_argument("--session-id", required=True, help="Session ID (required)")
     profile_parser.add_argument(

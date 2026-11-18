@@ -29,6 +29,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Any, ClassVar
 
 from .decision_logic import DecisionLogic, PersonaMatch
@@ -36,6 +37,10 @@ from .decision_logic import DecisionLogic, PersonaMatch
 UTC = timezone.utc
 
 logger = logging.getLogger(__name__)
+
+
+#: The shipped domain profiles; a named profile is loaded from here.
+_PROFILE_DIR = Path(__file__).resolve().parent / "profiles"
 
 
 class GateAction(Enum):
@@ -245,7 +250,8 @@ class ComplianceGate:
                 threshold = float(parts[2])
 
                 vectors = context.get("vectors", {})
-                value = vectors.get(vector_name, 0.5)
+                counts = context.get("counts", {})
+                value = counts[vector_name] if vector_name in counts else vectors.get(vector_name, 0.5)
 
                 if (operator == ">" and value > threshold) or (operator == "<" and value < threshold):
                     return True
@@ -680,6 +686,7 @@ class Sentinel:
         self.decision_logic = DecisionLogic(qdrant_host=qdrant_host, qdrant_port=qdrant_port)
         self._spawn_fn: Callable | None = None
         self._aggregate_fn: Callable | None = None
+        self._spawn_unavailable: str | None = None
 
         # Epistemic loop tracking
         self.loop_tracker: EpistemicLoopTracker | None = None
@@ -762,13 +769,19 @@ class Sentinel:
         Returns:
             Loaded DomainProfile
         """
+        shipped = _PROFILE_DIR / f"{profile_name}.yaml"
         if custom_profile:
             self.domain_profile = DomainProfile.from_dict(custom_profile)
+        elif shipped.is_file():
+            # The shipped YAML is the profile; DEFAULT_PROFILES is only the fallback for an install without the files.
+            import yaml
+
+            self.domain_profile = DomainProfile.from_dict(yaml.safe_load(shipped.read_text(encoding="utf-8")) or {})
         elif profile_name in self.DEFAULT_PROFILES:
             self.domain_profile = self.DEFAULT_PROFILES[profile_name]
         else:
-            logger.warning(f"Unknown profile {profile_name}, using general")
-            self.domain_profile = self.DEFAULT_PROFILES["general"]
+            known = sorted({p.stem for p in _PROFILE_DIR.glob("*.yaml")} | set(self.DEFAULT_PROFILES))
+            raise ValueError(f"unknown profile {profile_name!r}; known: {', '.join(known)}")
 
         logger.info(
             f"Loaded domain profile: {self.domain_profile.name} (framework={self.domain_profile.compliance_framework})"
@@ -843,6 +856,7 @@ class Sentinel:
 
             # 2. Spawn agents (if execute_agents is True)
             agents_spawned = []
+            spawn_errors: list[str] = []
             if execute_agents and self._spawn_fn:
                 for persona in personas:
                     try:
@@ -850,6 +864,17 @@ class Sentinel:
                         agents_spawned.append(branch_id)
                     except Exception as e:
                         logger.warning(f"Failed to spawn agent {persona.persona_id}: {e}")
+                        spawn_errors.append(f"{persona.persona_id}: {e}")
+            if execute_agents and not agents_spawned:
+                # Reporting ok with zero agents made a run in which nothing ran look like one that found nothing.
+                cause = "; ".join(spawn_errors) if spawn_errors else (self._spawn_unavailable or "no spawn function")
+                return OrchestrationResult(
+                    ok=False,
+                    task=task,
+                    personas_selected=personas,
+                    agents_spawned=[],
+                    error=f"no agent ran: {cause}",
+                )
 
             # 3. Aggregate results (if agents were spawned)
             aggregated_findings = []
@@ -928,7 +953,8 @@ class Sentinel:
                 }
 
         # Build context for gate evaluation
-        context = {"vectors": vectors, "findings": findings, "unknowns": unknowns, "flags": flags}
+        context = {"vectors": vectors, "findings": findings, "unknowns": unknowns, "flags": flags,
+                   "counts": {"unknowns_count": len(unknowns or []), "findings_count": len(findings or [])}}  # fmt: skip
 
         # Evaluate gates
         triggered_gates = []
@@ -1004,36 +1030,22 @@ class Sentinel:
             "gates_count": len(self.domain_profile.gates),
             "uncertainty_trigger": self.domain_profile.uncertainty_trigger,
             "confidence_to_proceed": self.domain_profile.confidence_to_proceed,
-            "audit_enabled": self.domain_profile.audit_all_actions,
+            "audit_configured": self.domain_profile.audit_all_actions,
             "restricted_tools": self.domain_profile.restricted_tools,
+            "enforced": False,  # configuration only: nothing writes an audit trail or restricts tools (4938f99e)
         }
 
     def wire_agent_infrastructure(self) -> None:
+        """Core has no agent executor to wire: agents run as the harness's own subagents.
+
+        This used to register a spawn function that passed a dict where an EpistemicAgentConfig is read, and an aggregate
+        function importing a name that does not exist; both failures were swallowed and orchestration reported ok with no
+        agents (4938f99e). Register real functions with register_spawn_function / register_aggregate_function instead.
         """
-        Wire Sentinel to existing agent-spawn/agent-aggregate infrastructure.
-
-        This connects the Sentinel to CLI commands for actual agent execution.
-        """
-        from empirica.core.agents.epistemic_agent import spawn_epistemic_agent
-
-        def spawn_fn(session_id: str, task: str, persona: str) -> str:
-            """Spawn an epistemic agent via existing infrastructure"""
-            config = {"session_id": session_id, "task": task, "persona": persona, "cascade_style": "exploratory"}
-            result = spawn_epistemic_agent(config)
-            return result.branch_id
-
-        def aggregate_fn(session_id: str, strategy: str = "union") -> dict[str, Any]:
-            """Aggregate agent results"""
-            from empirica.core.agents.epistemic_agent import (
-                aggregate_branches,  # pyright: ignore[reportAttributeAccessIssue]
-            )
-
-            return aggregate_branches(session_id, strategy=strategy)
-
-        self.register_spawn_function(spawn_fn)
-        self.register_aggregate_function(aggregate_fn)
-
-        logger.info("Wired Sentinel to agent infrastructure")
+        self._spawn_unavailable = (
+            "core has no agent executor; run agents as your harness's subagents, or register a spawn function"
+        )
+        raise NotImplementedError(self._spawn_unavailable)
 
     def auto_orchestrate(
         self,

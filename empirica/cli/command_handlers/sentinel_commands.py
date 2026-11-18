@@ -79,8 +79,10 @@ def handle_sentinel_orchestrate_command(args):
                 print(f"  Findings: {len(result.get('aggregated_findings', []))}")
             if profile:
                 print(f"  Domain profile: {profile}")
+            if not result.get("ok", True):
+                print(f"  ❌ {result.get('error') or 'orchestration failed'}")
 
-        return None
+        return 0 if result.get("ok", True) else 1
 
     except Exception as e:
         logger.error(f"Sentinel orchestrate failed: {e}")
@@ -120,7 +122,8 @@ def handle_sentinel_load_profile_command(args):
             "confidence_to_proceed": profile.confidence_to_proceed,
             "gates_count": len(profile.gates),
             "gates": [{"id": g.gate_id, "condition": g.condition, "action": g.action.value} for g in profile.gates],
-            "audit_enabled": profile.audit_all_actions,
+            "audit_configured": profile.audit_all_actions,
+            "enforced": False,  # configuration only: nothing writes an audit trail or restricts tools (4938f99e)
         }
 
         if output_format == "json":

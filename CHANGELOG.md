@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Sentinel's orchestration and profile commands report what actually happened.** `sentinel-orchestrate` reported success with no agents when none could run (core has no agent executor), and exited 0 on a failure; it now fails with the cause and exits 1. An unknown profile name is refused instead of silently loading `general`. A named profile now comes from its shipped YAML, so its gates match the file, and a gate on `unknowns_count` can fire. `sentinel-load-profile` reports audit settings as `audit_configured` with `enforced: false`, since nothing writes an audit trail.
+- **`git ls-remote` and branch or tag listings with a value flag (`--contains HEAD`, `--merged main`, `--format`, `--points-at`) are read as reads**, in a transaction and outside one; they were counted as local git writes.
 - **`log-artifacts` resolves a payload-level `goal_id`.** A unique prefix was stored on every node as typed, so the artifacts never matched their goal in goal-scoped retrieval, and an id that matched no goal was accepted; it is now resolved to the full id, or the call is refused, as a node's `goal_id` already was.
 
 ## [1.17.8] - 2026-11-18
