@@ -298,3 +298,74 @@ def test_postflight_readers_see_the_summarys_score_and_the_feedback_stays_off(mo
     monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: calls.append(a))
     wp._pipeline_cortex_cache_feedback("S", {}, summary)  # a low score, but the opt-in feedback stays off
     assert calls == []
+
+
+def test_a_latest_postflight_without_a_transaction_binds_no_older_goal(db):
+    """1.17.9 sweep: the subquery skipped a NULL-transaction POSTFLIGHT and bound the previous transaction's goal."""
+    from empirica.cli.command_handlers._workflow_postflight import _postflight_goal_for_session
+
+    now = time.time()
+    db.conn.execute(
+        "INSERT INTO reflexes (session_id, phase, round, timestamp, transaction_id) VALUES ('S','POSTFLIGHT',1,?,'tx-old')",
+        (now - 100,),
+    )
+    db.conn.execute(
+        "INSERT INTO reflexes (session_id, phase, round, timestamp, transaction_id) VALUES ('S','POSTFLIGHT',1,?,NULL)",
+        (now,),
+    )
+    db.conn.execute(
+        "INSERT INTO goals (id, session_id, objective, scope, created_timestamp, goal_data, transaction_id) VALUES ('g-old','S','o','{}',?,'{}','tx-old')",
+        (now - 100,),
+    )
+    db.conn.commit()
+    assert _postflight_goal_for_session(db, "S") is None
+
+
+def test_a_check_submit_whose_save_fails_exits_1(monkeypatch):
+    from empirica.cli.command_handlers import _workflow_check as wc
+
+    monkeypatch.setattr(wc.R, "transaction_id", staticmethod(lambda *a, **k: "tx-1"))
+    patches = {
+        "_check_parse_inputs": lambda args: {"session_id": "S", "vectors": {"know": 0.9, "uncertainty": 0.1}, "decision": None,
+                                             "reasoning": "r", "cycle": 1, "output_format": "json", "claims": [], "falsifiers": []},
+        "_check_bootstrap_gate": lambda sid, v: ({}, {}),
+        "_check_get_round_and_history": lambda sid, args, transaction_id=None: (1, []),
+        "_check_load_dynamic_thresholds": lambda sid: (None, 0.35, {}),
+        "_check_detect_diminishing_returns": lambda *a: {"detected": False},
+        "_check_gate_decision": lambda *a, **k: ("proceed", "proceed", None, None),
+        "_check_run_blindspot_scan": lambda result, decision, *a: decision,
+        "_check_apply_weave_enforce": lambda result, decision, *a: decision,
+        "_check_store_and_publish": lambda *a, **k: (_ for _ in ()).throw(RuntimeError("disk full")),
+        "_check_format_output": lambda *a, **k: None,
+    }  # fmt: skip
+    for name, fn in patches.items():
+        monkeypatch.setattr(wc, name, fn)
+    assert wc.handle_check_submit_command(argparse.Namespace()) == 1
+
+
+def test_edges_to_a_local_source_are_recognised_for_dropping(db):
+    from empirica.cli.command_handlers._workflow_postflight import _cortex_local_source_ids
+
+    for sid, vis in (("src-local", "local"), ("src-shared", "shared")):
+        db.conn.execute(
+            "INSERT INTO epistemic_sources (id, project_id, source_type, title, discovered_at, visibility) VALUES (?,?,?,?,?,?)",
+            (sid, "P", "doc", sid, time.time(), vis),
+        )
+    db.conn.commit()
+    assert _cortex_local_source_ids(db, {"src-local", "src-shared", "finding-1"}) == {"src-local"}
+
+
+def test_an_unreadable_criteria_store_becomes_a_postflight_warning(monkeypatch):
+    """1.17.9 sweep: evaluate_goal_criteria itself swallowed the load failure, so the stage's re-raise never fired."""
+    from empirica.cli.command_handlers._workflow_postflight import _run_postflight_goal_criteria
+    from empirica.cli.command_handlers._workflow_shared import _soft_run
+    from empirica.core.goals import repository
+
+    def boom(self, sid):
+        raise RuntimeError("criteria table unreadable")
+
+    monkeypatch.setattr(repository.GoalRepository, "list_active_criteria_for_session", boom)
+    monkeypatch.setattr(repository.GoalRepository, "__init__", lambda self, **k: None)
+    warnings: list = []
+    _soft_run("goal_criteria", warnings, _run_postflight_goal_criteria, "S", "tx", None)
+    assert [w.get("stage") for w in warnings] == ["goal_criteria"]

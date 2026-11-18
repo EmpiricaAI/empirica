@@ -401,15 +401,20 @@ def _pipeline_epistemic_snapshot(
 
 
 def _postflight_goal_for_session(db, session_id: str) -> str | None:
-    """The open or most recent goal bound to the transaction this session last POSTFLIGHTed, or None."""
+    """A goal bound to the transaction of this session's LATEST POSTFLIGHT, an open one first; None when that row has no
+    transaction (skipping it bound an older transaction's goal: 1.17.9 sweep)."""
     try:
         row = db.conn.execute(
-            "SELECT g.id FROM goals g WHERE g.transaction_id = (SELECT transaction_id FROM reflexes WHERE session_id = ? "
-            "AND phase = 'POSTFLIGHT' AND transaction_id IS NOT NULL ORDER BY timestamp DESC LIMIT 1) "
-            "ORDER BY g.created_timestamp DESC LIMIT 1",
+            "SELECT transaction_id FROM reflexes WHERE session_id = ? AND phase = 'POSTFLIGHT' ORDER BY timestamp DESC LIMIT 1",
             (session_id,),
         ).fetchone()
-        return row[0] if row else None
+        if not row or not row[0]:
+            return None
+        goal = db.conn.execute(
+            "SELECT id FROM goals WHERE transaction_id = ? ORDER BY COALESCE(is_completed, 0) ASC, created_timestamp DESC LIMIT 1",
+            (row[0],),
+        ).fetchone()
+        return goal[0] if goal else None
     except Exception as e:
         logger.debug(f"goal for the closed transaction not found: {e}")
         return None
@@ -1704,6 +1709,21 @@ def _cortex_graph_artifact_nodes(sdb, tx_id):
     return nodes, seen_ids, goal_edges
 
 
+def _cortex_local_source_ids(sdb, targets) -> set[str]:
+    """The edge targets that are sources marked visibility='local' (no-egress)."""
+    ids = [t for t in targets if t]
+    if not ids:
+        return set()
+    try:
+        ph = ",".join("?" * len(ids))
+        rows = sdb.conn.execute(
+            f"SELECT id FROM epistemic_sources WHERE id IN ({ph}) AND visibility = 'local'", tuple(ids)
+        ).fetchall()
+        return {r[0] for r in rows}
+    except Exception:
+        return set()
+
+
 def _cortex_graph_edges(sdb, seen_ids):
     """Canonical artifact_edges rows from the given artifacts.
 
@@ -1780,6 +1800,8 @@ def _cortex_extract_transaction_graph(session_id):
             return {}
         edges, targets = _cortex_graph_edges(_sdb, seen_ids)
         nodes += _cortex_graph_source_nodes(_sdb, targets, seen_ids)
+        local = _cortex_local_source_ids(_sdb, targets)
+        edges = [e for e in edges if e["to"] not in local]  # a local source's id must not leave either (1.17.9 sweep)
         return {"nodes": nodes, "edges": goal_edges + edges}
     except Exception:
         return {}

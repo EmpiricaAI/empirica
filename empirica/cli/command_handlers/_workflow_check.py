@@ -1504,7 +1504,7 @@ def handle_check_submit_command(args):
         # Stage 16: Format output
         _check_format_output(output_format, result, session_id, decision, cycle, vectors, reasoning)
 
-        return None
+        return 1 if result.get("ok") is False else None  # a failed save exited 0, as POSTFLIGHT did (1.17.9 sweep)
 
     except Exception as e:
         handle_cli_error(e, "Check submit", getattr(args, "verbose", False))

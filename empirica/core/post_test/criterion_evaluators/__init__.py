@@ -63,8 +63,10 @@ def evaluate_goal_criteria(
         repo = GoalRepository(db_path=db_path)
         pairs = repo.list_active_criteria_for_session(session_id)
     except Exception as e:
-        logger.debug(f"Failed to load active criteria for session {session_id}: {e}")
-        return block
+        # Raised: its one caller (POSTFLIGHT's goal-criteria stage) turns it into a warning. Returning the empty block made
+        # an unreadable criteria store look like "no criteria" (1.17.9 sweep).
+        logger.warning(f"Failed to load active criteria for session {session_id}: {e}")
+        raise
 
     if not pairs:
         return block
