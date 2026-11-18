@@ -11,7 +11,8 @@ Both clients return the SAME event-dict shapes so chat dispatch logic
 stays uniform:
   {"type": "text_delta", "delta": "..."}
   {"type": "completed", "text": "...", "finish_reason": "..."}
-  {"type": "error", "message": "...", "text": "<partial>"}   (terminal, failed)
+  {"type": "error", "message": "...", "text": "<partial>"}   (terminal: failed, cut off at the
+                                                             length limit, or closed before the end)
 
 Used when Provider.wire == "chat_completions". When Provider.wire ==
 "responses", chat falls back to translator_client (codex-server-style
@@ -57,14 +58,28 @@ def build_chat_request(
     instructions: str | None = None,
     history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Build a standard chat-completions request body."""
+    """Build a standard chat-completions request body. Messages of one role in a row are merged (see merge_same_role)."""
     messages: list[dict[str, Any]] = []
     if instructions:
         messages.append({"role": "system", "content": instructions})
-    for h in history or []:
+    for h in merge_same_role([*(history or []), {"role": "user", "text": user_text}]):
         messages.append({"role": h["role"], "content": h["text"]})
-    messages.append({"role": "user", "content": user_text})
     return {"model": model, "messages": messages, "stream": True}
+
+
+def merge_same_role(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """``{role, text}`` entries with consecutive entries of one role joined by a blank line.
+
+    A context line is a user message placed before the next user turn, and a reply that failed leaves two user turns in a
+    row. Strict chat templates (llama.cpp with Gemma- or Mistral-style templates) reject roles that do not alternate.
+    """
+    merged: list[dict[str, Any]] = []
+    for e in entries:
+        if merged and merged[-1]["role"] == e["role"]:
+            merged[-1] = {**merged[-1], "text": f"{merged[-1]['text']}\n\n{e['text']}"}
+        else:
+            merged.append(dict(e))
+    return merged
 
 
 def stream_chat_completions(
@@ -82,7 +97,8 @@ def stream_chat_completions(
        "finish_reason": "stop|length|tool_calls",
        "response_id": "..."}                        (terminal)
       {"type": "error", "message": "...",
-       "text": "<partial>"}                         (terminal, on an error chunk)
+       "text": "<partial>"}                         (terminal: an error chunk, finish_reason
+                                                     "length", or a stream that closed mid-reply)
 
     Raises ProviderError on non-2xx.
     """
@@ -93,7 +109,7 @@ def stream_chat_completions(
 
     accumulated: list[str] = []
     response_id: str | None = None
-    finish_reason = "stop"
+    finish_reason: str | None = None  # None until a chunk says why the reply ended
 
     with requests.post(url, json=request_body, headers=headers, stream=True, timeout=timeout) as resp:
         if not resp.ok:
@@ -110,12 +126,7 @@ def stream_chat_completions(
             if not data:
                 continue
             if data == "[DONE]":
-                yield {
-                    "type": "completed",
-                    "text": "".join(accumulated),
-                    "finish_reason": finish_reason,
-                    "response_id": response_id,
-                }
+                yield _terminal_event(accumulated, finish_reason or "stop", response_id)
                 return
             try:
                 chunk = json.loads(data)
@@ -144,13 +155,21 @@ def stream_chat_completions(
                     accumulated.append(content)
                     yield {"type": "text_delta", "delta": content}
 
-    # Stream closed without [DONE] — synthesize completed
-    yield {
-        "type": "completed",
-        "text": "".join(accumulated),
-        "finish_reason": finish_reason,
-        "response_id": response_id,
-    }
+    # Closed without [DONE]. A chunk that said why the reply ended means the model finished (some servers omit [DONE]);
+    # without one the connection dropped mid-reply, and the partial is an incomplete reply, never a completed one.
+    yield _terminal_event(accumulated, finish_reason, response_id)
+
+
+def _terminal_event(accumulated: list[str], finish_reason: str | None, response_id: str | None) -> dict[str, Any]:
+    """The last event of a reply. Cut off at the token limit is an error with the partial text, as the Responses path's
+    response.incomplete is: the reply is kept, marked incomplete, with a note saying why. No finish_reason at all means
+    the stream stopped before the reply did."""
+    text = "".join(accumulated)
+    if finish_reason is None:
+        return {"type": "error", "message": "stream ended before the reply completed", "text": text}
+    if finish_reason == "length":
+        return {"type": "error", "message": "reply cut off at the length limit (finish_reason length)", "text": text}
+    return {"type": "completed", "text": text, "finish_reason": finish_reason, "response_id": response_id}
 
 
 def _chunk_error(chunk: Any) -> str | None:

@@ -44,8 +44,11 @@ def build_request_body(
     Phase 2a flattens these into the input chain. Phase 4+ extends to tool
     calls + reasoning items.
     """
+    from empirica.core.chat.openai_compat_client import merge_same_role
+
+    # A translator in front of a strict chat template rejects two user messages in a row, as the direct path would.
     input_items: list[dict[str, Any]] = []
-    for h in history or []:
+    for h in merge_same_role([*(history or []), {"role": "user", "text": user_text}]):
         input_items.append(
             {
                 "type": "message",
@@ -53,13 +56,6 @@ def build_request_body(
                 "content": [{"type": "input_text" if h["role"] == "user" else "output_text", "text": h["text"]}],
             }
         )
-    input_items.append(
-        {
-            "type": "message",
-            "role": "user",
-            "content": [{"type": "input_text", "text": user_text}],
-        }
-    )
 
     body: dict[str, Any] = {
         "model": model,

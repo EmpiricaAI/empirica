@@ -171,8 +171,10 @@ class ChatApp(App):
                 )
 
                 bc = load_breadcrumb(self.session_id_to_resume)
-                if bc is not None:
-                    recovery_msg = format_recovery_message(bc)
+                recovery_msg = format_recovery_message(bc) if bc is not None else None
+                # The breadcrumb is kept, so each resume would add the same note again. The note's text is the
+                # breadcrumb rendered, so an equal text on the latest recovery turn is the same breadcrumb.
+                if recovery_msg is not None and recovery_msg != _latest_recovery_text(self._session.turns):
                     recovery_turn = Turn.new(
                         TurnKind.SYSTEM,
                         recovery_msg,
@@ -284,15 +286,7 @@ class ChatApp(App):
         assert provider is not None and model is not None  # noqa: S101 — gated
 
         # Build request from prior history (exclude the just-appended user turn).
-        # SYSTEM turns stay UI-only unless they are model context (a card's
-        # 'discuss', the compact-recovery note); those go as a user-role
-        # context line, the one role both clients accept mid-history.
-        history: list[dict[str, Any]] = []
-        for t in self._session.turns[:-1]:
-            if t.kind in (TurnKind.USER, TurnKind.AGENT_TEXT):
-                history.append({"role": _to_translator_role(t.kind), "text": t.text})
-            elif t.kind == TurnKind.SYSTEM and _is_model_context(t):
-                history.append({"role": "user", "text": f"[empirica chat context] {t.text}"})
+        history = _model_history(self._session.turns[:-1])
 
         # Allocate a single AgentTurn we mutate as deltas arrive.
         # Phase 14: default source='intuition'; Phase 2b will flip to
@@ -1016,6 +1010,37 @@ def _is_model_context(turn: Turn) -> bool:
     """A SYSTEM turn meant for the model, not just the screen."""
     meta = turn.metadata or {}
     return bool(meta.get("compact_recovery") or meta.get("discuss_context"))
+
+
+def _model_history(turns: list[Turn]) -> list[dict[str, Any]]:
+    """What the model is sent of ``turns``, as ``{role, text}``.
+
+    SYSTEM turns stay UI-only unless they are model context (a card's 'discuss', the compact-recovery note); those go as a
+    user-role context line, the one role both clients accept mid-history. Only the latest compact-recovery note goes: each
+    describes the whole session, so an older one is stale; every discuss turn is its own context and stays. Messages of one
+    role in a row are merged by the request builders, because strict chat templates require alternation.
+    """
+    latest_recovery = max(
+        (i for i, t in enumerate(turns) if t.kind == TurnKind.SYSTEM and (t.metadata or {}).get("compact_recovery")),
+        default=None,
+    )
+    history: list[dict[str, Any]] = []
+    for i, t in enumerate(turns):
+        if t.kind in (TurnKind.USER, TurnKind.AGENT_TEXT):
+            history.append({"role": _to_translator_role(t.kind), "text": t.text})
+        elif t.kind == TurnKind.SYSTEM and _is_model_context(t):
+            if (t.metadata or {}).get("compact_recovery") and i != latest_recovery:
+                continue
+            history.append({"role": "user", "text": f"[empirica chat context] {t.text}"})
+    return history
+
+
+def _latest_recovery_text(turns: list[Turn]) -> str | None:
+    """The text of the session's latest compact-recovery turn, or None."""
+    for t in reversed(turns):
+        if t.kind == TurnKind.SYSTEM and (t.metadata or {}).get("compact_recovery"):
+            return t.text
+    return None
 
 
 def _responses_error_message(ev: dict[str, Any]) -> str:
