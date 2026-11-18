@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`/graph-harvest`: put what existing material knows into the graph.** Reads documents, past conversations (only where a practice allows its transcripts to be read), code or designs, and records the decisions, assumptions, open questions and dead ends they hold as typed artifacts, linked to what the graph already has and to the material as a source. It is a reasoning pass by the practitioner, not an automatic extractor.
 - **A `harvested` source tag.** Artifacts back-filled from existing material are tagged `harvested` and stored outside every transaction, so calibration never counts them as work observed in the session that logged them. Re-tagging an artifact as harvested moves it out of its transaction too.
 
+### Fixed
+
+- **`log-artifacts` resolves a payload-level `goal_id`.** A unique prefix was stored on every node as typed, so the artifacts never matched their goal in goal-scoped retrieval, and an id that matched no goal was accepted; it is now resolved to the full id, or the call is refused, as a node's `goal_id` already was.
+
 ## [1.17.8] - 2026-11-18
 
 ### Changed

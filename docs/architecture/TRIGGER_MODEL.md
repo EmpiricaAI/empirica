@@ -150,4 +150,5 @@ one-shot to `fire_at` — which for a cron loop would be *now*. A caller handing
 that to `CronCreate` would fire immediately while believing it had scheduled
 tomorrow's 09:00 run. Absent beats plausible-but-wrong.
 
-Full cron arithmetic is tracked in #396.
+Full cron arithmetic is not implemented, and nothing tracks it: #396, cited here before, is closed and fixed a
+different defect (cron loops queued as interval loops).

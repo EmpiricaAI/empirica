@@ -52,3 +52,20 @@ def test_log_artifacts_resolves_node_goal_ids_before_creating():
     from empirica.cli.command_handlers import graph_commands
 
     assert "_canonical_goal_id(node_goal, db)" in inspect.getsource(graph_commands)
+
+
+def test_log_artifacts_resolves_the_graph_level_goal_id(monkeypatch):
+    """A payload-level ``goal_id`` prefix was stored verbatim on every node (graph-harvest pilot, 2026-11-18), so the
+    artifacts never matched goal-scoped retrieval, which compares full ids."""
+    import argparse
+
+    from empirica.cli.command_handlers import graph_commands
+
+    class _SessionDB(_DB):
+        def get_session(self, sid):
+            return {"project_id": "p"}
+
+    db = _SessionDB(FULL)
+    monkeypatch.setattr(graph_commands, "_session_ai_id", lambda db, sid: "x", raising=False)
+    ctx = graph_commands._resolve_graph_context({"session_id": "s", "goal_id": "7f7ccb9f"}, argparse.Namespace(), db)
+    assert ctx["goal_id"] == FULL

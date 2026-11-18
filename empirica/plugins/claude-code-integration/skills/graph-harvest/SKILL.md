@@ -46,8 +46,10 @@ made: it is the material's finding (say whose, via its source), or, when the wor
 
 1. **Read it whole.** List what it claims, chose, took for granted, and left open.
 2. **Look for each in the graph first** (`empirica project-search --task "<claim>"`). Already there: link to it
-   (`evidence`, `invalidates`, `resolves`), do not duplicate. Contradicts a current artifact: log the contradiction and
-   edge it with `invalidates`; retracting the old one is a separate, deliberate act.
+   (`evidence`, `grounded_by`, `resolves`), do not duplicate. **An `invalidates` edge retires its target**: give it
+   `"metadata": {"kind": "stale" | "superseded" | "retracted", "reason": "..."}` (`stale` when the old artifact was
+   true when written, `retracted` when it was wrong), or it closes with no kind recorded. A contradiction you are not
+   sure of is an `evidence` edge plus an unknown, not an `invalidates`.
 3. **Type each new one by its question** (`/artifact-graph`). What material holds most and graphs miss most:
    - **decisions** with the alternatives and what would reverse them; when the material gives no reversal condition,
      log the decision and an **unknown** asking for it;
@@ -57,7 +59,7 @@ made: it is the material's finding (say whose, via its source), or, when the wor
 4. **Register the material once**: `empirica source-add --title "<doc or conversation>" --path <file> --noetic`
    (`--url <link>` for a page), and give every node a `sourced_from` edge to it.
 5. **Write the unit in one call**: `empirica log-artifacts -` with its nodes and edges, every node `harvested`, and its
-   `visibility` left local.
+   `visibility` left local. Put the harvest goal's id in the payload (`"goal_id"`) so every node attaches to it.
 6. **Falsifiers wait.** An assumption worth testing gets a falsifier at your next PREFLIGHT or CHECK (`falsifiers`,
    with a `query`); list them in the report so they are not lost.
 

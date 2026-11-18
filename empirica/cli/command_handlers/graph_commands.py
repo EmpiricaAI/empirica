@@ -1018,7 +1018,17 @@ def _resolve_graph_context(graph: dict, args, db) -> dict | None:
     # repo keeps producing. `log-artifacts` is also the verb the system prompt
     # tells practitioners to PREFER, so the recommended path was the broken one.
     goal_id = graph.get("goal_id")
-    if not goal_id:
+    if goal_id:
+        # A caller-named goal is resolved like a node's (unique prefix to full id, or refused): stored verbatim, a
+        # prefix never matched goal-scoped retrieval, which compares full ids (graph-harvest pilot, 2026-11-18).
+        from empirica.cli.command_handlers.artifact_log_commands import _canonical_goal_id
+
+        try:
+            goal_id = _canonical_goal_id(goal_id, db)
+        except ValueError as e:
+            print(json.dumps({"ok": False, "error": f"goal_id: {e}"}))
+            return None
+    else:
         try:
             from empirica.cli.command_handlers.artifact_log_commands import _resolve_goal_for_artifact
 

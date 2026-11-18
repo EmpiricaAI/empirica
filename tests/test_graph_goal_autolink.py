@@ -60,9 +60,15 @@ def test_autolinks_to_the_open_goal():
 def test_explicit_goal_id_wins_over_autolink():
     """The payload is an override, not a suggestion — a caller naming a goal
     means it, even if a different goal is the most recent open one."""
-    db = _DB([("g-open", "S1", 0, 100.0)])
+    db = _DB([("g-explicit", "S0", 0, 50.0), ("g-open", "S1", 0, 100.0)])
     ctx = gc._resolve_graph_context({"goal_id": "g-explicit"}, _args(), db)
     assert ctx["goal_id"] == "g-explicit"
+
+
+def test_an_explicit_goal_id_that_matches_no_goal_is_refused():
+    """Stored verbatim, a goal id that matches nothing (or only a prefix) left every node unreachable from its goal."""
+    db = _DB([("g-open", "S1", 0, 100.0)])
+    assert gc._resolve_graph_context({"goal_id": "g-missing"}, _args(), db) is None
 
 
 def test_most_recent_open_goal_wins():
