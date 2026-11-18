@@ -24,24 +24,32 @@ want to work with AI**, in that order of importance. Write it to `workflow-proto
 
 One question, first:
 
-> How much time for setup? · **Quick, about 3 minutes (Recommended)**: your kinds of work, a ready setup, how much the AI
-> does on its own · **Standard, about 7 minutes**: adds how you like to work and checks the practices I'm unsure about ·
-> **Deep, about 12 minutes**: adds your goals, trust and a full pass over which practices to start with
+> How much time for setup? · **Quick, about 5 minutes (Recommended)**: your kinds of work, a ready setup, how much the AI
+> does on its own · **Standard, about 10 minutes**: adds how you like to work and checks the practices I'm unsure about ·
+> **Deep, about 15 minutes**: adds your goals, trust and a full pass over which practices to start with
 
-| Tier | Calls | Phases |
+| Tier | Calls about the person | Phases |
 |---|---|---|
-| Quick | 2–3 | 1 (work), 2 (practices: confirm the preset), the autonomy question from 3 |
-| Standard | 4 | 1, 2 (with the 'ask' questions), 3 |
+| Quick | 3 | 1 (work: two calls), 2 (practices: confirm the preset, with the autonomy question from 3 in the same call) |
+| Standard | 4–5 | 1, 2 (with the 'ask' questions), 3 |
 | Deep | 5–6 | 1, 2, 3, 4 (goals and trust) |
 
-Every tier ends with Phase 5: provisioning. Quick still sets up working practices.
+Every tier then runs the same setup steps, a few taps each: save and review the protocol (Output), provision (Phase 5),
+first plan. Quick still sets up working practices.
+
+**Order:** Step 0 → Phases 1–4 (as the tier allows) → Output (write, review, save) → Phase 5 (provision, first plan,
+cockpit) → After saving.
 
 ## Phase 1 — The work (every tier)
 
 | Ask | Shape | Options |
 |---|---|---|
-| Which kinds of work do you do? | multi | the work kinds in `empirica/config/practice_templates.yaml` (`workloads`): building or maintaining software, research and synthesis, writing and content, outreach and sales, client or consulting engagements, operations and infrastructure, data and analysis |
+| Which kinds of work do you do? (1 of 2) | multi | building or maintaining software · research and synthesis · writing and content · data and analysis |
+| Which kinds of work do you do? (2 of 2) | multi | outreach and sales · client or consulting engagements · operations and infrastructure |
 | For each one picked: how often? | single per kind (batch up to 4) | Often (weekly or more) · Sometimes · Rarely |
+
+The seven kinds are the `workloads` keys in `empirica/config/practice_templates.yaml`; a question takes at most 4 options,
+so they go in two questions in one call.
 
 If they build software, ask which codebases (detect repos first; offer what you found). Each becomes its own builder
 practice, typed by what it is (`web-app`, `cli`, `library`, `service`, …).
@@ -116,9 +124,9 @@ Per practice, from its template and the answers:
 | the template's `type` (a builder: the codebase's own type) | `--type <type>` |
 | the template's `for`, in the person's words | `--description "<sentence>"` |
 | the template's `domain` | `--domain <name>` |
-| terminal: Claude Code / ecodex / both | `--cockpit-profile <name>`, plus `--launch ecodex` or `--second-pane ecodex` |
-| desktop or web app only | no cockpit flags |
-| a model other than the harness default | `--launch "claude --model <model>"` |
+| the harness: detect it (`command -v claude`, `command -v ecodex`); ask only when both are installed | `--cockpit-profile <name>`, plus `--launch ecodex` or `--second-pane ecodex` |
+| neither in a terminal (desktop or web app only) | no cockpit flags |
+| a model, only when the person names one; otherwise omit `model` | `--launch "claude --model <model>"` |
 
 Tenant, org and Forgejo come from the person's sign-in and these flags, never from a protocol file. **Suggest** the
 template's `skills`; install nothing unread, and only with the person's yes for that download.
@@ -132,16 +140,17 @@ from the answers (the repo, the client, the question). Show it in one question: 
 (Recommended)** · Change the focus · Not now. On yes, in that practice, with no Cortex needed:
 
 ```bash
-cd <practice directory>          # the goal and its tasks live in the practice's own database
+export EMPIRICA_SESSION_DB=<practice directory>/.empirica/sessions/sessions.db   # the practice's own database
 SID=$(empirica session-create --ai-id <practice> --output json | jq -r .session_id)
 G=$(empirica goals-create --session-id "$SID" --status planned \
   --objective "<starter objective>" --description "<why: the person's answer, and that onboarding set it up>" \
   --output json | jq -r .goal_id)
 empirica goals-add-task --goal-id "$G" --description "<each task>"
+unset EMPIRICA_SESSION_DB
 ```
 
-A freshly provisioned practice has no session yet, so `goals-create` needs the one created here (checked on a
-new local practice for 1.17.8).
+Name the database: changing directory is not enough, because your own open transaction keeps the commands on your
+practice's database. A freshly provisioned practice has no session yet, so `goals-create` needs the one made here.
 
 Say where it is: "your <practice> practice has its first plan; open its tab and say *start*."
 
@@ -199,6 +208,6 @@ work.
 
 ## After saving
 
-1. Save it; provision (Phase 5); report per practice.
+1. Report per practice what Phase 5 did (provisioning runs once, after the save).
 2. `empirica finding-log` with what was set up: the tier, N practices provisioned, the preset if one was used.
 3. Say how to change it: re-run `/ewm-interview`, or edit the YAML; it is theirs.
