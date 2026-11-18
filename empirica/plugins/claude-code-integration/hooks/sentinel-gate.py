@@ -444,6 +444,7 @@ SAFE_BASH_PREFIXES = (
     "git merge-base ",  # trailing space: a word boundary, so `git merge-basefoo` is not this
     "git rev-list",
     "git for-each-ref",
+    "git ls-remote ",  # a network read; trailing space: `git ls-remotes` is not this
     "git describe",
     "git shortlog",
     "git grep",

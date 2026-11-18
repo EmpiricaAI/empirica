@@ -253,3 +253,21 @@ def test_the_commands_inside_a_substitution_are_classified():
     """Goal e6ee7d01: $(...) and backticks run their commands too; they are classed, not only flagged unreliable."""
     assert "delete_recursive" in infer("echo $(rm -rf x)")["classes"]
     assert infer("echo `date`")["classes"] == []
+
+
+@pytest.mark.parametrize(
+    ("command", "classes"),
+    [
+        ("git ls-remote --heads origin", []),  # a network read: lists refs, writes nothing (2026-11-14 over-gate)
+        ("git branch --contains HEAD", []),  # the flag's value is a commit, not a new branch name
+        ("git branch --merged main", []),
+        ("git branch --format '%(refname:short)'", []),
+        ("git tag --points-at HEAD", []),
+        ("git branch --sort -committerdate", []),
+        ("git branch newname", ["vcs_local"]),  # near miss: a bare name still creates a branch
+        ("git branch --merged main newname", ["vcs_local"]),  # a name after the value still creates one
+        ("git tag v9", ["vcs_local"]),
+    ],
+)
+def test_git_ref_listings_with_value_flags_read(command, classes):
+    assert infer(command)["classes"] == classes

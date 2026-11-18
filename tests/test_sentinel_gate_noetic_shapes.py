@@ -336,3 +336,14 @@ def test_file_compiling_a_magic_file_is_praxic_and_reading_one_is_not(gate):
     assert not gate.is_safe_bash_command({"command": "file -C -m magic"})
     assert not gate.is_safe_bash_command({"command": "file --compile -m magic"})
     assert gate.is_safe_bash_command({"command": "file -b -m magic f.bin"})
+
+
+@pytest.mark.parametrize(
+    ("command", "noetic"),
+    [
+        ("git ls-remote --heads origin", True),  # a network read (over-gated 2026-11-14)
+        ("git ls-remotes origin", False),  # near miss: a word that merely starts with it
+    ],
+)
+def test_git_ls_remote_is_a_read(gate, command, noetic):
+    assert gate._classify_tool_phase("Bash", {"command": command}) is noetic

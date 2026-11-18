@@ -425,7 +425,7 @@ _PACKAGE_PROGRAMS = {
 _PACKAGE_VERBS = {"install", "uninstall", "add", "remove", "upgrade", "sync", "reinstall"}
 _GIT_READS = {
     "status", "log", "diff", "show", "blame", "grep", "rev-parse", "ls-files", "ls-tree", "for-each-ref", "describe",
-    "shortlog", "cat-file", "fetch", "rev-list", "merge-base", "check-ignore", "reflog", "help", "version",
+    "shortlog", "cat-file", "fetch", "rev-list", "merge-base", "check-ignore", "reflog", "help", "version", "ls-remote",
 }  # fmt: skip
 _GH_READS = {"list", "view", "status", "diff", "checks", "watch", "download"}
 _SYSTEMCTL_READS = {"status", "show", "list-units", "list-unit-files", "list-timers", "is-active", "is-enabled", "cat"}
@@ -605,6 +605,9 @@ _GIT_LISTING_FLAGS = {
     "branch": {"-l", "--list", "--show-current"},
     "tag": {"-l", "--list"},
 }
+#: Listing flags of branch and tag that take a value: the value names a commit, a pattern or a format, not a new ref. Mirrors
+#: the hook's _GIT_REF_VALUE_FLAGS; ``git branch --merged main`` was read as creating a branch named "main" (2026-11-18).
+_GIT_REF_VALUE_FLAGS = {"--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--sort", "--format"}
 _GIT_BRANCH_WRITE_FLAGS = {
     "-d",
     "-D",
@@ -662,7 +665,10 @@ def _git(args: list[str]) -> set[str]:
         return {"vcs_remote"}
     if verb in ("branch", "tag"):
         writes = verb == "branch" and any(a in _GIT_BRANCH_WRITE_FLAGS for a in tail)
-        if not writes and (not _positional(tail) or any(a in _GIT_LISTING_FLAGS[verb] for a in tail)):
+        names = [
+            a for i, a in enumerate(tail) if not a.startswith("-") and not (i and tail[i - 1] in _GIT_REF_VALUE_FLAGS)
+        ]
+        if not writes and (not names or any(a in _GIT_LISTING_FLAGS[verb] for a in tail)):
             return set()
         return {"vcs_local"}
     worktree = {"project_write"} if _rewrites_worktree(verb, tail) else set()
