@@ -353,7 +353,11 @@ domain checklist via the compliance loop:
 1. `DomainRegistry.resolve(work_type, domain, criticality)` → `Checklist`
 2. `ServiceRegistry.run(check_id, context)` for each required check
 3. Results stored in `compliance_checks` table
-4. Status: `complete` (all pass) | `iteration_needed` (failures) | `max_iterations_exceeded`
+4. Status: `complete` (all pass) | `complete_with_deferred` (nothing failed, but checks above
+   the run's tier, e.g. goal_completion or release, were deferred and are listed in
+   `checks_deferred`) | `iteration_needed` (failures) | `max_iterations_exceeded`.
+   Both complete statuses end the loop and feed the learning trajectory; only
+   `complete` is `fully_verified`.
 
 **Check-outcome Brier scoring (B4):** If the AI predicted `P(check passes)` in
 PREFLIGHT via `predicted_check_outcomes`, the compliance response includes a

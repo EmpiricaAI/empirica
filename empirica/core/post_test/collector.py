@@ -130,9 +130,10 @@ class EvidenceBundle:
     in POSTFLIGHT response when sources_failed is non-empty so failures
     can be debugged from the output alone.
 
-    source_notes maps source name → why it came back empty, for the sources
-    that can say (pytest: no_test_report | stale_test_report | empty_test_report).
-    Only a source listed in sources_empty carries one.
+    source_notes maps source name → what it could not grade, for the sources
+    that can say (pytest: no_test_report | stale_test_report | empty_test_report;
+    web: build not run, output older than PREFLIGHT). pytest and code_quality set
+    one only when empty; web's build note travels even when it graded output.
 
     Helpers `has`, `get`, `direction` provide named-metric lookup for consumers
     like the goal-criterion EvidenceMetricEvaluator. They search items by
@@ -510,6 +511,7 @@ class PostTestCollector:
             phase=self.phase,
             check_timestamp=self.check_timestamp,
             project_path=self._resolve_project_root(),
+            preflight_timestamp=self.preflight_timestamp,
         )
 
         def _collect_web() -> list[EvidenceItem]:
@@ -615,8 +617,10 @@ class PostTestCollector:
                     # different from crashing — track it separately so
                     # genuine failures can be debugged.
                     bundle.sources_empty.append(source_name)
-                    if source_name in self._source_notes:
-                        bundle.source_notes[source_name] = self._source_notes[source_name]
+                # A note travels whether or not the source graded something: web grades output and
+                # still has to say that no build ran.
+                if source_name in self._source_notes:
+                    bundle.source_notes[source_name] = self._source_notes[source_name]
             except Exception as e:
                 logger.debug(f"Evidence source {source_name} failed: {e}")
                 bundle.sources_failed.append(source_name)
@@ -2549,6 +2553,27 @@ class PostTestCollector:
             )
             if result.returncode == 0:
                 all_files.update(f.strip() for f in result.stdout.strip().split("\n") if f.strip())
+
+            # 4. Untracked, not ignored: a transaction that only creates files is in none of the above. A file
+            # last written before the window is a leftover, not this transaction's work.
+            result = subprocess.run(
+                ["git", "ls-files", "--others", "--exclude-standard"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                cwd=project_root,
+            )
+            if result.returncode == 0:
+                start = float(since[1:]) if since and since.startswith("@") else None
+                base = Path(project_root) if project_root else Path.cwd()
+                for f in (f.strip() for f in result.stdout.split("\n")):
+                    if not f:
+                        continue
+                    try:
+                        if start is None or (base / f).stat().st_mtime >= start:
+                            all_files.add(f)
+                    except OSError:
+                        continue
 
             # No fallback to recent commits when nothing changed: HEAD~5..HEAD
             # graded other transactions' work as this one's and made the

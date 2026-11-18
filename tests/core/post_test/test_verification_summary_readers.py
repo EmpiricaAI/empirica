@@ -130,3 +130,25 @@ def test_without_a_project_path_the_old_cwd_resolution_still_applies(db, tmp_pat
     s = gc.run_grounded_verification("s1", {"know": 0.8}, db)
     assert s is not None
     assert "grounded_calibration:" in (repo / ".breadcrumbs.yaml").read_text()
+
+
+def test_the_ai_facing_copy_carries_no_per_vector_gaps(db, tmp_path, monkeypatch):
+    """POSTFLIGHT's readers need `gaps`; the AI must not see per-vector divergence (Goodhart).
+
+    The handler's strip removed only _internal_* keys, so the top-level `gaps` added for the readers reached the AI."""
+    monkeypatch.chdir(tmp_path)
+    s = gc._build_verification_summary(
+        {"praxic": _phase({"know": 0.2, "do": -0.1}, 0.62, 0.8)}, "s1", db, git_root=str(tmp_path)
+    )
+    ai = gc.ai_facing_summary(s)
+    assert "gaps" not in ai
+    assert not any(k.startswith("_internal_") for k in ai)
+    assert ai["evidence_summary"] == s["evidence_summary"] and ai["grounded_coverage"] == 0.62
+    assert s["gaps"] == {"know": 0.2, "do": -0.1}  # the readers' summary is not mutated
+
+
+def test_the_ai_facing_copy_of_an_insufficient_result_carries_no_gaps_or_updates():
+    raw = gc._build_insufficient_evidence_response("praxic", {"know": 0.7}, None, 0.0, reason="r")
+    ai = gc.ai_facing_summary(raw)
+    assert "gaps" not in ai and "updates" not in ai
+    assert ai["self_assessed"] == {"know": 0.7}

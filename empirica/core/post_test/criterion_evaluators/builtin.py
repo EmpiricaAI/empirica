@@ -34,6 +34,40 @@ COMPLETION_METRIC_NAMES = frozenset(
 )
 
 
+# Metrics whose `value` is a normalised score while their NAME promises a measure the collector keeps in `raw_value`:
+# metric -> the raw_value key holding that measure. The densities store `1 - density/k` (higher is better), commit_count
+# a maturity-normalised score; a typed threshold is written in the quantity the name promises, so it is compared there.
+# `inverse_severe_issue_density` and `readability_density` are not here: their names already promise the score.
+NAMED_MEASURE_KEYS = {
+    "ruff_violation_density": "per_100_lines",  # collector._collect_ruff_evidence
+    "proselint_violations": "per_100_words",  # prose_collector._run_proselint
+    "commit_count": "commits",  # collector._collect_git_metrics
+}
+
+
+def _named_measure(evidence, metric: str) -> float | None:
+    """The quantity `metric`'s name promises, read from its raw_value; None when the metric is not one of these or the measure is absent.
+
+    A clean ruff run carries `{"violations": 0}` and no per-100 figure: its density is 0."""
+    key = NAMED_MEASURE_KEYS.get(metric)
+    raw = evidence.raw(metric) if key else None
+    if not isinstance(raw, dict):
+        return None
+    v = raw.get(key)
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return float(v)
+    if raw.get("violations") == 0:
+        return 0.0
+    return None
+
+
+def _compare(value: float, threshold: float, operator: str | None, direction: str) -> tuple[bool, str]:
+    """Compare with the author's operator; a criterion without one (dict form, stored before the field existed) infers it from direction."""
+    if operator not in ("<=", ">="):
+        operator = "<=" if direction == "lower_is_better" else ">="
+    return (value <= threshold if operator == "<=" else value >= threshold), operator
+
+
 def _is_completion_shaped(criterion) -> bool:
     """Is this criterion actually ABOUT subtask completion?
 
@@ -137,7 +171,7 @@ class SubtaskCompletionEvaluator:
                     criterion_id=ctx.criterion.id,
                     goal_id=ctx.goal.id,
                     validation_method=self.validation_method,
-                    passed=True,
+                    passed=_compare(1.0, threshold, getattr(ctx.criterion, "operator", None), "higher_is_better")[0],
                     value=1.0,
                     threshold=threshold,
                     summary="Goal marked complete (no tasks)",
@@ -154,7 +188,7 @@ class SubtaskCompletionEvaluator:
             )
 
         ratio = progress.get("completion_percentage", 0.0) / 100.0
-        passed = ratio >= threshold
+        passed, op = _compare(ratio, threshold, getattr(ctx.criterion, "operator", None), "higher_is_better")
         return CriterionResult(
             criterion_id=ctx.criterion.id,
             goal_id=ctx.goal.id,
@@ -162,7 +196,7 @@ class SubtaskCompletionEvaluator:
             passed=passed,
             value=ratio,
             threshold=threshold,
-            summary=f"task completion {ratio:.0%} vs threshold {threshold:.0%}",
+            summary=f"task completion {ratio:.0%} {op} {threshold:.0%}",
             iteration_needed=(not passed and ctx.criterion.is_required),
             next_transaction="Complete remaining required tasks" if not passed else None,
         )
@@ -225,17 +259,24 @@ class EvidenceMetricEvaluator:
             )
 
         direction = ctx.evidence.direction(metric)
-        # The author's operator wins over the inferred one: *_density metrics carry a
-        # higher-is-better score, so inference evaluated "@<=0.25" as ">= 0.25".
         operator = getattr(ctx.criterion, "operator", None)
-        if operator not in ("<=", ">="):
-            operator = "<=" if direction == "lower_is_better" else ">="
-        if operator == "<=":
-            passed = value <= threshold
-            op_repr = "<="
-        else:
-            passed = value >= threshold
-            op_repr = ">="
+        measured = metric
+        if operator in ("<=", ">=") and metric in NAMED_MEASURE_KEYS:
+            # A written operator is about the quantity the name promises, not the score stored as `value`:
+            # on the score, `ruff_violation_density@<=0.25` failed clean code (1.0) and passed bad code.
+            value = _named_measure(ctx.evidence, metric)
+            measured = f"{metric}[{NAMED_MEASURE_KEYS[metric]}]"
+            if value is None:
+                return CriterionResult(
+                    criterion_id=ctx.criterion.id,
+                    goal_id=ctx.goal.id,
+                    validation_method=self.validation_method,
+                    passed=False,
+                    skipped=True,
+                    threshold=threshold,
+                    summary=f"metric {metric!r} carries no {NAMED_MEASURE_KEYS[metric]!r} measure to compare",
+                )
+        passed, op_repr = _compare(value, threshold, operator, direction)
 
         return CriterionResult(
             criterion_id=ctx.criterion.id,
@@ -244,7 +285,7 @@ class EvidenceMetricEvaluator:
             passed=passed,
             value=value,
             threshold=threshold,
-            summary=f"{metric}={value:.3f} {op_repr} {threshold:.3f} ({direction})",
+            summary=f"{measured}={value:.3f} {op_repr} {threshold:.3f} ({direction})",
             iteration_needed=(not passed and ctx.criterion.is_required),
             next_transaction=f"Address {metric} regression" if not passed else None,
         )
@@ -295,7 +336,9 @@ class BundleMetricThresholdEvaluator:
 
     def evaluate(self, ctx: CriterionContext) -> CriterionResult:
         threshold = ctx.criterion.threshold if ctx.criterion.threshold is not None else self._default_threshold
-        value = ctx.evidence.get(self._metric)
+        value = _named_measure(ctx.evidence, self._metric)
+        if value is None:
+            value = ctx.evidence.get(self._metric)
         if value is None:  # has() raced or returned a non-scalar — skip honestly
             return CriterionResult(
                 criterion_id=ctx.criterion.id,
@@ -306,12 +349,7 @@ class BundleMetricThresholdEvaluator:
                 threshold=threshold,
                 summary=f"metric {self._metric!r} present but carries no scalar value",
             )
-        if self._direction == "lower_is_better":
-            passed = value <= threshold
-            op = "<="
-        else:
-            passed = value >= threshold
-            op = ">="
+        passed, op = _compare(value, threshold, getattr(ctx.criterion, "operator", None), self._direction)
         return CriterionResult(
             criterion_id=ctx.criterion.id,
             goal_id=ctx.goal.id,

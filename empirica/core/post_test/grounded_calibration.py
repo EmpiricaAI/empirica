@@ -61,6 +61,17 @@ logger = logging.getLogger(__name__)
 # work item — see docs/superpowers/specs/2026-04-08-sentinel-measurer-remote-ops-design.md).
 INSUFFICIENT_EVIDENCE_THRESHOLD = 0.3
 
+# Per-vector keys a verification summary carries for POSTFLIGHT's readers (they subtract `gaps` from the POSTFLIGHT
+# vectors) that must not reach the AI: it calibrates from evidence_summary + calibration_reflection, not from per-vector
+# divergence it could optimise toward (Goodhart).
+AI_HIDDEN_SUMMARY_KEYS = frozenset({"gaps", "updates"})
+
+
+def ai_facing_summary(summary: dict) -> dict:
+    """The copy of a verification summary the AI may see: no _internal_* keys and no per-vector gaps/updates. A new dict;
+    the summary the handler's readers use keeps everything."""
+    return {k: v for k, v in summary.items() if not k.startswith("_internal_") and k not in AI_HIDDEN_SUMMARY_KEYS}
+
 
 def _build_insufficient_evidence_response(
     phase: str,

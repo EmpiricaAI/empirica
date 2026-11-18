@@ -24,11 +24,24 @@ class ComplianceStatus(str, Enum):
     MANUAL_OVERRIDE = "manual_override"
 
     @property
+    def is_complete(self) -> bool:
+        """Nothing failed, so the loop does not iterate. True with deferred checks too: see fully_verified."""
+        return self in (ComplianceStatus.COMPLETE, ComplianceStatus.COMPLETE_WITH_DEFERRED)
+
+    @property
+    def fully_verified(self) -> bool:
+        """Complete AND every required check ran. complete_with_deferred is not: its higher-tier checks never ran."""
+        return self is ComplianceStatus.COMPLETE
+
+    @property
     def writes_to_trajectory(self) -> bool:
-        """Only grounded and complete statuses write to learning trajectory."""
-        return self in (ComplianceStatus.GROUNDED, ComplianceStatus.COMPLETE)
+        """Grounded and complete statuses write to the learning trajectory.
+
+        complete_with_deferred included: POSTFLIGHT runs only the `always` tier, so any checklist with a goal_completion
+        or release check lands here; excluding it would stop calibration learning for those domains. What ran passed."""
+        return self in (ComplianceStatus.GROUNDED, ComplianceStatus.COMPLETE, ComplianceStatus.COMPLETE_WITH_DEFERRED)
 
     @property
     def feeds_feedback(self) -> bool:
-        """Only grounded and complete feed previous_transaction_feedback."""
-        return self in (ComplianceStatus.GROUNDED, ComplianceStatus.COMPLETE)
+        """Grounded and complete statuses (deferred included, as for writes_to_trajectory) feed previous_transaction_feedback."""
+        return self in (ComplianceStatus.GROUNDED, ComplianceStatus.COMPLETE, ComplianceStatus.COMPLETE_WITH_DEFERRED)

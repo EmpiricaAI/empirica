@@ -110,3 +110,31 @@ def test_a_repo_with_history_and_no_changes_since_preflight_is_insufficient(tmp_
     c2 = PostTestCollector(session_id="s1", db=db, preflight_timestamp=time.time())
     c2._project_root = str(repo)
     assert c2._get_session_changed_files() == ["m0.py"]
+
+
+def test_a_transaction_that_only_creates_untracked_files_lists_them(tmp_path, monkeypatch):
+    """Without the HEAD~5 fallback, a new file nobody has `git add`ed was in none of log/diff/diff --cached, so the
+    transaction's code was not graded. Untracked files written before the window, and ignored ones, stay out."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    import os
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    old = {"GIT_AUTHOR_DATE": "2020-01-01T00:00:00Z", "GIT_COMMITTER_DATE": "2020-01-01T00:00:00Z"}
+    (repo / ".gitignore").write_text("*.log\n")
+    (repo / "base.py").write_text("x = 1\n")
+    _git(repo, "add", ".", env={**os.environ, **old})
+    _git(repo, "commit", "-q", "-m", "base", env={**os.environ, **old})
+    start = time.time() - 60
+    (repo / "leftover.py").write_text("y = 0\n")
+    os.utime(repo / "leftover.py", (start - 3600, start - 3600))  # untracked, but from before this transaction
+    (repo / "new.py").write_text("z = 2\n")
+    (repo / "debug.log").write_text("ignored\n")
+
+    db = _DB()
+    db.conn.execute("CREATE TABLE sessions (session_id TEXT, start_time TEXT)")
+    c = PostTestCollector(session_id="s1", db=db, preflight_timestamp=start)
+    c._project_root = str(repo)
+    assert c._get_session_changed_files() == ["new.py"]

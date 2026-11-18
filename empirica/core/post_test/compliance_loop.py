@@ -43,11 +43,18 @@ class ComplianceResult:
     checks_skipped: int = 0
     #: Ids of the checks deferred to a higher tier (goal_completion, release).
     #: POSTFLIGHT runs at the `always` tier, so these never ran; while any are
-    #: listed the status is `complete_with_deferred`, never `complete`.
+    #: listed the status is `complete_with_deferred`, never `complete`:
+    #: is_complete (the loop need not iterate) but not fully_verified.
     checks_deferred: list[str] = field(default_factory=list)
 
     @property
     def is_complete(self) -> bool:
+        """Nothing failed: the loop does not iterate. Also True for complete_with_deferred; fully_verified says whether all ran."""
+        return self.status in ("complete", "complete_with_deferred")
+
+    @property
+    def fully_verified(self) -> bool:
+        """Complete with nothing deferred to a higher tier. A check skipped because its tool is absent is counted in checks_skipped, not here."""
         return self.status == "complete"
 
     def to_dict(self) -> dict[str, Any]:
@@ -60,6 +67,7 @@ class ComplianceResult:
             "checks_failed": self.checks_failed,
             "checks_skipped": self.checks_skipped,
             "checks_deferred": list(self.checks_deferred),
+            "fully_verified": self.fully_verified,
             "check_results": self.check_results,
         }
         if self.next_transaction:

@@ -303,10 +303,12 @@ Runs automatically when `domain` and `criticality` were set at PREFLIGHT:
 ```
 POSTFLIGHT response includes:
   "compliance": {
-    "status": "complete" | "iteration_needed" | "max_iterations_exceeded",
+    "status": "complete" | "complete_with_deferred" | "iteration_needed" | "max_iterations_exceeded",
     "checks_run": 3,
     "checks_passed": 2,
     "checks_failed": 1,
+    "checks_deferred": ["tests"],   // higher-tier checks POSTFLIGHT did not run
+    "fully_verified": false,        // true only for "complete"
     "check_results": [
       {"check_id": "lint", "passed": true, "summary": "lint clean (scoped to 4 files)"},
       {"check_id": "complexity", "passed": true, "summary": "complexity A (avg 2.1)"},

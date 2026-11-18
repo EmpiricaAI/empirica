@@ -16,6 +16,7 @@ import pytest
 
 from empirica.config.service_registry import CheckDeclaration, CheckResult, ServiceRegistry
 from empirica.core.post_test.compliance_loop import run_compliance_checks
+from empirica.core.post_test.compliance_status import ComplianceStatus
 
 
 @pytest.fixture(autouse=True)
@@ -53,7 +54,7 @@ def test_a_deferred_goal_completion_check_does_not_report_complete():
     assert result is not None
     assert result.status != "complete"
     assert result.status == "complete_with_deferred"
-    assert not result.is_complete
+    assert not result.fully_verified  # complete for the loop (nothing failed), not a full pass
     assert result.checks_deferred == ["tests"]
     d = result.to_dict()
     assert d["status"] == "complete_with_deferred" and d["checks_deferred"] == ["tests"]
@@ -78,3 +79,31 @@ def test_an_exception_inside_the_loop_surfaces_instead_of_returning_none(monkeyp
     monkeypatch.setattr(domain_registry.DomainRegistry, "resolve", boom)
     with pytest.raises(RuntimeError, match="domains unreadable"):
         _run()
+
+
+def test_deferred_is_complete_for_the_loop_but_not_fully_verified():
+    """Nothing failed, so the loop does not iterate; but deferred checks never ran, so it is not a full pass."""
+    _register("tests", tier="goal_completion")
+    result = _run()
+    assert result.status == "complete_with_deferred"
+    assert result.is_complete is True
+    assert result.fully_verified is False
+    assert result.to_dict()["fully_verified"] is False
+    s = ComplianceStatus(result.status)
+    assert s.is_complete and not s.fully_verified
+    # A run with no failures is grounded measurement either way: it still feeds learning and feedback.
+    assert s.writes_to_trajectory and s.feeds_feedback
+
+
+def test_a_run_with_nothing_deferred_is_fully_verified():
+    _register("tests", tier="goal_completion")
+    result = _run(execution_tier="goal_completion")
+    assert result.is_complete and result.fully_verified
+    s = ComplianceStatus(result.status)
+    assert s.is_complete and s.fully_verified
+
+
+@pytest.mark.parametrize("status", ["iteration_needed", "max_iterations_exceeded", "iteration_in_progress"])
+def test_failing_statuses_are_neither_complete_nor_verified(status):
+    s = ComplianceStatus(status)
+    assert not s.is_complete and not s.fully_verified and not s.writes_to_trajectory

@@ -50,9 +50,11 @@ def _parse_criterion_entry(entry):
          "completion:subtask_ratio@>=0.9"
        Parsed into SuccessCriterion(validation_method=method,
        description=metric, threshold=threshold, operator=op). The op is kept
-       and the quality_gate evaluator compares with it: a *_density metric
-       carries a higher-is-better score, so inferring the comparison from the
-       metric's direction evaluated "@<=0.25" as ">= 0.25".
+       and every threshold evaluator (quality_gate, completion, tests_pass,
+       committed) compares with it, against the quantity the metric's name
+       promises: ruff_violation_density@<=0.25 reads the per-100-lines density
+       in raw_value, not the higher-is-better score stored as value
+       (criterion_evaluators.builtin.NAMED_MEASURE_KEYS).
 
     3. dict {description, validation_method, threshold, is_required} —
        passed through directly. Used by programmatic callers.

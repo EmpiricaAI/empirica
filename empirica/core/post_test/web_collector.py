@@ -15,6 +15,7 @@ Activated via evidence_profile: "web" in project.yaml or auto-detected from file
 """
 
 import logging
+import os
 import re
 import subprocess
 import time
@@ -137,11 +138,16 @@ class WebEvidenceCollector:
         phase: str = "combined",
         check_timestamp: float | None = None,
         project_path: str | Path | None = None,
+        preflight_timestamp: float | None = None,
     ):
         self.session_id = session_id
         self.project_id = project_id
         self.phase = phase
         self.check_timestamp = check_timestamp
+        # Transaction start: without a build at POSTFLIGHT, output older than this was not produced by this transaction.
+        self.preflight_timestamp = preflight_timestamp
+        self._build_ran = False
+        self._output_fresh: bool | None = None
         self._db = db
         self._owns_db = False
         # The project the caller already resolved (PostTestCollector passes its
@@ -276,10 +282,41 @@ class WebEvidenceCollector:
             return project_path / output_dir_name
         return None
 
+    def _output_written_this_transaction(self, output_dir: Path) -> bool:
+        """May this output be graded as this transaction's work? Cached: four sources ask.
+
+        Yes when the build ran here, or when no transaction start is known (a caller outside POSTFLIGHT, the same rule the
+        test-report reader applies). Otherwise only when the newest file in the output dir was written at or after the
+        transaction's PREFLIGHT (CHECK when no PREFLIGHT was given); an older tree is someone else's build, and
+        `notes["web_output"]` says it was skipped. Cost: one stat per file in the output dir, web profile only."""
+        if self._build_ran:
+            return True
+        if self._output_fresh is not None:
+            return self._output_fresh
+        start = self.preflight_timestamp or self.check_timestamp
+        if not start:
+            self._output_fresh = True
+            return True
+        newest = 0.0
+        for dirpath, _dirs, files in os.walk(output_dir):
+            for name in files:
+                try:
+                    newest = max(newest, os.stat(os.path.join(dirpath, name)).st_mtime)
+                except OSError:
+                    continue
+        self._output_fresh = newest >= float(start)
+        if not self._output_fresh:
+            self.notes["web_output"] = (
+                f"output not graded: {output_dir.name}/ was last written before this transaction's PREFLIGHT and no build ran"
+            )
+        return self._output_fresh
+
     def _get_changed_html_files(self) -> list[Path]:
-        """Get HTML files changed during this session."""
+        """HTML files in the output dir, when that output is this transaction's (see _output_written_this_transaction)."""
         output_dir = self._get_output_dir()
         if not output_dir or not output_dir.exists():
+            return []
+        if not self._output_written_this_transaction(output_dir):
             return []
 
         # Get all HTML files in output directory
@@ -337,6 +374,7 @@ class WebEvidenceCollector:
         timeout = config.get("build_timeout", 120)
 
         start = time.time()
+        self._build_ran = True
         try:
             result = subprocess.run(
                 build_info["command"].split(),
@@ -376,6 +414,8 @@ class WebEvidenceCollector:
                 )
             )
         except FileNotFoundError:
+            self._build_ran = False  # nothing was built: the output on disk is as old as it was
+            self.notes["web_build"] = f"build not run: {build_info['command'].split()[0]!r} not found"
             logger.debug(f"Build command not found: {build_info['command']}")
 
         return items
