@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.17.8
-**Generated:** 2026-11-18 11:48:04 UTC
+**Framework version:** 1.17.9
+**Generated:** 2026-11-18 20:05:52 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -678,8 +678,8 @@ Log a discovery — something concrete you NOW know that wasn't obvious before. 
   Anchor this artifact to another (relation=related). Repeatable.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
   Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
-- `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed}
-  How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.
+- `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed, harvested}
+  How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 - `--verbose` — optional · flag
@@ -752,8 +752,8 @@ Log an open question — something you'd need to know before acting confidently,
   Anchor this artifact to another (relation=related). Repeatable.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
   Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
-- `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed}
-  How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.
+- `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed, harvested}
+  How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 - `--verbose` — optional · flag
@@ -864,8 +864,8 @@ Log an approach that didn't work. Use when you tried something and the result ru
   Anchor this artifact to another (relation=related). Repeatable.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
   Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
-- `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed}
-  How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.
+- `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed, harvested}
+  How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 - `--verbose` — optional · flag
@@ -915,8 +915,8 @@ Log a belief you're acting on without verification. Use when proceeding requires
   Source type for --cite (reference, doc, paper, url, design, …). Default: reference.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
   Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
-- `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed}
-  How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.
+- `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed, harvested}
+  How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 
@@ -972,8 +972,8 @@ Log a deliberate choice between alternatives. Use at every fork: which library, 
   Finding/source IDs that ground this decision (relation=evidence). Repeatable.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
   Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
-- `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed}
-  How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.
+- `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed, harvested}
+  How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 
@@ -1023,8 +1023,8 @@ Log an error YOU made + how to prevent it. Use when you introduced a bug, mis-ap
   Source type for --cite (reference, doc, paper, url, design, …). Default: reference.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
   Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
-- `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed}
-  How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.
+- `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed, harvested}
+  How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 - `--verbose` — optional · flag
@@ -4190,7 +4190,7 @@ Run autonomous multi-agent orchestration with persona selection
 - `--max-agents` — optional · type=`int` · default=`3`
   Maximum parallel agents to spawn (optional, default: 3)
 - `--profile` — optional
-  Domain profile name: general, healthcare, finance, or custom (optional)
+  Domain profile name: general, healthcare or finance (optional; another name is refused)
 - `--scope-breadth` — optional · type=`float` · default=`0.5`
   Scope breadth 0.0-1.0, affects max loops (optional, default: 0.5)
 - `--scope-duration` — optional · type=`float` · default=`0.5`
@@ -4204,7 +4204,7 @@ Run autonomous multi-agent orchestration with persona selection
 
 #### `empirica sentinel-load-profile`
 
-Load domain compliance profile for gate enforcement
+Load a domain profile (gates and thresholds); audit and tool settings are configuration only, not enforced
 
 **Arguments:**
 

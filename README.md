@@ -439,18 +439,21 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.17.8
+## What's New in 1.17.9
 
-- Onboarding asks what work you do and sets up practices for it
-- Onboarding ends with a first plan
-- Workflow protocol 0.4.0:
+- `/graph-harvest`: put what existing material knows into the graph
+- A harvest map for every kind of practice
+- A `harvested` source tag
+- CHECK and POSTFLIGHT record what actually happened
+- Calibration evidence measures what it says
+- Chat:
 
-The full entry is in the [CHANGELOG](CHANGELOG.md).
+Plus 4 more entries in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.17.8** — Onboarding asks what work you do and sets up practices for it
 - **1.17.7** — The cockpit bar works on a fresh machine and in a small window: its own health readout, a help and menu that fit or say why not, failed updates that stay o…
-- **1.17.6** — A differential fuzzer checks the Sentinel's reading of shell commands against bash itself, and its first run found a `git push` that a quoted backtick hid…
 
 ## What's Coming
 
