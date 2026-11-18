@@ -530,36 +530,41 @@ def _check_bootstrap_gate(session_id, vectors):
     return bootstrap_status, bootstrap_result
 
 
-def _check_get_round_and_history(session_id, args):
+def _check_get_round_and_history(session_id, args, transaction_id=None):
     """Get the next CHECK round number and previous CHECK vectors.
+
+    Rounds belong to the transaction: counted over the whole session, the max-rounds and plateau overrides fired on the
+    first CHECK of any later transaction (0f68032f #3). The transaction alone, not transaction AND session, because a
+    transaction can outlive a compaction and span sessions. With no transaction id the session is the only window left.
 
     Returns (round_num, previous_check_vectors).
     """
     previous_check_vectors = []
+    scope, scope_id = ("transaction_id", transaction_id) if transaction_id else ("session_id", session_id)
     try:
         db = _get_db_for_session(session_id)
         cursor = db.conn.cursor()
         cursor.execute(
-            """
+            f"""
             SELECT COUNT(*) FROM reflexes
-            WHERE session_id = ? AND phase = 'CHECK'
+            WHERE {scope} = ? AND phase = 'CHECK'
         """,
-            (session_id,),
+            (scope_id,),
         )
         check_count = cursor.fetchone()[0]
         round_num = check_count + 1
 
         if check_count > 0:
             cursor.execute(
-                """
+                f"""
                 SELECT engagement, know, do, context, clarity, coherence,
                        signal, density, state, change, completion, impact, uncertainty
                 FROM reflexes
-                WHERE session_id = ? AND phase = 'CHECK'
+                WHERE {scope} = ? AND phase = 'CHECK'
                 ORDER BY timestamp DESC
                 LIMIT 3
             """,
-                (session_id,),
+                (scope_id,),
             )
             rows = cursor.fetchall()
             vector_names = [
@@ -1384,7 +1389,11 @@ def handle_check_submit_command(args):
         bootstrap_status, bootstrap_result = _check_bootstrap_gate(session_id, vectors)
 
         # Stage 3: Get round number and previous CHECK vectors
-        round_num, previous_check_vectors = _check_get_round_and_history(session_id, args)
+        try:
+            _round_tx = R.transaction_id()
+        except Exception:
+            _round_tx = None
+        round_num, previous_check_vectors = _check_get_round_and_history(session_id, args, transaction_id=_round_tx)
 
         # Stage 4: Normalize vectors to flat canonical dict
         vectors = _check_normalize_vectors(vectors)

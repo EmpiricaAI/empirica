@@ -13,7 +13,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from empirica.config.path_resolver import resolve_session_db_path
 from empirica.core.project_types import calibration_domain
 from empirica.utils.session_resolver import InstanceResolver as R
 
@@ -838,40 +837,19 @@ def _postflight_parse_config_or_legacy(args):
 
 
 def _postflight_resolve_preflight_session(session_id):
-    """Find the original PREFLIGHT session_id for cross-compaction continuity.
+    """The session that opened this transaction's PREFLIGHT, for continuity across a compaction.
 
-    Returns preflight_session_id.
+    It comes from this instance's own transaction file. It used to come from the first ``~/.empirica/active_work_*.json``
+    holding a PREFLIGHT, from any instance on the machine, so a POSTFLIGHT could be paired with another practitioner's
+    PREFLIGHT (0f68032f #7). One file read instead of a glob and a database open per file.
     """
-    import json as _json
-
-    preflight_session_id = session_id
     try:
-        global_home = Path.home() / ".empirica"
-        for active_file in global_home.glob("active_work_*.json"):
-            try:
-                data = _json.loads(active_file.read_text())
-                if data.get("empirica_session_id"):
-                    db_path = resolve_session_db_path(data["empirica_session_id"])
-                    if db_path:
-                        import sqlite3
-
-                        conn = sqlite3.connect(str(db_path))
-                        cursor = conn.cursor()
-                        cursor.execute(
-                            "SELECT 1 FROM reflexes WHERE session_id = ? AND phase = 'PREFLIGHT'",
-                            (data["empirica_session_id"],),
-                        )
-                        if cursor.fetchone():
-                            preflight_session_id = data["empirica_session_id"]
-                            logger.debug(f"Using PREFLIGHT session from transaction: {preflight_session_id[:8]}...")
-                        conn.close()
-                        break
-            except Exception:
-                continue
+        tx = R.transaction_read()
+        if tx and tx.get("session_id") and tx.get("status", "open") == "open":
+            return tx["session_id"]
     except Exception as e:
         logger.debug(f"Transaction context lookup failed (using current session): {e}")
-
-    return preflight_session_id
+    return session_id
 
 
 def _parse_postflight_input(args) -> dict[str, Any]:
@@ -1732,7 +1710,9 @@ def _cortex_graph_source_nodes(sdb, targets, seen_ids):
     try:
         _sph = ",".join("?" * len(_unknown))
         _srows = sdb.conn.execute(
-            f"SELECT id, title, source_type, description FROM epistemic_sources WHERE id IN ({_sph})",
+            # visibility='local' is no-egress, as for the artifacts above (0f68032f #8); NULL is legacy shared.
+            f"SELECT id, title, source_type, description FROM epistemic_sources WHERE id IN ({_sph}) "
+            "AND COALESCE(visibility, 'shared') != 'local'",
             tuple(_unknown),
         ).fetchall()
         for _s in _srows:
@@ -2233,7 +2213,9 @@ def handle_postflight_submit_command(args):
             }
             if output_format == "json":
                 print(json.dumps(result, indent=2))
-            return None
+            else:
+                print(f"❌ {result['message']}")
+            return 1  # a failed POSTFLIGHT exited 0 (0f68032f #5); nothing was written, the user can fix and retry
 
         # warnings: collects soft-failures from stages 5-7
         warnings: list[dict] = []
@@ -2484,7 +2466,7 @@ def handle_postflight_submit_command(args):
                 grounded_verification if "grounded_verification" in dir() else None,
             )
 
-        return None
+        return 1 if result.get("ok") is False else None  # the save failed: say so in the exit status too (#5)
 
     except Exception as e:
         handle_cli_error(e, "Postflight submit", getattr(args, "verbose", False))

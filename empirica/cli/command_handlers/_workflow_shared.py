@@ -1274,7 +1274,8 @@ def _maybe_add_deferred_proposals_note(cursor, session_id: str, retro: dict) -> 
             WHERE s.project_id = (
                 SELECT project_id FROM sessions WHERE session_id = ?
               )
-              AND g.objective LIKE 'Process proposal prop_%'
+              -- both namings: the legacy one, and the prompt's 'Process inbox/<status>: <id>' (0f68032f #13)
+              AND (g.objective LIKE 'Process proposal prop_%' OR g.objective LIKE 'Process inbox/%')
               AND (
                 g.is_completed = 0
                 OR g.completed_timestamp >= strftime('%s', 'now') - 604800
