@@ -1,0 +1,116 @@
+# What /graph-harvest can read, and which material matters most for each kind of practice (goal e3a0752a, David
+# 2026-11-18: harvesting is for end users, and project types, domains and work types have different use cases).
+#
+# kinds:        the material a harvest reads: what it yields, how to read it, and what consent it needs
+#               (none: the practice's own material; practice_opt_in: a setting the subject practice turns on itself;
+#               per_item_yes: the person says yes for each item, because it is someone else's).
+# project_types: the kinds that hold most for each project type, most valuable first. Every type in
+#               empirica.core.project_types.PROJECT_TYPES is listed.
+# domains:      how a domain changes the harvest. Every file in config/domains is listed.
+# work_types:   when a harvest pays, per work type. Every work type calibration knows is listed.
+#
+# Read by empirica.core.harvest_sources; tests/test_harvest_sources.py pins coverage and names.
+
+kinds:
+  docs:
+    title: Documents
+    holds: "specs, design notes, READMEs, reports: decisions with their reasons, assumptions, open questions"
+    read: "Read, section by section; one subagent per long document"
+    consent: none
+  code:
+    title: Code
+    holds: "rulings and assumptions written in comments, docstrings, ADRs and config (not what a review of the code would find)"
+    read: "rg for comments that state a reason or a ruling; /code-audit or /architecture-review for live findings, logged as search"
+    consent: none
+  commits:
+    title: Commit history
+    holds: "commit bodies (a choice and why), reverts (dead ends and mistakes), tags and changelog entries (what shipped and what was dropped)"
+    read: "git log over a range; skip commits that already carry artifacts (empirica commit-context <sha>)"
+    consent: none
+  reviews:
+    title: Pull requests and issues
+    holds: "alternatives rejected in review, reviewer concerns (assumptions, unknowns), closed issues (answered questions), wont-fix (decisions)"
+    read: "gh pr view / gh issue view with comments, or the forge's own CLI"
+    consent: none
+  mesh:
+    title: Mesh threads
+    holds: "collab threads (questions asked and answered, findings shared: noetic) and proposals with their ECO outcome (an ask accepted, changed or declined by a person: praxic, a human-graded decision)"
+    read: "empirica mailbox poll / show; harvest this practice's side, cite the peer as the source of theirs"
+    consent: none
+  conversations:
+    title: Conversations
+    holds: "the person's rulings with their reasons, corrections of the practitioner (mistakes with a prevention), questions never answered"
+    read: "Claude Code transcripts (~/.claude/projects/<practice path with / as ->/*.jsonl), or a pasted or exported chat; human and assistant text only; sample when large"
+    consent: practice_opt_in
+  visual:
+    title: Diagrams and designs
+    holds: "decisions and assumptions a diagram, design or published page depicts; a diagram that disagrees with the code is a finding to verify"
+    read: "Read (images), the Artifact tool's read (published pages)"
+    consent: none
+  meetings:
+    title: Meeting notes and calls
+    holds: "decisions taken, who owns what, assumptions voiced, questions left open"
+    read: "notes or transcripts the person provides"
+    consent: per_item_yes
+  correspondence:
+    title: Email and messages
+    holds: "commitments, a client's or partner's decisions and constraints, questions waiting on someone"
+    read: "only what the person points to; a connected mailbox only with their yes for those messages"
+    consent: per_item_yes
+  data_work:
+    title: Notebooks and experiments
+    holds: "hypotheses (assumptions with a falsifier), results (findings), approaches abandoned (dead ends)"
+    read: "Read notebooks and experiment logs; results tables as evidence, not as artifacts one per row"
+    consent: none
+  ops_records:
+    title: Incidents and runbooks
+    holds: "postmortems (mistakes with a prevention, findings), runbooks (assumptions about running systems), alert and change history"
+    read: "the practice's postmortems and runbooks; alert history from its monitoring, summarised"
+    consent: none
+  legal_records:
+    title: Contracts and policies
+    holds: "obligations and deadlines, decisions with their reversal terms, assumptions a contract rests on"
+    read: "only documents the person provides"
+    consent: per_item_yes
+
+project_types:
+  web-app: [commits, reviews, code, docs, visual]
+  service: [commits, reviews, code, docs, ops_records]
+  cli: [commits, reviews, code, docs]
+  library: [commits, reviews, code, docs]
+  desktop-app: [commits, reviews, code, docs, visual]
+  mobile-app: [commits, reviews, code, docs, visual]
+  browser-extension: [commits, reviews, code, docs, visual]
+  infrastructure: [ops_records, commits, code, docs]
+  content: [docs, visual, correspondence, meetings]
+  research: [docs, data_work, conversations, meetings]
+  data: [data_work, code, docs, commits]
+  design: [visual, reviews, meetings, docs]
+  operations: [ops_records, mesh, meetings, docs]
+  strategic: [meetings, docs, correspondence, mesh]
+  engagement: [meetings, correspondence, docs, legal_records]
+  legal: [legal_records, correspondence, docs]
+
+domains:
+  default: "no change"
+  docs: "claims in published text are the material's findings: each gets its source, and a claim the text cannot support becomes an assumption"
+  research: "a hypothesis is an assumption with a falsifier; a result reported without its data is the material's claim, not a finding you made"
+  consulting: "client material is the client's: harvest it only with a yes for each item, inside that client's engagement practice, and keep every artifact local"
+  marketing: "published pieces and their reception: decisions about message and audience, assumptions about what lands"
+  operations: "runbooks hold assumptions about running systems; a postmortem's prevention is the load-bearing field"
+  remote-ops: "records of work on other machines: name the machine in each artifact, and treat its state as of the record's date"
+  cybersec: "a vulnerability or exposure stays local, never shared, and is named without a working exploit"
+
+work_types:
+  code: "adopting an existing codebase, or after a release: harvest the range's commits and reviews"
+  research: "before a synthesis: harvest prior notes and data work so the question starts from what is known"
+  docs: "before rewriting a document: harvest what the old one decided"
+  debug: "after a hard bug: the conversation and commits that found it hold its dead ends"
+  infra: "before changing infrastructure: harvest the runbooks and change history it rests on"
+  release: "after a release: what the release's commits decided and what it dropped"
+  remote-ops: "after remote work: the session's commands and outcomes, named by machine"
+  config: "before changing configuration: harvest why each setting is what it is (commits, comments)"
+  data: "before re-running an analysis: harvest the hypotheses and dead ends of the last one"
+  comms: "after a campaign or thread: decisions, commitments and open questions in the correspondence"
+  design: "before a redesign: harvest what the current design decided and assumed"
+  audit: "at the start of an audit: harvest the decisions and assumptions under review, so findings can link to them"

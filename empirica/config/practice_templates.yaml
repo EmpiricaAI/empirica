@@ -58,8 +58,8 @@ templates:
     starter:
       objective: "Get to know {focus}: map it and pick the first tasks"
       tasks:
-        - "Map the architecture: entry points, modules, data flow; log findings with how sure you are"
-        - "Log what is not understood yet as unknowns"
+        - "Harvest what {focus} already records, if it has history: /graph-harvest on its commits, docs and the reasons in its comments"
+        - "Map the architecture: entry points, modules, data flow; log findings with how sure you are, and what is not understood yet as unknowns"
         - "Propose the first three tasks, smallest first"
   writer:
     title: Writing

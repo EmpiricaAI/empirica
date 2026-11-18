@@ -1,7 +1,7 @@
 ---
 name: graph-harvest
-description: "Use when the user says '/graph-harvest', 'harvest this into the graph', 'back-fill artifacts from these docs', 'what does this conversation know that the graph does not', 'mine our old notes', or wants decisions, assumptions, unknowns and findings that already exist in material (documents, past conversations, code, designs) turned into typed, linked artifacts. Options: docs <paths> | conversations [practice] | code <path> | visual <file or page>. A reasoning pass, not an extractor: the practitioner reads the material and decides each artifact; tools only list the material and write what was decided. Harvested artifacts are tagged 'harvested' and never counted in calibration."
-version: 0.1.0
+description: "Use when the user says '/graph-harvest', 'harvest this into the graph', 'back-fill artifacts from these docs', 'what does this conversation know that the graph does not', 'mine our old notes', or wants decisions, assumptions, unknowns and findings that already exist in material (documents, past conversations, code, designs) turned into typed, linked artifacts. The material kinds (documents, code, commits, reviews, mesh threads, conversations, designs, meetings, correspondence, data work, incident records, contracts) and which matter most for each project type come from the harvest map. A reasoning pass, not an extractor: the practitioner reads the material and decides each artifact; tools only list the material and write what was decided. Harvested artifacts are tagged 'harvested' and never counted in calibration."
+version: 0.2.0
 ---
 
 # /graph-harvest — put what existing material knows into the graph
@@ -65,17 +65,30 @@ made: it is the material's finding (say whose, via its source), or, when the wor
 
 Quality over count: one decision with its reversal condition beats ten findings that restate the document.
 
-## Options
+## Which material: the harvest map
 
-| Option | Material | Notes |
-|---|---|---|
-| `docs <paths>` | specs, design notes, READMEs, reports, meeting notes | Section by section. Long documents: one subagent per document, each returning its proposed nodes and edges for you to check and write (a subagent's list is a draft, not a decision) |
-| `conversations [practice]` | past Claude Code conversations of a practice | **Only if that practice allows it**: `cockpit: read_transcripts: true` in its `.empirica/project.yaml`. Off by default, and set by the practice whose conversation would be read, never on its behalf: if it is off, say so and ask the person to enable it or to paste the part that matters. Transcripts are `~/.claude/projects/<the practice path with / as ->/*.jsonl`; read the human's and the assistant's text, skip tool output. Harvest the human's rulings (decisions, with their reason), corrections (the practitioner's **mistakes**, with a prevention), and questions left unanswered (unknowns). Skip what that session already logged (compare with its artifacts). A preference about how to work is memory, not an artifact |
-| `code <path>` | a module or repository | Run `/code-audit` or `/architecture-review`; their output is a live observation (`search`), not a harvest. Harvest only what the code *records*: decisions and assumptions written in comments, docstrings and ADRs |
-| `visual <file or page>` | diagrams, designs, published pages | Read the image (`Read`) or the page (the Artifact tool's read). Harvest the decisions and assumptions it depicts; a diagram that disagrees with the code is a finding to verify, not a harvest |
+What a harvest can read, and which material matters most for each kind of practice, is in the map:
+`<Install>/empirica/config/harvest_sources.yaml` (`Install` is the line `empirica --version` prints). Do not work from
+memory of it; read it.
 
-Material from outside the practice (a client's documents, someone else's conversation) is harvested only with the
-person's yes for that material. Harvested artifacts stay `local`; sharing one is a separate choice.
+1. Read the practice's type and domain: `yq '.type, .domain' .empirica/project.yaml`.
+2. In the map, the type's `project_types` entry lists the material kinds that hold most, most valuable first; offer
+   those first and the other kinds as 'also'. The `domains` entry says how the domain changes the harvest; the
+   `work_types` entry for the work at hand says when a harvest pays.
+3. Each kind says what it holds, how to read it, and its consent. The person names the material (`/graph-harvest docs
+   docs/architecture/`, `/graph-harvest commits v1.16.0..v1.17.0`); with no argument, propose the first kind for this
+   practice and what you would read.
+
+**Consent** is the kind's `consent` value, and it is never yours to grant:
+
+| Value | Meaning |
+|---|---|
+| `none` | the practice's own material (its docs, code, history, mesh threads) |
+| `practice_opt_in` | a setting the subject practice turns on itself; for conversations, `cockpit: read_transcripts: true` in the `.empirica/project.yaml` of the practice whose conversations would be read. Off by default; if it is off, say so and ask the person to enable it there, or to paste the part that matters |
+| `per_item_yes` | someone else's material (meetings, correspondence, contracts): read each item only with the person's yes for it, and keep what is harvested local |
+
+Long material: one subagent per document, module or conversation, each returning proposed nodes and edges; a
+subagent's list is a draft for you to check, not a decision.
 
 ## After the harvest
 

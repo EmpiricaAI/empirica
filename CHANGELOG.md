@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`/graph-harvest`: put what existing material knows into the graph.** Reads documents, past conversations (only where a practice allows its transcripts to be read), code or designs, and records the decisions, assumptions, open questions and dead ends they hold as typed artifacts, linked to what the graph already has and to the material as a source. It is a reasoning pass by the practitioner, not an automatic extractor.
+- **A harvest map for every kind of practice.** `/graph-harvest` reads twelve kinds of material (documents, code, commit history, pull requests and issues, mesh threads, conversations, designs, meeting notes, correspondence, data work, incident records, contracts), and a map says which matter most for each project type, how each domain changes the harvest, and when one pays for each kind of work. Each kind states its consent: your own material, a setting the practice turns on itself (conversations), or a yes for each item (someone else's material). A new builder practice's first plan starts by harvesting its repository's history.
 - **A `harvested` source tag.** Artifacts back-filled from existing material are tagged `harvested` and stored outside every transaction, so calibration never counts them as work observed in the session that logged them. Re-tagging an artifact as harvested moves it out of its transaction too.
 
 ### Fixed

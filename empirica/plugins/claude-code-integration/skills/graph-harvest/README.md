@@ -2,10 +2,10 @@
 
 # /graph-harvest — put what existing material knows into the graph
 
-**When to load:** Use when the user says '/graph-harvest', 'harvest this into the graph', 'back-fill artifacts from these docs', 'what does this conversation know that the graph does not', 'mine our old notes', or wants decisions, assumptions, unknowns and findings that already exist in material (documents, past conversations, code, designs) turned into typed, linked artifacts. Options: docs <paths> | conversations [practice] | code <path> | visual <file or page>. A reasoning pass, not an extractor: the practitioner reads the material and decides each artifact; tools only list the material and write what was decided. Harvested artifacts are tagged 'harvested' and never counted in calibration.
+**When to load:** Use when the user says '/graph-harvest', 'harvest this into the graph', 'back-fill artifacts from these docs', 'what does this conversation know that the graph does not', 'mine our old notes', or wants decisions, assumptions, unknowns and findings that already exist in material (documents, past conversations, code, designs) turned into typed, linked artifacts. The material kinds (documents, code, commits, reviews, mesh threads, conversations, designs, meetings, correspondence, data work, incident records, contracts) and which matter most for each project type come from the harvest map. A reasoning pass, not an extractor: the practitioner reads the material and decides each artifact; tools only list the material and write what was decided. Harvested artifacts are tagged 'harvested' and never counted in calibration.
 
 Documents, past conversations, code and designs hold decisions, assumptions and open questions that the graph never saw. Harvesting reads that material and records it as typed, linked artifacts, so forecasting, blindspot scans and retrieval can use it.
 
-Skill `graph-harvest` · version 0.1.0 · load with `/graph-harvest` in Claude Code.
+Skill `graph-harvest` · version 0.2.0 · load with `/graph-harvest` in Claude Code.
 
 Full skill: [SKILL.md](SKILL.md)
