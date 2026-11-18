@@ -19,10 +19,10 @@ from empirica.core.post_test.collector import PostTestCollector
 class _DB:
     def __init__(self, finding: str):
         self.conn = sqlite3.connect(":memory:")
-        self.conn.execute("CREATE TABLE project_findings (session_id TEXT, finding TEXT)")
+        self.conn.execute("CREATE TABLE project_findings (session_id TEXT, finding TEXT, epistemic_source TEXT)")
         self.conn.execute("CREATE TABLE goals (session_id TEXT, objective TEXT)")
         self.conn.execute("CREATE TABLE handoff_reports (session_id TEXT, task_summary TEXT)")
-        self.conn.execute("INSERT INTO project_findings VALUES ('s1', ?)", (finding,))
+        self.conn.execute("INSERT INTO project_findings (session_id, finding) VALUES ('s1', ?)", (finding,))
 
     def close(self):
         self.conn.close()

@@ -971,8 +971,10 @@ def _read_graph_input(args) -> dict | None:
     return graph
 
 
-def _resolve_graph_context(graph: dict, args, db) -> dict | None:
-    """Resolve session/project/transaction context for graph operations."""
+def _resolve_graph_context(graph: dict, args, db, errors: list | None = None) -> dict | None:
+    """Resolve session/project/transaction context for graph operations. On failure returns None and, when ``errors`` is
+    given, appends why; it prints nothing, so the caller's one response is the only output (1.17.9 sweep: a refused goal id
+    printed two JSON documents, the second one wrong)."""
     from empirica.utils.session_resolver import InstanceResolver as R
 
     session_id = graph.get("session_id") or getattr(args, "session_id", None)
@@ -990,7 +992,8 @@ def _resolve_graph_context(graph: dict, args, db) -> dict | None:
             project_id = session.get("project_id")
 
     if not session_id or not project_id:
-        print(json.dumps({"ok": False, "error": "Could not resolve session_id or project_id"}))
+        if errors is not None:
+            errors.append("Could not resolve session_id or project_id")
         return None
 
     transaction_id = graph.get("transaction_id")
@@ -1026,7 +1029,8 @@ def _resolve_graph_context(graph: dict, args, db) -> dict | None:
         try:
             goal_id = _canonical_goal_id(goal_id, db)
         except ValueError as e:
-            print(json.dumps({"ok": False, "error": f"goal_id: {e}"}))
+            if errors is not None:
+                errors.append(f"goal_id: {e}")
             return None
     else:
         try:
@@ -1126,9 +1130,13 @@ def log_artifacts_graph(
         if goal_id:
             graph_for_ctx["goal_id"] = goal_id
 
-        context = _resolve_graph_context(graph_for_ctx, ctx_args, db)
+        context_errors: list = []
+        context = _resolve_graph_context(graph_for_ctx, ctx_args, db, context_errors)
         if not context:
-            return {"ok": False, "error": "Could not resolve session_id or project_id"}
+            return {
+                "ok": False,
+                "error": context_errors[0] if context_errors else "Could not resolve session_id or project_id",
+            }
 
         nodes = [_redact_node(n) for n in graph.get("nodes", [])]
         sorted_nodes = sorted(

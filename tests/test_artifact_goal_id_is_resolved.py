@@ -69,3 +69,21 @@ def test_log_artifacts_resolves_the_graph_level_goal_id(monkeypatch):
     monkeypatch.setattr(graph_commands, "_session_ai_id", lambda db, sid: "x", raising=False)
     ctx = graph_commands._resolve_graph_context({"session_id": "s", "goal_id": "7f7ccb9f"}, argparse.Namespace(), db)
     assert ctx["goal_id"] == FULL
+
+
+def test_a_refused_graph_goal_id_is_one_response_naming_the_goal(capsys):
+    """1.17.9 sweep: the refusal printed its own JSON, then the caller returned 'Could not resolve session_id or project_id'."""
+    from empirica.cli.command_handlers import graph_commands
+
+    class _SessionDB(_DB):
+        def get_session(self, sid):
+            return {"project_id": "p"}
+
+    errors: list = []
+    assert (
+        graph_commands._resolve_graph_context(
+            {"session_id": "s", "goal_id": "deadbeef"}, None, _SessionDB(FULL), errors
+        )
+        is None
+    )
+    assert errors and "goal_id" in errors[0] and capsys.readouterr().out == ""

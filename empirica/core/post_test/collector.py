@@ -301,18 +301,22 @@ class PostTestCollector:
             self._db = None
             self._owns_db = False
 
-    def _tx_filter(self, table_alias: str = "") -> tuple:
+    def _tx_filter(self, table_alias: str = "", artifacts: bool = False) -> tuple:
         """Build transaction-scoped WHERE clause and params.
 
         Priority: transaction_id > preflight_timestamp > session_id only.
         Returns (sql_fragment, params_tuple) to append to a WHERE clause.
-        The sql_fragment always starts with "AND".
+        The sql_fragment always starts with "AND". ``artifacts``: the table is an artifact table, so the time-window
+        fallback also leaves harvested rows out (they carry no transaction id, which only the first branch relies on).
         """
+        from empirica.data.epistemic_source import not_harvested
+
         prefix = f"{table_alias}." if table_alias else ""
         if self.transaction_id:
             return (f"AND {prefix}transaction_id = ?", (self.transaction_id,))
         if self.preflight_timestamp:
-            return (f"AND {prefix}created_timestamp >= ?", (self.preflight_timestamp,))
+            extra = f" AND {not_harvested(table_alias)}" if artifacts else ""
+            return (f"AND {prefix}created_timestamp >= ?{extra}", (self.preflight_timestamp,))
         return ("", ())
 
     def _get_session_goal_ids(self) -> list[str]:
@@ -645,7 +649,7 @@ class PostTestCollector:
         cursor = db.conn.cursor()
 
         # Investigation depth: unknowns surfaced (more = better epistemic honesty)
-        tx_sql, tx_params = self._tx_filter()
+        tx_sql, tx_params = self._tx_filter(artifacts=True)
         cursor.execute(
             f"""
             SELECT COUNT(*) FROM project_unknowns
@@ -988,8 +992,8 @@ class PostTestCollector:
         cursor = db.conn.cursor()
         goal_ids = self._get_session_goal_ids()
         has_goals = len(goal_ids) > 0
-        tx_sql, tx_params = self._tx_filter()
-        tx_sql_u, tx_params_u = self._tx_filter("u")
+        tx_sql, tx_params = self._tx_filter(artifacts=True)
+        tx_sql_u, tx_params_u = self._tx_filter("u", artifacts=True)
 
         # --- Scope-weighted unknowns ---
         unknowns_weighted_total, unknowns_weighted_resolved, scoped_total, unscoped_total = (

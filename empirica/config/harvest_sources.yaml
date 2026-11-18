@@ -9,6 +9,9 @@
 # domains:      how a domain changes the harvest. Every file in config/domains is listed.
 # work_types:   when a harvest pays, per work type. Every work type calibration knows is listed.
 #
+# A type or domain not listed (a custom domain such as client-delivery) falls back to all kinds and the default note;
+# client work keeps the consulting consent rule whatever its domain is called.
+#
 # Read by empirica.core.harvest_sources; tests/test_harvest_sources.py pins coverage and names.
 
 kinds:
@@ -90,6 +93,15 @@ project_types:
   strategic: [meetings, docs, correspondence, mesh]
   engagement: [meetings, correspondence, docs, legal_records]
   legal: [legal_records, correspondence, docs]
+
+# Types written before the current vocabulary (project_types.LEGACY_TYPES), read as the type they became. Five local
+# practices still carry `software` (1.17.9 sweep).
+legacy_types:
+  software: service
+  product: web-app
+  application: desktop-app
+  feature: service
+  documentation: content
 
 domains:
   default: "no change"

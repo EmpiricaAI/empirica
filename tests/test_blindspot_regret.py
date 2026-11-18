@@ -17,9 +17,11 @@ from empirica.data.migrations.migrations import migration_053_blindspot_events
 def _db():
     conn = sqlite3.connect(":memory:")
     migration_053_blindspot_events(conn.cursor())
-    conn.execute("CREATE TABLE mistakes_made (id TEXT, session_id TEXT, goal_id TEXT, created_timestamp REAL)")
     conn.execute(
-        "CREATE TABLE project_dead_ends (id TEXT, session_id TEXT, goal_id TEXT, subtask_id TEXT, created_timestamp REAL)"
+        "CREATE TABLE mistakes_made (id TEXT, session_id TEXT, goal_id TEXT, created_timestamp REAL, epistemic_source TEXT)"
+    )
+    conn.execute(
+        "CREATE TABLE project_dead_ends (id TEXT, session_id TEXT, goal_id TEXT, subtask_id TEXT, created_timestamp REAL, epistemic_source TEXT)"
     )
     conn.commit()
     return types.SimpleNamespace(conn=conn)
@@ -42,7 +44,9 @@ def _outcome(db, sid="s1"):
 def test_mistake_after_dismiss_regrets():
     db = _db()
     _dismissed(db, resolved_ts=100.0)
-    db.conn.execute("INSERT INTO mistakes_made VALUES ('m', 'sess', 'g', 200.0)")  # after dismiss
+    db.conn.execute(
+        "INSERT INTO mistakes_made (id, session_id, goal_id, created_timestamp) VALUES ('m', 'sess', 'g', 200.0)"
+    )  # after dismiss
     db.conn.commit()
     assert apply_blindspot_regret(db, "sess") == 1
     assert _outcome(db) == "regretted"
@@ -51,7 +55,9 @@ def test_mistake_after_dismiss_regrets():
 def test_dead_end_after_dismiss_regrets():
     db = _db()
     _dismissed(db, resolved_ts=100.0)
-    db.conn.execute("INSERT INTO project_dead_ends VALUES ('d', 'sess', 'g', 's1', 200.0)")
+    db.conn.execute(
+        "INSERT INTO project_dead_ends (id, session_id, goal_id, subtask_id, created_timestamp) VALUES ('d', 'sess', 'g', 's1', 200.0)"
+    )
     db.conn.commit()
     assert apply_blindspot_regret(db, "sess") == 1
     assert _outcome(db) == "regretted"
@@ -60,7 +66,9 @@ def test_dead_end_after_dismiss_regrets():
 def test_mistake_before_dismiss_no_regret():
     db = _db()
     _dismissed(db, resolved_ts=100.0)
-    db.conn.execute("INSERT INTO mistakes_made VALUES ('m', 'sess', 'g', 50.0)")  # before dismiss — not causal
+    db.conn.execute(
+        "INSERT INTO mistakes_made (id, session_id, goal_id, created_timestamp) VALUES ('m', 'sess', 'g', 50.0)"
+    )  # before dismiss — not causal
     db.conn.commit()
     assert apply_blindspot_regret(db, "sess") == 0
     assert _outcome(db) == "dismissed"
@@ -69,7 +77,9 @@ def test_mistake_before_dismiss_no_regret():
 def test_mistake_different_goal_no_regret():
     db = _db()
     _dismissed(db, goal="g", resolved_ts=100.0)
-    db.conn.execute("INSERT INTO mistakes_made VALUES ('m', 'sess', 'OTHER', 200.0)")
+    db.conn.execute(
+        "INSERT INTO mistakes_made (id, session_id, goal_id, created_timestamp) VALUES ('m', 'sess', 'OTHER', 200.0)"
+    )
     db.conn.commit()
     assert apply_blindspot_regret(db, "sess") == 0
 
@@ -88,3 +98,16 @@ def test_fail_open_on_missing_correlation_tables():
     )
     conn.commit()
     assert apply_blindspot_regret(types.SimpleNamespace(conn=conn), "sess") == 0  # fail-open, no raise
+
+
+def test_a_harvested_mistake_does_not_regret_a_dismissed_blindspot():
+    """1.17.9 sweep: a harvest logged against the goal later would flip a dismissed blindspot to regretted."""
+    db = _db()
+    _dismissed(db, resolved_ts=100.0)
+    db.conn.execute(
+        "INSERT INTO mistakes_made (id, session_id, goal_id, created_timestamp, epistemic_source) "
+        "VALUES ('m', 'sess', 'g', 200.0, 'harvested')"
+    )
+    db.conn.commit()
+    assert apply_blindspot_regret(db, "sess") == 0
+    assert _outcome(db) == "dismissed"

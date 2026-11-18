@@ -131,14 +131,16 @@ def apply_blindspot_regret(db, session_id: str) -> int:
         for goal_id, subtask_id, resolved_ts in dismissed:
             since = resolved_ts or 0
             mistake_hit = db.conn.execute(
-                "SELECT 1 FROM mistakes_made WHERE session_id = ? AND goal_id = ? AND created_timestamp > ? LIMIT 1",
+                "SELECT 1 FROM mistakes_made WHERE session_id = ? AND goal_id = ? AND created_timestamp > ? "
+                "AND COALESCE(epistemic_source, '') != 'harvested' LIMIT 1",
                 (session_id, goal_id, since),
             ).fetchone()
             dead_end_hit = None
             if not mistake_hit:
                 dead_end_hit = db.conn.execute(
                     "SELECT 1 FROM project_dead_ends WHERE session_id = ? "
-                    "AND (goal_id = ? OR subtask_id = ?) AND created_timestamp > ? LIMIT 1",
+                    "AND (goal_id = ? OR subtask_id = ?) AND created_timestamp > ? "
+                    "AND COALESCE(epistemic_source, '') != 'harvested' LIMIT 1",
                     (session_id, goal_id, subtask_id, since),
                 ).fetchone()
             if mistake_hit or dead_end_hit:

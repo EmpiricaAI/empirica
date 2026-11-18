@@ -582,7 +582,7 @@ class ProseEvidenceCollector:
         # Findings this session
         cursor.execute(
             """
-            SELECT COUNT(*) FROM project_findings WHERE session_id = ?
+            SELECT COUNT(*) FROM project_findings WHERE session_id = ? AND COALESCE(epistemic_source, '') != 'harvested'
         """,
             (self.session_id,),
         )
@@ -715,7 +715,7 @@ class ProseEvidenceCollector:
                         THEN 1 ELSE 0
                     END) AS closed_in_window
                 FROM project_unknowns
-                WHERE session_id = ? {exclude_current_tx}
+                WHERE session_id = ? {exclude_current_tx} AND COALESCE(epistemic_source, '') != 'harvested'
             """,
                 tuple(params),
             )
@@ -802,11 +802,13 @@ class ProseEvidenceCollector:
         # Findings text
         cursor.execute(
             """
-            SELECT finding FROM project_findings WHERE session_id = ?
+            SELECT finding FROM project_findings WHERE session_id = ? AND COALESCE(epistemic_source, '') != 'harvested'
         """,
             (self.session_id,),
         )
-        texts.extend(row[0] for row in cursor.fetchall() if row[0])
+        texts.extend(
+            row[0] for row in cursor.fetchall() if row[0]
+        )  # a harvested text is its author's, not this session's
 
         # Goal objectives and completion reasons
         cursor.execute(

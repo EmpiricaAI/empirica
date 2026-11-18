@@ -38,3 +38,13 @@ def test_sources_for_ranks_the_types_material_first_and_lists_the_rest():
 def test_an_unknown_type_or_domain_falls_back_rather_than_failing():
     ranked = hs.sources_for("no-such-type", None)
     assert ranked.primary == () and len(ranked.other) == len(hs.kinds()) and ranked.domain_note == "no change"
+
+
+def test_legacy_types_read_as_current_ones():
+    from empirica.core.project_types import LEGACY_TYPES
+
+    legacy = hs.catalog()["legacy_types"]
+    assert set(legacy) == set(LEGACY_TYPES) and set(legacy.values()) <= set(PROJECT_TYPES)
+    assert [k.name for k in hs.sources_for("software", None).primary] == [
+        k.name for k in hs.sources_for("service", None).primary
+    ]

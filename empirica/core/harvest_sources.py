@@ -56,7 +56,8 @@ def _kind(name: str) -> Kind:
 def sources_for(project_type: str | None, domain: str | None) -> Ranked:
     """Rank the material kinds for a practice. An unknown project type ranks nothing first; an unknown domain adds no
     adjustment: the map advises, it never refuses a harvest."""
-    first = [n for n in (catalog().get("project_types") or {}).get(project_type or "", []) if n in kinds()]
+    ptype = (catalog().get("legacy_types") or {}).get(project_type or "", project_type or "")
+    first = [n for n in (catalog().get("project_types") or {}).get(ptype, []) if n in kinds()]
     rest = [n for n in kinds() if n not in first]
     note = (catalog().get("domains") or {}).get(domain or "default") or (catalog().get("domains") or {}).get(
         "default", ""

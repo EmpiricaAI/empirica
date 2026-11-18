@@ -57,3 +57,14 @@ def graded_transaction(epistemic_source: str | None, transaction_id: str | None)
     evidence query (goal 3e9cb368).
     """
     return None if normalize_epistemic_source(epistemic_source) == "harvested" else transaction_id
+
+
+#: SQL that leaves harvested artifacts out of a count. graded_transaction keeps them out of every transaction-scoped
+#: query; a query scoped to a session or a time window needs this too (1.17.9 sweep: the prose evidence and the
+#: unknown-resolution rate counted them). Only for the artifact tables, which carry the column.
+NOT_HARVESTED_SQL = "COALESCE(epistemic_source, '') != 'harvested'"
+
+
+def not_harvested(alias: str = "") -> str:
+    """``NOT_HARVESTED_SQL`` for a table referred to by ``alias``."""
+    return f"COALESCE({alias}.epistemic_source, '') != 'harvested'" if alias else NOT_HARVESTED_SQL

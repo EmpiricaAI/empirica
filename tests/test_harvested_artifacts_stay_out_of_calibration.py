@@ -65,3 +65,51 @@ def test_retagging_an_artifact_as_harvested_takes_it_out_of_its_transaction():
     assert "transaction_id" not in sibling_updates("finding", {"epistemic_source": "search"}, 0.0)
     both = sibling_updates("decision", {"epistemic_source": "harvested", "outcome": "upheld"}, 5.0)
     assert both == {"transaction_id": None, "outcome_assessed_at": 5.0}
+
+
+def _harvest_rows(db, sid, n=3, resolved_at=None):
+    for i in range(n):
+        db.log_finding("proj", sid, f"harvested finding {i}", transaction_id="tx-live", epistemic_source="harvested")
+        uid = db.log_unknown(
+            "proj", sid, f"harvested unknown {i}", transaction_id="tx-live", epistemic_source="harvested"
+        )
+        if resolved_at is not None:
+            db.conn.execute(
+                "UPDATE project_unknowns SET is_resolved = 1, resolved_timestamp = ? WHERE id = ?", (resolved_at, uid)
+            )
+    db.conn.commit()
+
+
+def test_harvested_unknowns_closed_in_the_window_are_not_backlog_cleared(tmp_path):
+    """Sweep (1.17.9): the resolution rate read a NULL transaction as 'inherited', so closing harvested unknowns raised
+    do, completion and impact."""
+    import time
+
+    from empirica.core.post_test.prose_collector import ProseEvidenceCollector
+
+    db, sid = _db(tmp_path)
+    start = time.time() - 60
+    _harvest_rows(db, sid, resolved_at=time.time())
+    items = ProseEvidenceCollector(sid, project_id="proj", db=db, transaction_id="tx-now", preflight_timestamp=start)
+    metrics = {i.metric_name: i for i in items._collect_action_verification()}
+    assert "unknown_resolution_rate" not in metrics or metrics["unknown_resolution_rate"].value == 0
+
+
+def test_harvested_findings_are_not_this_sessions_prose_or_source_ratio(tmp_path):
+    from empirica.core.post_test.prose_collector import ProseEvidenceCollector
+
+    db, sid = _db(tmp_path)
+    _harvest_rows(db, sid)
+    pc = ProseEvidenceCollector(sid, project_id="proj", db=db, transaction_id="tx-now")
+    assert not any("harvested finding" in t for t in pc._get_session_texts())
+    assert not [i for i in pc._collect_source_quality() if i.metric_name == "source_to_finding_ratio"]
+
+
+def test_the_time_window_fallback_leaves_harvested_rows_out(tmp_path):
+    from empirica.core.post_test.collector import PostTestCollector
+
+    c = PostTestCollector.__new__(PostTestCollector)
+    c.transaction_id, c.preflight_timestamp = None, 100.0
+    sql, params = c._tx_filter(artifacts=True)
+    assert "harvested" in sql and params == (100.0,)
+    assert "harvested" not in c._tx_filter()[0]  # reflexes and other tables have no epistemic_source column

@@ -46,9 +46,10 @@ made: it is the material's finding (say whose, via its source), or, when the wor
 
 1. **Read it whole.** List what it claims, chose, took for granted, and left open.
 2. **Look for each in the graph first** (`empirica project-search --task "<claim>"`). Already there: link to it
-   (`evidence`, `grounded_by`, `resolves`), do not duplicate. **An `invalidates` edge retires its target**: give it
-   `"metadata": {"kind": "stale" | "superseded" | "retracted", "reason": "..."}` (`stale` when the old artifact was
-   true when written, `retracted` when it was wrong), or it closes with no kind recorded. A contradiction you are not
+   (`evidence`, `grounded_by`, `resolves`), do not duplicate. **An `invalidates` edge retires a finding it points at**:
+   give it `"metadata": {"kind": "stale" | "superseded" | "retracted" | "mistyped", "reason": "..."}` (`stale` when the
+   old finding was true when written, `retracted` when it was wrong), or it closes with no kind recorded. Pointed at an
+   assumption or a decision, the edge is stored and the target stays live: close those with `resolve-artifacts`. A contradiction you are not
    sure of is an `evidence` edge plus an unknown, not an `invalidates`.
 3. **Type each new one by its question** (`/artifact-graph`). What material holds most and graphs miss most:
    - **decisions** with the alternatives and what would reverse them; when the material gives no reversal condition,
@@ -73,7 +74,9 @@ memory of it; read it.
 
 1. Read the practice's type and domain: `yq '.type, .domain' .empirica/project.yaml`.
 2. In the map, the type's `project_types` entry lists the material kinds that hold most, most valuable first; offer
-   those first and the other kinds as 'also'. The `domains` entry says how the domain changes the harvest; the
+   those first and the other kinds as 'also'. A legacy type (`software`, `product`, ...) is read through
+   `legacy_types`; a type or domain the map does not list gets every kind and the default note, but a practice doing
+   client work keeps the consulting consent rule (a yes per item, kept local) whatever its domain is called. The `domains` entry says how the domain changes the harvest; the
    `work_types` entry for the work at hand says when a harvest pays.
 3. Each kind says what it holds, how to read it, and its consent. The person names the material (`/graph-harvest docs
    docs/architecture/`, `/graph-harvest commits v1.16.0..v1.17.0`); with no argument, propose the first kind for this
