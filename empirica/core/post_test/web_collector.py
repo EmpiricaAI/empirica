@@ -374,7 +374,7 @@ class WebEvidenceCollector:
         timeout = config.get("build_timeout", 120)
 
         start = time.time()
-        self._build_ran = True
+        # _build_ran is set only once the build succeeded (below): a build that raises left old output looking fresh
         try:
             result = subprocess.run(
                 build_info["command"].split(),

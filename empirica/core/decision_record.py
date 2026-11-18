@@ -625,6 +625,8 @@ _GIT_BRANCH_WRITE_FLAGS = {
     "--copy",
     "-u",
     "--set-upstream-to",
+    "--unset-upstream",  # writes branch config (third review pass)
+    "--edit-description",
 }
 
 

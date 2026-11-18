@@ -2518,7 +2518,12 @@ class PostTestCollector:
                 try:
                     since = "@" + str(int(float(str(row[0]))))
                 except (ValueError, TypeError):
-                    pass
+                    try:  # most sessions store start_time as ISO text (850 of 865 in core), not epoch seconds
+                        from datetime import datetime
+
+                        since = "@" + str(int(datetime.fromisoformat(str(row[0])).timestamp()))
+                    except (ValueError, TypeError):
+                        pass
 
         try:
             # 1. Committed changes since transaction/session start

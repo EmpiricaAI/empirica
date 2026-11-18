@@ -845,7 +845,10 @@ def _run_recommendation_traceability_check(context: dict[str, Any]) -> CheckResu
                 ran_at=time.time(),
             )
 
-        cursor.execute("SELECT COUNT(*) FROM decisions WHERE session_id = ?", (session_id,))
+        cursor.execute(
+            "SELECT COUNT(*) FROM decisions WHERE session_id = ? AND COALESCE(epistemic_source, '') != 'harvested'",
+            (session_id,),
+        )
         total = cursor.fetchone()[0]
 
         if total == 0:
@@ -860,7 +863,7 @@ def _run_recommendation_traceability_check(context: dict[str, Any]) -> CheckResu
             )
 
         cursor.execute(
-            "SELECT COUNT(*) FROM decisions WHERE session_id = ? AND evidence_refs IS NOT NULL",
+            "SELECT COUNT(*) FROM decisions WHERE session_id = ? AND evidence_refs IS NOT NULL AND COALESCE(epistemic_source, '') != 'harvested'",
             (session_id,),
         )
         evidenced = cursor.fetchone()[0]
@@ -987,7 +990,7 @@ def _run_provenance_depth_check(context: dict[str, Any]) -> CheckResult:
 
         # Find decisions with evidence_refs in this session
         cursor.execute(
-            "SELECT evidence_refs FROM decisions WHERE session_id = ? AND evidence_refs IS NOT NULL",
+            "SELECT evidence_refs FROM decisions WHERE session_id = ? AND evidence_refs IS NOT NULL AND COALESCE(epistemic_source, '') != 'harvested'",
             (session_id,),
         )
         decisions_with_evidence = cursor.fetchall()

@@ -1718,6 +1718,7 @@ def _cortex_local_source_ids(sdb, targets) -> set[str]:
     local: set[str] = set()
     for table in (
         "epistemic_sources",
+        "goals",  # 205 local goals in core; their attached_to edges carried the ids out (third review pass)
         "project_findings",
         "project_unknowns",
         "project_dead_ends",
@@ -1811,9 +1812,10 @@ def _cortex_extract_transaction_graph(session_id):
             return {}
         edges, targets = _cortex_graph_edges(_sdb, seen_ids)
         nodes += _cortex_graph_source_nodes(_sdb, targets, seen_ids)
-        local = _cortex_local_source_ids(_sdb, targets)
-        edges = [e for e in edges if e["to"] not in local]  # a local source's id must not leave either (1.17.9 sweep)
-        return {"nodes": nodes, "edges": goal_edges + edges}
+        local = _cortex_local_source_ids(_sdb, set(targets) | {e["to"] for e in goal_edges})
+        # a local target's id must not leave either: sources, artifacts and goals (1.17.9 sweep, third pass)
+        edges = [e for e in goal_edges + edges if e["to"] not in local]
+        return {"nodes": nodes, "edges": edges}
     except Exception:
         return {}
     finally:

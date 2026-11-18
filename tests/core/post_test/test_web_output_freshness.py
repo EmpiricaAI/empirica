@@ -122,3 +122,12 @@ def test_an_opted_in_build_whose_tool_is_missing_says_so_and_grades_no_stale_out
     c = WebEvidenceCollector(session_id="s", project_path=str(tmp_path), preflight_timestamp=preflight)
     assert [i for i in c.collect_all() if i.metric_name == "html_validity"] == []
     assert "not found" in c.notes["web_build"] and "web_output" in c.notes
+
+
+def test_a_build_that_raises_does_not_make_old_output_fresh():
+    """Third review pass: _build_ran was set before the build ran, and a PermissionError escaped every reset."""
+    from empirica.core.post_test import web_collector as wc
+
+    src = __import__("inspect").getsource(wc)
+    run_at = src.index("result = subprocess.run(", src.index("def _collect_build_verification"))
+    assert "self._build_ran = True" not in src[:run_at].split("def _collect_build_verification")[1]

@@ -437,3 +437,13 @@ def test_edges_to_a_local_artifact_are_recognised_for_dropping(db):
 
     fid = db.log_finding("P", "S", "a private observation", visibility="local")
     assert fid in _cortex_local_source_ids(db, {fid, "other"})
+
+
+def test_a_local_goal_is_recognised_so_its_attached_to_edges_stay_home(db):
+    """Third review pass: 205 local goals in core, and the attached_to edges to them were never filtered."""
+    from empirica.cli.command_handlers._workflow_postflight import _cortex_local_source_ids
+
+    _goal(db, "g-local", "S", "a private goal")
+    db.conn.execute("UPDATE goals SET visibility = 'local' WHERE id = 'g-local'")
+    db.conn.commit()
+    assert _cortex_local_source_ids(db, {"g-local", "g-other"}) == {"g-local"}

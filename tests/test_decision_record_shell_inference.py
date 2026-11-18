@@ -283,3 +283,9 @@ def test_the_commands_inside_a_substitution_are_classified():
 )
 def test_git_ref_listings_with_value_flags_read(command, classes):
     assert infer(command)["classes"] == classes
+
+
+@pytest.mark.parametrize("command", ["git branch --edit-description", "git branch --unset-upstream"])
+def test_branch_config_writes_are_writes(command):
+    """Third review pass: both write branch config."""
+    assert infer(command)["classes"] == ["vcs_local"]
