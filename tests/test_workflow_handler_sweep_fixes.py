@@ -106,3 +106,89 @@ def test_the_preflight_session_comes_from_this_transaction_not_another_instance(
         wp.R, "transaction_read", staticmethod(lambda *a, **k: {"session_id": "OPENED", "status": "open"})
     )
     assert wp._postflight_resolve_preflight_session("CURRENT") == "OPENED"
+
+
+def test_the_check_probe_writes_no_check_and_declares_nothing(monkeypatch, capsys):
+    """#2: `check` is documented as a probe that does not submit the gate decision, but it wrote a CHECK reflex with the
+    transaction id (which the Sentinel accepts as the CHECK) and declared claims and falsifiers for the window."""
+    from empirica.cli.command_handlers import _workflow_check as wc
+    from empirica.core.canonical import git_enhanced_reflex_logger as gl
+
+    written: list = []
+
+    class _Logger:
+        def __init__(self, **kw):
+            pass
+
+        def list_checkpoints(self, limit=1):
+            return []
+
+        def add_checkpoint(self, **kw):
+            written.append(kw)
+            return "ckpt"
+
+    class _DB:
+        def get_preflight_vectors(self, sid):
+            return {"vectors": {"know": 0.7, "uncertainty": 0.3}}
+
+        def close(self):
+            pass
+
+    declared: list = []
+    monkeypatch.setattr(gl, "GitEnhancedReflexLogger", _Logger)
+    monkeypatch.setattr(wc, "_get_db_for_session", lambda sid: _DB())
+    monkeypatch.setattr(
+        wc,
+        "_check_cmd_parse_inputs",
+        lambda args: {"session_id": "S", "explicit_confidence": None, "config_data": {}, "cycle": 1,
+                      "claims": [{"claim": "x", "grounding": "read"}], "falsifiers": [], "output_format": "json"},
+    )  # fmt: skip
+    monkeypatch.setattr(wc, "_check_cmd_compute_drift", lambda b, c: ({"know": 0.7, "uncertainty": 0.3}, 0.0, {}))
+    monkeypatch.setattr(wc, "_check_cmd_load_evidence", lambda db, sid: ([], [], "P"))
+    monkeypatch.setattr(wc, "_check_patterns_for_warnings", lambda *a, **k: None)
+    monkeypatch.setattr(wc, "_check_declare_claims", lambda *a, **k: declared.append(a) or {})
+    monkeypatch.setattr(wc, "register_window_falsifiers", lambda *a, **k: declared.append(a) or {})
+    wc.handle_check_command(argparse.Namespace())
+    assert written == [] and declared == []
+
+
+def test_a_check_override_is_what_gets_stored(monkeypatch):
+    """#1: the weave-enforce and blindspot overrides changed only the response's decision; the stored CHECK row (which the
+    Sentinel reads) still said proceed."""
+    from empirica.cli.command_handlers import _workflow_check as wc
+
+    stored: list = []
+
+    def _store(session_id, round_num, vectors, decision, reasoning, cycle, gate=None):
+        stored.append(decision)
+        return "ckpt", "tx-1", []
+
+    def _weave(result, decision, session_id, transaction_id):
+        result["weave_enforce"] = {"enforced": True}
+        return "investigate"
+
+    monkeypatch.setattr(wc.R, "transaction_id", staticmethod(lambda *a, **k: "tx-1"))
+    patches = {
+        "_check_parse_inputs": lambda args: {"session_id": "S", "vectors": {"know": 0.9, "uncertainty": 0.1},
+                                             "reasoning": "r", "cycle": 1, "output_format": "json", "claims": [], "decision": None,
+                                             "falsifiers": []},
+        "_check_bootstrap_gate": lambda sid, v: ({}, {}),
+        "_check_get_round_and_history": lambda sid, args, transaction_id=None: (1, []),
+        "_check_load_dynamic_thresholds": lambda sid: (None, 0.35, {}),
+        "_check_detect_diminishing_returns": lambda *a: {"detected": False},
+        "_check_gate_decision": lambda *a, **k: ("proceed", "proceed", None, None),
+        "_check_store_and_publish": _store,
+        "_check_auto_checkpoint": lambda *a, **k: None,
+        "_check_create_snapshot": lambda *a, **k: None,
+        "_check_declare_claims": lambda *a, **k: {},
+        "register_window_falsifiers": lambda *a, **k: {},
+        "_check_run_blindspot_scan": lambda result, decision, *a: decision,
+        "_check_apply_weave_enforce": _weave,
+        "_check_surface_blindspots": lambda *a, **k: None,
+        "_check_enrich_context": lambda *a, **k: None,
+        "_check_format_output": lambda *a, **k: None,
+    }  # fmt: skip
+    for name, fn in patches.items():
+        monkeypatch.setattr(wc, name, fn)
+    wc.handle_check_submit_command(argparse.Namespace())
+    assert stored == ["investigate"]

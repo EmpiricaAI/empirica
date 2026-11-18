@@ -328,40 +328,19 @@ def handle_check_command(args):
 
         _check_patterns_for_warnings(project_id, inputs["config_data"], checkpoints, current_vectors, suggestions)
 
-        # 5. Read transaction_id and create checkpoint
-        check_transaction_id = None
-        try:
-            check_transaction_id = R.transaction_id()
-            if check_transaction_id is None:
-                logger.warning("R.transaction_id() returned None for CHECK checkpoint")
-        except Exception as e:
-            logger.warning(f"Failed to read active transaction: {e}")
-
-        checkpoint_id = git_logger.add_checkpoint(
-            phase="CHECK",
-            round_num=inputs["cycle"] or 1,
-            vectors=current_vectors,
-            metadata={
-                "decision": decision,
-                "suggestion_strength": strength,
-                "drift": drift,
-                "findings_count": findings_count,
-                "unknowns_count": unknowns_count,
-                "reasoning": reasoning,
-                "transaction_id": check_transaction_id,
-            },
-        )
-
-        claims_block = _check_declare_claims(session_id, check_transaction_id, inputs.get("claims"))
-        falsifiers_block = register_window_falsifiers(
-            session_id, check_transaction_id, "check", inputs.get("falsifiers")
-        )
+        # 5. A probe persists nothing. It used to write a CHECK reflex with the transaction id, which the Sentinel accepts
+        # as the CHECK, and to declare claims and falsifiers for the window, so "see whether I would pass" certified the
+        # transaction (0f68032f #2). Gating is check-submit's job.
+        checkpoint_id = None
+        claims_block: dict = {}
+        falsifiers_block: dict = {}
 
         # 6. Build result
         result = {
             "ok": True,
             "session_id": session_id,
             "checkpoint_id": checkpoint_id,
+            "persisted": False,  # a probe: nothing stored, nothing certified; use check-submit to gate
             "decision": decision,
             "suggestion_strength": strength,
             **_legacy_check_confidence_fields(inputs["explicit_confidence"], claims_block),
@@ -1413,6 +1392,13 @@ def handle_check_submit_command(args):
 
         # Stage 8: Store checkpoint + publish bus event (inner try for storage errors)
         try:
+            # Stages 13 and 13.5 run BEFORE the store: they may override the decision, and the stored CHECK row is what the
+            # Sentinel reads. Run after it, they changed only the response, so a blocked CHECK was stored as proceed
+            # (0f68032f #1). They write only their own keys, merged into the result below.
+            _overrides: dict = {}
+            decision = _check_run_blindspot_scan(_overrides, decision, session_id, bootstrap_result, bootstrap_status)
+            decision = _check_apply_weave_enforce(_overrides, decision, session_id, _round_tx)
+
             basis = (dynamic_thresholds_info or {}).get("basis")
             basis = basis if isinstance(basis, dict) else {}
             gate = {
@@ -1481,13 +1467,9 @@ def handle_check_submit_command(args):
                 "falsifiers": falsifiers_block,
             }
 
-            # Stage 13: Blindspot scan (may override decision)
-            decision = _check_run_blindspot_scan(result, decision, session_id, bootstrap_result, bootstrap_status)
-
-            # Stage 13.5: Artifact-graph weave-enforce (may override decision).
-            # Dormant by default (report-only strictness) — only blocks when a
-            # practice dials strictness into the enforce band. Map work-stream 1.
-            decision = _check_apply_weave_enforce(result, decision, session_id, check_transaction_id)
+            # Stages 13 and 13.5 (blindspot scan, weave-enforce) ran before the store; carry their keys and decision.
+            result.update(_overrides)
+            result["decision"] = decision
 
             # Stage 13.6: Blindspot advisory — surface active-goal intent-gaps.
             # ADVISORY ONLY (never overrides decision — a blindspot is a prediction,
