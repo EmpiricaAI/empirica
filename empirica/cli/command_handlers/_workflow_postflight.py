@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from empirica.core.project_types import calibration_domain
+from empirica.core.project_types import calibration_domain, project_file_labels
 from empirica.utils.session_resolver import InstanceResolver as R
 
 from ..cli_utils import handle_cli_error, parse_json_safely
@@ -392,6 +392,21 @@ def _pipeline_epistemic_snapshot(
         logger.debug(f"Snapshot creation skipped: {e}")
 
 
+def _postflight_goal_for_session(db, session_id: str) -> str | None:
+    """The open or most recent goal bound to the transaction this session last POSTFLIGHTed, or None."""
+    try:
+        row = db.conn.execute(
+            "SELECT g.id FROM goals g WHERE g.transaction_id = (SELECT transaction_id FROM reflexes WHERE session_id = ? "
+            "AND phase = 'POSTFLIGHT' AND transaction_id IS NOT NULL ORDER BY timestamp DESC LIMIT 1) "
+            "ORDER BY g.created_timestamp DESC LIMIT 1",
+            (session_id,),
+        ).fetchone()
+        return row[0] if row else None
+    except Exception as e:
+        logger.debug(f"goal for the closed transaction not found: {e}")
+        return None
+
+
 def _run_postflight_storage_pipeline(
     session_id: str,
     vectors: dict,
@@ -428,7 +443,9 @@ def _run_storage_stages(
         session = db.get_session(session_id)
         project_id = session.get("project_id") if session else None
         ai_id = session.get("ai_id", "claude-code") if session else "claude-code"
-        goal_id = session.get("current_goal_id") if session else None
+        # sessions has no current_goal_id column (0f68032f #6): the goal is the one bound to the transaction this
+        # session last closed, when there is one.
+        goal_id = _postflight_goal_for_session(db, session_id)
         db.close()
     except Exception:
         return  # Can't do anything without session
@@ -666,7 +683,9 @@ def _run_grounded_verification(
             logger.debug(f"Phase boundary detection failed (non-fatal): {e}")
 
         # Resolve domain + Tier 2 weights
-        project_type = session.get("project_type", "") if session else ""
+        # The type lives in the project's own project.yaml; sessions has no project_type column, so the domain was
+        # always 'default' (0f68032f #6). A line match, under 0.1 ms, as PREFLIGHT reads it.
+        project_type = project_file_labels(_resolve_path)[0] or ""
         domain = calibration_domain(project_type)
 
         tier2_weights = None
@@ -725,7 +744,7 @@ def _run_grounded_verification(
                 f.write(f"Error: {e}\n\n{tb}")
         except Exception:
             pass
-        return None
+        raise  # _soft_run records it as a POSTFLIGHT warning; returning None hid the failure (0f68032f #9)
 
 
 def _postflight_parse_config_or_legacy(args):
@@ -1917,8 +1936,10 @@ def _run_postflight_goal_criteria(session_id, transaction_id, evidence_bundle=No
         )
         return block if block.get("evaluated", 0) > 0 else None
     except Exception as e:
-        logger.debug(f"Goal-criteria evaluation skipped: {e}")
-        return None
+        # Raised, not swallowed: _soft_run turns it into a POSTFLIGHT warning; returning None looked like "nothing to
+        # evaluate" (0f68032f #9).
+        logger.warning(f"Goal-criteria evaluation failed: {e}")
+        raise
 
 
 def _sync_unregistered_message(code: int, body_text: str) -> str | None:
@@ -1998,10 +2019,13 @@ def _run_postflight_cortex_sync(session_id, reasoning, resolved_project_path):
             urllib.request.urlopen(_req, timeout=5)
         except urllib.error.HTTPError as http_err:
             body_text = http_err.read().decode("utf-8", "replace") if hasattr(http_err, "read") else ""
-            unregistered = _sync_unregistered_message(http_err.code, body_text)
+            unregistered = _sync_unregistered_message(http_err.code, body_text) or (
+                f"Cortex sync failed: HTTP {http_err.code}; this transaction did not reach Cortex"
+            )
         logger.debug("Cortex sync push at POSTFLIGHT boundary")
-    except Exception:
-        pass  # Non-fatal
+    except Exception as e:
+        # Any other failure was swallowed, so a sync that never happened looked like one that did (0f68032f #9).
+        unregistered = unregistered or f"Cortex sync failed: {e}; this transaction did not reach Cortex"
     if unregistered:
         # Raised so _soft_run shows it as a POSTFLIGHT warning: the sync was dropped, and saying nothing made an
         # unregistered practice look synced (cortex D6, prop_ezqtrzl7hvag5j25rrh6wwxdhq).

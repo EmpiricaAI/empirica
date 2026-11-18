@@ -192,3 +192,97 @@ def test_a_check_override_is_what_gets_stored(monkeypatch):
         monkeypatch.setattr(wc, name, fn)
     wc.handle_check_submit_command(argparse.Namespace())
     assert stored == ["investigate"]
+
+
+def test_grounded_verification_uses_the_projects_own_type_for_its_domain(tmp_path, monkeypatch):
+    """#6: the type was read from a sessions column that does not exist, so every practice was graded as 'default'."""
+    from empirica.cli.command_handlers import _workflow_postflight as wp
+    from empirica.core.post_test import collector, grounded_calibration, phase_boundary
+    from empirica.core.project_types import calibration_domain
+
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / "project.yaml").write_text("name: r\ntype: research\n")
+    seen: dict = {}
+
+    class _DB:
+        def get_session(self, sid):
+            return {"project_id": "P"}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(wp, "_get_db_for_session", lambda sid: _DB())
+    monkeypatch.setattr(wp, "_stamp_practitioner_model", lambda db, tx: None)
+    monkeypatch.setattr(collector.EvidenceProfile, "resolve", staticmethod(lambda **k: None))
+    monkeypatch.setattr(phase_boundary, "detect_phase_boundary", lambda *a, **k: None)
+    monkeypatch.setattr(grounded_calibration, "run_grounded_verification", lambda **k: seen.update(k) or None)
+    wp._run_grounded_verification("S", {}, {}, None, "code", "tx", project_path=str(tmp_path))
+    assert seen["domain"] == calibration_domain("research") != "default"
+
+
+def test_the_storage_goal_is_the_one_bound_to_the_closed_transaction(db):
+    """#6: the goal came from a sessions column that does not exist, so it was always None."""
+    from empirica.cli.command_handlers._workflow_postflight import _postflight_goal_for_session
+
+    db.conn.execute(
+        "INSERT INTO reflexes (session_id, phase, round, timestamp, transaction_id) VALUES ('S','POSTFLIGHT',1,?,'tx-9')",
+        (time.time(),),
+    )
+    db.conn.execute(
+        "INSERT INTO goals (id, session_id, objective, scope, created_timestamp, goal_data, transaction_id) "
+        "VALUES ('g-9','S','o','{}',?,'{}','tx-9')",
+        (time.time(),),
+    )
+    db.conn.commit()
+    assert _postflight_goal_for_session(db, "S") == "g-9"
+    assert _postflight_goal_for_session(db, "OTHER") is None
+
+
+def test_a_failing_goal_criteria_stage_becomes_a_postflight_warning(monkeypatch):
+    """#9: the stage caught its own exception and returned None, so _soft_run never recorded a warning."""
+    from empirica.cli.command_handlers._workflow_postflight import _run_postflight_goal_criteria
+    from empirica.cli.command_handlers._workflow_shared import _soft_run
+    from empirica.core.post_test import criterion_evaluators
+
+    def boom(*a, **k):
+        raise RuntimeError("criteria store unreadable")
+
+    monkeypatch.setattr(criterion_evaluators, "evaluate_goal_criteria", boom)
+    warnings: list = []
+    _soft_run("goal_criteria", warnings, _run_postflight_goal_criteria, "S", "tx", None)
+    assert [w.get("stage") for w in warnings] == ["goal_criteria"]
+
+
+def test_a_failing_grounded_verification_becomes_a_postflight_warning(monkeypatch, tmp_path):
+    from empirica.cli.command_handlers import _workflow_postflight as wp
+    from empirica.cli.command_handlers._workflow_shared import _soft_run
+
+    monkeypatch.setenv("HOME", str(tmp_path))  # the crash log goes under Path.home()
+
+    def boom(sid):
+        raise RuntimeError("db gone")
+
+    monkeypatch.setattr(wp, "_get_db_for_session", boom)
+    warnings: list = []
+    _soft_run("grounded_verification", warnings, wp._run_grounded_verification, "S", {}, {}, None, "code", "tx")
+    assert [w.get("stage") for w in warnings] == ["grounded_verification"]
+
+
+def test_a_cortex_sync_that_did_not_happen_becomes_a_postflight_warning(monkeypatch):
+    import urllib.error
+    import urllib.request
+
+    from empirica.cli.command_handlers import _workflow_postflight as wp
+    from empirica.cli.command_handlers._workflow_shared import _soft_run
+    from empirica.core.auth import cortex_oauth
+
+    monkeypatch.setattr(cortex_oauth, "cortex_bearer", lambda loader: {"url": "https://cortex.invalid", "bearer": "t"})
+
+    def offline(*a, **k):
+        raise urllib.error.URLError("network unreachable")
+
+    monkeypatch.setattr(urllib.request, "urlopen", offline)
+    monkeypatch.setattr(wp, "_get_db_for_session", lambda sid: (_ for _ in ()).throw(RuntimeError("no db")))
+    warnings: list = []
+    _soft_run("cortex_sync", warnings, wp._run_postflight_cortex_sync, "S", "r", None)
+    assert [w.get("stage") for w in warnings] == ["cortex_sync"]
