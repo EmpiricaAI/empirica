@@ -114,3 +114,25 @@ def test_sweep_fixes_for_1_17_7(monkeypatch, tmp_path):
     assert _with_remote_control_name("claude --remote-control-session-name-prefix box", "p").endswith(
         "--remote-control p"
     )
+
+
+def test_a_resize_storm_runs_one_relayout_at_a_time(monkeypatch, tmp_path):
+    """Each relayout is a fresh Python process (median 0.23 s, ~30 MB, measured 2026-11-18). A drag fires client-resized
+    many times, so the hook holds a lock: a second relayout while one runs exits at once, and the bar's 15 s refresh
+    catches the last size. Where flock is missing (macOS), the hook runs the relayout as before."""
+    import subprocess
+
+    calls = []
+    monkeypatch.setattr(bar, "_tmux", lambda *a: calls.append(a) or SimpleNamespace(stdout="", returncode=0))
+    monkeypatch.setattr(bar, "cockpit_session_exists", lambda _s: True)
+    monkeypatch.setattr(bar, "layout", lambda _s: 2)
+    monkeypatch.setattr(bar, "install_bindings", lambda mouse=True: {})
+    monkeypatch.setattr(bar.launcher_state, "COCKPIT_DIR", tmp_path / "not-yet")
+    bar.install(SimpleNamespace(bar=True, mouse=True), "cock", config_path=None, profile=None)
+    hook = next(c[4] for c in calls if c[0] == "set-hook" and c[3] == "client-resized")
+    assert "flock -n" in hook and "command -v flock" in hook
+    # the shell run-shell hands it to must parse it: run it with the relayout replaced by a marker
+    shell = hook.removeprefix("run-shell -b ").strip('"').replace(bar._self_command() + " layout", "echo relayout")
+    out = subprocess.run(["/bin/sh", "-c", shell.replace('\\"', '"')], capture_output=True, text=True, timeout=10)
+    assert out.returncode == 0 and "relayout" in out.stdout, out.stderr
+    assert (tmp_path / "not-yet").is_dir()  # the lock's folder exists before the first resize

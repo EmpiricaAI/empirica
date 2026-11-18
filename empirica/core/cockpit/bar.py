@@ -479,7 +479,15 @@ def install(
     lines = layout(session_name)
     # Whether health needs a line of its own is decided again when the window is resized or a window is added, not only at
     # the next refresh (goal 8da5f220 gap check).
-    relayout = f"run-shell -b {_dq(_self_command() + ' layout ' + shlex.quote(session_name))}"
+    # One relayout at a time: each is a fresh Python process (median 0.23 s, ~30 MB, measured 2026-11-18) and a drag fires
+    # client-resized many times. A second one while the first runs exits at once; the 15 s refresh catches the last size.
+    # flock is util-linux: where it is missing (macOS) the relayout runs unguarded, as before.
+    relayout_cmd = _self_command() + " layout " + shlex.quote(session_name)
+    lock_path = stamp_path(session_name).with_suffix(".layout.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)  # flock cannot create its file in a folder that is not there
+    lock = shlex.quote(str(lock_path))
+    guarded = f"if command -v flock >/dev/null 2>&1; then flock -n {lock} {relayout_cmd}; else {relayout_cmd}; fi"
+    relayout = f"run-shell -b {_dq(guarded)}"
     for hook in ("client-resized", "after-new-window", "client-attached"):
         _tmux("set-hook", "-t", target, hook, relayout)
     bindings = install_bindings(mouse=config.mouse)
