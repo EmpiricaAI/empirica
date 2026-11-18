@@ -5,6 +5,13 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`/graph-harvest`: put what existing material knows into the graph.** Reads documents, past conversations (only where a practice allows its transcripts to be read), code or designs, and records the decisions, assumptions, open questions and dead ends they hold as typed artifacts, linked to what the graph already has and to the material as a source. It is a reasoning pass by the practitioner, not an automatic extractor.
+- **A `harvested` source tag.** Artifacts back-filled from existing material are tagged `harvested` and stored outside every transaction, so calibration never counts them as work observed in the session that logged them. Re-tagging an artifact as harvested moves it out of its transaction too.
+
 ## [1.17.8] - 2026-11-18
 
 ### Changed

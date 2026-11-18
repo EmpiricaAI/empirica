@@ -95,6 +95,7 @@ Skills load on demand when the AI recognises the situation, or by name (`/skill-
 | **code-docs-align** | `/code-docs-align` | Checks that documentation, docstrings and comments match the code |
 | **eat-the-broccoli** | `/eat-the-broccoli`, pre-release audit | Tiered quality sweep: deterministic tooling plus a hunt for failures that pass tests |
 | **architecture-review** | Reviewing a system architecture | Stress-tests a design for bottlenecks, single points of failure, security and cost gaps, ranked by blast radius |
+| **graph-harvest** | `/graph-harvest`, back-filling the graph from existing material | Reads documents, past conversations (where the practice allows it), code or designs and records their decisions, assumptions and open questions as linked artifacts tagged `harvested`, which calibration never counts |
 | **epistemic-gardening** | `/epistemic-gardening`, pre-release | De-weeds the epistemic graph: resolves stale artifacts, closes answered unknowns, prunes dangling edges |
 | **epistemic-editing** | Reviewing a document whose claims must hold up | Grounded review pass over claim classes that fail silently; renders flags for the author to accept or reject |
 | **dispatch-agent** | Spawning a subagent for non-trivial work | Enriches the agent prompt with findings, dead-ends and anti-patterns from Cortex |

@@ -1,6 +1,6 @@
 # Skills — what ships, when each fires, which are load-bearing
 
-Empirica ships **26 skills** with the Claude Code plugin. They are *lazy*: a
+Empirica ships **27 skills** with the Claude Code plugin. They are *lazy*: a
 skill does nothing until it is loaded, so knowing when each one fires matters
 more than knowing what it contains.
 
@@ -20,6 +20,7 @@ page. The README lists the eight most people reach for first.
 | Skill | Fires when | Why it is load-bearing |
 |---|---|---|
 | **`/epistemic-gardening`** | Pre-release, periodically, or when retrieval starts surfacing stale artifacts | Resolve / archive / prune so the graph reflects what is live. An epistemic graph that only grows is an archive, and stale artifacts actively mis-steer retrieval |
+| **`/graph-harvest`** | Back-filling the graph from material that already exists: documents, past conversations (only where the practice allows its transcripts to be read), code, designs | A reasoning pass, not an extractor: records what the material decided, assumed and left open as typed, linked artifacts with a source, tagged `harvested` so calibration never counts them |
 
 ---
 
