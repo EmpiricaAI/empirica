@@ -116,20 +116,16 @@ def test_a_practice_is_signed_in_registered_and_imported_with_its_ids_dates_and_
     (body,) = cortex.imports()
     assert body["project_id"] == PROJECT["project_id"] and body["dry_run"] is False
     by_id = {n["id"]: n for n in body["nodes"]}
-    assert set(ids.values()) <= set(by_id)
+    assert set(ids.values()) - {ids["unknown"], ids["dead_end"]} <= set(by_id)
     f = by_id[ids["finding"]]
     assert f["ref"] == f["id"] and f["type"] == "finding" and isinstance(f["created_at"], float)
     assert f["data"]["finding"] == "the cache is cold on start" and f["data"]["visibility"] == "org"  # shared -> org
     assert by_id[ids["old_finding"]]["is_resolved"] is True and by_id[ids["old_finding"]]["data"]["visibility"] == "org"
-    assert by_id[ids["unknown"]]["data"]["visibility"] == "project"  # local -> project
-    dead = by_id[ids["dead_end"]]["data"]
-    assert (dead["approach"], dead["why_failed"], dead["visibility"]) == (
-        "warm it in a thread",
-        "races the loader",
-        "project",
-    )
+    # local means not sent to Cortex (David 2026-11-19): the local unknown and dead end stay on this machine.
+    assert ids["unknown"] not in by_id and ids["dead_end"] not in by_id and report["local_kept_local"] == 2
     assert report["public_as_org"] == 1
-    assert report["to_team"] + report["to_project"] == len(body["nodes"]) and report["to_project"] >= 1
+    # What is left is shared or public (the untagged rows take the column default, shared), so nothing goes project-only.
+    assert report["to_team"] + report["to_project"] == len(body["nodes"]) and report["to_project"] == 0
     assert body["edges"] == [{"from": ids["decision"], "to": ids["finding"], "relation": "evidence"}]
     assert report["links_kept_local"] == 2, "a 'related' link and a link to a goal stay local"
     assert report["created"] == len(body["nodes"]) and "local paths stay on this machine" in report["note"]
@@ -227,7 +223,7 @@ def test_a_source_goes_without_its_file(store):
         f"INSERT INTO epistemic_sources ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})", list(row.values())
     )
     db.conn.commit()
-    nodes, _ = mc.export_nodes(db.conn, PROJECT["project_id"])
+    nodes, _ = mc.export_nodes(db.conn, PROJECT["project_id"], include_local=True)
     (src,) = [n for n in nodes if n["type"] == "source"]
     assert src["data"]["title"] == "RFC 7519" and "canonical_path" not in src["data"] and "/home/u" not in str(src)
 
@@ -280,7 +276,8 @@ def test_a_dry_run_for_a_practice_not_yet_on_cortex_reports_local_counts_without
     report = mc.connect(
         project=PROJECT, conn=db.conn, credential=_signed_in, http=cortex, register=pytest.fail, dry_run=True
     )
-    assert report["ok"] is True and report["registered"] is False and report["nodes"] >= 7
+    assert report["ok"] is True and report["registered"] is False
+    assert report["nodes"] + report["local_kept_local"] >= 7
     assert cortex.imports() == [] and "Not registered on Cortex yet" in report["note"]
 
 
@@ -304,7 +301,7 @@ def test_a_local_path_never_leaves_as_a_source_address(store):
             f"INSERT INTO epistemic_sources ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})", list(row.values())
         )
     db.conn.commit()
-    nodes, _ = mc.export_nodes(db.conn, PROJECT["project_id"])
+    nodes, _ = mc.export_nodes(db.conn, PROJECT["project_id"], include_local=True)
     addresses = {n["data"]["title"]: n["data"].get("source_url") for n in nodes if n["type"] == "source"}
     assert addresses["https://example.test/paper"] == "https://example.test/paper"
     assert addresses["file:///home/u/notes.md"] is None and addresses["/home/u/private/plan.pdf"] is None
@@ -372,3 +369,28 @@ def test_connect_reports_how_many_errors_there_were_beyond_the_sample(store):
         project=PROJECT, conn=db.conn, credential=_signed_in, http=cortex, register=_registered, confirm_team=True
     )
     assert (len(report["errors"]), report["error_count"]) == (20, 25)
+
+
+def test_include_local_sends_the_local_artifacts_scoped_to_the_project(store):
+    db, ids = store
+    nodes, counts = mc.export_nodes(db.conn, PROJECT["project_id"], include_local=True)
+    by_id = {n["id"]: n for n in nodes}
+    assert by_id[ids["unknown"]]["data"]["visibility"] == "project" and counts["local_kept_local"] == 0
+    dead = by_id[ids["dead_end"]]["data"]
+    assert (dead["approach"], dead["visibility"]) == ("warm it in a thread", "project")
+
+
+def test_a_local_source_stays_unless_local_is_included(store):
+    db, _ = store
+    for sid, vis in (("s-local", "local"), ("s-shared", "shared")):
+        row = {"id": sid, "project_id": PROJECT["project_id"], "title": sid, "source_type": "doc",
+               "source_url": f"https://example.com/{sid}", "visibility": vis}  # fmt: skip
+        for _cid, name, ctype, notnull, default, _pk in db.conn.execute("PRAGMA table_info(epistemic_sources)"):
+            if notnull and default is None and name not in row:
+                row[name] = 0 if any(t in (ctype or "").upper() for t in ("INT", "REAL")) else "x"
+        db.conn.execute(
+            f"INSERT INTO epistemic_sources ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})", list(row.values())
+        )
+    ids_default = {n["id"] for n in mc.export_nodes(db.conn, PROJECT["project_id"])[0]}
+    ids_all = {n["id"] for n in mc.export_nodes(db.conn, PROJECT["project_id"], include_local=True)[0]}
+    assert "s-shared" in ids_default and "s-local" not in ids_default and "s-local" in ids_all

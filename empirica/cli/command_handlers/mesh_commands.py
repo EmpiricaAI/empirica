@@ -1268,7 +1268,13 @@ def handle_mesh_connect_command(args) -> int:
         return 1
     conn = sqlite3.connect(f"file:{db_file}?mode=ro", uri=True)
     try:
-        report = connect(project=project, conn=conn, dry_run=args.dry_run, confirm_team=getattr(args, "yes", False))
+        report = connect(
+            project=project,
+            conn=conn,
+            dry_run=args.dry_run,
+            confirm_team=getattr(args, "yes", False),
+            include_local=getattr(args, "include_local", False),
+        )
     finally:
         conn.close()
     if args.output == "json":
@@ -1288,6 +1294,11 @@ def handle_mesh_connect_command(args) -> int:
         f"   {report['nodes']} artifacts and {report['edges']} links {verb}; {report['to_team']} visible to the team, "
         f"{report['to_project']} to this project only"
     )
+    if report.get("local_kept_local"):
+        print(
+            f"   {report['local_kept_local']} artifacts tagged local stay on this machine "
+            "(--include-local sends them, visible to this project only)"
+        )
     done = report.get("would_create") if report["dry_run"] else report.get("created")
     print(
         f"   Cortex: {done} new, {report.get('skipped_existing', 0)} already there, {report.get('refused', 0)} refused"

@@ -304,7 +304,7 @@ def add_checkpoint_parsers(subparsers):
     mistake_log_parser.add_argument(
         "--visibility",
         choices=["public", "shared", "local"],
-        help="Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.",
+        help="Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=kept off Cortex; the other practices on this machine can read it.",
     )
     mistake_log_parser.add_argument(
         "--epistemic-source",
@@ -1069,7 +1069,7 @@ def add_checkpoint_parsers(subparsers):
     finding_log_parser.add_argument(
         "--visibility",
         choices=["public", "shared", "local"],
-        help="Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.",
+        help="Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=kept off Cortex; the other practices on this machine can read it.",
     )
     finding_log_parser.add_argument(
         "--epistemic-source",
@@ -1160,7 +1160,7 @@ def add_checkpoint_parsers(subparsers):
     unknown_log_parser.add_argument(
         "--visibility",
         choices=["public", "shared", "local"],
-        help="Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.",
+        help="Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=kept off Cortex; the other practices on this machine can read it.",
     )
     unknown_log_parser.add_argument(
         "--epistemic-source",
@@ -1339,7 +1339,7 @@ def add_checkpoint_parsers(subparsers):
     deadend_log_parser.add_argument(
         "--visibility",
         choices=["public", "shared", "local"],
-        help="Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.",
+        help="Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=kept off Cortex; the other practices on this machine can read it.",
     )
     deadend_log_parser.add_argument(
         "--epistemic-source",
@@ -1395,7 +1395,7 @@ def add_checkpoint_parsers(subparsers):
     assumption_log_parser.add_argument(
         "--visibility",
         choices=["public", "shared", "local"],
-        help="Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.",
+        help="Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=kept off Cortex; the other practices on this machine can read it.",
     )
     assumption_log_parser.add_argument(
         "--epistemic-source",
@@ -1467,7 +1467,7 @@ def add_checkpoint_parsers(subparsers):
     decision_log_parser.add_argument(
         "--visibility",
         choices=["public", "shared", "local"],
-        help="Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.",
+        help="Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=kept off Cortex; the other practices on this machine can read it.",
     )
     decision_log_parser.add_argument(
         "--epistemic-source",
@@ -1508,8 +1508,9 @@ def add_checkpoint_parsers(subparsers):
         help=(
             "Local media/binary file (image, etc.) to register AND upload to "
             "cortex as a blob, so peers can fetch it cross-tenant via "
-            "`source-get`. Implies --path. Pair with --visibility shared for "
-            "cross-tenant reads (producer half of media-bearing sources)."
+            "`source-get`. Implies --path. Needs --visibility shared or public: "
+            "at local the source is recorded and the file stays on this machine "
+            "(producer half of media-bearing sources)."
         ),
     )
     source_add_parser.add_argument("--url", help="URL (for web sources)")
@@ -1528,7 +1529,7 @@ def add_checkpoint_parsers(subparsers):
     source_add_parser.add_argument(
         "--visibility",
         choices=["public", "shared", "local"],
-        help="Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only. Required for cross-mesh source-map participation.",
+        help="Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=kept off Cortex; the other practices on this machine can read it. Required for cross-mesh source-map participation.",
     )
     source_add_parser.add_argument("--session-id", help="Session ID (auto-derived from transaction)")
     source_add_parser.add_argument("--project-id", help="Project ID (auto-derived from context)")

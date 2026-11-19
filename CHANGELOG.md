@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`local` means kept off Cortex, and now holds everywhere.** An artifact or source tagged `local` (the default) is never sent to Cortex: it stays out of the automatic sync as before, `empirica mesh connect` now leaves it on this machine (`--include-local` sends it, visible to that project only), and `source-add --media` no longer uploads a `local` file (add it with `--visibility shared` to upload). The other practices on the same machine can read `local` artifacts (`project-search --global`); the help text and docs said "this project only", and now say what it does.
+
 ### Added
 
 - **Goals and tasks can say what kind of work they are.** `goals-create --kind`, `goals-add-task --kind` and, for an existing goal, `update-artifacts` (`kind`) take one of fix, refine, simplify, expand (product change), investigate or sustain (the work around it: releases, sweeps, coordination, hygiene). The kind is kept in the goal's metadata and the task's data, and survives a rebuild from the git notes; roadmap items may carry one too.

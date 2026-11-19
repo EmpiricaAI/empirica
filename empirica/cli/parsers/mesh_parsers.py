@@ -131,7 +131,8 @@ def add_mesh_parsers(subparsers) -> None:
             "Takes a practice that has run without Cortex onto it: checks the Cortex sign-in (`empirica auth login` "
             "first), registers the practice under its own id, then imports its "
             "findings, unknowns, dead ends, mistakes, assumptions, decisions and sources with their ids, dates and links. "
-            "Visibility maps local to project and shared or public to the team. Raw source files stay on this machine. "
+            "Artifacts tagged local stay on this machine (local means not sent to Cortex); shared and public go to the team. "
+            "Raw source files stay on this machine. "
             "Run with --dry-run first to see what would go where."
         ),
     )
@@ -142,6 +143,11 @@ def add_mesh_parsers(subparsers) -> None:
         "--yes",
         action="store_true",
         help="Import even though some artifacts become visible to the whole team (without it, connect stops and asks)",
+    )
+    connect.add_argument(
+        "--include-local",
+        action="store_true",
+        help="Also send the artifacts tagged local, visible to this project only on Cortex (without it they stay here)",
     )
     connect.add_argument("--output", choices=["human", "json"], default="human")
 

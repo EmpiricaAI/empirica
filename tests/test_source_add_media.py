@@ -117,3 +117,20 @@ def test_media_upload_failed_flag():
     # no --media → never a media failure (None push, or no media_path).
     assert _media_upload_failed(None, None) is False
     assert _media_upload_failed("", None) is False
+
+
+def test_a_local_source_never_uploads_its_file(monkeypatch, tmp_path):
+    """local means not sent to Cortex (David 2026-11-19): --media at visibility local keeps the file on this machine."""
+    from types import SimpleNamespace
+
+    from empirica.cli.command_handlers.artifact_log_commands import _upload_media_source
+
+    sent = []
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: sent.append(a) or _FakeResp(200, {"ok": True}))
+    media = tmp_path / "plan.pdf"
+    media.write_bytes(b"%PDF")
+    res = _upload_media_source(
+        SimpleNamespace(), str(media), "src-l", {"canonical_path": str(media)}, "Plan", "proj", "local"
+    )
+    assert sent == [] and res["pushed"] is False and "--visibility shared" in res["error"]
+    assert _media_upload_failed(str(media), res) is True  # still loud: the upload asked for did not happen

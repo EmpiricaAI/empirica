@@ -97,7 +97,7 @@ text is never edited. A tripped falsifier does not close its parent: invalidate 
 
 | You want | Do |
 |---|---|
-| Nothing to leave this practice | nothing: `local` is the default |
+| Nothing to reach Cortex | nothing: `local` is the default. The other practices on this machine can still read it (`project-search --global`) |
 | The organisation's practices to find it | `--visibility shared` (`public` for anyone with a Cortex account) |
 | A pattern another practice can act on | a **lesson** with `sharing_policy` `org` or `public` in the payload. Findings *describe*, lessons *transfer* |
 | Another practice to own the follow-up | log it there with `--project-id <practice>`, or ask over the mesh, and cite the original |

@@ -601,7 +601,7 @@ Infer epistemic actions from conversation naturally:
 | An artifact is TRUE and correctly typed but its **metadata** is wrong — inflated `impact`, stale `visibility`, or an `epistemic_source` of `search` on something a peer actually told you | `update-artifacts -` batch JSON. Don't resolve a true finding to fix a number: ask whether the CLAIM is wrong or just the LABEL. The claim text itself is immutable by design — a wrong claim takes `finding-resolve --kind retracted`, which keeps the original wording and records that it failed. **Correct the metadata; retract the claim.** |
 | Logging an artifact you generated without external retrieval | `--epistemic-source intuition` — be honest, don't paper it as `search` |
 | Logging an artifact shaped by reads/greps/web/MCP this session | `--epistemic-source search` |
-| Finding/decision/etc. could help a future Claude working in ANY project (cross-codebase pattern, ecosystem-wide lesson, security note) | `--visibility shared` (within-org) or `--visibility public` (anyone). Default `local` keeps it project-scoped. |
+| Finding/decision/etc. could help a future Claude working in ANY project (cross-codebase pattern, ecosystem-wide lesson, security note) | `--visibility shared` (within-org) or `--visibility public` (anyone). Default `local` keeps it off Cortex (the other practices on this machine can still read it). |
 | Starting work on something that another Claude (in this or another project) may have already learned about | `empirica project-search --task "<active topic>" --global` BEFORE diving in — surfaces eidetic facts + episodic narratives from other projects' artifacts |
 | Logging a finding about a target project you're not currently in (multi-project workflow) | `empirica finding-log --project-id <project-name> --finding "..."` — resolves name → DB path, writes directly. Supported on finding-log + unknown-log today; others need full UUID. |
 | Intentional stub / placeholder created | `goals-create --status planned` at the same time — names what fills it and when, so stubs don't fall through the cracks |
@@ -610,10 +610,10 @@ Infer epistemic actions from conversation naturally:
 {% if cortex %}| Peer practice's domain genuinely owns what you're missing | Pull via collab (auto-accepted, no ECO gate) — don't guess in isolation when asking is cheap. `/cortex-mailbox-send` covers shape. |
 | You finished work a peer asked of you | Ack via `empirica mailbox reply` (atomic propose+complete) — without it the source AI's outbox stays visibly stalled. Mesh discipline, not optional polish. |
 | Collab arrived mid-transaction | Log `goals-create --objective "Process inbox/<status>: <proposal_id>"`, finish current chunk, then reply substantively. Silent accept-and-forget is the drop-thread anti-pattern. |
-| Registered a canonical reference others would benefit from | `source-add --visibility shared` so peers in the org can reference via `sourced_from` rather than re-derive. `--visibility local` (default) keeps it invisible to `empirica sources-map --global`. |
+| Registered a canonical reference others would benefit from | `source-add --visibility shared` so peers in the org can reference via `sourced_from` rather than re-derive. `--visibility local` (default) keeps it off Cortex, so no peer can reference it (practices on this machine still see it in `sources-map --global`). |
 {% endif %}
 
-`--epistemic-source {intuition|search|mixed}` tags how you arrived at an artifact (be honest: high vectors with every artifact tagged intuition is the rubber-stamp pattern). `--visibility {local|shared|public}` makes it discoverable to other projects (default `local`); `project-search --global` is the pull side. Depth: `/artifact-graph`.
+`--epistemic-source {intuition|search|mixed}` tags how you arrived at an artifact (be honest: high vectors with every artifact tagged intuition is the rubber-stamp pattern). `--visibility {local|shared|public}` decides what reaches Cortex and so the team (default `local`: kept off Cortex, still readable by the other practices on this machine); `project-search --global` is the pull side. Depth: `/artifact-graph`.
 
 ---
 

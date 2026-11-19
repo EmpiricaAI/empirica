@@ -87,14 +87,16 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
         return set()
 
 
-def export_nodes(conn: sqlite3.Connection, project_id: str) -> tuple[list[dict], dict[str, int]]:
+def export_nodes(
+    conn: sqlite3.Connection, project_id: str, *, include_local: bool = False
+) -> tuple[list[dict], dict[str, int]]:
     """This practice's artifacts as import nodes, oldest first, and how many went to ``org`` from ``public``.
 
     A node's ref is its own id, so a link can name a node sent in an earlier request (Cortex resolves an id it already holds).
     A table or column this store lacks is skipped, never guessed.
     """
     nodes: list[dict] = []
-    public = 0
+    public = kept_local = 0
     for node_type, table, fields, closed_column, closed_sql in _TYPES:
         have = _columns(conn, table)
         if not have or "id" not in have:
@@ -114,6 +116,10 @@ def export_nodes(conn: sqlite3.Connection, project_id: str) -> tuple[list[dict],
             values = dict(zip(["id", *wanted, *extra, "_resolved"], row, strict=False))
             data = {k: values[k] for k in wanted if values.get(k) not in (None, "")}
             raw_visibility = (values.get("visibility") or "local").lower()
+            if raw_visibility == "local" and not include_local:
+                # local means not sent to Cortex (David 2026-11-19); --include-local sends it, scoped to the project.
+                kept_local += 1
+                continue
             data["visibility"] = VISIBILITY.get(raw_visibility, "project")
             public += raw_visibility == "public"
             node = {"ref": values["id"], "type": node_type, "id": values["id"], "data": data}
@@ -122,7 +128,9 @@ def export_nodes(conn: sqlite3.Connection, project_id: str) -> tuple[list[dict],
             if values.get("_resolved") and node_type in _RESOLVABLE:
                 node["is_resolved"] = True
             nodes.append(node)
-    nodes.extend(_source_nodes(conn, project_id))
+    sources = _source_nodes(conn, project_id)
+    kept_local += sum(1 for s in sources if s["_local"]) if not include_local else 0
+    nodes.extend({k: v for k, v in s.items() if k != "_local"} for s in sources if include_local or not s["_local"])
     complete = [n for n in nodes if all(n["data"].get(f) not in (None, "") for f in REQUIRED.get(n["type"], ()))]
     incomplete = len(nodes) - len(complete)
     nodes = complete
@@ -133,6 +141,7 @@ def export_nodes(conn: sqlite3.Connection, project_id: str) -> tuple[list[dict],
         "to_team": to_org,
         "to_project": len(nodes) - to_org,
         "incomplete_kept_local": incomplete,
+        "local_kept_local": kept_local,
     }
 
 
@@ -155,8 +164,17 @@ def _source_nodes(conn: sqlite3.Connection, project_id: str) -> list[dict]:
         if not str(data.get("source_url", "")).lower().startswith(("http://", "https://")):
             # source_url also holds local paths (file:///home/..., /home/...): an address on this machine stays here.
             data.pop("source_url", None)
-        data["visibility"] = VISIBILITY.get((values.get("visibility") or "local").lower(), "project")
-        out.append({"ref": values["id"], "type": "source", "id": values["id"], "data": data})
+        raw_visibility = (values.get("visibility") or "local").lower()
+        data["visibility"] = VISIBILITY.get(raw_visibility, "project")
+        out.append(
+            {
+                "ref": values["id"],
+                "type": "source",
+                "id": values["id"],
+                "data": data,
+                "_local": raw_visibility == "local",
+            }
+        )
     return out
 
 
@@ -212,6 +230,7 @@ def connect(
     http: Callable[..., tuple[int, dict]] = _http_json,
     register: Callable[..., dict] | None = None,
     confirm_team: bool = False,
+    include_local: bool = False,
 ) -> dict[str, Any]:
     """Run sign-in, register and import for one practice. Returns a report; ``ok`` is False with ``step`` naming where it
     stopped. ``project`` is {name, project_id, path, repo_url?}."""
@@ -238,7 +257,7 @@ def connect(
     # (cortex prop_osmlid2vrvfzpfcd6vbcjpvi74); the org the credential acts in is reported.
     report["org"] = me.get("org_name") or me.get("org_id")
 
-    nodes, counts = export_nodes(conn, project["project_id"])
+    nodes, counts = export_nodes(conn, project["project_id"], include_local=include_local)
     edges, local_edges = export_edges(conn, {n["id"] for n in nodes})
     report.update(nodes=len(nodes), edges=len(edges), links_kept_local=local_edges, **counts)
     if not dry_run and counts["to_team"] and not confirm_team:

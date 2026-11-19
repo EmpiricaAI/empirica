@@ -3,9 +3,10 @@
 Three tiers govern where artifacts can travel:
 
 - ``public``  — publicly shareable; safe to push to a public repo.
-- ``shared``  — team-private, co-versioned (the default). Phase 1 will
-  encrypt these via git-crypt; Phase 0 is metadata-only.
-- ``local``   — machine-local, never shared (raw secrets, session state).
+- ``shared``  — visible to the team through Cortex. Phase 1 will encrypt these via git-crypt; Phase 0 is metadata-only.
+- ``local``   — the default: kept off Cortex (no automatic sync, no --media upload, left behind by mesh connect unless
+  --include-local). It is NOT private from the other practices on the same machine: project-search --global and the
+  machine-wide global_learnings pool read it (David's ruling, 2026-11-19).
 
 Phase 0 stores the tier in a dedicated ``visibility`` column on each artifact
 table. Validation lives here in Python because SQLite ALTER TABLE ADD COLUMN
@@ -29,7 +30,7 @@ def normalize_visibility(value: str | None) -> str:
 
     'local' is the fail-closed direction, and the previous default ('shared')
     was a doctrine defect, not a decision: the system prompt has always said
-    "local (default) — stays in this project only", while this constant said
+    "local (default) — stays in this project only" (since 2026-11-19 the rule is "kept off Cortex"), while this constant said
     'shared' — and under an active L2 agreement, 'shared' IS cross-tenant
     exposure. The old docstring justified shared-on-None as "never accidentally
     promote to public", which guards the wrong boundary. Measured cost before

@@ -3123,8 +3123,6 @@ def _print_media_push_status(media_push, visibility):
     if media_push.get("pushed"):
         size = media_push.get("size_bytes", "?")
         print(f"   📤 Media uploaded to cortex ({size} bytes, visibility={visibility})")
-        if visibility == "local":
-            print("   ⚠ visibility=local — peers in other tenants can't source-get it; use --visibility shared")
     else:
         print(f"   ⚠ Media upload failed: {media_push.get('error', 'unknown')}")
 
@@ -3141,6 +3139,13 @@ def _upload_media_source(args, media_path, source_id, identity, title, project_i
     """
     if not media_path:
         return None
+    if (visibility or "local") == "local":
+        # local means not sent to Cortex (David 2026-11-19): the source is recorded here, its file is not uploaded.
+        return {
+            "pushed": False,
+            "kept_local": True,
+            "error": "visibility local keeps the file on this machine; add it with --visibility shared to upload it",
+        }
 
     import os
 
