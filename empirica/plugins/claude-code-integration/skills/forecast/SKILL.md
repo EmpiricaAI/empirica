@@ -1,7 +1,7 @@
 ---
 name: forecast
-description: "Use when deciding what to build next, asking where a practice stands, or checking how good its predictions are — 'what's next', 'what's coming', 'roadmap', 'plan the next release', 'turn this into goals', 'are we on track', 'where are we', 'status of the practice', 'what have we done this session', 'is the forecast still true', 'how good are our predictions' — and when grading earlier predictions. Drafts predicted directions with an evidence kind and a capped confidence, turns thin evidence into at most three questions, routes human attention by impact and confidence, creates planned goals only after confirmation, and gardens the forecast so it stays honest. Modes: status, verify, grade, record, away."
-version: 1.1.0
+description: "Use when deciding what to build next, asking where a practice stands, or checking how good its predictions are — 'what's next', 'what's coming', 'roadmap', 'plan the next release', 'turn this into goals', 'are we on track', 'where are we', 'status of the practice', 'what have we done this session', 'is the forecast still true', 'how good are our predictions' — and when grading earlier predictions. Drafts predicted directions with an evidence kind and a capped confidence, turns thin evidence into at most three questions, routes human attention by impact and confidence, creates planned goals only after confirmation, and gardens the forecast so it stays honest. Also takes a sentence of intent to a goal with kind-tagged tasks ('plan this', 'turn this idea into a plan'), and explores a brainstormed direction privately ('explore this direction'). Modes: plan, explore, status, verify, grade, record, away."
+version: 1.2.0
 ---
 
 # Forecast
@@ -13,6 +13,10 @@ In empirica core, README's What's Coming renders `docs/ROADMAP.yaml`: the schema
 file's header and `scripts/release.py` enforces them. Read it, do not restate it here. A project without that file keeps its forecast in
 its goals; every mode below applies unchanged, and creating a public roadmap is a question for the human, not a default.
 
+Beside it, `.empirica/ROADMAP.private.yaml` holds directions that must not reach the public repository: the same schema and caps, goal
+ids allowed, git-ignored, never rendered. In empirica core the docs step validates it and stops when an id is in both files or public
+text quotes a private item. `verify`, `grade` and `record` read both files and report them apart.
+
 ## Modes
 
 The skill takes arguments (`/forecast status`) or reads the user's words. One word picks the mode; none is the **full pass**. A modifier
@@ -23,6 +27,8 @@ for the rest). A tag or commit is a range, `<ref>..HEAD` (`git log <ref>..HEAD`,
 | Mode | Question it answers | Writes? |
 |---|---|---|
 | *(none)* | What should we build next? | goals and roadmap, after the human confirms |
+| `plan` | How do we get from this intent to goals and tasks? | one goal with tasks, after the human confirms |
+| `explore` | Where could this brainstormed direction go, and what would tell us? | the private roadmap only |
 | `status` | Where is this practice, and what did this session do? | nothing |
 | `verify` | Is each open prediction still true at HEAD? | nothing |
 | `grade` | Which predictions are past their horizon, and what became of them? | roadmap revisions and resolutions |
@@ -64,13 +70,38 @@ run its command says so instead of estimating.
 **Steered.** A goal that exists, or that you create in this pass because of the prediction, makes the item `steered: true`. Only an item
 predicted *before* any goal and shipped anyway is unplanned foresight. Do not create the goal first and mark the item unsteered.
 
+## `plan`: from intent to goals
+
+Input is a sentence of intent from the human. The AI recommends where effort goes and why; the human decides what is built and how it is
+shaped.
+
+1. **Show the mix.** What recent work has been, by kind, from commands: goals
+   (`sqlite3 .empirica/sessions/sessions.db "select coalesce(json_extract(goal_data,'$.metadata.kind'),'untagged'), count(*) from goals where created_timestamp > strftime('%s','<date>') group by 1"`)
+   and commits (`git log --no-merges --format=%s <range> | sed -E 's/^([a-z]+)(\([^)]*\))?!?:.*/\1/' | sort | uniq -c`). The kinds are
+   the closed set `empirica goals-create --help` lists under `--kind`; untagged goals are said as untagged, never guessed into a kind.
+2. **Recommend a mix** for this intent, with the one reason that grounds it (a backlog of reproduced defects argues for `fix`; a run of
+   `expand` with no `simplify` argues for one).
+3. **Ask at most three questions**, as in the full pass, and only what changes the plan: scope, the architectural fork, what is out. An
+   `expand` that sets architecture is always high impact: it is a question with options and a predicted answer, never routed, and `away`
+   never decides it.
+4. **Decompose** into one goal and its tasks by `/epistemic-transaction`'s rules (do not copy them here), each with `--kind`, after the
+   human confirms. A human who overrides the recommended mix changes the plan; do not argue it again.
+
+## `explore`: a brainstormed direction
+
+For a direction whose evidence does not exist yet, which the full pass's sufficiency rule would turn wholly into questions. Lay out its
+branches; for each say what it rests on and its evidence kind, the cheapest test that would move its confidence, and the outside events
+that set its urgency. Ask at most three questions. **Write only to `.empirica/ROADMAP.private.yaml`**, with confidences capped as in the
+public file. A private item moves to `docs/ROADMAP.yaml` only on the human's word, recorded as a dated revision, with its ids removed.
+
 ## `status`: where are we
 
 Read-only, one screen. No questions, no goals, no files. Three blocks, each from commands:
 
 - **This session.** Commits since the window start (`git log --oneline`, with the range or date as above), what the artifacts logged in that
   window say (`empirica commit-context`, with `--range` or `--since`), goals created or tasks closed (`goals-list`, then `goals-progress` on the ones that moved),
-  open falsifiers (`falsifier-list`), notes not yet triaged (`note --list`).
+  open falsifiers (`falsifier-list`), notes not yet triaged (`note --list`), and the window's mix by kind and commit type (the two
+  commands in `plan`).
 - **Related work.** Open goals ranked by how many tasks are left, mail waiting on this practice (`mailbox poll --status accepted`), the
   open unknowns and assumptions that touch the same goals, and anything parked as load-bearing.
 - **Directions.** The open predictions already in `docs/ROADMAP.yaml` and the `planned` goals, ranked by impact × confidence, each with its
@@ -103,6 +134,8 @@ Read-only. Two ledgers, kept apart:
   `sqlite3 .empirica/sessions/sessions.db "select case when confidence>=0.8 then '0.8+' when confidence>=0.6 then '0.6-0.8' else '<0.6' end, status, count(*) from assumptions where status in ('verified','falsified') group by 1,2"`.
   Only resolved ones are in it, and someone chose to check them: say so beside the numbers. Mistake recurrence has no query yet (an
   open goal); do not invent one.
+- **Mix.** Goals by kind and commits by type per release (the two commands in `plan`, one range per tag). It is the view a human steers
+  by, not a score: report it beside the two ledgers, and say how many goals are untagged.
 
 Name the surprise, if there is one: a bucket whose outcome rate does not follow its stated confidence is the finding.
 
@@ -132,6 +165,8 @@ elsewhere make the same moves by hand at each release.
 - Two items that count the same backlog are one item.
 - A falsifier that tests a neighbouring quantity (absolute size for a claim about growth) passes while the prediction fails.
 - Never write ids into public text; the release script refuses them.
+- A name in a falsifier is a description, not the test. Before grading a prediction as missed, search for the capability (the goal its
+  basis names, the code's docstrings, commits since the basis date): one 1.17.11 item read as missed had shipped under another verb.
 
 ## Report
 

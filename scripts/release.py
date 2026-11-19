@@ -243,8 +243,9 @@ def _strings_in(value: object):
             yield from _strings_in(v)
 
 
-def validate_roadmap(data: object) -> dict:
-    """The forecast behind What's Coming, or ValueError naming the first thing wrong with it."""
+def validate_roadmap(data: object, *, public: bool = True) -> dict:
+    """The forecast behind What's Coming, or ValueError naming the first thing wrong with it. ``public=False`` is the
+    private roadmap's check: the same schema and caps, with goal and proposal ids allowed."""
     if not isinstance(data, dict) or not isinstance(data.get("items"), list):
         raise ValueError("roadmap needs an `items` list")
     forecast = data.get("forecast")
@@ -336,10 +337,37 @@ def validate_roadmap(data: object) -> dict:
             raise ValueError(
                 f"roadmap item {n}: superseded_by must name another item in the roadmap, not {item.get('superseded_by')!r}"
             )
-    for text in (*_strings_in(forecast), *_strings_in(data["items"])):
+    for text in (*_strings_in(forecast), *_strings_in(data["items"])) if public else ():
         if leak := _INTERNAL_ID.search(text):
             raise ValueError(f"roadmap carries an internal id ({leak.group(0)!r}); the roadmap is public text")
     return data
+
+
+PRIVATE_ROADMAP = Path(".empirica") / "ROADMAP.private.yaml"
+
+
+def validate_private_roadmap(data: object) -> dict:
+    """The private roadmap (goal 29ac595b): git-ignored, never rendered, ids allowed. A file with no items is a placeholder
+    (it may say where the private forecast moved) and needs no forecast block."""
+    if isinstance(data, dict) and data.get("items") == []:
+        return data
+    return validate_roadmap(data, public=False)
+
+
+def private_roadmap_leaks(private: dict, public: dict, *, readme: str) -> list[str]:
+    """What would carry a private direction into public text: an id in both files, or a private item's title or
+    prediction quoted in the public roadmap or README."""
+    public_ids = {i.get("id") for i in public.get("items") or []}
+    public_text = "\n".join([*_strings_in(public), readme])
+    problems = []
+    for item in private.get("items") or []:
+        if item.get("id") in public_ids:
+            problems.append(f"{item['id']}: the same id is in docs/ROADMAP.yaml and the private roadmap")
+        for field in ("title", "prediction"):
+            text = str(item.get(field) or "").strip()
+            if len(text) >= 20 and text in public_text:
+                problems.append(f"{item['id']}: its {field} appears in public text (docs/ROADMAP.yaml or README.md)")
+    return problems
 
 
 def load_roadmap(path: Path) -> dict:
@@ -1545,6 +1573,22 @@ class ReleaseManager:
                 "retracted or superseded, or move the horizon with a revision that says why"
             )
 
+    def _check_private_roadmap(self, roadmap: dict) -> None:
+        """The private roadmap stays private (goal 29ac595b): valid by the same rules, and nothing of it in public text."""
+        path = self.repo_root / PRIVATE_ROADMAP
+        if not path.exists():
+            return
+        import yaml
+
+        try:
+            private = validate_private_roadmap(yaml.safe_load(path.read_text()))
+        except (ValueError, yaml.YAMLError) as e:
+            error(f"{PRIVATE_ROADMAP}: {e}")
+        readme = self.repo_root / "README.md"
+        leaks = private_roadmap_leaks(private, roadmap, readme=readme.read_text() if readme.exists() else "")
+        if leaks:
+            error("a private roadmap item would reach public text:\n  " + "\n  ".join(leaks))
+
     def _remind_forecast_grading(self, roadmap: dict) -> None:
         """The forecast is only a forecast if it is graded: say how many predictions are still open at every docs step."""
         open_count = sum(1 for i in roadmap["items"] if i["status"] == "predicted")
@@ -1591,6 +1635,7 @@ class ReleaseManager:
             except ValueError as e:
                 error(f"docs/ROADMAP.yaml: {e}")
             self._garden_roadmap(roadmap)
+            self._check_private_roadmap(roadmap)
         elif self._released_roadmap_text():
             # Gardening only ran for a file that exists, so deleting it skipped the no-deletion rule and the README lost
             # What's Coming while this step reported success.
