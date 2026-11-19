@@ -227,19 +227,20 @@ def exchange_code(
     verifier: str,
     redirect_uri: str,
     http=_http_json,
+    nonce: str | None = None,
 ) -> dict:
-    """authorization_code exchange for a public client (PKCE, no secret)."""
-    return http(
-        token_endpoint,
-        data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "client_id": client_id,
-            "code_verifier": verifier,
-        },
-        form=True,
-    )
+    """authorization_code exchange for a public client (PKCE, no secret). With ``nonce``, Cortex also returns a signed
+    ``seat_assertion`` echoing it (seat_assertion.verify)."""
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "client_id": client_id,
+        "code_verifier": verifier,
+    }
+    if nonce:
+        data["nonce"] = nonce
+    return http(token_endpoint, data=data, form=True)
 
 
 def refresh_access_token(refresh_token: str, token_endpoint: str, client_id: str, *, http=_http_json) -> dict:
@@ -642,6 +643,9 @@ def login(
         )
         code = _open_and_wait(authorize_url, open_browser, server, state, timeout_s)
 
+    from empirica.core.auth import seat_assertion
+
+    nonce = seat_assertion.new_nonce()
     tokens = exchange_code(
         disco["token_endpoint"],
         client_id=client_id,
@@ -649,9 +653,11 @@ def login(
         verifier=verifier,
         redirect_uri=redirect_uri,
         http=http,
+        nonce=nonce,
     )
     if not tokens.get("access_token"):
         raise RuntimeError("token exchange returned no access_token")
+    seat = _check_seat(tokens.get("seat_assertion"), nonce)
 
     now = _time.time()
     # Refresh custody depends on whether a long-lived daemon is present. On a
@@ -667,6 +673,11 @@ def login(
     # over it (a token is bound to one user in one org; goal da0396f8).
     identity = _whoami(base_url, tokens["access_token"], http=http)
     new_org = identity.get("org_id") or None
+    if seat["present"] and seat.get("org_id") and new_org and seat["org_id"] != new_org:
+        # The proof names another org than the account acts in: neither can be trusted to file this sign-in (3796fe5f).
+        raise RuntimeError(
+            f"seat assertion is for org {seat['org_id']}, but the account acts in {new_org}; nothing stored"
+        )
     previous_org = loader.cortex_oauth_org(None)
     if not _same_cortex(loader, base_url) and len(loader.cortex_oauth_sets()) > 1:
         loader.clear_other_teams()  # they belong to the Cortex being left; never sent to the new one
@@ -705,6 +716,33 @@ def login(
         "invite": bool(invite),
         "org_requested": org or None,
         "remote": remote,
+        "seat": {k: seat.get(k) for k in ("present", "verified", "kid", "reason")},
+    }
+
+
+def _check_seat(token: str | None, nonce: str) -> dict:
+    """Verify Cortex's seat assertion (goal 3796fe5f). Absent: {present: False} and today's host pin decides, as Cortex
+    sends none when its signer is not configured. Present and failing: the login is refused before anything is stored,
+    because a sign-in whose proof does not verify must not replace or sit beside a team's tokens."""
+    from empirica.core.auth import seat_assertion
+
+    if not token:
+        return {
+            "present": False,
+            "verified": False,
+            "kid": None,
+            "reason": "Cortex sent no seat assertion (unverified)",
+        }
+    try:
+        claims = seat_assertion.verify(token, nonce=nonce)
+    except seat_assertion.SeatAssertionError as e:
+        raise RuntimeError(f"seat assertion did not verify ({e}); nothing stored") from e
+    return {
+        "present": True,
+        "verified": True,
+        "kid": claims.get("_kid"),
+        "reason": None,
+        "org_id": claims.get("org_id"),
     }
 
 

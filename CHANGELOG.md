@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Empirica needs Python 3.11.5 or later.** Since 1.16.2 a security floor on soupsieve has needed it, but the package still claimed Python 3.10, so on Python 3.10 and 3.11.0–3.11.4 the requirements could not be met and pip quietly installed 1.16.1 or older instead. The stated minimum is now the real one. Python 3.10 reached end of life in October 2026.
 
+### Added
+
+- **`auth login` checks Cortex's signed seat proof.** Each sign-in sends a fresh nonce; Cortex answers with a seat assertion signed by Empirica's key, and core verifies it (signature, audience, the nonce, expiry, and that it names the org the account acts in). A sign-in whose proof does not verify is refused before anything is stored. With no proof (a Cortex without a signer) sign-in works as before and says it is unverified.
+- **`auth login` picks the remote flow by itself over SSH** (and on Linux with no display, and inside a tmux session attached over SSH), printing a link to open anywhere; `--local` keeps the local browser.
+
 ### Checked
 
 - **Install on every platform (2026-11-19):** `empirica[api,tui]` resolves on Linux (x86_64, arm64), macOS (Apple Silicon, Intel) and Windows for Python 3.11.5 through 3.15. On Python 3.15 only PyYAML has no prebuilt wheel and installs from source. Two gaps are upstream: cryptography publishes no Intel-Mac wheels, so Intel Macs need a Rust toolchain to install it, and onnxruntime's macOS wheels need macOS 14, so on older macOS with Python 3.14 the local embeddings in `[api]` cannot install.

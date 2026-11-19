@@ -15,6 +15,8 @@ destructive-ops-need-per-surface-survival-signoff).
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -27,18 +29,58 @@ def _loader():
     return get_credentials_loader()
 
 
+def _looks_remote() -> bool:
+    """Whether this terminal's browser is elsewhere: an SSH session, or Linux with no display. Inside tmux the pane may
+    predate the ssh attach, so tmux's own session environment (refreshed on each attach) is asked too (2c4f4f97)."""
+    if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
+        return True
+    if os.environ.get("TMUX"):
+        try:
+            out = subprocess.run(
+                ["tmux", "show-environment", "SSH_CONNECTION"], capture_output=True, text=True, timeout=2, check=False
+            ).stdout.strip()
+            if out.startswith("SSH_CONNECTION="):
+                return True
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def _print_seat(seat: dict) -> None:
+    """One line on the signed seat proof (3796fe5f): verified, or why not."""
+    if seat.get("verified"):
+        print(f"   seat: verified with Empirica's key ({seat.get('kid')})")
+    elif seat:
+        print(f"   seat: unverified: {seat.get('reason')}")
+
+
+def _choose_remote(args) -> bool:
+    """--remote, or chosen by itself over SSH unless --local says otherwise, saying so on stderr."""
+    if getattr(args, "remote", False):
+        return True
+    if getattr(args, "local", False) or not _looks_remote():
+        return False
+    # Over SSH a localhost callback cannot be reached by the browser on the other machine (mesh-support prop_wrg7as6d)
+    print(
+        "signed in over SSH: open this link anywhere and paste the code back (--local to use this machine's browser)",
+        file=sys.stderr,
+    )
+    return True
+
+
 def handle_auth_login_command(args) -> int:
     from empirica.core.auth import login
 
     output = getattr(args, "output", "human")
     timeout_s = float(getattr(args, "timeout", None) or 300)
+    remote = _choose_remote(args)
     try:
         result = login(
             timeout_s=timeout_s,
             url=getattr(args, "url", None),
             invite=getattr(args, "invite", None),
             org=getattr(args, "org", None),
-            remote=bool(getattr(args, "remote", False)),
+            remote=remote,
         )
     except Exception as e:
         if output == "json":
@@ -75,6 +117,7 @@ def handle_auth_login_command(args) -> int:
         )
         if result.get("note"):
             print(f"   note: {result['note']}")
+        _print_seat(result.get("seat") or {})
         if result.get("cortex_url_saved") is True:
             hosted = " (the hosted Cortex; pass --url for another)" if result.get("url_source") == "default" else ""
             print(

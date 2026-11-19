@@ -55,7 +55,13 @@ def add_auth_parsers(subparsers) -> None:
         "--remote",
         action="store_true",
         help="For a machine whose browser is elsewhere (SSH, a server): prints a URL to open on any machine, then reads "
-        "the code Cortex's page shows (code#state) pasted back here. No local port is used (optional).",
+        "the code Cortex's page shows (code#state) pasted back here. No local port is used. Chosen by itself over SSH "
+        "(SSH_CONNECTION or SSH_TTY, also in tmux's session environment) and on Linux with no display (optional).",
+    )
+    login.add_argument(
+        "--local",
+        action="store_true",
+        help="Use this machine's browser and a local callback even where --remote would be chosen by itself (optional).",
     )
     login.add_argument("--output", choices=["human", "json"], default="human")
 
