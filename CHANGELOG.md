@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.11] - 2026-11-19
+
 ### Changed
 
 - **Empirica needs Python 3.11.5 or later.** Since 1.16.2 a security floor on soupsieve has needed it, but the package still claimed Python 3.10, so on Python 3.10 and 3.11.0–3.11.4 the requirements could not be met and pip quietly installed 1.16.1 or older instead. The stated minimum is now the real one. Python 3.10 reached end of life in October 2026.
@@ -14,9 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`auth login` checks Cortex's signed seat proof.** Each sign-in sends a fresh nonce; Cortex answers with a seat assertion signed by Empirica's key, and core verifies it (signature, audience, the nonce, expiry, and that it names the org the account acts in). A sign-in whose proof does not verify is refused before anything is stored. With no proof (a Cortex without a signer) sign-in works as before and says it is unverified.
-- **`auth login` picks the remote flow by itself over SSH** (and on Linux with no display, and inside a tmux session attached over SSH), printing a link to open anywhere; `--local` keeps the local browser.
-
+- **`auth login` picks the remote flow by itself over SSH** (and on Linux with no display, and inside a tmux session attached over SSH), printing a link to open anywhere and saying why; `--local` keeps the local browser. A remote sign-in reuses the client it registered last time instead of registering a new one each time.
 - **A cockpit can run on its own tmux socket** (`socket: <path>` in the cockpit config), so another account can attach read-only, as the shared cockpit's stage does: every tmux call the cockpit makes uses that socket, the socket is made readable by `socket_group` (default `cockpit-users`) once the server starts, and `server_access` lists users granted read-only access. Without the key nothing changes.
+
+### Fixed
+
+- **`empirica doctor`, `empirica diagnose`, `setup-claude-code` and the plugin's `install.sh` check the real Python floor** (3.11.5); they still passed 3.10.
 
 ### Checked
 
