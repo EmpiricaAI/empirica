@@ -54,7 +54,8 @@ ARTIFACT_UPDATABLE_FIELDS: dict[str, set[str]] = {
     "decision": {"outcome", "regret_score", "reversibility", "epistemic_source", "visibility"},
     "source": {"confidence", "description"},
     # `due_at` is when the item comes back up (empirica/data/due.py): moving it is a snooze, null clears it.
-    "goal": {"objective", "status", "due_at"},
+    # `kind` (core/work_kinds.py) lives in goal_data.metadata, not a column; graph_commands writes it there (goal 1dfb9911).
+    "goal": {"objective", "status", "due_at", "kind"},
     # A lesson's TEXT is immutable by the same rule as a finding's claim — a lesson
     # that turns out wrong is superseded, not edited. What is correctable is the
     # governance metadata, and `sharing_policy` is the one that matters: it decides
@@ -213,6 +214,11 @@ def value_problems(artifact_type: str, body: dict) -> dict[str, str]:
             isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1
         ):
             problems[field] = f"{value!r} is not a number from 0 to 1"
+        elif artifact_type == "goal" and field == "kind" and value is not None:
+            from empirica.core.work_kinds import KINDS
+
+            if value not in KINDS:
+                problems[field] = f"{value!r} is not one of {', '.join(KINDS)}"
         elif artifact_type == "goal" and field == "status" and value not in GOAL_STATUSES:
             problems[field] = f"{value!r} is not one of {', '.join(GOAL_STATUSES)}"
         elif artifact_type == "assumption" and field == "status" and value not in ASSUMPTION_STATUSES:

@@ -97,3 +97,31 @@ def test_a_tasks_kind_survives_the_goal_note_and_a_rebuild():
     assert gns.insert_tasks(conn, "g", noted) == 2
     kinds = [json.loads(r[0]).get("kind") for r in conn.execute("SELECT subtask_data FROM subtasks ORDER BY id")]
     assert kinds == ["sustain", None]
+
+
+def test_an_existing_goal_can_be_given_a_kind_and_keeps_its_other_metadata():
+    """The backfill (goal 1dfb9911): update-artifacts sets a goal's kind inside goal_data.metadata."""
+    import json
+    import sqlite3
+
+    from empirica.cli.command_handlers.graph_commands import _apply_session_row
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE goals (id TEXT, goal_data TEXT, objective TEXT, status TEXT, due_at TEXT)")
+    conn.execute("INSERT INTO goals VALUES ('g1', ?, 'o', 'planned', NULL)", (json.dumps({"metadata": {"a": 1}}),))
+    conn.execute("INSERT INTO goals VALUES ('g2', ?, 'o', 'planned', NULL)", (json.dumps({"metadata": None}),))
+    errors, rejected = [], []
+    assert (
+        _apply_session_row(conn.cursor(), "goal", "g1", {"type": "goal", "id": "g1", "kind": "fix"}, errors, rejected)
+        == 1
+    )
+    assert _apply_session_row(conn.cursor(), "goal", "g2", {"type": "goal", "id": "g2", "kind": "sustain"}, [], []) == 1
+    meta = [json.loads(r[0])["metadata"] for r in conn.execute("SELECT goal_data FROM goals ORDER BY id")]
+    assert meta == [{"a": 1, "kind": "fix"}, {"kind": "sustain"}]
+
+
+def test_a_kind_outside_the_set_is_refused_with_the_reason():
+    from empirica.data.artifact_fields import value_problems
+
+    assert "kind" in value_problems("goal", {"kind": "polish"})
+    assert value_problems("goal", {"kind": "expand"}) == {}

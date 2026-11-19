@@ -206,8 +206,11 @@ def _stamp(store: GitGoalStore, row: dict[str, Any], action: str) -> bool:
     )
 
 
-def restamp_goal_note(conn, goal_id: str, action: str, project_root: str | None = None) -> bool:
-    """Write the goal's SQLite state into its note (creating the note if it has none). Never raises."""
+def restamp_goal_note(
+    conn, goal_id: str, action: str, project_root: str | None = None, *, extra: dict[str, Any] | None = None
+) -> bool:
+    """Write the goal's SQLite state into its note (creating the note if it has none). Never raises. ``extra`` adds
+    goal_data keys for this write only (a kind set after creation, goal 1dfb9911), without making them reconcile state."""
     try:
         rows = _rows(conn, "id = ?", (goal_id,))
         if not rows:
@@ -218,7 +221,8 @@ def restamp_goal_note(conn, goal_id: str, action: str, project_root: str | None 
             # relocated store) run from a checkout then wrote its goals' notes into that checkout's real namespace.
             logger.warning(f"goal note restamp skipped for {goal_id} ({action}): database is not inside a project")
             return False
-        ok = _stamp(GitGoalStore(root), rows[0], action)
+        row = rows[0] if not extra else {**rows[0], "details": {**(rows[0].get("details") or {}), **extra}}
+        ok = _stamp(GitGoalStore(root), row, action)
         if not ok:
             logger.warning(f"goal note restamp for {goal_id} ({action}) wrote nothing (git unavailable or no commits)")
         return ok

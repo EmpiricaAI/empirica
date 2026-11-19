@@ -2827,6 +2827,23 @@ def _apply_session_row(cursor, atype: str, aid: str, item: dict, errors: list, r
         errors.append(f"{atype} {aid[:8]}: no correctable fields in request")
         return 0
 
+    kind_set = atype == "goal" and "kind" in updates
+    if kind_set:
+        # Not a column: the kind is goal_data.metadata.kind, as goals-create --kind stores it (goal 1dfb9911).
+        kind = updates.pop("kind")
+        row = cursor.execute("SELECT goal_data FROM goals WHERE id = ?", (aid,)).fetchone()
+        if not row:
+            errors.append(f"goal {aid[:8]}: not found")
+            return 0
+        try:
+            data = json.loads(row[0]) if row[0] else {}
+        except (TypeError, ValueError):
+            data = {}
+        data = data if isinstance(data, dict) else {}
+        meta = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+        meta = {k: v for k, v in meta.items() if k != "kind"} | ({"kind": kind} if kind else {})
+        updates["goal_data"] = json.dumps({**data, "metadata": meta})
+
     table, id_col = ARTIFACT_TABLES[atype]
     sets = ", ".join(f"{k} = ?" for k in updates)
     try:
@@ -2838,6 +2855,11 @@ def _apply_session_row(cursor, atype: str, aid: str, item: dict, errors: list, r
         changed = cursor.rowcount
         from empirica.core.canonical.empirica_git.due_note import note_needs_restamp, restamp_note
 
+        if kind_set:
+            from empirica.core.canonical.empirica_git.goal_note_state import restamp_goal_note
+
+            if not restamp_goal_note(cursor.connection, aid, "kind", extra={"metadata": meta}):
+                errors.append(f"goal {aid[:8]}: kind set, but its git note was not rewritten (a rebuild would lose it)")
         if note_needs_restamp(atype, updates):
             # A snooze, a cleared date, an assumption's outcome or a decision's assessment reaches the note, or a
             # rebuild brings back the old value.
