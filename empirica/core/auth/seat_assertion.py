@@ -71,7 +71,10 @@ def verify(token: str, *, nonce: str, keys: dict[str, str] | None = None, now: f
     if claims.get("aud") != AUDIENCE:
         raise SeatAssertionError(f"aud {claims.get('aud')!r} is not {AUDIENCE!r}")
     sent = claims.get("nonce")
-    if not isinstance(sent, str) or not secrets.compare_digest(sent.encode(), nonce.encode()):
+    # surrogatepass: a lone surrogate in a signed claim must compare unequal, not raise UnicodeEncodeError (1.17.11 pass 2)
+    if not isinstance(sent, str) or not secrets.compare_digest(
+        sent.encode("utf-8", "surrogatepass"), nonce.encode("utf-8", "surrogatepass")
+    ):
         raise SeatAssertionError("nonce does not match this login")
     t = time.time() if now is None else now
     exp = claims.get("exp")

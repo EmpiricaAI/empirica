@@ -68,9 +68,9 @@ if [ -z "$PYTHON_CMD" ]; then
     python3 --version 2>&1 | sed 's/^/   Found: /' || echo "   python3 not found"
     echo ""
     echo "   Install Python ${MIN_PYTHON}+ via:"
-    echo "     macOS:  brew install python@3.11"
-    echo "     Ubuntu: sudo apt install python3.11"
-    echo "     pyenv:  pyenv install 3.11 && pyenv global 3.11"
+    echo "     macOS:  brew install python@3.13"
+    echo "     Ubuntu: sudo apt install python3.12   (24.04; 22.04's python3.11 is 3.11.0, below the floor)"
+    echo "     any OS: uv python install 3.13, or pyenv install 3.13 && pyenv global 3.13"
     exit 1
 fi
 

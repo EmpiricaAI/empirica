@@ -1164,6 +1164,9 @@ def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> Groups
     for i, group in enumerate(config.groups):
         is_first_group = not session_existed_before and i == 0
         created, pane_count, err = _create_group_window(group, config, session_name, is_first_group, identities, opened)
+        if i == 0:
+            # After the first window, so an inline server exists; before the rest, so their panes see the socket.
+            server["socket"] = share_socket(config)
         results.append(
             GroupLaunchResult(
                 group_name=group.name,
@@ -1173,8 +1176,6 @@ def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> Groups
                 error=err,
             )
         )
-
-    server["socket"] = share_socket(config)  # after the first window: an inline server starts with it
 
     if any(g.error for g in results):
         return GroupsLaunchResult(server=server, groups=results, session_name=session_name, error=None, opened=opened)

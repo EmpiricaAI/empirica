@@ -41,6 +41,9 @@ class Box:
 @pytest.fixture
 def env(monkeypatch):
     monkeypatch.delenv("EMPIRICA_COCKPIT_SERVER_UNIT", raising=False)  # the suite turns it off; these tests test it
+    monkeypatch.delenv(
+        "EMPIRICA_TMUX_SOCKET", raising=False
+    )  # run inside a socket cockpit's pane, the unit would differ
     monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1001")
     monkeypatch.setenv("PATH", "/home/u/.local/bin:/usr/bin")
     monkeypatch.setenv("TMUX", "/tmp/tmux-1001/default,1,0")

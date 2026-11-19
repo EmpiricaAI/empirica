@@ -706,7 +706,9 @@ def login(
         refresh_owner=owner,
         # An unknown team clears the labels: a label left from the replaced set would name the wrong team.
         org_id=new_org or "",
-        org_name=(identity.get("org_name") or None) if new_org else "",
+        # A name only /v1/users/me gives: when the org came from the seat proof instead, clear it rather than keep
+        # the previous team's (1.17.11 pass 2).
+        org_name=(identity.get("org_name") or None) if identity.get("org_id") else "",
     )
     return {
         "ok": True,

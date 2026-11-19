@@ -226,3 +226,23 @@ def test_a_second_remote_login_reuses_the_client_registered_for_the_code_page(lo
     loader._credentials_cache = None
     _login(loader, monkeypatch, keys, {})
     assert len(registered) == 1 and registered[0]
+
+
+def test_a_lone_surrogate_nonce_is_a_mismatch_not_a_crash(key):
+    """Second pass: a signed proof whose nonce cannot be UTF-8 encoded must still be refused cleanly."""
+    private, keys = key
+    with pytest.raises(sa.SeatAssertionError, match="nonce"):
+        sa.verify(_sign(private, _claims(nonce="\ud800")), nonce="n" * 32, keys=keys)
+
+
+def test_a_seat_org_over_another_teams_block_clears_the_old_name(loader, monkeypatch, key):
+    """Second pass: /users/me gave nothing, so no name is known for the seat's org; the previous team's must not stay."""
+    private, keys = key
+    loader.save_cortex_oauth(access_token="old", client_id="cli", org_id="org-y", org_name="Team Y")  # noqa: S106
+    loader._credentials_cache = None
+    _login(
+        loader, monkeypatch, keys, lambda f: {"seat_assertion": _sign(private, _claims(nonce=f["nonce"]))}, me_org=None
+    )
+    loader._credentials_cache = None
+    oauth = loader.get_cortex_oauth()
+    assert oauth["org_id"] == "org-a" and not oauth.get("org_name")
