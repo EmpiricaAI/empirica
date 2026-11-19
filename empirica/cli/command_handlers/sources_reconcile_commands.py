@@ -976,7 +976,7 @@ def _render_human(p: dict) -> str:
     lines = [
         f"sources-reconcile — {'DRY RUN' if p['dry_run'] else 'APPLIED'}",
         f"  Local sources:        {p['local_sources']}"
-        + (f" ({p['local_left_out']} tagged local left out: kept off Cortex)" if p.get("local_left_out") else ""),
+        + (f" ({p['local_left_out']} local or untagged left out: kept off Cortex)" if p.get("local_left_out") else ""),
         f"  Identity backfilled:  {p['backfilled_identity']}",
         f"  Catalogue discovery:  {p['discovery']} ({p['candidates']} candidates)",
         f"  Matches proposed:     {p['proposed']}",

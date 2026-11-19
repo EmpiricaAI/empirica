@@ -244,7 +244,7 @@ def handle_visibility_show_command(args) -> int:
                 "type": atype,
                 "id": row["id"],
                 "content": row["content"],
-                "visibility": row["visibility"] or "shared",
+                "visibility": row["visibility"] or "local",  # untagged reads as local (1.17.12)
                 "created_timestamp": row["ts"],
             }
             break
