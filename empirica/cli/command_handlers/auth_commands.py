@@ -48,10 +48,6 @@ def _remote_reason() -> str | None:
     return None
 
 
-def _looks_remote() -> bool:
-    return _remote_reason() is not None
-
-
 def _print_seat(seat: dict) -> None:
     """One line on the signed seat proof (3796fe5f): verified, or why not."""
     if seat.get("verified"):

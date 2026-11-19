@@ -23,24 +23,24 @@ def clean_env(monkeypatch):
 
 
 def test_a_desktop_session_stays_local(clean_env):
-    assert ac._looks_remote() is False
+    assert ac._remote_reason() is None
 
 
 @pytest.mark.parametrize("var", ["SSH_CONNECTION", "SSH_TTY"])
 def test_an_ssh_session_is_remote(clean_env, var):
     clean_env.setenv(var, "10.0.0.2 51000 10.0.0.1 22")
-    assert ac._looks_remote() is True
+    assert ac._remote_reason() is not None
 
 
 def test_linux_without_a_display_is_remote(clean_env):
     clean_env.delenv("DISPLAY")
-    assert ac._looks_remote() is True
+    assert ac._remote_reason() is not None
 
 
 def test_macos_without_display_variables_stays_local(clean_env):
     clean_env.delenv("DISPLAY")
     clean_env.setattr(ac.sys, "platform", "darwin")
-    assert ac._looks_remote() is False
+    assert ac._remote_reason() is None
 
 
 def test_inside_tmux_the_session_environment_is_read(clean_env):
@@ -49,11 +49,11 @@ def test_inside_tmux_the_session_environment_is_read(clean_env):
     clean_env.setattr(
         ac.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout="SSH_CONNECTION=1 2 3 22\n")
     )
-    assert ac._looks_remote() is True
+    assert ac._remote_reason() is not None
     clean_env.setattr(
         ac.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout="-SSH_CONNECTION\n")
     )
-    assert ac._looks_remote() is False
+    assert ac._remote_reason() is None
 
 
 def test_local_overrides_and_the_choice_is_said(clean_env, capsys):
