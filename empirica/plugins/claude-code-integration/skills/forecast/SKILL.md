@@ -92,7 +92,8 @@ shaped.
 For a direction whose evidence does not exist yet, which the full pass's sufficiency rule would turn wholly into questions. Lay out its
 branches; for each say what it rests on and its evidence kind, the cheapest test that would move its confidence, and the outside events
 that set its urgency. Ask at most three questions. **Write only to `.empirica/ROADMAP.private.yaml`**, with confidences capped as in the
-public file. A private item moves to `docs/ROADMAP.yaml` only on the human's word, recorded as a dated revision, with its ids removed.
+public file. A private item moves to `docs/ROADMAP.yaml` only on the human's word, recorded as a dated revision, with its ids removed,
+and leaves the private file in the same edit: the docs step stops while the same id or text is in both.
 
 ## `status`: where are we
 

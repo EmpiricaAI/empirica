@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`local` means kept off Cortex, and now holds everywhere.** An artifact or source tagged `local` (the default) is never sent to Cortex: it stays out of the automatic sync as before, `empirica mesh connect` now leaves it on this machine (`--include-local` sends it, visible to that project only), and `source-add --media` no longer uploads a `local` file (add it with `--visibility shared` to upload). The other practices on the same machine can read `local` artifacts (`project-search --global`); the help text and docs said "this project only", and now say what it does.
+- **`local` means kept off Cortex, and now holds everywhere.** An artifact or source tagged `local` (the default) is never sent to Cortex: it stays out of the automatic sync as before, `empirica mesh connect` now leaves it on this machine (`--include-local` sends it, visible to that project only), and `source-add --media` no longer uploads a `local` file (add it with `--visibility shared` to upload), `sources-reconcile` no longer sends a `local` source's hash and path for matching, and an untagged artifact or source is treated as `local` rather than shared. The other practices on the same machine can read `local` artifacts (`project-search --global`); the help text and docs said "this project only", and now say what it does.
+
+### Fixed
+
+- **Writing the ntfy settings no longer breaks a `credentials.json`.** The ntfy writer wrote YAML into a JSON credentials file, after which the sign-in could not be read; it now keeps the file's format, as the other writers do. `auth login` also leaves ntfy alone when it is set through the `ORCHESTRATION_NTFY_*` variables.
 
 ### Added
 

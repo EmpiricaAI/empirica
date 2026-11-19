@@ -102,3 +102,16 @@ def test_the_docs_step_stops_on_a_leak(tmp_path, monkeypatch):
     monkeypatch.setattr(rm, "_released_roadmap_text", lambda: None)
     with pytest.raises(SystemExit):
         rm.sync_readme_whats_new()
+
+
+def test_a_private_title_in_the_changelog_is_caught_before_it_becomes_the_readme(tmp_path, monkeypatch):
+    """1.17.12 sweep: README's What's New is written from CHANGELOG, which the check never read."""
+    mod = _mod()
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / "ROADMAP.private.yaml").write_text(yaml.safe_dump(_doc(PRIVATE), sort_keys=False))
+    (tmp_path / "CHANGELOG.md").write_text(f"# C\n\n## [1.17.12] - 2026-11-20\n\n- **{PRIVATE['title']}.** D.\n")
+    (tmp_path / "README.md").write_text("# P\n")
+    rm = mod.ReleaseManager()
+    rm.repo_root, rm.version = tmp_path, "1.17.12"
+    with pytest.raises(SystemExit):
+        rm._check_private_roadmap(_doc(ITEM))

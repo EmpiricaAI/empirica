@@ -495,9 +495,11 @@ def items_missed_twice(released: dict | None, current: dict, last_version: str, 
             continue
         if _release_tuple(str(old["horizon"])) >= _release_tuple(last_version):
             continue  # not yet past at the last release: this is the first miss
-        if _release_tuple(str(item["horizon"])) >= _release_tuple(last_version) and item["horizon"] != old["horizon"]:
-            continue  # moved past the last release
-        if any(str(r.get("on", "")) > last_date for r in item.get("revisions") or [] if isinstance(r, dict)):
+        if _release_tuple(str(item["horizon"])) > _release_tuple(last_version):
+            continue  # moved past the last release (to the last release itself is still past by the next one)
+        # On or after the last release's day: two releases can be cut on one day, and a revision written after the first
+        # must count (1.17.12 sweep). %cs is the committer's local date, so a day's slack either way is accepted.
+        if any(str(r.get("on", "")) >= last_date for r in item.get("revisions") or [] if isinstance(r, dict)):
             continue
         missed.append(item)
     return missed
@@ -1217,6 +1219,7 @@ class ReleaseManager:
         log("=" * 60)
 
         self.verify_changelog_entry()
+        self.verify_roadmap_ready()
 
         readme_path = self.repo_root / "README.md"
         if not readme_path.exists():
@@ -1573,6 +1576,19 @@ class ReleaseManager:
                 "retracted or superseded, or move the horizon with a revision that says why"
             )
 
+    def verify_roadmap_ready(self) -> None:
+        """--prepare runs the docs step's roadmap checks again: an edit committed after --docs must not ship unchecked
+        (1.17.12 sweep). The second-miss rule, the silent-edit rule and the private roadmap's leak check."""
+        roadmap_path = self.repo_root / "docs" / "ROADMAP.yaml"
+        if not roadmap_path.exists():
+            return
+        try:
+            roadmap = load_roadmap(roadmap_path)
+        except ValueError as e:
+            error(f"docs/ROADMAP.yaml: {e}")
+        self._garden_roadmap(roadmap)
+        self._check_private_roadmap(roadmap)
+
     def _check_private_roadmap(self, roadmap: dict) -> None:
         """The private roadmap stays private (goal 29ac595b): valid by the same rules, and nothing of it in public text."""
         path = self.repo_root / PRIVATE_ROADMAP
@@ -1584,8 +1600,11 @@ class ReleaseManager:
             private = validate_private_roadmap(yaml.safe_load(path.read_text()))
         except (ValueError, yaml.YAMLError) as e:
             error(f"{PRIVATE_ROADMAP}: {e}")
-        readme = self.repo_root / "README.md"
-        leaks = private_roadmap_leaks(private, roadmap, readme=readme.read_text() if readme.exists() else "")
+        # The CHANGELOG too: the README's What's New is written from it after this check (1.17.12 sweep).
+        public_text = "\n".join(
+            p.read_text() for p in (self.repo_root / "README.md", self.repo_root / "CHANGELOG.md") if p.exists()
+        )
+        leaks = private_roadmap_leaks(private, roadmap, readme=public_text)
         if leaks:
             error("a private roadmap item would reach public text:\n  " + "\n  ".join(leaks))
 

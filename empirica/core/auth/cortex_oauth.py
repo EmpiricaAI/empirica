@@ -27,6 +27,7 @@ import base64
 import hashlib
 import json
 import logging
+import os
 import secrets
 import socket
 import sys
@@ -772,6 +773,10 @@ def _fetch_ntfy_credentials(loader, base_url: str, token: str, *, http=_http_jso
     the file is kept and the endpoint not called: it may be one set by hand, and re-signing in should not spend the limit.
     Never raises; the sign-in stands whatever happens here. Returns {written, reason}, never the token.
     """
+    env = [v for v in ("ORCHESTRATION_NTFY_URL", "ORCHESTRATION_NTFY_TOKEN", "ORCHESTRATION_NTFY_PASS") if os.getenv(v)]
+    if env:
+        # The listener prefers these over the file; Cortex's bearer written beside a self-hosted URL would go to that host.
+        return {"written": False, "reason": f"ntfy is set in the environment ({', '.join(env)}); left as it is"}
     try:
         existing = loader._read_existing(loader._resolve_credentials_target(None)).get("ntfy") or {}
     except Exception:

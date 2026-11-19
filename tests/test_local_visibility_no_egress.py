@@ -100,7 +100,9 @@ def test_postflight_delta_excludes_local(tmp_path, monkeypatch):
     texts = [f.get("finding") for f in delta.get("findings", [])]
     assert "shared finding text" in texts
     assert "public finding text" in texts
-    assert "null-visibility finding" in texts  # default-shared, syncs
+    # The default is local, and the migration gave old rows 'shared', not NULL: an untagged row is one nobody chose to share,
+    # so it stays off Cortex (1.17.12 sweep; it synced while NULL read as shared).
+    assert "null-visibility finding" not in texts
     assert "SECRET local finding text" not in texts  # withheld
 
 

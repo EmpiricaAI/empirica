@@ -101,3 +101,41 @@ def test_a_token_already_stored_is_kept_and_the_limited_endpoint_is_not_called(c
 def test_a_failed_fetch_never_fails_the_sign_in(creds):
     result = _login(_http_error(429, b'{"error": "rate_limited"}'), [])
     assert result["ok"] and result["ntfy"]["written"] is False and "429" in result["ntfy"]["reason"]
+
+
+def test_a_json_credentials_file_stays_json(tmp_path, monkeypatch):
+    """1.17.12 sweep: save_ntfy_config wrote YAML into credentials.json, which then failed to parse, losing the sign-in."""
+    import json
+
+    from empirica.config.credentials_loader import CredentialsLoader
+
+    path = tmp_path / "credentials.json"
+    path.write_text(json.dumps({"version": "1.0", "cortex": {"url": "https://cortex.example"}}))
+    monkeypatch.setenv("EMPIRICA_CREDENTIALS_PATH", str(path))
+    for v in (
+        "CORTEX_API_KEY",
+        "CORTEX_URL",
+        "CORTEX_REMOTE_URL",
+        "ORCHESTRATION_NTFY_TOKEN",
+        "ORCHESTRATION_NTFY_URL",
+    ):
+        monkeypatch.delenv(v, raising=False)
+    CredentialsLoader._instance = None
+    CredentialsLoader._credentials_cache = None
+    try:
+        _login({"ntfy_url": "https://ntfy.example", "bearer": "tk_j"}, [])
+        data = json.loads(path.read_text())
+        assert data["ntfy"]["token"] == "tk_j" and data["cortex"]["oauth"]["access_token"] == "AT"  # noqa: S105
+    finally:
+        CredentialsLoader._instance = None
+        CredentialsLoader._credentials_cache = None
+
+
+@pytest.mark.parametrize("var", ["ORCHESTRATION_NTFY_URL", "ORCHESTRATION_NTFY_TOKEN", "ORCHESTRATION_NTFY_PASS"])
+def test_ntfy_set_in_the_environment_is_left_alone(creds, monkeypatch, var):
+    """1.17.12 sweep: with ORCHESTRATION_NTFY_URL at a self-hosted server, Cortex's bearer would have been paired with it."""
+    monkeypatch.setenv(var, "https://ntfy.self.example" if var.endswith("URL") else "x")
+    calls = []
+    result = _login({"ntfy_url": "https://ntfy.example", "bearer": "tk_env"}, calls)
+    assert not any("/ntfy-credentials" in c for c in calls) and result["ntfy"]["written"] is False
+    assert var in result["ntfy"]["reason"]

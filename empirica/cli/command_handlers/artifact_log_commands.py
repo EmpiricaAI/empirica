@@ -2683,9 +2683,8 @@ def handle_source_add_command(args):
         confidence = getattr(args, "confidence", 0.7)
         direction = "noetic" if getattr(args, "noetic", False) else "praxic"
         # Normalize visibility once at the CLI boundary so the INSERT carries
-        # the canonical tier. None → 'shared' (the default + safe invariant);
-        # bogus values also collapse to 'shared' rather than silently promoting
-        # to 'public' (see data/visibility.py).
+        # the canonical tier. None and bogus values become 'local', the default (data/visibility.py), so nothing is
+        # promoted by a typo, and a local source's --media file stays on this machine.
         visibility = normalize_visibility(getattr(args, "visibility", None))
         session_id = getattr(args, "session_id", None)
         project_id = getattr(args, "project_id", None)

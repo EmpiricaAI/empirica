@@ -499,35 +499,9 @@ class CredentialsLoader:
         if "version" not in existing:
             existing["version"] = "1.0"
 
-        if not YAML_AVAILABLE:
-            raise RuntimeError(
-                "save_ntfy_config: PyYAML not installed (`pip install pyyaml`)",
-            )
-
-        tmp_fd, tmp_path = tempfile.mkstemp(
-            prefix=".credentials-",
-            suffix=".yaml.tmp",
-            dir=str(target.parent),
-        )
-        try:
-            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                yaml.dump(
-                    existing,
-                    f,
-                    default_flow_style=False,
-                    sort_keys=False,
-                    allow_unicode=True,
-                )
-            os.replace(tmp_path, target)
-        except Exception:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
-
-        self._credentials_cache = None
-        return target
+        # Through the shared writer, which keeps a credentials.json as JSON: this copy wrote YAML into it, and every
+        # later read failed and lost the sign-in (1.17.12 sweep).
+        return self._write_credentials(target, existing)
 
     # ── Shared write path ───────────────────────────────────────────────
     #

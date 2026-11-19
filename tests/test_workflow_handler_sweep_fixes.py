@@ -72,7 +72,8 @@ def test_local_sources_are_not_sent_to_cortex(db):
     db.conn.commit()
     nodes = _cortex_graph_source_nodes(db, ["src-local", "src-shared", "src-legacy"], set())
     sent = {n.get("id") or n.get("source_id") or n.get("ref") for n in nodes}
-    assert "src-local" not in sent and {"src-shared", "src-legacy"} <= sent
+    # An untagged (NULL) source is one nobody chose to share: it stays off Cortex like local (1.17.12 sweep).
+    assert sent == {"src-shared"}
 
 
 @pytest.mark.parametrize("fmt", ["human", "json"])

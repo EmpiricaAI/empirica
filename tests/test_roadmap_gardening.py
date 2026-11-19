@@ -412,3 +412,28 @@ def test_the_docs_step_stops_on_a_second_miss(tmp_path, monkeypatch):
     monkeypatch.setattr(rm, "_last_release", lambda: ("1.15.1", "2026-11-01"))
     with pytest.raises(SystemExit):
         rm.sync_readme_whats_new()
+
+
+def test_a_revision_written_on_the_day_of_the_last_release_answers_the_second_miss():
+    """1.17.12 sweep: two releases on one day made a same-day revision count for nothing."""
+    mod = _mod()
+    revised = {**ITEM, "revisions": [{"on": "2026-11-01", "from": 0.6, "to": 0.6, "reason": "Still open: why."}]}
+    assert mod.items_missed_twice(_roadmap(ITEM), _roadmap(revised), "1.15.1", "2026-11-01") == []
+
+
+def test_moving_the_horizon_to_a_release_already_cut_does_not_answer_it():
+    mod = _mod()
+    moved = {**ITEM, "horizon": "1.15.1"}  # the last release itself: still past by the next one
+    assert len(mod.items_missed_twice(_roadmap(ITEM), _roadmap(moved), "1.15.1", "2026-11-01")) == 1
+
+
+def test_prepare_checks_the_roadmap_too(tmp_path, monkeypatch):
+    """1.17.12 sweep: --prepare's verify_docs_ready ran neither roadmap check, so edits after --docs went out unchecked."""
+    rm = _docs_step(tmp_path, monkeypatch, "1.15.2", yaml.safe_dump(_roadmap(ITEM), sort_keys=False))
+    monkeypatch.setattr(rm, "_last_release", lambda: ("1.15.1", "2026-11-01"))
+    rm.sync_readme_whats_new = lambda: None
+    seen = []
+    monkeypatch.setattr(rm, "_garden_roadmap", lambda roadmap: seen.append("garden"))
+    monkeypatch.setattr(rm, "_check_private_roadmap", lambda roadmap: seen.append("private"))
+    rm.verify_roadmap_ready()
+    assert seen == ["garden", "private"]

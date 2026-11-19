@@ -1625,7 +1625,7 @@ def _cortex_extract_transaction_delta(session_id):
             # sync; only the explicitly-local minority is withheld.
             _rows = _sdb.conn.execute(
                 f"SELECT id, {_key}{extra_col} FROM {_tbl} "
-                f"WHERE transaction_id = ? AND COALESCE(visibility, 'shared') != 'local' LIMIT 20",
+                f"WHERE transaction_id = ? AND COALESCE(visibility, 'local') != 'local' LIMIT 20",
                 (_tx_id,),
             ).fetchall()
             if _rows:
@@ -1686,7 +1686,7 @@ def _cortex_graph_artifact_nodes(sdb, tx_id):
             # graph sync (COALESCE keeps default 'shared' + legacy NULL flowing).
             _rows = sdb.conn.execute(
                 f"SELECT id, goal_id, {_col_sql} FROM {_tbl} "
-                f"WHERE transaction_id = ? AND COALESCE(visibility, 'shared') != 'local' "
+                f"WHERE transaction_id = ? AND COALESCE(visibility, 'local') != 'local' "
                 f"LIMIT {_CORTEX_GRAPH_PER_TYPE_CAP}",
                 (tx_id,),
             ).fetchall()
@@ -1770,9 +1770,9 @@ def _cortex_graph_source_nodes(sdb, targets, seen_ids):
     try:
         _sph = ",".join("?" * len(_unknown))
         _srows = sdb.conn.execute(
-            # visibility='local' is no-egress, as for the artifacts above (0f68032f #8); NULL is legacy shared.
+            # visibility='local' is no-egress, as for the artifacts above (0f68032f #8); NULL reads as local (1.17.12 sweep).
             f"SELECT id, title, source_type, description FROM epistemic_sources WHERE id IN ({_sph}) "
-            "AND COALESCE(visibility, 'shared') != 'local'",
+            "AND COALESCE(visibility, 'local') != 'local'",
             tuple(_unknown),
         ).fetchall()
         for _s in _srows:

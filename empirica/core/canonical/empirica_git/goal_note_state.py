@@ -181,6 +181,11 @@ def _stamp(store: GitGoalStore, row: dict[str, Any], action: str) -> bool:
             **state,
             **details,
         }
+        row_data = _json(row.get("goal_data"), {})
+        if isinstance(row_data, dict) and isinstance(row_data.get("metadata"), dict) and "metadata" not in goal_data:
+            # A note written fresh from the row keeps its metadata, the work kind with it (1.17.12 sweep): an existing note
+            # already carries it and is merged above.
+            goal_data["metadata"] = row_data["metadata"]
         lineage = []
         ai_id = "unknown"
         created_at = (

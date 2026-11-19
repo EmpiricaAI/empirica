@@ -125,3 +125,27 @@ def test_a_kind_outside_the_set_is_refused_with_the_reason():
 
     assert "kind" in value_problems("goal", {"kind": "polish"})
     assert value_problems("goal", {"kind": "expand"}) == {}
+
+
+def test_a_goal_note_written_fresh_from_its_row_keeps_the_kind():
+    """1.17.12 sweep: a goal with no note yet (the creation write is best-effort) got one without metadata on its first
+    lifecycle restamp or a reconcile, and a rebuild then lost the kind."""
+    import json
+
+    from empirica.core.canonical.empirica_git import goal_note_state as gns
+
+    written = {}
+
+    class Store:
+        def load_goal(self, goal_id):
+            return None
+
+        def store_goal(self, goal_id, session_id, ai_id, goal_data, **kw):
+            written.update(goal_data)
+            return True
+
+    row = {"id": "g", "session_id": "s", "objective": "o", "scope": "{}", "estimated_complexity": None,
+           "created_timestamp": 1.0, "state": {}, "details": {},
+           "goal_data": json.dumps({"metadata": {"kind": "refine"}})}  # fmt: skip
+    assert gns._stamp(Store(), row, "completed")
+    assert written["metadata"] == {"kind": "refine"}

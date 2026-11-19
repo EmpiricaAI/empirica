@@ -345,11 +345,14 @@ def _load_local_sources(db, project_id: str, practice_scope: bool = True) -> lis
     unique within a practice because the db path IS the practice boundary.
     """
     cursor = db.conn.cursor()
+    has_visibility = any(r[1] == "visibility" for r in cursor.execute("PRAGMA table_info(epistemic_sources)"))
+    # local means kept off Cortex (David 2026-11-19): a local source's hash, id and path are not sent for matching.
+    not_local = "AND COALESCE(visibility, 'local') != 'local'" if has_visibility else ""
     cursor.execute(
         "SELECT id, title, source_url, content_hash, size_bytes, "
         "canonical_path, mime_type, source_metadata "
         "FROM epistemic_sources "
-        f"WHERE {'1=1' if practice_scope else 'project_id = ?'} AND COALESCE(archived, 0) = 0",
+        f"WHERE {'1=1' if practice_scope else 'project_id = ?'} AND COALESCE(archived, 0) = 0 {not_local}",
         [] if practice_scope else [project_id],
     )
     rows = []
