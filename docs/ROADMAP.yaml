@@ -287,7 +287,7 @@ items:
     evidence: measured
     basis: Measured on this practice on 2026-11-12, two days after 1.15.0 added due dates, 3 of the 7 planned goals created since carry one. From 1.16.1 a goal can come back when a release is tagged, and the forecast pass proposes a date or a release for every planned goal it creates.
     falsifier: Count planned goals created after the 1.15.0 tag and before 2026-12-10 in this practice, and find that fewer than half have a due_at.
-    horizon: "1.17.12"
+    horizon: "1.17.20"
     steered: true
     status: predicted
     revisions:
@@ -299,6 +299,10 @@ items:
         from: 0.55
         to: 0.4
         reason: "Past its 1.16.3 horizon with the window still open to 2026-12-10, so the horizon follows the window to 1.17.12. Measured today: 3 of the 9 goals still planned that were created since 1.15.0 carry a due date (33%, against 50% needed). That count undercounts, because a goal created as planned and since started no longer reads as planned. The confidence drops on the measurement, three weeks before it falls due."
+      - "on": "2026-11-19"
+        from: 0.4
+        to: 0.4
+        reason: "Past its 1.17.12 horizon the same day: three patch releases were cut on 2026-11-19, so a release number does not track a window that ends on 2026-12-10. The horizon moves past the window, and the measurement is taken on that date. The confidence holds; nothing new was measured."
 
   - id: cortex-connect
     title: A local practice moves onto Cortex in one command
