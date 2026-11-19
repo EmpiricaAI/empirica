@@ -112,7 +112,9 @@ items:
     falsifier: After a cockpit restart on a release that claims it, more than 2 of 12 resumed sessions are still unarmed 5 minutes later.
     horizon: "1.16.2"
     steered: true
-    status: predicted
+    status: dropped
+    resolved_in: "1.17.11"
+    reason: "Dropped at 1.17.11, after seven horizon moves since 1.14.17. The wake on refresh (1.14.19) and on launch (1.14.22) shipped, tested with fakes, but no restart was ever graded, so a release horizon was never something it could meet. The arm times will be measured at the next deliberate cockpit restart, as planned work rather than a forecast."
     revisions:
       - "on": "2026-10-26"
         from: 0.55
@@ -250,7 +252,7 @@ items:
     steered: true
     status: shipped
     resolved_in: "1.16.2"
-    reason: Graded at 1.17.11, shipped in 1.16.2 (edge notes follow deletions, id swaps and same-second ties). The falsifier was run as written in a scratch practice on 2026-11-19, with a control first. With the link exported by doctor --reconcile-notes --apply, a rebuild from the notes into an emptied database restored it (1 link). After delete-artifacts removed it and the reconcile ran again, the same rebuild restored none. The renamed-end half was not run.
+    reason: "Graded at 1.17.11, shipped in 1.16.2 (edge notes follow deletions, id swaps and same-second ties). The falsifier was run as written in a scratch practice on 2026-11-19, with a control first. With the link exported by doctor --reconcile-notes --apply, a rebuild from the notes into an emptied database restored it (1 link). After delete-artifacts removed it and the reconcile ran again, the same rebuild restored none. The renamed-end half was not run."
     revisions:
       - "on": "2026-11-13"
         from: 0.8
@@ -268,7 +270,7 @@ items:
     steered: true
     status: shipped
     resolved_in: "1.16.2"
-    reason: Graded at 1.17.11, shipped in 1.16.2 (one embedding decision per process; the local model's vectors stay in the local store), with two tests that hold 6333 down at start and bring it back. The falsifier was not run live, because it needs the configured Qdrant stopped and on the machine checked that store is shared by every practice. So this rests on the change and its tests, not on an observation.
+    reason: "Graded at 1.17.11, shipped in 1.16.2 (one embedding decision per process; the local model's vectors stay in the local store), with two tests that hold 6333 down at start and bring it back. The falsifier was not run live, because it needs the configured Qdrant stopped and on the machine checked that store is shared by every practice. So this rests on the change and its tests, not on an observation."
     revisions:
       - "on": "2026-11-13"
         from: 0.7
@@ -278,11 +280,11 @@ items:
   - id: due-uptake
     title: Planned work carries what brings it back
     prediction: At least half of the planned goals created between the 1.15.0 release and 2026-12-10 carry a due date or a release condition.
-    confidence: 0.55
+    confidence: 0.4
     evidence: measured
     basis: Measured on this practice on 2026-11-12, two days after 1.15.0 added due dates, 3 of the 7 planned goals created since carry one. From 1.16.1 a goal can come back when a release is tagged, and the forecast pass proposes a date or a release for every planned goal it creates.
     falsifier: Count planned goals created after the 1.15.0 tag and before 2026-12-10 in this practice, and find that fewer than half have a due_at.
-    horizon: "1.16.3"
+    horizon: "1.17.12"
     steered: true
     status: predicted
     revisions:
@@ -290,6 +292,10 @@ items:
         from: 0.55
         to: 0.55
         reason: "The window becomes a date (2026-12-10, a month after 1.15.0, when the measurement falls due) and the horizon 1.16.3, the patch release expected by then: David's versioning rule (2026-11-13): patch releases by default; a minor only for a clear new feature or a change in how Empirica works. The prediction and falsifier name the date instead of the 1.17.0 tag. The confidence holds."
+      - "on": "2026-11-19"
+        from: 0.55
+        to: 0.4
+        reason: "Past its 1.16.3 horizon with the window still open to 2026-12-10, so the horizon follows the window to 1.17.12. Measured today: 3 of the 9 goals still planned that were created since 1.15.0 carry a due date (33%, against 50% needed). That count undercounts, because a goal created as planned and since started no longer reads as planned. The confidence drops on the measurement, three weeks before it falls due."
 
   - id: cortex-connect
     title: A local practice moves onto Cortex in one command
@@ -300,5 +306,7 @@ items:
     falsifier: 1.17.0 ships without an `empirica cortex connect` verb, or the verb refuses every practice on a machine with a Cortex login and a team.
     horizon: "1.17.0"
     steered: true
-    status: predicted
+    status: shipped
+    resolved_in: "1.17.0"
+    reason: "Graded at 1.17.11, shipped in 1.17.0 as `empirica mesh connect` rather than under a `cortex` verb. It signs in, registers the practice under its own id and imports its artifacts and links. Its first real run, on another practice on 2026-11-15, registered it and created 213 of 225 artifacts with 91 links; 12 sources failed on Cortex's side. The no-team clause does not arise: every Cortex user belongs to an org, so there is no no-team case to refuse."
 
