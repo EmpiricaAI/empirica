@@ -111,3 +111,18 @@ def test_the_unknown_status_count_is_not_a_record_count(db, monkeypatch, capsys)
     )
     out = json.loads(capsys.readouterr().out)
     assert rc == 0 and out["total"] == 2
+
+
+def test_a_rebuilt_goal_is_local_like_every_other_rebuilt_type(db, monkeypatch):
+    """1.17.12 follow-up (goal e6af2ba2): the notes carry no visibility, and the goal INSERTs took the column default
+    'shared', so a local goal became eligible for Cortex after a rebuild. Every other type already comes back local."""
+    g = _goal()
+    _store(monkeypatch, [g])
+    sc._rebuild_ensure_goals(db, 1.0, {"goals": 0})
+    assert db.conn.execute("SELECT visibility FROM goals WHERE id = ?", (g["goal_id"],)).fetchone()[0] == "local"
+
+
+def test_an_orphan_goal_stub_is_local_too(db, monkeypatch):
+    gid = str(uuid.uuid4())
+    sc._rebuild_ensure_orphan_goals(db, {gid}, [], 1.0, {"goals": 0})
+    assert db.conn.execute("SELECT visibility FROM goals WHERE id = ?", (gid,)).fetchone()[0] == "local"

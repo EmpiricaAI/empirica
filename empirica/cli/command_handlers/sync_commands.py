@@ -1411,8 +1411,10 @@ def _rebuild_ensure_goals(db, now, rebuilt, all_items_lists=()):
             db.adapter.execute(
                 "INSERT INTO goals (id, session_id, objective, scope, estimated_complexity, "
                 "created_timestamp, goal_data, status, project_id, is_completed, completed_timestamp, "
-                "completion_reason, archived, archived_at, due_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "completion_reason, archived, archived_at, due_at, visibility) "
+                # 'local': the notes carry no visibility, and the column default 'shared' made a local goal eligible for
+                # Cortex after a rebuild; every other type already comes back local (goal e6af2ba2).
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local')",
                 (
                     gid,
                     gsid,
@@ -1468,7 +1470,7 @@ def _rebuild_ensure_orphan_goals(db, orphan_goal_ids, all_items_lists, now, rebu
                     break
             db.adapter.execute(
                 "INSERT INTO goals (id, session_id, objective, scope, "
-                "created_timestamp, goal_data) VALUES (?, ?, ?, ?, ?, ?)",
+                "created_timestamp, goal_data, visibility) VALUES (?, ?, ?, ?, ?, ?, 'local')",
                 (gid, gsid, "Rebuilt stub (orphaned ref)", "{}", now, _json.dumps({"rebuilt": True, "orphan": True})),
             )
             db.adapter.commit()
@@ -2071,6 +2073,12 @@ def handle_rebuild_command(args):
             "total": total_rebuilt,
             "message": f"Rebuilt {total_rebuilt} records from git notes",
         }
+        if total_rebuilt:
+            # Said, not silent: a rebuilt practice stops sending what it had shared until it is re-tagged (goal e6af2ba2).
+            result["visibility_note"] = (
+                "every rebuilt artifact is local (kept off Cortex): the git notes carry no visibility. Re-tag what "
+                "should reach the team with update-artifacts (visibility shared)."
+            )
 
         # Optionally rebuild Qdrant
         qdrant_failure = None
