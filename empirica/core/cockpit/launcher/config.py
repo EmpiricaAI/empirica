@@ -114,6 +114,11 @@ class LauncherConfig:
     remote_control: bool = (
         False  # claude panes start with --remote-control <practice>, named on the phone (goal 8da5f220)
     )
+    # The tmux server's socket, for a cockpit others watch (the shared stage on halo-strix, mesh-support prop_bvovvosl):
+    # every tmux call for this session passes -S <socket>; the socket is made group-readable after the server starts.
+    socket: str | None = None
+    socket_group: str = "cockpit-users"
+    server_access: list[str] = field(default_factory=list)  # users granted read-only access: server-access -a <u> -r
 
     def project_names(self) -> list[str]:
         return [p.name for p in self.projects]
@@ -344,6 +349,9 @@ def load_config(path: Path | None = None) -> LauncherConfig:
             if isinstance(raw.get("bar_commands"), dict)
             else {},
             remote_control=raw.get("remote_control") is True,
+            socket=str(raw["socket"]).strip() if isinstance(raw.get("socket"), str) and raw["socket"].strip() else None,
+            socket_group=str(raw.get("socket_group") or "cockpit-users"),
+            server_access=[str(u) for u in raw.get("server_access") or [] if isinstance(u, str) and u.strip()],
         )
     )
 

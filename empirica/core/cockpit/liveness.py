@@ -36,6 +36,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple, TypeVar
 
+from empirica.core.cockpit.tmux_socket import tmux_argv
+
 logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
@@ -153,7 +155,7 @@ def _live_tmux_panes() -> set[str] | None:
         return None
     try:
         result = subprocess.run(
-            ["tmux", "list-panes", "-a", "-F", "#{pane_id} #{pane_pid} #{pane_current_command}"],
+            tmux_argv("list-panes", "-a", "-F", "#{pane_id} #{pane_pid} #{pane_current_command}"),
             capture_output=True,
             text=True,
             timeout=2,
@@ -192,7 +194,7 @@ def _all_tmux_panes() -> set[str] | None:
         return None
     try:
         result = subprocess.run(
-            ["tmux", "list-panes", "-a", "-F", "#{pane_id}"],
+            tmux_argv("list-panes", "-a", "-F", "#{pane_id}"),
             capture_output=True,
             text=True,
             timeout=2,
@@ -370,7 +372,7 @@ def _tmux_pane_maps() -> tuple[dict[int, str], dict[str, int]]:
         return {}, {}
     try:
         result = subprocess.run(
-            ["tmux", "list-panes", "-a", "-F", "#{pane_id} #{pane_pid} #{window_index}"],
+            tmux_argv("list-panes", "-a", "-F", "#{pane_id} #{pane_pid} #{window_index}"),
             capture_output=True,
             text=True,
             timeout=2,

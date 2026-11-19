@@ -35,6 +35,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from empirica.core.cockpit.tmux_socket import tmux_argv
+
 EMPIRICA_DIR = Path.home() / ".empirica"
 TTY_SESSIONS_DIR = EMPIRICA_DIR / "tty_sessions"
 
@@ -359,7 +361,7 @@ def wake_instance(instance_id: str, *, require_idle: bool = True, allow_suggesti
     if require_idle:
         try:
             shot = subprocess.run(
-                ["tmux", "capture-pane", "-e", "-p", "-t", f"%{pane_n}"],
+                tmux_argv("capture-pane", "-e", "-p", "-t", f"%{pane_n}"),
                 capture_output=True,
                 text=True,
                 timeout=3,
@@ -377,7 +379,7 @@ def wake_instance(instance_id: str, *, require_idle: bool = True, allow_suggesti
 
     try:
         result = subprocess.run(
-            ["tmux", "send-keys", "-t", f"%{pane_n}", WAKE_MARKER, "Enter"],
+            tmux_argv("send-keys", "-t", f"%{pane_n}", WAKE_MARKER, "Enter"),
             capture_output=True,
             text=True,
             timeout=3,
@@ -441,7 +443,7 @@ def stop_instance(instance_id: str, key: str = "Escape") -> StopResult:
 
     try:
         result = subprocess.run(
-            ["tmux", "send-keys", "-t", f"%{pane_n}", key],
+            tmux_argv("send-keys", "-t", f"%{pane_n}", key),
             capture_output=True,
             text=True,
             timeout=3,
@@ -475,7 +477,7 @@ def _kill_via_tmux(instance_id: str, pane_n: str) -> KillResult:
         return KillResult(instance_id, "tmux", False, "tmux binary not found in PATH")
     try:
         result = subprocess.run(
-            ["tmux", "kill-pane", "-t", f"%{pane_n}"],
+            tmux_argv("kill-pane", "-t", f"%{pane_n}"),
             capture_output=True,
             text=True,
             timeout=5,

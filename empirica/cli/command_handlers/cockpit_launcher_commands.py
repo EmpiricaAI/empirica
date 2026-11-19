@@ -34,6 +34,7 @@ from empirica.core.cockpit.launcher import (
 from empirica.core.cockpit.launcher.config import config_file_state, validate_file
 from empirica.core.cockpit.launcher.detection import SessionAlreadyRunning
 from empirica.core.cockpit.launcher.tmux import exact_session
+from empirica.core.cockpit.tmux_socket import tmux_argv
 
 
 def _format_age(seconds: float | None) -> str:
@@ -246,7 +247,7 @@ def handle_cockpit_launch_command(args) -> int:
         verb = "created" if result.created else "attaching to existing"
         print(f"✅ Cockpit {verb}: {result.session_name} — handing off to tmux...")
         _say_tmux_server(result.server)
-    os.execvp("tmux", ["tmux", "attach-session", "-t", exact_session(result.session_name)])  # noqa: S606 — tmux is the OS executable, args are sanitized config values
+    os.execvp("tmux", tmux_argv("attach-session", "-t", exact_session(result.session_name)))  # noqa: S606 — tmux is the OS executable, args are sanitized config values
     # execvp doesn't return on success; if we get here, something failed.
     return 1
 
@@ -335,8 +336,8 @@ def _handle_groups_in_terminal(config, output: str, no_attach: bool, args=None) 
         return 0
     if os.environ.get("TMUX"):
         # Already inside tmux: attaching would nest. Move this client instead.
-        os.execvp("tmux", ["tmux", "switch-client", "-t", exact_session(result.session_name)])  # noqa: S606
-    os.execvp("tmux", ["tmux", "attach-session", "-t", exact_session(result.session_name)])  # noqa: S606
+        os.execvp("tmux", tmux_argv("switch-client", "-t", exact_session(result.session_name)))  # noqa: S606
+    os.execvp("tmux", tmux_argv("attach-session", "-t", exact_session(result.session_name)))  # noqa: S606
     return 1
 
 
@@ -653,7 +654,7 @@ def handle_cockpit_detach_command(args) -> int:
     # matters for abnormal-exit detection.
     try:
         subprocess.run(
-            ["tmux", "detach-client"],
+            tmux_argv("detach-client"),
             capture_output=True,
             text=True,
             timeout=5,

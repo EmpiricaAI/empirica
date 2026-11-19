@@ -36,6 +36,7 @@ from empirica.core.cockpit.launcher.state import (
     write_lock,
     write_session_start,
 )
+from empirica.core.cockpit.tmux_socket import tmux_argv, use_socket
 
 
 @dataclass
@@ -66,7 +67,7 @@ def _tmux(*args: str, check: bool = False) -> subprocess.CompletedProcess:
     """
     try:
         return subprocess.run(
-            ["tmux", *args],
+            tmux_argv(*args),
             capture_output=True,
             text=True,
             check=check,
@@ -74,7 +75,7 @@ def _tmux(*args: str, check: bool = False) -> subprocess.CompletedProcess:
         )
     except subprocess.TimeoutExpired:
         return subprocess.CompletedProcess(
-            ["tmux", *args], 124, "", f"tmux {args[0] if args else ''} timed out after 10s"
+            tmux_argv(*args), 124, "", f"tmux {args[0] if args else ''} timed out after 10s"
         )
 
 
@@ -134,13 +135,45 @@ def _utf8(value: str) -> bool:
 
 def _tmux_version() -> str:
     try:
-        return subprocess.run(["tmux", "-V"], capture_output=True, text=True, timeout=5, check=False).stdout
+        return subprocess.run(tmux_argv("-V"), capture_output=True, text=True, timeout=5, check=False).stdout
     except (OSError, subprocess.TimeoutExpired):
         return ""
 
 
 def _server_answers() -> bool:
     return _tmux("display-message", "-p", "#{pid}").returncode == 0
+
+
+def share_socket(config, run=subprocess.run) -> dict | None:
+    """For a cockpit with ``socket:``: after the server starts, make the socket group-readable (tmux creates it 0600) so
+    the stage account can attach read-only, grant ``server_access`` users read-only access, and publish the path in the
+    server's environment so hooks and run-shell commands reach the same server (goal 44203f3d). None without a socket;
+    otherwise what was done, with any step that failed named, never silent."""
+    sock = getattr(config, "socket", None)
+    if not sock:
+        return None
+    out: dict = {"path": sock, "errors": []}
+    try:
+        shutil.chown(sock, group=config.socket_group)
+        os.chmod(sock, 0o660)
+        out["mode"] = "0660"
+        out["group"] = config.socket_group
+    except (OSError, LookupError) as e:
+        out["errors"].append(f"permissions: {e}")
+    for user in config.server_access:
+        r = run(tmux_argv("server-access", "-a", user, "-r"), capture_output=True, text=True, check=False, timeout=10)
+        if r.returncode != 0:
+            out["errors"].append(f"server-access {user}: {(r.stderr or '').strip()[:160]}")
+    r = run(
+        tmux_argv("set-environment", "-g", "EMPIRICA_TMUX_SOCKET", sock),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    if r.returncode != 0:
+        out["errors"].append(f"set-environment: {(r.stderr or '').strip()[:160]}")
+    return out
 
 
 def ensure_server(run=subprocess.run, which=shutil.which, sleep=None) -> dict:
@@ -173,7 +206,7 @@ def ensure_server(run=subprocess.run, which=shutil.which, sleep=None) -> dict:
         for k, v in os.environ.items()
         if k not in _SERVER_ENV_DROP and not k.startswith("CLAUDE") and _ENV_NAME.match(k) and _utf8(v)
     ]
-    argv = ["systemd-run", "--user", f"--unit={SERVER_UNIT}", "--collect", "--quiet", *env, "tmux", "-D"]
+    argv = ["systemd-run", "--user", f"--unit={SERVER_UNIT}", "--collect", "--quiet", *env, *tmux_argv("-D")]
     try:
         started = run(argv, capture_output=True, text=True, timeout=15, check=False)
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -243,7 +276,9 @@ def launch_cockpit(config: LauncherConfig) -> LaunchResult:
             error="config has no projects and no status windows — nothing to launch",
         )
 
+    use_socket(config.socket)
     server = ensure_server()
+    server["socket"] = share_socket(config)
     write_session_start()
 
     windows_created: list[str] = []
@@ -1019,10 +1054,7 @@ def _spawn_alacritty(group_name: str, session_name: str, extra_args: list[str]) 
         title,
         *extra_args,
         "-e",
-        "tmux",
-        "attach-session",
-        "-t",
-        exact_session(session_name),
+        *tmux_argv("attach-session", "-t", exact_session(session_name)),
     ]
 
     try:
@@ -1063,10 +1095,7 @@ def _spawn_ghostty(group_name: str, session_name: str, extra_args: list[str]) ->
         f"--title={title}",
         *extra_args,
         "-e",
-        "tmux",
-        "attach-session",
-        "-t",
-        exact_session(session_name),
+        *tmux_argv("attach-session", "-t", exact_session(session_name)),
     ]
 
     try:
@@ -1105,7 +1134,9 @@ def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> Groups
         return GroupsLaunchResult(error="config has no groups — nothing to launch")
 
     session_name = config.session_name
+    use_socket(config.socket)
     server = ensure_server()
+    server["socket"] = share_socket(config)
     write_session_start()
 
     results: list[GroupLaunchResult] = []
