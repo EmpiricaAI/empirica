@@ -5,6 +5,12 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`empirica[api]` installs on Python 3.15.** fastembed's onnxruntime has no Python 3.15 wheels yet, so the whole extra failed to resolve there, and an updater fell back to an old Empirica to satisfy it. fastembed is now left out on 3.15; there the local server reports its embeddings as unavailable and everything else works.
+
 ## [1.17.9] - 2026-11-18
 
 ### Added

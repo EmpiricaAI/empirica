@@ -109,7 +109,10 @@ api = [
     # The local semantic layer (docs/architecture/LOCAL_SEMANTIC_LAYER.md): with no Cortex, serve holds the vector store
     # (qdrant-client's embedded mode) and the embedding model (fastembed, multilingual-e5-small, ~135 MB int8, downloaded once).
     "qdrant-client>=1.10",
-    "fastembed>=0.9.1",
+    # Not on Python 3.15 yet: fastembed needs onnxruntime, whose wheels stop at cp314 (onnxruntime 1.32.0), so the whole
+    # extra failed to resolve there and an updater backtracked a seat to 1.15.1 (autonomy, 2026-11-19). Without it the
+    # server reports embeddings as unavailable and everything else in the extra works. Lift the marker when cp315 wheels ship.
+    "fastembed>=0.9.1; python_version < '3.15'",
 ]
 
 # Vector search features
