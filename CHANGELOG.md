@@ -5,6 +5,13 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A rebuild from the git notes no longer turns goals `shared`.** The notes carry no visibility, and goals were the one type restored with the table's `shared` default; they now come back `local` like everything else, and the rebuild says that every rebuilt artifact is `local` until re-tagged.
+- **Each grounded verification records the goal it graded and the transaction's criticality.** Both were empty on every verification, so calibration and expertise could not be joined to goals (and so to their work kind) or read by stakes.
+
 ## [1.17.12] - 2026-11-19
 
 ### Changed

@@ -638,6 +638,35 @@ def _stamp_practitioner_model(db, transaction_id: str | None) -> str | None:
         return None
 
 
+def _verification_goal_and_criticality(tx: dict, conn, transaction_id: str | None) -> tuple[str | None, str | None]:
+    """The goal a grounded verification graded and the stakes its transaction declared (goal dffe317d).
+
+    The goal: the first one PREFLIGHT named in ``goal_ids`` that resolves (a unique prefix is enough), else the newest goal
+    created in this transaction; None when neither, never a guess. The criticality: PREFLIGHT's, as the transaction file
+    carries it. Both were empty in every grounded row before this, so expertise could not be joined to goals or stakes.
+    """
+    goal_id = None
+    for named in tx.get("goal_ids") or []:
+        try:
+            rows = conn.execute("SELECT id FROM goals WHERE id LIKE ? LIMIT 2", (f"{named}%",)).fetchall()
+        except Exception:
+            rows = []
+        if len(rows) == 1:
+            goal_id = rows[0][0]
+            break
+    if goal_id is None and transaction_id:
+        try:
+            row = conn.execute(
+                "SELECT id FROM goals WHERE transaction_id = ? ORDER BY created_timestamp DESC LIMIT 1",
+                (transaction_id,),
+            ).fetchone()
+            goal_id = row[0] if row else None
+        except Exception:
+            goal_id = None
+    criticality = tx.get("criticality") if isinstance(tx.get("criticality"), str) else None
+    return goal_id, criticality or None
+
+
 def _run_grounded_verification(
     session_id: str,
     vectors: dict,
@@ -647,6 +676,7 @@ def _run_grounded_verification(
     transaction_id: str | None,
     project_path: str | None = None,
     edited_files: list[str] | None = None,
+    tx_meta: dict | None = None,
 ) -> dict | None:
     """Run grounded verification: phase-aware evidence collection + calibration.
 
@@ -711,9 +741,15 @@ def _run_grounded_verification(
         except Exception:
             pass
 
+        # From the transaction as POSTFLIGHT captured it before closing it: the file is closed by now.
+        verified_goal, criticality = _verification_goal_and_criticality(
+            tx_meta or {}, getattr(db, "conn", None), transaction_id
+        )
         result = run_grounded_verification(
             session_id=session_id,
             postflight_vectors=vectors,
+            goal_id=verified_goal,
+            criticality=criticality,
             db=db,
             project_id=project_id,
             domain=domain,
@@ -1058,6 +1094,9 @@ def _postflight_close_and_capture_counters(result, resolved_project_path, suffix
     result["avg_turns"] = tx_data.get("avg_turns", 0)
     result["work_context"] = tx_data.get("work_context")
     result["work_type"] = tx_data.get("work_type")
+    # What the grounded verification is stamped with (goal dffe317d): read here, before the file closes.
+    result["goal_ids"] = tx_data.get("goal_ids") or []
+    result["criticality"] = tx_data.get("criticality")
 
     # Read hook counters
     from empirica.utils.session_resolver import hook_counters_path_for_transaction
@@ -2415,6 +2454,7 @@ def handle_postflight_submit_command(args):
                 tx_info["transaction_id"],
                 project_path=resolved_project_path,
                 edited_files=tx_info.get("edited_files"),
+                tx_meta={"goal_ids": tx_info.get("goal_ids"), "criticality": tx_info.get("criticality")},
             )
             goal_criteria_block = _soft_run(
                 "goal_criteria",

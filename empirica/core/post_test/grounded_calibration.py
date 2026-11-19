@@ -506,6 +506,7 @@ class GroundedCalibrationManager:
         goal_id: str | None = None,
         phase: str = "combined",
         transaction_id: str | None = None,
+        criticality: str | None = None,
     ) -> str:
         """Store a complete grounded verification record.
 
@@ -539,7 +540,8 @@ class GroundedCalibrationManager:
         # criticality + compliance_status from the assessment's A3 fields.
         observed_json = json.dumps(grounded_data)
         grounded_rationale = getattr(assessment, "grounded_rationale", None)
-        criticality = getattr(assessment, "criticality", None)
+        # The transaction's declared stakes (PREFLIGHT criticality), passed by POSTFLIGHT (goal dffe317d); it was never set.
+        criticality = criticality or getattr(assessment, "criticality", None)
         compliance_status = getattr(assessment, "calibration_status", "grounded")
 
         cursor.execute(
@@ -964,6 +966,7 @@ def _run_single_phase_verification(
     per_vector_weights: dict[str, float] | None = None,
     transaction_id: str | None = None,
     edited_files: list[str] | None = None,
+    criticality: str | None = None,
 ) -> dict | None:
     """Run grounded verification for a single phase (noetic, praxic, or combined)."""
 
@@ -1106,6 +1109,7 @@ def _run_single_phase_verification(
         goal_id=goal_id,
         phase=phase,
         transaction_id=transaction_id,
+        criticality=criticality,
     )
 
     from .trajectory_tracker import TrajectoryTracker
@@ -1567,6 +1571,7 @@ def run_grounded_verification(
     transaction_id: str | None = None,
     edited_files: list[str] | None = None,
     project_path: str | None = None,
+    criticality: str | None = None,
 ) -> dict | None:
     """
     Full grounded verification pipeline.
@@ -1619,6 +1624,7 @@ def run_grounded_verification(
                     preflight_timestamp=preflight_ts,
                     per_vector_weights=noetic_weights,
                     transaction_id=transaction_id,
+                    criticality=criticality,
                     edited_files=edited_files,
                 )
                 if noetic_result:
@@ -1641,6 +1647,7 @@ def run_grounded_verification(
                     preflight_timestamp=preflight_ts,
                     per_vector_weights=praxic_weights,
                     transaction_id=transaction_id,
+                    criticality=criticality,
                     edited_files=edited_files,
                 )
                 if praxic_result:
@@ -1662,6 +1669,7 @@ def run_grounded_verification(
                 work_type=work_type,
                 per_vector_weights=combined_weights,
                 transaction_id=transaction_id,
+                criticality=criticality,
                 edited_files=edited_files,
             )
             if combined_result:
