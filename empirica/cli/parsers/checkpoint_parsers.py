@@ -3,6 +3,7 @@
 import argparse
 
 from empirica.core.project_types import accepted_types, type_list_text, validate_input
+from empirica.core.work_kinds import KINDS as _WORK_KINDS
 from empirica.data.epistemic_source import EPISTEMIC_SOURCES
 from empirica.data.id_guard import is_blank_id
 from empirica.data.resolution_kind import RESOLUTION_KIND_HELP, RESOLUTION_KINDS
@@ -2028,6 +2029,12 @@ Example:
     goals_create_parser.add_argument("--estimated-complexity", type=float, help="Complexity estimate (0.0-1.0)")
     goals_create_parser.add_argument("--constraints", help="Constraints as JSON object")
     goals_create_parser.add_argument("--metadata", help="Metadata as JSON object")
+    goals_create_parser.add_argument(
+        "--kind",
+        choices=list(_WORK_KINDS),
+        help="What the change is for: fix, refine, simplify, expand (product change), investigate or sustain (the work "
+        "around it). Stored in the goal's metadata; the forecast reads the mix from it",
+    )
     goals_create_parser.add_argument("--use-beads", action="store_true", help="Create BEADS issue and link to goal")
     goals_create_parser.add_argument(
         "--due",
@@ -2066,6 +2073,9 @@ Example:
         "--importance", choices=["critical", "high", "medium", "low"], default="medium", help="Epistemic importance"
     )
     goals_add_task_parser.add_argument("--dependencies", help="Dependencies as JSON array")
+    goals_add_task_parser.add_argument(
+        "--kind", choices=list(_WORK_KINDS), help="What this task's change is for (the same six kinds as goals-create)"
+    )
     goals_add_task_parser.add_argument("--estimated-tokens", type=int, help="Estimated token usage")
     goals_add_task_parser.add_argument("--use-beads", action="store_true", help="Create BEADS task and link to goal")
     goals_add_task_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")

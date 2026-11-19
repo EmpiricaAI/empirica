@@ -101,6 +101,8 @@ _RELEASE_NUMBER = re.compile(r"^\d+\.\d+\.\d+$")
 _REVISION_KEYS = ("on", "from", "to", "reason")
 # Fields whose silent change would let a forecast be adjusted after the fact. Changing one needs a dated revision saying why.
 _ROADMAP_GUARDED = ("confidence", "prediction", "falsifier", "horizon", "evidence")
+#: empirica/core/work_kinds.py's KINDS; this script does not import empirica, so tests/test_work_kinds.py holds the copy equal.
+WORK_KINDS = ("fix", "refine", "simplify", "expand", "investigate", "sustain")
 # How the basis is known caps the confidence it can carry: a figure a command produced can support 0.95, a report from someone else
 # (testimony about code that may have changed since) no more than 0.7, and an inference no more than 0.6.
 _ROADMAP_EVIDENCE_CEILING = {"measured": 0.95, "reviewed": 0.85, "reported": 0.7, "inferred": 0.6}
@@ -286,6 +288,8 @@ def validate_roadmap(data: object) -> dict:
             raise ValueError(
                 f"roadmap item {n}: steered must be true or false (was a goal for it already open when it was predicted?)"
             )
+        if "kind" in item and item["kind"] not in WORK_KINDS:
+            raise ValueError(f"roadmap item {n}: kind must be one of {', '.join(WORK_KINDS)}, not {item['kind']!r}")
         horizon = item.get("horizon")
         if horizon is None and item["status"] == "predicted":
             raise ValueError(

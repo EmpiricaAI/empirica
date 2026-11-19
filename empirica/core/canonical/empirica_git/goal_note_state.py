@@ -118,12 +118,19 @@ def _tasks(conn, goal_id: str) -> list[dict[str, Any]]:
     """The goal's tasks as its note records them, oldest first; [] when the table is absent."""
     try:
         rows = conn.execute(
-            f"SELECT {', '.join(TASK_FIELDS)} FROM subtasks WHERE goal_id = ? ORDER BY created_timestamp, id",
+            f"SELECT {', '.join(TASK_FIELDS)}, subtask_data FROM subtasks WHERE goal_id = ? ORDER BY created_timestamp, id",
             (goal_id,),
         ).fetchall()
     except Exception:
         return []
-    return [dict(zip(TASK_FIELDS, r, strict=True)) for r in rows]
+    out = []
+    for r in rows:
+        task = dict(zip(TASK_FIELDS, r[:-1], strict=True))
+        kind = _json(r[-1], {}).get("kind") if isinstance(_json(r[-1], {}), dict) else None
+        if kind:
+            task["kind"] = kind  # the task's work kind (goal 1dfb9911), so a rebuild keeps it
+        out.append(task)
+    return out
 
 
 def _lifecycle_details(raw) -> dict[str, Any]:
@@ -333,7 +340,10 @@ def insert_tasks(conn, goal_id: str, tasks) -> int:
                     t.get("completion_evidence"),
                     t.get("created_timestamp"),
                     t.get("completed_timestamp"),
-                    json.dumps({"findings": [], "unknowns": [], "dead_ends": []}),
+                    json.dumps(
+                        {"findings": [], "unknowns": [], "dead_ends": []}
+                        | ({"kind": t["kind"]} if isinstance(t.get("kind"), str) and t["kind"] else {})
+                    ),
                 ),
             )
             added += cur.rowcount

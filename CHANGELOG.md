@@ -5,6 +5,13 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Goals and tasks can say what kind of work they are.** `goals-create --kind` and `goals-add-task --kind` take one of fix, refine, simplify, expand (product change), investigate or sustain (the work around it: releases, sweeps, coordination, hygiene). The kind is kept in the goal's metadata and the task's data, and survives a rebuild from the git notes; roadmap items may carry one too.
+- **A roadmap prediction left past its horizon at two releases stops the docs step.** It must be graded, or given a dated revision saying why it stays open or moves; a first miss still only warns.
+
 ## [1.17.11] - 2026-11-19
 
 ### Changed

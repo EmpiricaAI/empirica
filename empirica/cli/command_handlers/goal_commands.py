@@ -357,6 +357,14 @@ def _parse_goal_config(args):
     if not engagement_id:
         engagement_id = _inherit_engagement_from_transaction()
 
+    kind = (config_data or {}).get("kind") if config_data else getattr(args, "kind", None)
+    if kind:
+        from empirica.core.work_kinds import KINDS
+
+        if kind not in KINDS:
+            raise ValueError(f"kind {kind!r} is not one of {', '.join(KINDS)}")
+        metadata = {**(metadata if isinstance(metadata, dict) else {}), "kind": kind}
+
     return {
         "session_id": session_id,
         "objective": objective,
@@ -926,6 +934,7 @@ def handle_goals_add_task_command(args):
             epistemic_importance=importance,
             dependencies=dependencies,
             estimated_tokens=estimated_tokens,
+            kind=getattr(args, "kind", None),
         )
 
         # Save to database

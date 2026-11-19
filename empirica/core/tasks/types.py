@@ -60,6 +60,8 @@ class SubTask:
     unknowns: list[str] = field(default_factory=list)  # Remaining questions
     dead_ends: list[str] = field(default_factory=list)  # Failed approaches
 
+    kind: str | None = None  # core/work_kinds.py: fix, refine, simplify, expand, investigate, sustain (goal 1dfb9911)
+
     @staticmethod
     def create(
         goal_id: str, description: str, epistemic_importance: EpistemicImportance = EpistemicImportance.MEDIUM, **kwargs
@@ -92,6 +94,7 @@ class SubTask:
             "findings": self.findings,
             "unknowns": self.unknowns,
             "dead_ends": self.dead_ends,
+            "kind": self.kind,
         }
 
     @staticmethod
@@ -113,6 +116,7 @@ class SubTask:
             findings=data.get("findings", []),
             unknowns=data.get("unknowns", []),
             dead_ends=data.get("dead_ends", []),
+            kind=data.get("kind"),
         )
 
 
