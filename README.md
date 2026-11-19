@@ -439,21 +439,18 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.17.9
+## What's New in 1.17.10
 
-- `/graph-harvest`: put what existing material knows into the graph
-- A harvest map for every kind of practice
-- A `harvested` source tag
-- CHECK and POSTFLIGHT record what actually happened
-- Calibration evidence measures what it says
-- Chat:
+- Sentinel gates on inputs nobody supplied are reported as not evaluated
+- Web link and asset checks honour `<base href>`
+- `empirica[api]` installs on Python 3.15
 
-Plus 4 more entries in the [CHANGELOG](CHANGELOG.md).
+The full entry is in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.17.9** — `/graph-harvest`: put what existing material knows into the graph
 - **1.17.8** — Onboarding asks what work you do and sets up practices for it
-- **1.17.7** — The cockpit bar works on a fresh machine and in a small window: its own health readout, a help and menu that fit or say why not, failed updates that stay o…
 
 ## What's Coming
 
