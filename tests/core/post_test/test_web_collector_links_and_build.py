@@ -152,3 +152,20 @@ def test_a_relative_asset_resolves_against_its_page(tmp_path):
     (dist / "pic.png").write_bytes(b"\x89PNG")
     items = WebEvidenceCollector(session_id="s", project_path=str(tmp_path))._collect_asset_verification()
     assert items and items[0].raw_value["missing"] == []
+
+
+def test_a_base_that_is_a_deploy_prefix_still_finds_the_files(tmp_path):
+    """1.17.10 sweep: Angular --base-href /app/ (or Vite base) is a deploy prefix, not a folder in dist/; links resolve
+    against the page folder or output root when the base-resolved path is missing."""
+    page = '<html><head><base href="/app/"></head><body><a href="about.html">a</a></body></html>'
+    raw = _links(tmp_path, {"index.html": page, "about.html": _page("")})
+    assert raw["broken"] == [] and raw["valid"] == 1
+
+
+def test_base_schemes_are_case_insensitive_and_unquoted_bases_are_read(tmp_path):
+    from empirica.core.post_test.web_collector import _page_base
+
+    out = tmp_path / "dist"
+    out.mkdir()
+    assert _page_base(out / "i.html", '<base href="HTTPS://cdn.x/">', out) is None
+    assert _page_base(out / "x" / "i.html", "<base href=/app/>", out) == out / "app"

@@ -224,6 +224,9 @@ def handle_sentinel_check_command(args):
             print(f"  Rationale: {result.get('rationale', 'N/A')}")
             if result.get("triggered_gates"):
                 print(f"  Triggered gates: {', '.join(result['triggered_gates'])}")
+            if result.get("not_evaluated"):
+                # Shown in human mode too: a gate never evaluated must not read as one that passed (1.17.10 sweep)
+                print(f"  Not evaluated (input not supplied): {', '.join(result['not_evaluated'])}")
             if result.get("profile"):
                 print(f"  Profile: {result['profile']} ({result.get('framework', '')})")
 

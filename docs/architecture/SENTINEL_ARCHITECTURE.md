@@ -117,7 +117,7 @@ These are distinct from `empirica sentinel pause|resume|status`, which control t
 
 ### Compliance decision
 
-`check_compliance()` evaluates every gate of the loaded profile. The most severe triggered action wins, in this order: `halt`, `require_human`, `escalate`, `investigate`. With no gate triggered it falls back to the profile's thresholds: `uncertainty > uncertainty_trigger` gives `investigate`, otherwise `know >= confidence_to_proceed` gives `proceed`, otherwise `investigate`. With no profile loaded it uses uncertainty alone: `<= 0.35` proceeds.
+`check_compliance()` evaluates every gate of the loaded profile whose input was supplied; a gate on a value or flag the check was not given (for example `amount` or `requires_calculation`) is listed under `not_evaluated` instead of being read as 0.5 or false. The 13 epistemic vectors keep a 0.5 default. The most severe triggered action wins, in this order: `halt`, `require_human`, `escalate`, `investigate`. With no gate triggered it falls back to the profile's thresholds: `uncertainty > uncertainty_trigger` gives `investigate`, otherwise `know >= confidence_to_proceed` gives `proceed`, otherwise `investigate`. With no profile loaded it uses uncertainty alone: `<= 0.35` proceeds.
 
 ### Custom profile files
 

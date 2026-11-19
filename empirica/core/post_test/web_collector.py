@@ -127,7 +127,7 @@ class _HTMLStructureValidator(HTMLParser):
             self.warnings.append("Missing charset declaration")
 
 
-_BASE_HREF = re.compile(r"""<base\s[^>]*href=["']([^"']+)["']""", re.IGNORECASE)
+_BASE_HREF = re.compile(r"""<base\s[^>]*href=(?:["']([^"']+)["']|([^\s>]+))""", re.IGNORECASE)
 
 
 def _page_base(html_file: Path, content: str, output_dir: Path) -> Path | None:
@@ -136,17 +136,24 @@ def _page_base(html_file: Path, content: str, output_dir: Path) -> Path | None:
     m = _BASE_HREF.search(content)
     if not m:
         return html_file.parent
-    base = m.group(1).strip()
-    if base.startswith(("http://", "https://", "//")):
+    base = (m.group(1) or m.group(2) or "").strip()
+    if base.lower().startswith(("http://", "https://", "//")):
         return None
     base_path = urlparse(base).path
     folder = output_dir / base_path.lstrip("/") if base_path.startswith("/") else html_file.parent / base_path
     return folder if base_path.endswith("/") or not base_path else folder.parent
 
 
-def _resolve_page_path(link_path: str, base: Path, output_dir: Path) -> Path:
-    """A browser resolves '/x' against the site root and 'x' / '../x' against the page's base."""
-    return output_dir / link_path.lstrip("/") if link_path.startswith("/") else base / link_path
+def _resolve_page_path(link_path: str, base: Path, output_dir: Path, page_dir: Path | None = None) -> Path:
+    """A browser resolves '/x' against the site root and 'x' / '../x' against the page's base. A base that is a deploy
+    prefix (Angular --base-href /app/, Vite base) is not a folder inside the output, so when the base-resolved path is
+    missing the page's folder and the output root are tried (1.17.10 sweep)."""
+    if link_path.startswith("/"):
+        return output_dir / link_path.lstrip("/")
+    for folder in (base, page_dir, output_dir):
+        if folder is not None and (folder / link_path).exists():
+            return folder / link_path
+    return base / link_path
 
 
 class WebEvidenceCollector:
@@ -550,7 +557,7 @@ class WebEvidenceCollector:
                     # A browser resolves '/x' against the site root and 'x' / '../x'
                     # against the page's own directory. Resolving every link against
                     # the root reported dist/blog/a.html -> b.html as broken.
-                    resolved = _resolve_page_path(link_path, base, output_dir)
+                    resolved = _resolve_page_path(link_path, base, output_dir, html_file.parent)
                     if resolved.exists():
                         valid_links += 1
                     elif (resolved.parent / (resolved.name + ".html")).exists():
@@ -712,7 +719,7 @@ class WebEvidenceCollector:
 
                     # Relative to the page (or its <base>), then the output root and public dir as before
                     if (
-                        _resolve_page_path(asset_path, base, output_dir).exists()
+                        _resolve_page_path(asset_path, base, output_dir, html_file.parent).exists()
                         or (output_dir / clean_path).exists()
                         or (public_dir / clean_path).exists()
                     ):

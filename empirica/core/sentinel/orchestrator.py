@@ -963,6 +963,7 @@ class Sentinel:
                     "triggered_gates": [],
                     "actions": [],
                     "rationale": "Meta uncertainty within readiness threshold",
+                    "not_evaluated": [],  # no profile: no gates to evaluate
                 }
             else:
                 return {
@@ -970,6 +971,7 @@ class Sentinel:
                     "triggered_gates": [],
                     "actions": [],
                     "rationale": f"Meta uncertainty above threshold: {uncertainty:.2f} > 0.35",
+                    "not_evaluated": [],  # no profile: no gates to evaluate
                 }
 
         # Build context for gate evaluation

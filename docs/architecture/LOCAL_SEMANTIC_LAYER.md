@@ -85,7 +85,7 @@ Moving to Cortex should be simple, with the cloud store used instead of the loca
 
 ### 4. Install and first run
 
-- **Install:** fastembed and onnxruntime join the `[api]` extra, which serve already requires.
+- **Install:** fastembed and onnxruntime join the `[api]` extra, which serve already requires, except on Python 3.15+, where onnxruntime has no wheels yet: there fastembed is left out and the embedding routes report themselves unavailable.
 - **First run:** the model is downloaded on the first serve start. Onboarding says so and gives the size. Offline,
   the embedding routes report themselves unavailable and the signals show it.
 - **Where the vectors live:** `~/.empirica/vectors`, one store per machine. Each practice keeps its own collections
@@ -109,7 +109,7 @@ Cortex machines, Windows-native serve (unsupported), and multi-user machines: on
    German and Spanish text as well as English. fastembed does not list it, so it is registered as a custom ONNX model,
    using the repository's int8 file: 135 MB against 487 MB fp32, 2.6 ms against 7.2 ms per embed, the same top result
    on a fixed English/German/Spanish/Dutch check (lower ranks reorder). int8 was chosen on those numbers.
-2. **Dependency:** fastembed and onnxruntime join the `[api]` extra, which serve already requires.
+2. **Dependency:** fastembed and onnxruntime join the `[api]` extra, which serve already requires (not on Python 3.15+ until onnxruntime ships wheels for it).
 
 ## How it was checked
 
