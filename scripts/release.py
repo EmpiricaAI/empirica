@@ -366,7 +366,9 @@ def private_roadmap_leaks(private: dict, public: dict, *, readme: str) -> list[s
         for field in ("title", "prediction"):
             text = str(item.get(field) or "").strip()
             if len(text) >= 20 and text in public_text:
-                problems.append(f"{item['id']}: its {field} appears in public text (docs/ROADMAP.yaml or README.md)")
+                problems.append(
+                    f"{item['id']}: its {field} appears in public text (docs/ROADMAP.yaml, README.md or CHANGELOG.md)"
+                )
     return problems
 
 
@@ -497,9 +499,16 @@ def items_missed_twice(released: dict | None, current: dict, last_version: str, 
             continue  # not yet past at the last release: this is the first miss
         if _release_tuple(str(item["horizon"])) > _release_tuple(last_version):
             continue  # moved past the last release (to the last release itself is still past by the next one)
-        # On or after the last release's day: two releases can be cut on one day, and a revision written after the first
-        # must count (1.17.12 sweep). %cs is the committer's local date, so a day's slack either way is accepted.
-        if any(str(r.get("on", "")) >= last_date for r in item.get("revisions") or [] if isinstance(r, dict)):
+        # A revision added since the last release answers it: one already in the released file does not, whatever its date
+        # (two releases on one day made a date rule wrong both ways, 1.17.12 sweep). last_date stays for the caller's API.
+        released_revisions = {
+            (str(r.get("on")), str(r.get("reason"))) for r in old.get("revisions") or [] if isinstance(r, dict)
+        }
+        if any(
+            (str(r.get("on")), str(r.get("reason"))) not in released_revisions
+            for r in item.get("revisions") or []
+            if isinstance(r, dict)
+        ):
             continue
         missed.append(item)
     return missed

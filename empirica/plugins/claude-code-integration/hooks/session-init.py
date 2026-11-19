@@ -197,7 +197,7 @@ def _local_artifact_ids(finding_ids, unknown_ids) -> set:
                     continue
                 _ph = ",".join("?" * len(_ids))
                 _rows = db.conn.execute(
-                    f"SELECT id FROM {_tbl} WHERE id IN ({_ph}) AND visibility = 'local'",
+                    f"SELECT id FROM {_tbl} WHERE id IN ({_ph}) AND COALESCE(visibility, 'local') = 'local'",
                     tuple(_ids),
                 ).fetchall()
                 local.update(r[0] for r in _rows)

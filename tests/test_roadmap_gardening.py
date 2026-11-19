@@ -437,3 +437,13 @@ def test_prepare_checks_the_roadmap_too(tmp_path, monkeypatch):
     monkeypatch.setattr(rm, "_check_private_roadmap", lambda roadmap: seen.append("private"))
     rm.verify_roadmap_ready()
     assert seen == ["garden", "private"]
+
+
+def test_a_revision_already_there_at_the_last_release_does_not_answer_the_next_miss():
+    """1.17.12 second pass: with a same-day date rule, a revision written before the last tag answered the next miss."""
+    mod = _mod()
+    first = {"on": "2026-11-01", "from": 0.6, "to": 0.6, "reason": "Old."}
+    old = {**ITEM, "revisions": [first]}
+    assert len(mod.items_missed_twice(_roadmap(old), _roadmap(old), "1.15.1", "2026-11-01")) == 1
+    new = {**ITEM, "revisions": [first, {"on": "2026-11-01", "from": 0.6, "to": 0.6, "reason": "New."}]}
+    assert mod.items_missed_twice(_roadmap(old), _roadmap(new), "1.15.1", "2026-11-01") == []

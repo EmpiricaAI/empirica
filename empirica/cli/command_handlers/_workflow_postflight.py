@@ -1728,7 +1728,7 @@ def _cortex_local_source_ids(sdb, targets) -> set[str]:
     ):
         try:
             rows = sdb.conn.execute(
-                f"SELECT id FROM {table} WHERE id IN ({ph}) AND visibility = 'local'", tuple(ids)
+                f"SELECT id FROM {table} WHERE id IN ({ph}) AND COALESCE(visibility, 'local') = 'local'", tuple(ids)
             ).fetchall()
             local.update(r[0] for r in rows)
         except Exception:

@@ -247,6 +247,7 @@ def handle_sources_reconcile_command(args) -> int:
     db = SessionDatabase()
     try:
         rows = _load_local_sources(db, project_id, practice_scope=getattr(args, "project_id", None) is None)
+        local_left_out = _count_local_sources(db, project_id, practice_scope=getattr(args, "project_id", None) is None)
         backfilled = _backfill_identity(db, rows)
 
         cortex_url, api_key = _resolve_cortex_config(args)
@@ -294,6 +295,7 @@ def handle_sources_reconcile_command(args) -> int:
             "mode": "converge" if converge else "alias",
             "project_id": project_id,
             "local_sources": len(rows),
+            "local_left_out": local_left_out,
             "backfilled_identity": backfilled,
             "discovery": discovery_status,
             "candidates": len(candidates),
@@ -332,6 +334,20 @@ def _resolve_active_project_id() -> str | None:
             db.close()
     except Exception:
         return None
+
+
+def _count_local_sources(db, project_id: str, practice_scope: bool = True) -> int:
+    """How many sources the reconcile leaves out because they are local (or untagged): kept off Cortex, so said, not hidden."""
+    cur = db.conn.cursor()
+    if not any(r[1] == "visibility" for r in cur.execute("PRAGMA table_info(epistemic_sources)")):
+        return 0
+    row = cur.execute(
+        "SELECT COUNT(*) FROM epistemic_sources WHERE "
+        f"{'1=1' if practice_scope else 'project_id = ?'} AND COALESCE(archived, 0) = 0 "
+        "AND COALESCE(visibility, 'local') = 'local'",
+        [] if practice_scope else [project_id],
+    ).fetchone()
+    return int(row[0] or 0)
 
 
 def _load_local_sources(db, project_id: str, practice_scope: bool = True) -> list[dict]:
@@ -959,7 +975,8 @@ def _render_citation_human(p: dict) -> str:
 def _render_human(p: dict) -> str:
     lines = [
         f"sources-reconcile — {'DRY RUN' if p['dry_run'] else 'APPLIED'}",
-        f"  Local sources:        {p['local_sources']}",
+        f"  Local sources:        {p['local_sources']}"
+        + (f" ({p['local_left_out']} tagged local left out: kept off Cortex)" if p.get("local_left_out") else ""),
         f"  Identity backfilled:  {p['backfilled_identity']}",
         f"  Catalogue discovery:  {p['discovery']} ({p['candidates']} candidates)",
         f"  Matches proposed:     {p['proposed']}",
