@@ -66,3 +66,22 @@ def test_local_overrides_and_the_choice_is_said(clean_env, capsys):
     assert seen["remote"] is True and "SSH" in capsys.readouterr().err
     ac.handle_auth_login_command(SimpleNamespace(output="human", remote=False, local=True))
     assert seen["remote"] is False
+
+
+def test_the_line_names_the_real_reason(clean_env, monkeypatch, capsys):
+    """Linux with no display is not SSH, and nothing has signed in yet when the line prints (1.17.11 sweep)."""
+    clean_env.delenv("DISPLAY")
+    assert ac._choose_remote(type("A", (), {"remote": False, "local": False})()) is True
+    err = capsys.readouterr().err
+    assert "no display" in err and "SSH" not in err and "signed in" not in err
+
+
+def test_a_closed_stdin_points_at_local(monkeypatch):
+    from empirica.core.auth import cortex_oauth
+
+    def eof():
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", eof)
+    with pytest.raises(RuntimeError, match="--local"):
+        cortex_oauth._read_pasted_code("https://cortex.example/authorize")

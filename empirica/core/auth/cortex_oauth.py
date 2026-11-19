@@ -124,7 +124,12 @@ def parse_pasted_code(pasted: str, expected_state: str) -> str:
 def _read_pasted_code(authorize_url: str) -> str:
     """Default reader for --remote: the URL is already on stderr; ask for the code on stderr, read it from stdin."""
     print("Sign in there, then paste the code the page shows here: ", end="", file=sys.stderr, flush=True)
-    return input()
+    try:
+        return input()
+    except EOFError:
+        raise RuntimeError(
+            "no input to paste the code into (stdin is closed): run auth login in an interactive terminal, or with --local"
+        ) from None
 
 
 def register_client(registration_endpoint: str, *, http=_http_json, extra_redirects: list[str] | None = None) -> dict:
@@ -588,11 +593,12 @@ def login(
     # out its timeout (1.17.0 sweep).
     client_id = oauth.get("client_id") if owner in ("cli", "daemon") and same_cortex else None
     code_page = f"{(disco.get('issuer') or base_url).rstrip('/')}{CODE_PAGE_PATH}"
-    if remote:
+    if remote and oauth.get("client_code_page") != code_page:
         # The browser is on another machine, so the redirect is Cortex's page, which shows the code to paste back. A
-        # stored client lists only the loopback ports (Cortex matches redirect_uri exactly), so this registers its own,
-        # with both; a later local login reuses it.
+        # client registered by a local login lists only the loopback ports (Cortex matches redirect_uri exactly), so this
+        # registers one with both, and records that it has the page: later logins, remote or local, reuse it.
         client_id = None
+    client_code_page = code_page if remote else None
     if not client_id:
         extra = {"extra_redirects": [code_page]} if remote else {}  # a local login registers exactly as before
         client_id = register_client(disco["registration_endpoint"], http=http, **extra)["client_id"]
@@ -672,7 +678,8 @@ def login(
     # Which team the new set acts in, and so where it is stored: a second team's sign-in goes beside the first, never
     # over it (a token is bound to one user in one org; goal da0396f8).
     identity = _whoami(base_url, tokens["access_token"], http=http)
-    new_org = identity.get("org_id") or None
+    # /v1/users/me can fail (it returns {} then); a verified seat proof is signed by Empirica's key and names the org.
+    new_org = identity.get("org_id") or (seat.get("org_id") if seat["verified"] else None) or None
     if seat["present"] and seat.get("org_id") and new_org and seat["org_id"] != new_org:
         # The proof names another org than the account acts in: neither can be trusted to file this sign-in (3796fe5f).
         raise RuntimeError(
@@ -695,6 +702,7 @@ def login(
         expires_at=_expires_at(tokens, now=now),
         token_endpoint=disco["token_endpoint"],
         client_id=client_id,
+        client_code_page=client_code_page,
         refresh_owner=owner,
         # An unknown team clears the labels: a label left from the replaced set would name the wrong team.
         org_id=new_org or "",

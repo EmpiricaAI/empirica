@@ -127,7 +127,7 @@ def _login(loader, monkeypatch, keys, token_response, me_org="org-a"):
             body: dict = token_response(sent) if callable(token_response) else dict(token_response)
             return {"access_token": "AT", "refresh_token": "RT", "expires_in": 3600, **body}
         if "/users/me" in url:
-            return {"org_id": me_org}
+            return {"org_id": me_org} if me_org else {}
         raise AssertionError(url)
 
     def read_code(authorize_url):
@@ -170,3 +170,59 @@ def test_no_assertion_keeps_todays_behaviour_and_says_unverified(loader, monkeyp
     _, keys = key
     result, _ = _login(loader, monkeypatch, keys, {})
     assert result["ok"] and result["seat"]["present"] is False and result["seat"]["verified"] is False
+
+
+# ─── 1.17.11 sweep ──────────────────────────────────────────────────────────
+
+
+def _unsigned(header_json: str, claims: dict | None = None) -> str:
+    return f"{_b64(header_json.encode())}.{_b64(json.dumps(claims or _claims()).encode())}.{_b64(b'x' * 64)}"
+
+
+@pytest.mark.parametrize(
+    "header_json",
+    ['{"alg": "EdDSA", "kid": ["test-kid"]}', '{"alg": "EdDSA", "kid": {"a": 1}}', "[" * 100000 + "]" * 100000],
+)
+def test_odd_headers_are_refused_as_unverified_not_crashes(key, header_json):
+    _, keys = key
+    with pytest.raises(sa.SeatAssertionError):
+        sa.verify(_unsigned(header_json), nonce="n" * 32, keys=keys)
+
+
+@pytest.mark.parametrize("exp", [float("inf"), float("nan")])
+def test_a_non_finite_expiry_is_refused(key, exp):
+    private, keys = key
+    with pytest.raises(sa.SeatAssertionError, match="exp"):
+        sa.verify(_sign(private, _claims(exp=exp)), nonce="n" * 32, keys=keys)
+
+
+def test_a_non_ascii_nonce_in_the_claims_is_a_mismatch_not_a_crash(key):
+    private, keys = key
+    with pytest.raises(sa.SeatAssertionError, match="nonce"):
+        sa.verify(_sign(private, _claims(nonce="é" * 32)), nonce="n" * 32, keys=keys)
+
+
+def test_when_users_me_names_no_org_the_verified_seat_names_it(loader, monkeypatch, key):
+    private, keys = key
+    result, _ = _login(
+        loader, monkeypatch, keys, lambda f: {"seat_assertion": _sign(private, _claims(nonce=f["nonce"]))}, me_org=None
+    )
+    assert result["org_id"] == "org-a"
+
+
+def test_a_second_remote_login_reuses_the_client_registered_for_the_code_page(loader, monkeypatch, key):
+    _, keys = key
+    registered = []
+    from empirica.core.auth import cortex_oauth
+
+    real_register = cortex_oauth.register_client
+
+    def counting(endpoint, **kw):
+        registered.append(kw.get("extra_redirects"))
+        return real_register(endpoint, **kw)
+
+    monkeypatch.setattr(cortex_oauth, "register_client", counting)
+    _login(loader, monkeypatch, keys, {})
+    loader._credentials_cache = None
+    _login(loader, monkeypatch, keys, {})
+    assert len(registered) == 1 and registered[0]

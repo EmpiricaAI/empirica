@@ -630,6 +630,7 @@ class CredentialsLoader:
         client_id: str | None = None,
         refresh_owner: str | None = None,
         config_path: Path | None = None,
+        client_code_page: str | None = None,
         slot: str | None = None,
         org_id: str | None = None,
         org_name: str | None = None,
@@ -708,6 +709,9 @@ class CredentialsLoader:
             # refreshers mutually destroy it. Absent → treated as 'cli' (the
             # headless default; keeps pre-field tokens working).
             ("refresh_owner", refresh_owner),
+            # The client was registered with Cortex's code page as a redirect too, so a remote login can reuse it
+            # instead of registering another (1.17.11 sweep). Goes with the block: a new client_id replaces it.
+            ("client_code_page", client_code_page),
             ("org_id", org_id),
             ("org_name", org_name),
         ):

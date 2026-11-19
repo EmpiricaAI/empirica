@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import math
 import secrets
 import time
 from typing import Any
@@ -54,14 +55,14 @@ def verify(token: str, *, nonce: str, keys: dict[str, str] | None = None, now: f
         header = json.loads(_unb64(parts[0]))
         claims = json.loads(_unb64(parts[1]))
         signature = _unb64(parts[2])
-    except (binascii.Error, ValueError) as e:
-        raise SeatAssertionError(f"malformed: {e}") from e
+    except (binascii.Error, ValueError, RecursionError) as e:  # RecursionError: deeply nested JSON
+        raise SeatAssertionError(f"malformed: {type(e).__name__}") from e
     if not isinstance(header, dict) or not isinstance(claims, dict):
         raise SeatAssertionError("malformed: header and claims must be objects")
     if header.get("alg") != "EdDSA":
         raise SeatAssertionError(f"alg {header.get('alg')!r} is not EdDSA")  # a symmetric alg must never verify
     kid = header.get("kid")
-    if kid not in keys:
+    if not isinstance(kid, str) or kid not in keys:
         raise SeatAssertionError(f"unknown kid {kid!r}")
     try:
         Ed25519PublicKey.from_public_bytes(_unb64(keys[kid])).verify(signature, f"{parts[0]}.{parts[1]}".encode())
@@ -69,11 +70,14 @@ def verify(token: str, *, nonce: str, keys: dict[str, str] | None = None, now: f
         raise SeatAssertionError("signature does not verify") from e
     if claims.get("aud") != AUDIENCE:
         raise SeatAssertionError(f"aud {claims.get('aud')!r} is not {AUDIENCE!r}")
-    if not secrets.compare_digest(str(claims.get("nonce") or ""), nonce):
+    sent = claims.get("nonce")
+    if not isinstance(sent, str) or not secrets.compare_digest(sent.encode(), nonce.encode()):
         raise SeatAssertionError("nonce does not match this login")
     t = time.time() if now is None else now
     exp = claims.get("exp")
-    if not isinstance(exp, (int, float)) or exp + _SKEW_S < t:
+    if isinstance(exp, bool) or not isinstance(exp, (int, float)) or not math.isfinite(exp):
+        raise SeatAssertionError("exp is not a time")
+    if exp + _SKEW_S < t:
         raise SeatAssertionError("expired")
     for field in ("sub", "org_id"):
         if not claims.get(field):

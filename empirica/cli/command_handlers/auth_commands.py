@@ -29,21 +29,27 @@ def _loader():
     return get_credentials_loader()
 
 
-def _looks_remote() -> bool:
-    """Whether this terminal's browser is elsewhere: an SSH session, or Linux with no display. Inside tmux the pane may
-    predate the ssh attach, so tmux's own session environment (refreshed on each attach) is asked too (2c4f4f97)."""
+def _remote_reason() -> str | None:
+    """Why this terminal's browser is elsewhere, or None: an SSH session, or Linux with no display. Inside tmux the pane
+    may predate the ssh attach, so tmux's own session environment (refreshed on each attach) is asked too (2c4f4f97)."""
     if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
-        return True
+        return "SSH session"
     if os.environ.get("TMUX"):
         try:
             out = subprocess.run(
                 ["tmux", "show-environment", "SSH_CONNECTION"], capture_output=True, text=True, timeout=2, check=False
             ).stdout.strip()
             if out.startswith("SSH_CONNECTION="):
-                return True
+                return "SSH session"
         except (OSError, subprocess.SubprocessError):
-            pass
-    return sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+            pass  # no tmux answer: the display check below decides
+    if sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        return "no display"
+    return None
+
+
+def _looks_remote() -> bool:
+    return _remote_reason() is not None
 
 
 def _print_seat(seat: dict) -> None:
@@ -58,11 +64,13 @@ def _choose_remote(args) -> bool:
     """--remote, or chosen by itself over SSH unless --local says otherwise, saying so on stderr."""
     if getattr(args, "remote", False):
         return True
-    if getattr(args, "local", False) or not _looks_remote():
+    reason = None if getattr(args, "local", False) else _remote_reason()
+    if reason is None:
         return False
     # Over SSH a localhost callback cannot be reached by the browser on the other machine (mesh-support prop_wrg7as6d)
     print(
-        "signed in over SSH: open this link anywhere and paste the code back (--local to use this machine's browser)",
+        f"{reason}: sign in with a link you open on any device, then paste the code back here"
+        " (--local to use this machine's browser)",
         file=sys.stderr,
     )
     return True
