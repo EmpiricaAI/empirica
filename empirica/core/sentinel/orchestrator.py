@@ -39,6 +39,12 @@ UTC = timezone.utc
 logger = logging.getLogger(__name__)
 
 
+#: The 13 epistemic vectors: a gate on one of these reads its 0.5 default when it is not given.
+_EPISTEMIC_VECTORS = frozenset(
+    {"engagement", "know", "do", "context", "clarity", "coherence", "signal", "density", "state", "change",
+     "completion", "impact", "uncertainty"}
+)  # fmt: skip
+
 #: The shipped domain profiles; a named profile is loaded from here.
 _PROFILE_DIR = Path(__file__).resolve().parent / "profiles"
 
@@ -227,6 +233,18 @@ class ComplianceGate:
     threshold: float | None = None
     description: str | None = None
     priority: str = "medium"  # low, medium, high, critical
+
+    def inputs_supplied(self, context: dict[str, Any]) -> bool:
+        """Whether the input this condition reads was given. An epistemic vector keeps its 0.5 default; any other value
+        (amount, anomaly_score, ...) or flag must be supplied, or the gate is reported as not evaluated rather than read
+        as checked (1.17.9 sweep leftover)."""
+        condition = self.condition.lower()
+        if ">" in condition or "<" in condition:
+            name = condition.replace(">", " > ").replace("<", " < ").split()[0]
+            return name in _EPISTEMIC_VECTORS or name in context.get("counts", {}) or name in context.get("vectors", {})
+        if condition == "high_risk":
+            return True  # reads uncertainty and impact, which keep their defaults
+        return condition in (context.get("flags") or {})
 
     def evaluate(self, context: dict[str, Any]) -> bool:
         """
@@ -631,8 +649,10 @@ class Sentinel:
     """
 
     # Default domain profiles
+    # Only a fallback for an install without profiles/*.yaml, which a named profile loads from; its thresholds are
+    # pinned to the files' by a test (they had drifted: 1.17.9 sweep).
     DEFAULT_PROFILES: ClassVar[dict[str, DomainProfile]] = {
-        "general": DomainProfile(name="general", uncertainty_trigger=0.5, confidence_to_proceed=0.75),
+        "general": DomainProfile(name="general", uncertainty_trigger=0.5, confidence_to_proceed=0.7),
         "healthcare": DomainProfile(
             name="healthcare",
             compliance_framework="HIPAA",
@@ -658,8 +678,8 @@ class Sentinel:
         "finance": DomainProfile(
             name="finance",
             compliance_framework="SOX",
-            uncertainty_trigger=0.35,
-            confidence_to_proceed=0.80,
+            uncertainty_trigger=0.25,
+            confidence_to_proceed=0.9,
             gates=[
                 ComplianceGate(
                     gate_id="transaction_limit",
@@ -960,7 +980,11 @@ class Sentinel:
         triggered_gates = []
         actions = []
 
+        not_evaluated = []
         for gate in self.domain_profile.gates:
+            if not gate.inputs_supplied(context):
+                not_evaluated.append(gate.gate_id)
+                continue
             if gate.evaluate(context):
                 triggered_gates.append(gate.gate_id)
                 actions.append(
@@ -1000,6 +1024,7 @@ class Sentinel:
             "profile": self.domain_profile.name,
             "framework": self.domain_profile.compliance_framework,
             "rationale": self._build_rationale(decision, triggered_gates, vectors),
+            "not_evaluated": not_evaluated,  # gates whose input was not supplied: neither passed nor triggered
         }
 
     def _build_rationale(self, decision: str, triggered_gates: list[str], vectors: dict[str, float]) -> str:

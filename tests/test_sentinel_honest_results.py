@@ -87,3 +87,43 @@ def test_load_profile_does_not_claim_an_audit_that_nothing_writes(monkeypatch, c
     out = json.loads(capsys.readouterr().out)
     assert "audit_enabled" not in out
     assert out["audit_configured"] is True and out["enforced"] is False
+
+
+def test_a_gate_on_an_input_nobody_supplied_is_reported_not_evaluated(sentinel):
+    """1.17.9 sweep leftover (c712252a): `amount > 10000` read a missing amount as 0.5, and `requires_calculation` a
+    flag nothing passes; such gates now say they were not evaluated instead of looking checked."""
+    sentinel.load_domain_profile("finance")
+    names = {g.gate_id: g.condition for g in sentinel.domain_profile.gates}
+    out = sentinel.check_compliance(vectors={"uncertainty": 0.1, "know": 0.9}, findings=[], unknowns=[])
+    unevaluated = {names[g] for g in out["not_evaluated"]}
+    assert {"amount > 10000", "requires_calculation", "anomaly_score > 0.7"} <= unevaluated
+    assert not any(c.startswith(("uncertainty", "know")) for c in unevaluated)  # epistemic vectors keep their default
+    supplied = sentinel.check_compliance(
+        vectors={"uncertainty": 0.1, "know": 0.9, "amount": 50000},
+        findings=[],
+        unknowns=[],
+        flags={"requires_calculation": False},
+    )
+    assert "amount > 10000" not in {names[g] for g in supplied["not_evaluated"]}
+    assert "requires_calculation" not in {names[g] for g in supplied["not_evaluated"]}
+    assert "amount > 10000" in {names[g] for g in supplied["triggered_gates"]}
+
+
+def test_status_lists_the_shipped_profiles(monkeypatch, capsys):
+    import argparse as _a
+
+    monkeypatch.setenv("EMPIRICA_QDRANT_URL", "http://127.0.0.1:9")
+    sc.handle_sentinel_status_command(_a.Namespace(session_id="s", output="json"))
+    listed = set(json.loads(capsys.readouterr().out)["available_profiles"])
+    assert {p.stem for p in _PROFILES.glob("*.yaml")} <= listed
+
+
+@pytest.mark.parametrize("name", sorted(p.stem for p in _PROFILES.glob("*.yaml")))
+def test_the_built_in_fallback_profiles_agree_with_the_shipped_files(sentinel, name):
+    """1.17.9 sweep leftover: general's confidence_to_proceed was 0.75 in DEFAULT_PROFILES and 0.7 in general.yaml."""
+    shipped = sentinel.load_domain_profile(name)
+    fallback = orch.Sentinel.DEFAULT_PROFILES[name]
+    assert (fallback.uncertainty_trigger, fallback.confidence_to_proceed) == (
+        shipped.uncertainty_trigger,
+        shipped.confidence_to_proceed,
+    )

@@ -11,7 +11,6 @@ version: "1.0"
 thresholds:
   uncertainty_trigger: 0.5  # Standard 50% uncertainty trigger
   confidence_to_proceed: 0.7  # 70% confidence to proceed
-  max_unknowns: 5  # Reasonable tolerance for unknowns
 
 # Audit settings
 audit:
