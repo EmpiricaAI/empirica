@@ -14,10 +14,10 @@ import os
 import subprocess
 import sys
 import time
+import tomllib
 from pathlib import Path
 
 import pytest
-import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = "empirica.utils.pytest_report_plugin"

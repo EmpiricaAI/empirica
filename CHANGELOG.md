@@ -5,6 +5,16 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Empirica needs Python 3.11.5 or later.** Since 1.16.2 a security floor on soupsieve has needed it, but the package still claimed Python 3.10, so on Python 3.10 and 3.11.0–3.11.4 the requirements could not be met and pip quietly installed 1.16.1 or older instead. The stated minimum is now the real one. Python 3.10 reached end of life in October 2026.
+
+### Checked
+
+- **Install on every platform (2026-11-19):** `empirica[api,tui]` resolves on Linux (x86_64, arm64), macOS (Apple Silicon, Intel) and Windows for Python 3.11.5 through 3.15. On Python 3.15 only PyYAML has no prebuilt wheel and installs from source. Two gaps are upstream: cryptography publishes no Intel-Mac wheels, so Intel Macs need a Rust toolchain to install it, and onnxruntime's macOS wheels need macOS 14, so on older macOS with Python 3.14 the local embeddings in `[api]` cannot install.
+
 ## [1.17.10] - 2026-11-19
 
 ### Fixed

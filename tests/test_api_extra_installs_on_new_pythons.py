@@ -7,9 +7,8 @@ Parsed by hand: `packaging` is not one of empirica's dependencies, and the clean
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import tomllib
+from pathlib import Path
 
 _PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
 
@@ -40,3 +39,12 @@ def test_the_embedder_reports_itself_unavailable_without_fastembed(monkeypatch):
     real = importlib.util.find_spec
     monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None if name == "fastembed" else real(name, *a))
     assert embedder.available() is False
+
+
+def test_the_python_floor_covers_every_dependency_floor():
+    """2026-11-19: soupsieve>=4.0 (a security floor) needs Python 3.11.5, while requires-python said >=3.10, so on 3.10 and
+    3.11.0-3.11.4 the requirements were unsatisfiable and pip silently installed 1.16.1. The floor must be at least that."""
+    project = tomllib.loads(_PYPROJECT.read_text())["project"]
+    floor = tuple(int(x) for x in project["requires-python"].removeprefix(">=").split("."))
+    assert floor >= (3, 11, 5)
+    assert any(d.startswith("soupsieve>=4") for d in project["dependencies"])  # the floor's reason; revisit if it goes

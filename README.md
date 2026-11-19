@@ -4,7 +4,7 @@
 
 [![Version](https://img.shields.io/badge/version-1.17.10-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.17.10)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
+[![Python](https://img.shields.io/badge/python-3.11.5%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **Epistemic infrastructure for AI — measurement, memory, and calibration across sessions.**

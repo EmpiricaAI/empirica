@@ -7,7 +7,9 @@ name = "empirica"
 version = "1.17.10"
 description = "Measurement and calibration layer for AI — track what it knows, gate what it does"
 readme = "README.md"
-requires-python = ">=3.10"
+# 3.11.5: the soupsieve>=4.0 security floor needs it, and 3.10 reached end of life in October 2026. With ">=3.10"
+# the requirements were unsatisfiable on 3.10 and 3.11.0-3.11.4, and pip silently fell back to 1.16.1 (2026-11-19).
+requires-python = ">=3.11.5"
 license = "MIT"
 authors = [
     {name = "David S. L. Van Assche"}
@@ -19,7 +21,6 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -245,7 +246,7 @@ skip_covered = false
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py311"
 # Without this, `exclude` below holds only when ruff is given DIRECTORIES. Any caller that
 # passes changed files by path — pre-commit, our own compliance checker — lints the excluded
 # file anyway. That is not a quiet no-op: the POSTFLIGHT after the skill payload landed
@@ -288,6 +289,8 @@ extend-select = [
     "S",   # flake8-bandit (security)
 ]
 ignore = [
+    "UP017",  # datetime.UTC over timezone.utc: unlocked by the py311 target (2026-11-19); a 176-site style rewrite, not for a patch
+    "UP042",  # StrEnum over (str, Enum): also unlocked by py311; changes str() and format() of the members, so case by case
     "E501",   # line too long (handled by formatter)
     "E741",   # ambiguous variable name
     "B008",   # function call in argument defaults
@@ -358,7 +361,7 @@ exclude = [
 extraPaths = [
     "empirica/plugins/claude-code-integration/lib",
 ]
-pythonVersion = "3.10"
+pythonVersion = "3.11"
 
 typeCheckingMode = "basic"
 reportMissingImports = true

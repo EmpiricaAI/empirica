@@ -1,7 +1,7 @@
 # Installation Guide
 
 **Time:** 5-10 minutes
-**Prerequisites:** Python 3.10+, git
+**Prerequisites:** Python 3.11.5+, git
 
 ---
 
@@ -331,7 +331,7 @@ empirica goals-list
 # Error: ModuleNotFoundError: No module named 'empirica'
 # Solution: Ensure pip installed to correct Python environment
 
-python --version      # Check Python version (3.10+ required)
+python --version      # Check Python version (3.11.5+ required)
 which python          # Check Python path
 pip show empirica     # Verify installation
 ```
@@ -397,7 +397,7 @@ pip3 install empirica
 
 ### Windows
 ```powershell
-# Install Python from python.org (3.10+)
+# Install Python from python.org (3.11.5+)
 # Install git from git-scm.com
 
 # Install Empirica

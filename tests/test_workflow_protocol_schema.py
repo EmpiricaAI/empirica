@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import tomllib
 from pathlib import Path
 from typing import Any
 
 import pytest
-import tomllib
 import yaml
 from jsonschema import Draft202012Validator
 

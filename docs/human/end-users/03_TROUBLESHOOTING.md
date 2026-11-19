@@ -36,7 +36,7 @@ ModuleNotFoundError: No module named 'empirica'
 
 **Solution:**
 ```bash
-# Check Python version (3.10+ required)
+# Check Python version (3.11.5+ required)
 python --version
 
 # Verify installation
@@ -462,7 +462,7 @@ empirica --verbose <command>
 
 ```bash
 empirica --version                              # Empirica version
-python --version                                # Python (need 3.10+)
+python --version                                # Python (need 3.11.5+)
 git --version                                   # Git
 ls -lh .empirica/sessions/sessions.db           # DB size
 empirica sessions-list --limit 5                # Recent sessions
