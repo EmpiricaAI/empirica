@@ -15,8 +15,8 @@ def add_visibility_parsers(subparsers):
 Visibility primitive (Phase 0 — metadata only):
 
   - public  : world-shareable (generic technical content, public-RFC citations)
-  - shared  : team-private, co-versioned (default — safest invariant)
-  - local   : machine-only, never shared (raw secrets, session state)
+  - shared  : visible to the team through Cortex
+  - local   : the default: kept off Cortex; the other practices on this machine can read it
 
 Phase 0 stores the tier in a dedicated column on each artifact table.
 Phase 1 will introduce git-crypt for the 'shared' tier.

@@ -56,7 +56,7 @@ that, because the defect was an absence.
 - **A claim about current code cites HEAD, not a report.** A public forecast item described a gap a peer had reported against older vendored
   copies; the repo had fixed it three weeks earlier. For each claim in README, ROADMAP or a changelog, run the command that shows it today
   (`git log -S<symbol> --since=<report date>`, a count, a grep) and write its evidence kind beside it.
-- **Run the oldest Python you claim.** `release.py --prepare` parses the tree under `requires-python`'s floor through `uv`. ruff targets py310 but
+- **Run the oldest Python you claim.** `release.py --prepare` parses the tree under `requires-python`'s floor through `uv`. ruff targets py311 but
   parses with the newest grammar, so a 3.12-only f-string passed lint, format and a 3.14 suite and broke CI on 3.11. If the gate prints
   `NOT VERIFIED`, the floor was not checked: say so in the report instead of reading silence as clean.
 - **A falsifier tests the prediction it guards, and someone outside can evaluate it.** Write the claim as the check's own sentence; if you cannot, they

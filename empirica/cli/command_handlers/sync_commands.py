@@ -963,6 +963,7 @@ def handle_sync_pull_command(args):
         if rebuild and success:
             rebuild_result = _rebuild_from_notes()
             result["rebuild"] = rebuild_result
+            result.update(_rebuild_visibility_note(rebuild_result))  # the second machine's path says it too
             if "error" in rebuild_result:
                 # The fetch landed; the graph the caller asked to have rebuilt did not. "ok" answers whether the whole
                 # request was done, and the notes being local while SQLite is stale is the half-state to name.
@@ -1991,6 +1992,17 @@ def _rebuild_reflexes_only(args, output_format: str) -> int:
     return 0 if payload["ok"] else 1
 
 
+REBUILD_VISIBILITY_NOTE = (
+    "every rebuilt artifact except lessons (which keep their sharing policy) is local, kept off Cortex: the git notes "
+    "carry no visibility. Re-tag what should reach the team with update-artifacts (visibility shared)."
+)
+
+
+def _rebuild_visibility_note(rebuild_result: dict) -> dict:
+    """{"visibility_note": ...} after a rebuild that ran, else {}."""
+    return {} if "error" in rebuild_result else {"visibility_note": REBUILD_VISIBILITY_NOTE}
+
+
 def _print_rebuild_human(result, rebuild_result, total_rebuilt, qdrant, qdrant_failure) -> None:
     if not result["ok"]:
         print(f"❌ Rebuild failed: {rebuild_result.get('error') or qdrant_failure or 'Unknown error'}")
@@ -2002,6 +2014,8 @@ def _print_rebuild_human(result, rebuild_result, total_rebuilt, qdrant, qdrant_f
     unknown = rebuild_result.get("goals_status_unknown", 0)
     if unknown:
         print(f"   ⚠ {unknown} goal(s) rebuilt with status unknown (notes do not record completion)")
+    if result.get("visibility_note"):
+        print(f"   ⚠ {result['visibility_note']}")
     if qdrant and "qdrant" in result:
         print("   🔍 Qdrant: rebuilt")
 
@@ -2075,10 +2089,7 @@ def handle_rebuild_command(args):
         }
         if total_rebuilt:
             # Said, not silent: a rebuilt practice stops sending what it had shared until it is re-tagged (goal e6af2ba2).
-            result["visibility_note"] = (
-                "every rebuilt artifact is local (kept off Cortex): the git notes carry no visibility. Re-tag what "
-                "should reach the team with update-artifacts (visibility shared)."
-            )
+            result["visibility_note"] = REBUILD_VISIBILITY_NOTE
 
         # Optionally rebuild Qdrant
         qdrant_failure = None

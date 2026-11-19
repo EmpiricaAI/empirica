@@ -171,7 +171,9 @@ def share_socket(config, run=subprocess.run) -> dict | None:
         return out
     try:
         shutil.chown(sock, group=config.socket_group)
-        os.chmod(sock, 0o660)
+        # Group read-write is the feature: the stage account in socket_group attaches; no world access (0o644 would add
+        # it). semgrep's insecure-file-permissions rule is suppressed on this one line for that reason.
+        os.chmod(sock, 0o660)  # nosemgrep
         out["mode"] = "0660"
         out["group"] = config.socket_group
     except (OSError, LookupError) as e:

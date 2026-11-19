@@ -111,7 +111,7 @@ The wizard prompts for:
 
 The wizard writes `~/.empirica/credentials.yaml` and persists `{org_id, tenant_slug, mesh_id_prefix}` to your project.yaml so your AI gets fully-qualified mesh addressing from first use.
 
-**OAuth instead of a static key:** `empirica auth login` runs a browser (authorization_code + PKCE) flow and stores a refreshable token set under `cortex.oauth`; `empirica auth status` shows the credential state and `empirica auth token --headers` prints a valid header for other tools. See [CORTEX_OAUTH.md](../../architecture/CORTEX_OAUTH.md).
+**OAuth instead of a static key:** `empirica auth login` runs a browser (authorization_code + PKCE) flow and stores a refreshable token set under `cortex.oauth`, and (since 1.17.12) fetches your seat's ntfy address and token from Cortex into `credentials.yaml`, so the listeners need no ntfy step; a token already there, or ntfy set through `ORCHESTRATION_NTFY_*`, is left alone; `empirica auth status` shows the credential state and `empirica auth token --headers` prints a valid header for other tools. See [CORTEX_OAUTH.md](../../architecture/CORTEX_OAUTH.md).
 
 If you'd rather not interactively prompt, you can write `~/.empirica/credentials.yaml` yourself:
 

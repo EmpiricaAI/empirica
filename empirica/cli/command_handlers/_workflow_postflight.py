@@ -646,14 +646,20 @@ def _verification_goal_and_criticality(tx: dict, conn, transaction_id: str | Non
     carries it. Both were empty in every grounded row before this, so expertise could not be joined to goals or stakes.
     """
     goal_id = None
-    for named in tx.get("goal_ids") or []:
+    named_ids = tx.get("goal_ids")
+    for named in named_ids if isinstance(named_ids, list) else []:  # a string would be read a character at a time
+        if not isinstance(named, str) or not named.strip():
+            continue
         try:
-            rows = conn.execute("SELECT id FROM goals WHERE id LIKE ? LIMIT 2", (f"{named}%",)).fetchall()
-        except Exception:
-            rows = []
-        if len(rows) == 1:
-            goal_id = rows[0][0]
+            # The canonical resolver: exact id first, then a unique prefix with LIKE's wildcards escaped (1.16.3 sweep).
+            from types import SimpleNamespace
+
+            from empirica.cli.command_handlers.artifact_log_commands import _canonical_goal_id
+
+            goal_id = _canonical_goal_id(named.strip(), SimpleNamespace(conn=conn))
             break
+        except Exception:
+            continue
     if goal_id is None and transaction_id:
         try:
             row = conn.execute(
@@ -663,8 +669,12 @@ def _verification_goal_and_criticality(tx: dict, conn, transaction_id: str | Non
             goal_id = row[0] if row else None
         except Exception:
             goal_id = None
-    criticality = tx.get("criticality") if isinstance(tx.get("criticality"), str) else None
-    return goal_id, criticality or None
+    # PREFLIGHT stores criticality only when declared or not the project's medium default, so an empty value from a
+    # transaction file is medium; rows written before this have NULL, which reads as "not recorded" (1.17.13 sweep).
+    criticality = (
+        tx.get("criticality") if isinstance(tx.get("criticality"), str) and tx.get("criticality") else "medium"
+    )
+    return goal_id, criticality
 
 
 def _run_grounded_verification(

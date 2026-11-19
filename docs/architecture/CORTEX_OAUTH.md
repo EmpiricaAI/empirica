@@ -120,7 +120,9 @@ block also records `org_id` and `org_name`, read from `/v1/users/me` at sign-in.
 - **Empirica Cortex only.** Several teams are read and stored only when the configured Cortex is https on
   `getempirica.com` or a subdomain (`CredentialsLoader.multi_team_allowed`); elsewhere `cortex.orgs` is ignored and a
   second team's sign-in replaces the default, as before (and says so when the replaced sign-in recorded another team). A sign-in to a different Cortex than the configured one never stores beside the default and clears the other teams' sign-ins, which belong to the Cortex being left. There is no override. Core is open source, so this
-  is a bar rather than a lock; a Cortex-signed seat assertion, verified against a key pinned in core, is the next step.
+  is a bar rather than a lock. Since 1.17.11 each sign-in also checks a Cortex-signed seat assertion against a key pinned in core
+  (`core/auth/seat_assertion.py`): one that fails, or names another org than the account acts in, refuses the sign-in before
+  anything is stored; a Cortex without a signer still signs in and says it is unverified.
 
 ## `auth login` flow
 
@@ -151,10 +153,14 @@ block also records `org_id` and `org_name`, read from `/v1/users/me` at sign-in.
    which shows `<code>#<state>`. The CLI prints the URL, reads the pasted line
    (or the address-bar URL), checks the state against the one it sent, and
    exchanges the code with the same redirect and its PKCE verifier, which never
-   leaves the terminal. A stored client lists only the loopback block, so a
-   remote login registers its own client with both.
+   leaves the terminal. A stored client lists only the loopback block, so the first
+   remote login registers its own client with both and records that it did
+   (`client_code_page`); later sign-ins reuse it. Over SSH (or on Linux with no
+   display, or in a tmux session attached over SSH) `--remote` is chosen by itself and
+   said on stderr; `--local` keeps the local browser.
 4. **Callback** — the loopback listener receives the code (validating `state`);
-   the code is exchanged for the token set at the token endpoint.
+   the code is exchanged for the token set at the token endpoint, with a fresh
+   nonce; the seat assertion that comes back is verified (see above).
 5. **Persist** — `save_cortex_oauth(...)` writes the family (access + refresh
    token, `expires_at`, `token_endpoint`, `client_id`, `refresh_owner`).
 6. **Verify at the consumer surface** — a real `/v1/users/me` call is made with

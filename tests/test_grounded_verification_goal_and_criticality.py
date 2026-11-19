@@ -28,11 +28,12 @@ def test_the_first_goal_preflight_named_wins_and_a_prefix_resolves():
 
 
 def test_without_named_goals_the_newest_goal_created_in_the_transaction():
-    assert _verification_goal_and_criticality({}, _db(), "tx-1") == ("bbbb2222-0000-0000-0000-000000000002", None)
+    # No declared criticality in the transaction file is the medium default (PREFLIGHT stores only a departure from it).
+    assert _verification_goal_and_criticality({}, _db(), "tx-1") == ("bbbb2222-0000-0000-0000-000000000002", "medium")
 
 
 def test_nothing_known_is_none_never_a_guess():
-    assert _verification_goal_and_criticality({"goal_ids": ["ffff"]}, _db(), "tx-9") == (None, None)
+    assert _verification_goal_and_criticality({"goal_ids": ["ffff"]}, _db(), "tx-9") == (None, "medium")
 
 
 def test_store_verification_writes_the_criticality_it_is_given(tmp_path):
@@ -74,3 +75,54 @@ def test_postflight_captures_goal_ids_and_criticality_before_it_closes_the_trans
               "edited_files": [], "work_context": None, "work_type": None}  # fmt: skip
     wp._postflight_close_and_capture_counters(result, str(tmp_path), "_x")
     assert result["goal_ids"] == ["g1"] and result["criticality"] == "high"
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("named", ["%", "", "aaaa_111", " "])  # case is folded by SQLite LIKE: ids are lowercase hex
+def test_wildcards_case_and_blanks_never_resolve_a_goal(named):
+    """1.17.13 sweep: an unescaped LIKE resolved '%', '' and 'aaaa_111' to a goal they do not spell."""
+    assert _verification_goal_and_criticality({"goal_ids": [named]}, _db(), "tx-9")[0] is None
+
+
+def test_an_ambiguous_prefix_resolves_nothing_and_an_exact_id_wins_over_a_longer_one():
+    conn = _db()
+    conn.execute("INSERT INTO goals VALUES ('aaaa1111-0000-0000-0000-000000000001-x', 'tx-2', 3.0)")
+    assert _verification_goal_and_criticality({"goal_ids": ["aaaa"]}, conn, "tx-9")[0] is None
+    exact = "aaaa1111-0000-0000-0000-000000000001"
+    assert _verification_goal_and_criticality({"goal_ids": [exact]}, conn, "tx-9")[0] == exact
+
+
+def test_goal_ids_given_as_a_string_are_not_read_a_character_at_a_time():
+    assert _verification_goal_and_criticality({"goal_ids": "a-not-a-list"}, _db(), "tx-9")[0] is None
+
+
+def test_profile_import_marks_every_imported_row_local():
+    """1.17.13 sweep: goals, findings, unknowns, dead ends and mistakes took the table's 'shared' default on import."""
+    import re
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parent.parent / "empirica/core/canonical/empirica_git/profile_import.py"
+    ).read_text()
+    for table in ("project_findings", "project_unknowns", "project_dead_ends", "mistakes_made", "goals"):
+        assert re.search(rf'self\._mark_local\(cursor, "{table}",', src), table
+    for table in ("decisions", "assumptions"):  # these insert 'local' directly
+        insert = re.search(rf"INSERT (?:OR IGNORE )?INTO {table}\b(.*?)VALUES \((.*?)\)", src, re.S)
+        assert insert and "visibility" in insert.group(1) and "'local'" in insert.group(2), table
+
+
+def test_mark_local_sets_the_row_and_tolerates_a_table_without_the_column():
+    import sqlite3
+
+    from empirica.core.canonical.empirica_git.profile_import import ProfileImporter
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE goals (id TEXT, visibility TEXT DEFAULT 'shared')")
+    conn.execute("CREATE TABLE old (id TEXT)")
+    conn.execute("INSERT INTO goals (id) VALUES ('g')")
+    importer = ProfileImporter.__new__(ProfileImporter)
+    importer._mark_local(conn.cursor(), "goals", "g")
+    importer._mark_local(conn.cursor(), "old", "g")  # no column: logged, not raised
+    assert conn.execute("SELECT visibility FROM goals").fetchone()[0] == "local"

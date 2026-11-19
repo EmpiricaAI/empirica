@@ -105,6 +105,15 @@ class ProfileImporter:
         """When a note says it was resolved: `resolved_at`, else `resolved_timestamp` (an unparseable first value falls through to the second)."""
         return self._parse_timestamp(data.get("resolved_at")) or self._parse_timestamp(data.get("resolved_timestamp"))
 
+    def _mark_local(self, cursor, table: str, row_id: str) -> None:
+        """An imported row is local: the notes carry no visibility and the table default is 'shared', which made every
+        imported goal, finding, unknown, dead end and mistake eligible for Cortex (1.17.13 sweep; decisions and assumptions
+        already insert 'local', see import_decisions). A database without the column keeps the row, as for invalidation."""
+        try:
+            cursor.execute(f"UPDATE {table} SET visibility = 'local' WHERE id = ?", (row_id,))
+        except Exception as e:
+            logger.debug(f"could not mark {table} {str(row_id)[:8]} local: {e}")
+
     def _restore_invalidation(self, cursor, table: str, row_id: str, data: dict[str, Any]) -> None:
         """Re-apply the invalidation a dead-end or mistake note carries (migration 060). The insert above writes the row valid.
 
@@ -180,6 +189,7 @@ class ProfileImporter:
                 )
                 if cursor.rowcount > 0:
                     imported += 1
+                    self._mark_local(cursor, "project_findings", data.get("finding_id", finding_id))
                 else:
                     skipped += 1
             except Exception as e:
@@ -237,6 +247,7 @@ class ProfileImporter:
                 )
                 if cursor.rowcount > 0:
                     imported += 1
+                    self._mark_local(cursor, "project_unknowns", data.get("unknown_id", unknown_id))
                 else:
                     skipped += 1
             except Exception as e:
@@ -291,6 +302,7 @@ class ProfileImporter:
                 )
                 if cursor.rowcount > 0:
                     imported += 1
+                    self._mark_local(cursor, "project_dead_ends", data.get("dead_end_id", dead_end_id))
                     self._restore_invalidation(cursor, "project_dead_ends", data.get("dead_end_id", dead_end_id), data)
                 else:
                     skipped += 1
@@ -351,6 +363,7 @@ class ProfileImporter:
                 )
                 if cursor.rowcount > 0:
                     imported += 1
+                    self._mark_local(cursor, "mistakes_made", data.get("mistake_id", mistake_id))
                     self._restore_invalidation(cursor, "mistakes_made", data.get("mistake_id", mistake_id), data)
                 else:
                     skipped += 1
@@ -539,6 +552,7 @@ class ProfileImporter:
                 )
                 if cursor.rowcount > 0:
                     imported += 1
+                    self._mark_local(cursor, "goals", data.get("goal_id", goal_id))
                 else:
                     skipped += 1
                 tasks_imported += insert_tasks(db.conn, data.get("goal_id", goal_id), tasks)

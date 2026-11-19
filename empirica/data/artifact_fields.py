@@ -52,10 +52,11 @@ ARTIFACT_UPDATABLE_FIELDS: dict[str, set[str]] = {
     # enum stays enforced by the CHECK constraint on `decisions.reversibility`, so a
     # bad value fails the UPDATE rather than landing.
     "decision": {"outcome", "regret_score", "reversibility", "epistemic_source", "visibility"},
-    "source": {"confidence", "description"},
+    # visibility on goals and sources: a rebuild restores both as local, and this is the documented way back (1.17.13).
+    "source": {"confidence", "description", "visibility"},
     # `due_at` is when the item comes back up (empirica/data/due.py): moving it is a snooze, null clears it.
     # `kind` (core/work_kinds.py) lives in goal_data.metadata, not a column; graph_commands writes it there (goal 1dfb9911).
-    "goal": {"objective", "status", "due_at", "kind"},
+    "goal": {"objective", "status", "due_at", "kind", "visibility"},
     # A lesson's TEXT is immutable by the same rule as a finding's claim — a lesson
     # that turns out wrong is superseded, not edited. What is correctable is the
     # governance metadata, and `sharing_policy` is the one that matters: it decides

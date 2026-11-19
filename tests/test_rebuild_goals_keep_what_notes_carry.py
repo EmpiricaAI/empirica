@@ -126,3 +126,19 @@ def test_an_orphan_goal_stub_is_local_too(db, monkeypatch):
     gid = str(uuid.uuid4())
     sc._rebuild_ensure_orphan_goals(db, {gid}, [], 1.0, {"goals": 0})
     assert db.conn.execute("SELECT visibility FROM goals WHERE id = ?", (gid,)).fetchone()[0] == "local"
+
+
+@pytest.mark.parametrize("atype", ["goal", "source"])
+def test_a_rebuilt_goal_or_source_can_be_re_tagged_shared(atype):
+    """The rebuild note says to re-tag with update-artifacts; goals and sources had no visibility field there (1.17.13)."""
+    from empirica.data.artifact_fields import updatable_fields, value_problems
+
+    assert "visibility" in updatable_fields(atype)
+    assert value_problems(atype, {"visibility": "shared"}) == {} and "visibility" in value_problems(
+        atype, {"visibility": "x"}
+    )
+
+
+def test_the_human_rebuild_output_says_it_too(capsys):
+    sc._print_rebuild_human({"ok": True, "visibility_note": sc.REBUILD_VISIBILITY_NOTE}, {"goals": 1}, 1, False, None)
+    assert "kept off Cortex" in capsys.readouterr().out

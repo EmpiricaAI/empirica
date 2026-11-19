@@ -321,7 +321,7 @@ A **practice** is a project that a practitioner inhabits: it has an `ai_id`, its
 
 The older values `software`, `product`, `application`, `feature` and `documentation` are still readable on existing projects and are no longer accepted as input.
 
-**How the project type is used.** When PREFLIGHT declares no domain or criticality, the criticality starts from the type's default in the last column, and so does the domain unless the project names one. The calibration domain is not a label anyone sets: it follows from the type, selects the category weights used in calibration scoring, and is written into the project's `calibration_weights` when `project-init` runs. POSTFLIGHT does not read the project type today.
+**How the project type is used.** When PREFLIGHT declares no domain or criticality, the criticality starts from the type's default in the last column, and so does the domain unless the project names one. The calibration domain is not a label anyone sets: it follows from the type, selects the category weights used in calibration scoring, and is written into the project's `calibration_weights` when `project-init` runs. POSTFLIGHT reads the project type from the project's own `project.yaml` to pick the calibration domain (since 1.17.9).
 
 **Work types.** `work_type` tells the grounded evidence layer which observations are relevant to this transaction.
 

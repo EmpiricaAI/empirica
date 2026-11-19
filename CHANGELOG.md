@@ -9,8 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **A rebuild from the git notes no longer turns goals `shared`.** The notes carry no visibility, and goals were the one type restored with the table's `shared` default; they now come back `local` like everything else, and the rebuild says that every rebuilt artifact is `local` until re-tagged.
-- **Each grounded verification records the goal it graded and the transaction's criticality.** Both were empty on every verification, so calibration and expertise could not be joined to goals (and so to their work kind) or read by stakes.
+- **A rebuild from the git notes no longer turns goals `shared`.** The notes carry no visibility, and goals were the one type restored with the table's `shared` default; they now come back `local` like everything else but lessons, and the rebuild says so (in its human output and on `sync-pull --rebuild` too) until they are re-tagged.
+- **Each grounded verification records the goal it graded and the transaction's criticality.** Both were empty on every verification, so calibration and expertise could not be joined to goals (and so to their work kind) or read by stakes. The goal is the first one PREFLIGHT named (else the newest goal created in the transaction, else none); an undeclared criticality is recorded as `medium`, the default.
+- **Profile import keeps imported artifacts `local`,** as the rebuild does: goals, findings, unknowns, dead ends and mistakes took the table's `shared` default.
+- **Goals and sources can be re-tagged** with `update-artifacts` (`visibility`), the way back from a rebuild.
 
 ## [1.17.12] - 2026-11-19
 

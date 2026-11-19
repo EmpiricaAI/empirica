@@ -313,6 +313,9 @@ mouse: true                    # clickable tabs and panes
 bar: true                      # the bars (see above); false turns them off
 bar_commands: {U: '...'}       # optional: what U, C and S run on this machine
 remote_control: true           # optional: claude panes start with --remote-control <practice>, so each is named on the phone
+socket: /srv/cockpit/me.sock   # optional: run this cockpit's tmux server on its own socket, so another account can attach
+socket_group: cockpit-users    # optional (with socket): the group the socket is made readable by (default cockpit-users)
+server_access: [stage]         # optional (with socket): users granted read-only access (tmux server-access -r)
 
 projects:                      # everything a pane may reference
   - name: empirica             # also the default identity (see below)

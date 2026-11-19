@@ -255,7 +255,7 @@ flowchart LR
 
 | Mechanism | What it does | Who sees it |
 |---|---|---|
-| `--visibility local` (default) | nothing leaves the practice | this practice |
+| `--visibility local` (default) | kept off Cortex; your other practices on this machine can still search it | you, on this machine |
 | `--visibility shared` | marks findings, unknowns, dead ends for federation | the organisation's practices |
 | `--visibility public` | the same, wider | anyone with a Cortex account |
 | lesson `sharing_policy` | `private`, `project`, `org`, `public`, `licensed`; `org` and `public` federate | as named |

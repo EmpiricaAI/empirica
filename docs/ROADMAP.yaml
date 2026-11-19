@@ -13,13 +13,16 @@
 #     `resolved_in`. Resolved items leave the table and move into the "Forecast record" count, so the hit rate is public;
 #   * gardening keeps the forecast honest, as it does for findings: a prediction that was wrong when written (its basis was false) is
 #     `retracted`, not `dropped`; a replaced one is `superseded` with `superseded_by`; every predicted item names a `horizon` (a release),
-#     and the docs step flags each one that has passed; `steered: true` means a goal for it already existed when it was predicted, and
+#     and the docs step flags each one that has passed, and stops on one that was already past at the last release with no revision
+#     since; `steered: true` means a goal for it already existed when it was predicted, and
 #     those are scored separately (delivering planned work is not foresight); a change to confidence, prediction, falsifier, horizon or
 #     evidence after a release needs a dated entry under `revisions`, and an item is never deleted, only resolved;
 #   * a falsifier must test the PREDICTION, not a neighbouring claim, and must be checkable by someone outside the project;
 #   * check each prediction against HEAD before writing it: a settled fact is not a forecast (one item here described a gap that had
 #     been fixed three weeks earlier, from a peer's report of older code);
 #   * the text is public. No proposal, goal, task or commit ids, and no one else's internal state (the release script refuses ids).
+#     Directions that must not be public go in .empirica/ROADMAP.private.yaml (git-ignored, the same schema, ids allowed, never
+#     rendered); the docs step stops when an id is in both files or public text quotes a private item.
 #
 # Drafted from the practice's own graph (open goals, measured faults, unresolved unknowns) and confirmed by a human before it ships.
 # Quote `made_in`: an unquoted 1.10 loads as the number 1.1. Quote the `on` key of a revision too: unquoted, `on:` is the boolean true in YAML 1.1.

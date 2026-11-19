@@ -111,7 +111,9 @@ Both counts leave out `refs/notes/empirica-archive/*` (the local count and the `
 
 Artifacts come back under their own ids and creation times, with a resolved finding's kind and time. A goal note is restamped with the goal's state (and the lifecycle details that have no column: abandon reason and time, activation time, reopen history, completed reason) on every transition (`goals-complete`, `-archive`, `-reopen`, `-activate`, abandon); a note nobody restamped carries no status, so its goal rebuilds as `in_progress` marked `status_unknown`, and `doctor --reconcile-notes --apply` stamps the current SQLite state onto such notes (it also covers the bulk `goals-prune` and `resolve-artifacts` paths, which close goals without restamping).
 
-It does not read the decisions, assumptions, tasks, sources, handoff or message notes. Those are written to notes and replicated, but this rebuild does not restore them into SQLite. Calibration tables and reflex rows are not restored either, except by the next mode.
+It also restores decisions, assumptions, sources, a goal's tasks, the links between artifacts, falsifiers and lessons. It does not read the handoff or message notes, and calibration tables and reflex rows are not restored, except by the next mode.
+
+**Everything rebuilt is `local`** (kept off Cortex) except lessons, which keep their sharing policy: the notes carry no visibility. A practice that had shared artifacts stops sending them until they are re-tagged (`update-artifacts`, field `visibility`); the rebuild's output says so, on `sync-pull --rebuild` too.
 
 - **`rebuild --qdrant`**: rebuild SQLite from notes first, then re-embed Qdrant.
 - **`rebuild --qdrant-only`**: re-embed Qdrant from the current SQLite and skip the notes import. This is the safe resync after direct SQL or bulk changes not yet persisted to notes; the default path would revert them, because notes win.
