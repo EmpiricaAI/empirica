@@ -164,6 +164,9 @@ def isolate_empirica_instance():
         "EMPIRICA_HEADLESS",
         "EMPIRICA_ENABLE_EMBEDDINGS",
         "EMPIRICA_COCKPIT_SERVER_UNIT",
+        # A socket cockpit's panes carry it; left set, tmux_argv sends the fixtures' tmux calls to that live server
+        # instead of their private TMUX_TMPDIR one (1.17.11 third pass).
+        "EMPIRICA_TMUX_SOCKET",
     )
     for var in identity_vars:
         saved_env[var] = os.environ.get(var)
@@ -200,7 +203,7 @@ def isolate_empirica_instance():
     # without a -t target (e.g. `tmux detach-client`) acts on the user's
     # live tmux server. test_detach_handler_writes_clean_marker actually
     # detached the dev's live tmux session before this was added.
-    for var in ("TMUX", "TMUX_PANE", "WINDOWID", "TERM_SESSION_ID"):
+    for var in ("TMUX", "TMUX_PANE", "WINDOWID", "TERM_SESSION_ID", "EMPIRICA_TMUX_SOCKET"):
         os.environ.pop(var, None)
 
     # Pin the DURABLE practitioner key to a test value.
