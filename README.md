@@ -439,18 +439,21 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.17.10
+## What's New in 1.17.11
 
-- Sentinel gates on inputs nobody supplied are reported as not evaluated
-- Web link and asset checks honour `<base href>`
-- `empirica[api]` installs on Python 3.15
+- Empirica needs Python 3.11.5 or later
+- `auth login` checks Cortex's signed seat proof
+- `auth login` picks the remote flow by itself over SSH
+- A cockpit can run on its own tmux socket
+- `empirica doctor`, `empirica diagnose`, `setup-claude-code` and the plugin's `install.sh` check the real Python floor
+- Install on every platform (2026-11-19):
 
 The full entry is in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.17.10** — Sentinel gates on inputs nobody supplied are reported as not evaluated
 - **1.17.9** — `/graph-harvest`: put what existing material knows into the graph
-- **1.17.8** — Onboarding asks what work you do and sets up practices for it
 
 ## What's Coming
 

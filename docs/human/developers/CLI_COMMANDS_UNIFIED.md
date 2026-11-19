@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.17.10
-**Generated:** 2026-11-19 09:49:04 UTC
+**Framework version:** 1.17.11
+**Generated:** 2026-11-19 11:33:32 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -3827,7 +3827,9 @@ Authorization_code + PKCE browser flow; stores the token set under cortex.oauth 
 - `--org` — optional
   Sign in as your user in this org (its id, slug or name), with no picker (optional). Refused if you are not a member there.
 - `--remote` — optional · flag
-  For a machine whose browser is elsewhere (SSH, a server): prints a URL to open on any machine, then reads the code Cortex's page shows (code#state) pasted back here. No local port is used (optional).
+  For a machine whose browser is elsewhere (SSH, a server): prints a URL to open on any machine, then reads the code Cortex's page shows (code#state) pasted back here. No local port is used. Chosen by itself over SSH (SSH_CONNECTION or SSH_TTY, also in tmux's session environment) and on Linux with no display (optional).
+- `--local` — optional · flag
+  Use this machine's browser and a local callback even where --remote would be chosen by itself (optional).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
 
 
