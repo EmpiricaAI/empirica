@@ -286,10 +286,14 @@ def check_notify_dispatcher() -> Check:
 
 
 def check_python() -> Check:
+    from empirica.core.python_floor import MIN_PYTHON, MIN_PYTHON_TEXT
+
     v = sys.version_info
-    if v >= (3, 10):
+    if v[:3] >= MIN_PYTHON:
         return Check("Python version", PASS, f"{v.major}.{v.minor}.{v.micro}")
-    return Check("Python version", FAIL, f"{v.major}.{v.minor}.{v.micro}", "Empirica requires Python 3.10+")
+    return Check(
+        "Python version", FAIL, f"{v.major}.{v.minor}.{v.micro}", f"Empirica requires Python {MIN_PYTHON_TEXT}+"
+    )
 
 
 def check_empirica_cli() -> Check:

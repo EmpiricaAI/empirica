@@ -26,9 +26,9 @@ Three jobs run on every push / PR to `main` or `develop`:
 | `test` | `pytest` on Python **3.11** + **3.13** | Hard fail on any failed test |
 | `compliance` | `empirica compliance-report` + `pip-audit` | Compliance informational; `pip-audit` hard fail on CVE |
 
-**Matrix scope decision.** pyproject claims 3.10–3.13. We test 3.11 and 3.13
-(current) and skip 3.10/3.12, so
-3.10 is declared but not exercised in CI. If a bug shows up that's specific
+**Matrix scope decision.** pyproject requires 3.11.5 or newer. We test 3.11 and 3.13
+(current) and skip 3.12, 3.14 and 3.15; `release.py --prepare` parses the tree under the
+floor's grammar. If a bug shows up that's specific
 to the skipped versions, add them then. Each matrix cell is ~5min, so 2 cells
 = ~10min wall-clock with parallel runners.
 

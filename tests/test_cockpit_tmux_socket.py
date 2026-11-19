@@ -63,3 +63,65 @@ def test_share_socket_opens_the_socket_to_the_group_and_grants_read_only_access(
     assert ["tmux", "-S", str(sock), "server-access", "-a", "cockpit", "-r"] in calls
     assert ["tmux", "-S", str(sock), "set-environment", "-g", "EMPIRICA_TMUX_SOCKET", str(sock)] in calls
     assert lt.share_socket(SimpleNamespace(socket=None)) is None
+
+
+# ─── 1.17.11 sweep ──────────────────────────────────────────────────────────
+
+
+def _socket_config(tmp_path, socket="/srv/cockpit/d.sock"):
+    from empirica.core.cockpit.launcher.config import load_config
+
+    f = tmp_path / "c.yaml"
+    f.write_text(f"socket: {socket}\nprojects:\n  - name: p\n    path: {tmp_path}\n")
+    return load_config(f)
+
+
+def test_a_relaunch_asks_the_socket_server_whether_the_session_exists(tmp_path, monkeypatch):
+    from empirica.core.cockpit.launcher import tmux as lt
+
+    monkeypatch.setenv(ts.ENV, "placeholder")  # restored after the test; launch sets it from the config
+    seen = []
+    monkeypatch.setattr(lt, "tmux_available", lambda: True)
+    monkeypatch.setattr(lt, "cockpit_session_exists", lambda name: seen.append(ts.socket_path()) or True)
+    monkeypatch.setattr(lt, "strip_session_identity", lambda name: None)
+    lt.launch_cockpit(_socket_config(tmp_path))
+    assert seen == ["/srv/cockpit/d.sock"]
+
+
+def test_each_socket_gets_its_own_server_unit(monkeypatch):
+    from empirica.core.cockpit.launcher import tmux as lt
+
+    monkeypatch.delenv(ts.ENV, raising=False)
+    default = lt.server_unit()
+    monkeypatch.setenv(ts.ENV, "/srv/cockpit/a.sock")
+    a = lt.server_unit()
+    monkeypatch.setenv(ts.ENV, "/srv/cockpit/b.sock")
+    assert default == "empirica-tmux" and a.startswith("empirica-tmux-") and a != lt.server_unit()
+
+
+def test_a_socket_that_does_not_exist_yet_is_named(tmp_path):
+    from types import SimpleNamespace
+
+    from empirica.core.cockpit.launcher import tmux as lt
+
+    cfg = SimpleNamespace(socket=str(tmp_path / "none.sock"), socket_group="cockpit-users", server_access=[])
+    assert "does not exist" in lt.share_socket(cfg)["errors"][0]
+
+
+def test_sharing_errors_are_printed_even_for_an_existing_server(capsys):
+    from empirica.cli.command_handlers.cockpit_launcher_commands import _say_tmux_server
+
+    _say_tmux_server({"mode": "existing", "socket": {"errors": ["permissions: group 'cockpit-users' not found"]}})
+    assert "cockpit-users" in capsys.readouterr().out
+
+
+def test_the_socket_path_is_expanded(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert _socket_config(tmp_path, "~/c.sock").socket == str(tmp_path / "c.sock")
+
+
+def test_every_cockpit_command_aims_at_the_configured_socket():
+    """refresh, status, kill and launch load the config and must aim tmux at its socket before any call."""
+    lines = (_ROOT / "empirica/cli/command_handlers/cockpit_launcher_commands.py").read_text().splitlines()
+    loads = [i for i, line in enumerate(lines) if "config = load_config(" in line]
+    assert len(loads) >= 4 and all("use_socket(" in lines[i + 1] for i in loads)

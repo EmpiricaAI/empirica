@@ -105,6 +105,19 @@ def tmux_available() -> bool:
 
 #: The user service the cockpit's tmux server runs in when launch starts it (prop_kuswn7yepvepdewzvjtxhqicfy).
 SERVER_UNIT = "empirica-tmux"
+
+
+def server_unit() -> str:
+    """The user service the cockpit's tmux server runs in: one per socket, so a shared-stage cockpit (``socket:``) and
+    the default one can run side by side (1.17.11 sweep)."""
+    import hashlib
+
+    from empirica.core.cockpit.tmux_socket import socket_path
+
+    sock = socket_path()
+    return f"{SERVER_UNIT}-{hashlib.sha256(sock.encode()).hexdigest()[:8]}" if sock else SERVER_UNIT
+
+
 #: What the server must not inherit: the caller's pane and instance identity (every pane would carry it) and systemd's
 #: bookkeeping for the caller's own unit.
 _SERVER_ENV_DROP = frozenset(
@@ -153,6 +166,9 @@ def share_socket(config, run=subprocess.run) -> dict | None:
     if not sock:
         return None
     out: dict = {"path": sock, "errors": []}
+    if not os.path.exists(sock):
+        out["errors"].append("the socket does not exist: no tmux server is running on it")
+        return out
     try:
         shutil.chown(sock, group=config.socket_group)
         os.chmod(sock, 0o660)
@@ -206,7 +222,8 @@ def ensure_server(run=subprocess.run, which=shutil.which, sleep=None) -> dict:
         for k, v in os.environ.items()
         if k not in _SERVER_ENV_DROP and not k.startswith("CLAUDE") and _ENV_NAME.match(k) and _utf8(v)
     ]
-    argv = ["systemd-run", "--user", f"--unit={SERVER_UNIT}", "--collect", "--quiet", *env, *tmux_argv("-D")]
+    unit = server_unit()
+    argv = ["systemd-run", "--user", f"--unit={unit}", "--collect", "--quiet", *env, *tmux_argv("-D")]
     try:
         started = run(argv, capture_output=True, text=True, timeout=15, check=False)
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -217,14 +234,14 @@ def ensure_server(run=subprocess.run, which=shutil.which, sleep=None) -> dict:
     pause = sleep or time.sleep
     for _ in range(50):  # up to ~5 s for the server to open its socket
         if _server_answers():
-            return {"mode": "systemd", "unit": SERVER_UNIT}
+            return {"mode": "systemd", "unit": unit}
         pause(0.1)
     # Stop what was started, so a server nobody can reach does not hold the unit name for every later launch.
-    run(["systemctl", "--user", "stop", SERVER_UNIT], capture_output=True, text=True, timeout=15, check=False)
+    run(["systemctl", "--user", "stop", unit], capture_output=True, text=True, timeout=15, check=False)
     return {
         "mode": "inline",
         "risky": True,
-        "detail": f"the server in {SERVER_UNIT} did not answer within 5 s (unit stopped)",
+        "detail": f"the server in {unit} did not answer within 5 s (unit stopped)",
     }
 
 
@@ -255,6 +272,7 @@ def launch_cockpit(config: LauncherConfig) -> LaunchResult:
             error="tmux binary not found on PATH",
         )
 
+    use_socket(config.socket)  # before any tmux call: the existence check must ask the configured server
     # Idempotent: if the session exists, just record we're attaching (and heal it).
     if cockpit_session_exists(config.session_name):
         return LaunchResult(
@@ -276,9 +294,7 @@ def launch_cockpit(config: LauncherConfig) -> LaunchResult:
             error="config has no projects and no status windows — nothing to launch",
         )
 
-    use_socket(config.socket)
     server = ensure_server()
-    server["socket"] = share_socket(config)
     write_session_start()
 
     windows_created: list[str] = []
@@ -333,6 +349,8 @@ def launch_cockpit(config: LauncherConfig) -> LaunchResult:
         status_windows_created.append(first_status.name)
         remaining_projects = []
 
+    # Only now is a server certain to exist: an inline start (no systemd, or the unit taken) begins with new-session.
+    server["socket"] = share_socket(config)
     _configure_session(config, config.session_name)
 
     # Additional project windows
@@ -1136,7 +1154,6 @@ def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> Groups
     session_name = config.session_name
     use_socket(config.socket)
     server = ensure_server()
-    server["socket"] = share_socket(config)
     write_session_start()
 
     results: list[GroupLaunchResult] = []
@@ -1156,6 +1173,8 @@ def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> Groups
                 error=err,
             )
         )
+
+    server["socket"] = share_socket(config)  # after the first window: an inline server starts with it
 
     if any(g.error for g in results):
         return GroupsLaunchResult(server=server, groups=results, session_name=session_name, error=None, opened=opened)

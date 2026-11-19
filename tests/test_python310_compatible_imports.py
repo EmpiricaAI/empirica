@@ -1,4 +1,4 @@
-"""The package supports Python 3.10 (pyproject requires-python >=3.10, pyright pythonVersion 3.10), so it must not import names that arrived later.
+"""Written when the package supported Python 3.10 (the floor is 3.11.5 since 1.17.11, so `datetime.UTC` is now safe); kept as the 3.10-era guard until UP017 is taken on.
 
 `datetime.UTC` is 3.11+. wake_service.py used it; on 3.10 the import fails, the listener's wake-service start is wrapped in a try so it
 would have degraded quietly, and CI on 3.10 would have failed. A whole-project pyright run caught it ("UTC" is unknown import symbol); a

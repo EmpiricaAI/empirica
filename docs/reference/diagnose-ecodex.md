@@ -7,7 +7,7 @@ default Claude Code mode).
 
 | Check | What it tests | Fix on failure |
 |---|---|---|
-| Python version | Interpreter is ≥ 3.10 | Reinstall empirica with newer Python |
+| Python version | Interpreter is ≥ 3.11.5 | Reinstall empirica with newer Python |
 | empirica CLI on PATH | `empirica` resolves | Reinstall empirica |
 | ecodex plugin installed | `~/.codex/plugins/cache/<namespace>/empirica/<v>/.codex-plugin/plugin.json` exists + parses (`empiricaAI`, with the legacy `nubaeon` as fallback) | `./ecodex/scripts/install.sh` |
 | ecodex plugin enabled in config | `[plugins."empirica@empiricaAI"]` block (or the legacy `empirica@nubaeon`) in `~/.codex/config.toml` | Add the block manually or reinstall |

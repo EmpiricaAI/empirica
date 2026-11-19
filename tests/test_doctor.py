@@ -50,7 +50,7 @@ from empirica.cli.command_handlers.doctor import (
 
 
 def test_check_python_passes_on_310_plus():
-    # We require Python 3.10+ per pyproject.toml, so this should always PASS
+    # pyproject requires Python 3.11.5+, so the interpreter running the tests always PASSes
     # in any environment that can run the test suite.
     result = check_python()
     assert result.status == PASS

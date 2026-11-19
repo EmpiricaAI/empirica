@@ -349,7 +349,9 @@ def load_config(path: Path | None = None) -> LauncherConfig:
             if isinstance(raw.get("bar_commands"), dict)
             else {},
             remote_control=raw.get("remote_control") is True,
-            socket=str(raw["socket"]).strip() if isinstance(raw.get("socket"), str) and raw["socket"].strip() else None,
+            socket=str(Path(raw["socket"].strip()).expanduser().absolute())
+            if isinstance(raw.get("socket"), str) and raw["socket"].strip()
+            else None,
             socket_group=str(raw.get("socket_group") or "cockpit-users"),
             server_access=[str(u) for u in raw.get("server_access") or [] if isinstance(u, str) and u.strip()],
         )

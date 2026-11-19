@@ -7,7 +7,7 @@
 # for installing/syncing the Claude Code plugin.
 #
 # What it does:
-#   1. Finds a suitable Python >= 3.10
+#   1. Finds a suitable Python >= 3.11.5
 #   2. Installs empirica via pip (includes bundled plugin files)
 #   3. Runs `empirica setup-claude-code` (configures hooks, CLAUDE.md, etc.)
 #
@@ -16,8 +16,7 @@
 set -e
 
 PLUGIN_VERSION="1.17.10"
-MIN_PYTHON_MAJOR=3
-MIN_PYTHON_MINOR=10
+MIN_PYTHON="3.11.5"  # pyproject requires-python; empirica/core/python_floor.py
 
 echo "🧠 Installing Empirica + Claude Code integration v${PLUGIN_VERSION}..."
 echo ""
@@ -28,7 +27,7 @@ find_python() {
     local candidates=()
 
     # Check common versioned binaries (highest first)
-    for ver in 13 12 11 10; do
+    for ver in 15 14 13 12 11; do
         command -v "python3.${ver}" &>/dev/null && candidates+=("python3.${ver}")
     done
 
@@ -36,13 +35,13 @@ find_python() {
     command -v python3 &>/dev/null && candidates+=("python3")
 
     # Check macOS framework paths
-    for ver in 13 12 11 10; do
+    for ver in 15 14 13 12 11; do
         local fw="/Library/Frameworks/Python.framework/Versions/3.${ver}/bin/python3.${ver}"
         [ -f "$fw" ] && candidates+=("$fw")
     done
 
     # Check Homebrew paths (Apple Silicon + Intel)
-    for ver in 13 12 11 10; do
+    for ver in 15 14 13 12 11; do
         for prefix in /opt/homebrew /usr/local; do
             local brew="${prefix}/bin/python3.${ver}"
             [ -f "$brew" ] && candidates+=("$brew")
@@ -52,11 +51,8 @@ find_python() {
     # Test each candidate for minimum version
     for py in "${candidates[@]}"; do
         local py_ver
-        py_ver=$("$py" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null) || continue
-        local major minor
-        major=$(echo "$py_ver" | cut -d. -f1)
-        minor=$(echo "$py_ver" | cut -d. -f2)
-        if [ "$major" -ge "$MIN_PYTHON_MAJOR" ] && [ "$minor" -ge "$MIN_PYTHON_MINOR" ]; then
+        # The interpreter compares itself to the floor: a micro version (3.11.5) cannot be compared with -ge on cut fields.
+        if "$py" -c "import sys; sys.exit(0 if sys.version_info[:3] >= tuple(map(int, '$MIN_PYTHON'.split('.'))) else 1)" 2>/dev/null; then
             echo "$py"
             return 0
         fi
@@ -67,11 +63,11 @@ find_python() {
 
 PYTHON_CMD=$(find_python)
 if [ -z "$PYTHON_CMD" ]; then
-    echo "❌ Error: Python ${MIN_PYTHON_MAJOR}.${MIN_PYTHON_MINOR}+ is required"
+    echo "❌ Error: Python ${MIN_PYTHON}+ is required"
     echo ""
     python3 --version 2>&1 | sed 's/^/   Found: /' || echo "   python3 not found"
     echo ""
-    echo "   Install Python 3.10+ via:"
+    echo "   Install Python ${MIN_PYTHON}+ via:"
     echo "     macOS:  brew install python@3.11"
     echo "     Ubuntu: sudo apt install python3.11"
     echo "     pyenv:  pyenv install 3.11 && pyenv global 3.11"

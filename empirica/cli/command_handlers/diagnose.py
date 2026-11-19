@@ -172,14 +172,16 @@ def check_loops_not_stale() -> CheckResult:
 
 def check_python_version() -> CheckResult:
     """Verify Python is recent enough for Empirica."""
+    from empirica.core.python_floor import MIN_PYTHON, MIN_PYTHON_TEXT
+
     major, minor = sys.version_info[:2]
     version_str = f"{major}.{minor}.{sys.version_info.micro}"
-    if (major, minor) < (3, 10):
+    if tuple(sys.version_info[:3]) < MIN_PYTHON:
         return CheckResult(
             name="Python version",
             status=FAIL,
-            detail=f"Found {version_str}, need >= 3.10",
-            hint="Install Python 3.10+ and reinstall empirica with that interpreter",
+            detail=f"Found {version_str}, need >= {MIN_PYTHON_TEXT}",
+            hint=f"Install Python {MIN_PYTHON_TEXT}+ and reinstall empirica with that interpreter",
             data={"version": version_str},
         )
     return CheckResult(

@@ -34,7 +34,7 @@ from empirica.core.cockpit.launcher import (
 from empirica.core.cockpit.launcher.config import config_file_state, validate_file
 from empirica.core.cockpit.launcher.detection import SessionAlreadyRunning
 from empirica.core.cockpit.launcher.tmux import exact_session
-from empirica.core.cockpit.tmux_socket import tmux_argv
+from empirica.core.cockpit.tmux_socket import tmux_argv, use_socket
 
 
 def _format_age(seconds: float | None) -> str:
@@ -87,7 +87,10 @@ def _profile_error(args, error: str) -> int:
 
 
 def _say_tmux_server(server: dict | None) -> None:
-    """One line on how the tmux server runs: in its own service, or inside this terminal (and why)."""
+    """One line on how the tmux server runs: in its own service, or inside this terminal (and why); and, for a cockpit with
+    ``socket:``, any step of sharing it that failed."""
+    for err in ((server or {}).get("socket") or {}).get("errors") or []:
+        print(f"  ⚠ shared socket: {err}")
     if not server or server.get("mode") == "existing":
         return
     if server.get("mode") == "systemd":
@@ -186,6 +189,7 @@ def handle_cockpit_launch_command(args) -> int:
             return 1
 
     config = load_config(path=config_p)
+    use_socket(getattr(config, "socket", None))  # every tmux call below goes to the cockpit's own server
 
     # CLI override for surface (--surface alacritty / --surface tmux)
     surface_override = getattr(args, "surface", None)
@@ -462,6 +466,7 @@ def handle_cockpit_refresh_command(args) -> int:
         return _profile_error(args, profile_error)
     output = getattr(args, "output", "human")
     config = load_config(path=Path(config_path).expanduser() if config_path else None)
+    use_socket(getattr(config, "socket", None))  # every tmux call below goes to the cockpit's own server
 
     only_pane = getattr(args, "pane", None)
     result = refresh_cockpit(config, only_pane=only_pane) if only_pane else refresh_cockpit(config)
@@ -563,6 +568,7 @@ def handle_cockpit_status_command(args) -> int:
 
     config_p = Path(config_path).expanduser() if config_path else None
     config = load_config(path=config_p)
+    use_socket(getattr(config, "socket", None))  # every tmux call below goes to the cockpit's own server
     # An explicitly named config that is missing or unreadable is a problem, not "defaults": load_config
     # answers both with the built-in layout, and reporting that layout as the profile hides the typo.
     file_state, errors, warnings = _status_findings(config_p)
@@ -680,6 +686,7 @@ def handle_cockpit_kill_command(args) -> int:
 
     config_p = Path(config_path).expanduser() if config_path else None
     config = load_config(path=config_p)
+    use_socket(getattr(config, "socket", None))  # every tmux call below goes to the cockpit's own server
 
     success, error = cockpit_kill(session_name=config.session_name)
     if not success:

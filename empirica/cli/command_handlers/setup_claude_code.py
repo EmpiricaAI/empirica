@@ -187,8 +187,8 @@ def _render_versioned_template(
 
 
 def _find_python() -> str:
-    """Find a suitable Python >= 3.10, mimicking install.sh logic"""
-    min_major, min_minor = 3, 10
+    """Find a Python at or above the floor (core/python_floor.py), mimicking install.sh logic"""
+    from empirica.core.python_floor import MIN_PYTHON
 
     candidates = []
 
@@ -197,19 +197,19 @@ def _find_python() -> str:
         candidates.append("python3")
 
     # Then check versioned binaries as fallback (highest first)
-    for ver in [13, 12, 11, 10]:
+    for ver in [15, 14, 13, 12, 11]:
         cmd = f"python3.{ver}"
         if shutil.which(cmd):
             candidates.append(cmd)
 
     # Check macOS framework paths
-    for ver in [13, 12, 11, 10]:
+    for ver in [15, 14, 13, 12, 11]:
         fw = f"/Library/Frameworks/Python.framework/Versions/3.{ver}/bin/python3.{ver}"
         if Path(fw).exists():
             candidates.append(fw)
 
     # Check Homebrew paths
-    for ver in [13, 12, 11, 10]:
+    for ver in [15, 14, 13, 12, 11]:
         for prefix in ["/opt/homebrew", "/usr/local"]:
             brew = f"{prefix}/bin/python3.{ver}"
             if Path(brew).exists():
@@ -219,15 +219,14 @@ def _find_python() -> str:
     for py in candidates:
         try:
             result = subprocess.run(
-                [py, "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+                [py, "-c", "import sys; print('.'.join(map(str, sys.version_info[:3])))"],
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
             if result.returncode == 0:
                 py_ver = result.stdout.strip()
-                major, minor = map(int, py_ver.split("."))
-                if major >= min_major and minor >= min_minor:
+                if tuple(map(int, py_ver.split("."))) >= MIN_PYTHON:
                     return py
         except Exception:
             continue
