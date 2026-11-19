@@ -56,6 +56,14 @@ def _print_seat(seat: dict) -> None:
         print(f"   seat: unverified: {seat.get('reason')}")
 
 
+def _print_ntfy(ntfy: dict) -> None:
+    """One line on the listeners' ntfy credentials (mesh-support prop_ajiz272z): written, kept, or why not."""
+    if ntfy.get("written"):
+        print(f"   ntfy: credentials written for the listeners ({ntfy.get('url')})")
+    elif ntfy.get("reason"):
+        print(f"   ntfy: {ntfy['reason']}")
+
+
 def _choose_remote(args) -> bool:
     """--remote, or chosen by itself over SSH unless --local says otherwise, saying so on stderr."""
     if getattr(args, "remote", False):
@@ -122,6 +130,7 @@ def handle_auth_login_command(args) -> int:
         if result.get("note"):
             print(f"   note: {result['note']}")
         _print_seat(result.get("seat") or {})
+        _print_ntfy(result.get("ntfy") or {})
         if result.get("cortex_url_saved") is True:
             hosted = " (the hosted Cortex; pass --url for another)" if result.get("url_source") == "default" else ""
             print(

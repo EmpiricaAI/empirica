@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Goals and tasks can say what kind of work they are.** `goals-create --kind` and `goals-add-task --kind` take one of fix, refine, simplify, expand (product change), investigate or sustain (the work around it: releases, sweeps, coordination, hygiene). The kind is kept in the goal's metadata and the task's data, and survives a rebuild from the git notes; roadmap items may carry one too.
+- **`auth login` sets up the listeners' notifications.** After signing in it fetches the seat's ntfy address and token from Cortex and writes them to `credentials.yaml`, where the mesh listeners read them; a token already there is kept. A seat with no notification account yet is told so in one line, and the sign-in stands whatever happens.
 - **A roadmap prediction left past its horizon at two releases stops the docs step.** It must be graded, or given a dated revision saying why it stays open or moves; a first miss still only warns.
 
 ## [1.17.11] - 2026-11-19

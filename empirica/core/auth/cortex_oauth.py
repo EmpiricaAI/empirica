@@ -31,6 +31,7 @@ import secrets
 import socket
 import sys
 import threading
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
@@ -710,10 +711,17 @@ def login(
         # the previous team's (1.17.11 pass 2).
         org_name=(identity.get("org_name") or None) if identity.get("org_id") else "",
     )
+    # The listeners' ntfy credentials, for the primary sign-in only: one ntfy block per machine, and it belongs to it.
+    ntfy = (
+        _fetch_ntfy_credentials(loader, base_url, tokens["access_token"], http=http)
+        if slot is None
+        else {"written": False, "reason": "another team's sign-in: the ntfy credentials stay the primary seat's"}
+    )
     return {
         "ok": True,
         "slot": slot,
         "note": note,
+        "ntfy": ntfy,
         "org_id": new_org,
         "org_name": identity.get("org_name"),
         "client_id": client_id,
@@ -754,6 +762,44 @@ def _check_seat(token: str | None, nonce: str) -> dict:
         "reason": None,
         "org_id": claims.get("org_id"),
     }
+
+
+def _fetch_ntfy_credentials(loader, base_url: str, token: str, *, http=_http_json) -> dict:
+    """Write the seat's ntfy url and token into credentials.yaml so the listeners can subscribe (mesh-support prop_ajiz272z).
+
+    Cortex: GET /v1/users/me/ntfy-credentials with the seat's own bearer gives {ntfy_url, bearer, created_at}, 404
+    bearer_not_provisioned when it has no notification account for the person, at most 5 calls an hour. A token already in
+    the file is kept and the endpoint not called: it may be one set by hand, and re-signing in should not spend the limit.
+    Never raises; the sign-in stands whatever happens here. Returns {written, reason}, never the token.
+    """
+    try:
+        existing = loader._read_existing(loader._resolve_credentials_target(None)).get("ntfy") or {}
+    except Exception:
+        existing = {}
+    if isinstance(existing, dict) and (existing.get("token") or existing.get("password")):
+        return {"written": False, "reason": "kept the ntfy credentials already in credentials.yaml"}
+    try:
+        out = http(f"{base_url.rstrip('/')}/v1/users/me/ntfy-credentials", headers={"Authorization": f"Bearer {token}"})
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return {
+                "written": False,
+                "reason": "this seat has no notification account yet (Cortex: bearer_not_provisioned); listeners stay off until it has one",
+            }
+        return {
+            "written": False,
+            "reason": f"could not fetch the ntfy credentials (HTTP {e.code}); run auth login again later",
+        }
+    except Exception as e:
+        return {"written": False, "reason": f"could not fetch the ntfy credentials ({type(e).__name__})"}
+    url, bearer = (out or {}).get("ntfy_url"), (out or {}).get("bearer")
+    if not (isinstance(url, str) and url and isinstance(bearer, str) and bearer):
+        return {"written": False, "reason": "Cortex answered without an ntfy url and token"}
+    try:
+        loader.save_ntfy_config(url=url, token=bearer)
+    except Exception as e:
+        return {"written": False, "reason": f"could not write credentials.yaml ({type(e).__name__}: {e})"}
+    return {"written": True, "reason": None, "url": url.rstrip("/")}
 
 
 def _whoami(base_url: str, token: str, *, http=_http_json) -> dict:
