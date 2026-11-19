@@ -439,21 +439,19 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.17.12
+## What's New in 1.17.13
 
-- `local` means kept off Cortex, and now holds everywhere
-- Writing the ntfy settings no longer breaks a `credentials.json`
-- Goals and tasks can say what kind of work they are
-- `auth login` sets up the listeners' notifications
-- `/forecast plan` and `/forecast explore`
-- A private roadmap beside the public one
+- A rebuild from the git notes no longer turns goals `shared`
+- Each grounded verification records the goal it graded and the transaction's criticality
+- Profile import keeps imported artifacts `local`,
+- Goals and sources can be re-tagged
 
-Plus 1 more entry in the [CHANGELOG](CHANGELOG.md).
+The full entry is in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.17.12** — `local` means kept off Cortex, and now holds everywhere
 - **1.17.11** — Empirica needs Python 3.11.5 or later
-- **1.17.10** — Sentinel gates on inputs nobody supplied are reported as not evaluated
 
 ## What's Coming
 
