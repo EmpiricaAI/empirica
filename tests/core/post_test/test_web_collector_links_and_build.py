@@ -128,3 +128,27 @@ def test_the_post_test_collector_hands_its_project_root_to_the_web_collector(tmp
     assert source == "web"
     items = fn()
     assert {i.metric_name for i in items} >= {"html_validity", "link_integrity"}
+
+
+def test_a_base_href_decides_where_relative_links_point(tmp_path):
+    """1.17.9 sweep leftover: a page under dist/app/ with <base href="/"> links app-relative files from the site root."""
+    page = '<html><head><base href="/"></head><body><a href="docs.html">d</a></body></html>'
+    raw = _links(tmp_path, {"app/index.html": page, "docs.html": _page("")})
+    assert raw["broken"] == [] and raw["valid"] == 1  # the <base> tag itself is not a link
+
+
+def test_a_base_on_another_host_makes_relative_links_external(tmp_path):
+    page = '<html><head><base href="https://cdn.example.com/site/"></head><body><a href="x.html">x</a></body></html>'
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / "index.html").write_text(page)
+    items = WebEvidenceCollector(session_id="s", project_path=str(tmp_path))._collect_link_integrity()
+    assert all(not i.raw_value.get("broken") for i in items)  # x.html lives on the CDN, not in dist/
+
+
+def test_a_relative_asset_resolves_against_its_page(tmp_path):
+    dist = tmp_path / "dist" / "blog"
+    dist.mkdir(parents=True)
+    (dist / "a.html").write_text(_page('<img src="pic.png">'))
+    (dist / "pic.png").write_bytes(b"\x89PNG")
+    items = WebEvidenceCollector(session_id="s", project_path=str(tmp_path))._collect_asset_verification()
+    assert items and items[0].raw_value["missing"] == []

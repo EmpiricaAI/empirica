@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Sentinel gates on inputs nobody supplied are reported as not evaluated.** A gate on a value such as `amount` or a flag such as `requires_calculation` that the check was never given read it as 0.5 or false and looked checked; `check_compliance` now lists it under `not_evaluated`. The built-in fallback profiles agree with the shipped files again.
+- **Web link and asset checks honour `<base href>`**, and assets resolve from the page that uses them, so single-page apps no longer report false broken links.
 - **`empirica[api]` installs on Python 3.15.** fastembed's onnxruntime has no Python 3.15 wheels yet, so the whole extra failed to resolve there, and an updater fell back to an old Empirica to satisfy it. fastembed is now left out on 3.15; there the local server reports its embeddings as unavailable and everything else works.
 
 ## [1.17.9] - 2026-11-18

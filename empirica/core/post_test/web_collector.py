@@ -127,6 +127,28 @@ class _HTMLStructureValidator(HTMLParser):
             self.warnings.append("Missing charset declaration")
 
 
+_BASE_HREF = re.compile(r"""<base\s[^>]*href=["']([^"']+)["']""", re.IGNORECASE)
+
+
+def _page_base(html_file: Path, content: str, output_dir: Path) -> Path | None:
+    """The folder a page's relative links resolve against: its <base href> when it has one, else its own folder. None
+    when the base is on another host, so relative links are external (1.17.9 sweep leftover)."""
+    m = _BASE_HREF.search(content)
+    if not m:
+        return html_file.parent
+    base = m.group(1).strip()
+    if base.startswith(("http://", "https://", "//")):
+        return None
+    base_path = urlparse(base).path
+    folder = output_dir / base_path.lstrip("/") if base_path.startswith("/") else html_file.parent / base_path
+    return folder if base_path.endswith("/") or not base_path else folder.parent
+
+
+def _resolve_page_path(link_path: str, base: Path, output_dir: Path) -> Path:
+    """A browser resolves '/x' against the site root and 'x' / '../x' against the page's base."""
+    return output_dir / link_path.lstrip("/") if link_path.startswith("/") else base / link_path
+
+
 class WebEvidenceCollector:
     """Collects deterministic evidence from web/static-site artifacts."""
 
@@ -501,12 +523,17 @@ class WebEvidenceCollector:
         for html_file in html_files[:50]:
             try:
                 content = html_file.read_text(errors="replace")
-                # Extract href and src attributes
-                links = re.findall(r'(?:href|src)=["\']([^"\']+)["\']', content)
+                base = _page_base(html_file, content, output_dir)
+                # Extract href and src attributes; the <base> tag's own href is not a link
+                links = re.findall(r'(?:href|src)=["\']([^"\']+)["\']', _BASE_HREF.sub("", content))
 
                 for link in links:
                     # Skip external links (protocol-relative //host/x included), anchors, data URIs, mailto, tel
                     if link.startswith(("http://", "https://", "//", "mailto:", "tel:", "data:", "#", "javascript:")):
+                        external_count += 1
+                        continue
+
+                    if base is None:  # a <base> on another host: relative links leave the site
                         external_count += 1
                         continue
 
@@ -523,10 +550,7 @@ class WebEvidenceCollector:
                     # A browser resolves '/x' against the site root and 'x' / '../x'
                     # against the page's own directory. Resolving every link against
                     # the root reported dist/blog/a.html -> b.html as broken.
-                    if link_path.startswith("/"):
-                        resolved = output_dir / link_path.lstrip("/")
-                    else:
-                        resolved = html_file.parent / link_path
+                    resolved = _resolve_page_path(link_path, base, output_dir)
                     if resolved.exists():
                         valid_links += 1
                     elif (resolved.parent / (resolved.name + ".html")).exists():
@@ -675,17 +699,23 @@ class WebEvidenceCollector:
         for html_file in html_files[:50]:
             try:
                 content = html_file.read_text(errors="replace")
+                base = _page_base(html_file, content, output_dir)
                 assets = asset_pattern.findall(content)
 
                 for asset in assets:
-                    if asset.startswith(("http://", "https://", "data:")):
+                    if asset.startswith(("http://", "https://", "//", "data:")) or base is None:
                         continue
 
                     total_referenced += 1
                     clean_path = asset.lstrip("/")
+                    asset_path = urlparse(asset).path
 
-                    # Try output dir, then public dir
-                    if (output_dir / clean_path).exists() or (public_dir / clean_path).exists():
+                    # Relative to the page (or its <base>), then the output root and public dir as before
+                    if (
+                        _resolve_page_path(asset_path, base, output_dir).exists()
+                        or (output_dir / clean_path).exists()
+                        or (public_dir / clean_path).exists()
+                    ):
                         found_assets += 1
                     else:
                         missing_assets.append(
