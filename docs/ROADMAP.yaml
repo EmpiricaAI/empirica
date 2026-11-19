@@ -248,7 +248,9 @@ items:
     falsifier: In a fresh practice, log two linked findings, delete the link with delete-artifacts, run doctor --reconcile-notes --apply, rebuild from the notes into an empty database, and find the deleted link there.
     horizon: "1.16.2"
     steered: true
-    status: predicted
+    status: shipped
+    resolved_in: "1.16.2"
+    reason: Graded at 1.17.11, shipped in 1.16.2 (edge notes follow deletions, id swaps and same-second ties). The falsifier was run as written in a scratch practice on 2026-11-19, with a control first. With the link exported by doctor --reconcile-notes --apply, a rebuild from the notes into an emptied database restored it (1 link). After delete-artifacts removed it and the reconcile ran again, the same rebuild restored none. The renamed-end half was not run.
     revisions:
       - "on": "2026-11-13"
         from: 0.8
@@ -264,7 +266,9 @@ items:
     falsifier: Start a long-running Empirica process with Ollama absent and the configured Qdrant stopped, start Qdrant, log an artifact after 30 seconds, and find a 384-dimension point in a configured collection.
     horizon: "1.16.2"
     steered: true
-    status: predicted
+    status: shipped
+    resolved_in: "1.16.2"
+    reason: Graded at 1.17.11, shipped in 1.16.2 (one embedding decision per process; the local model's vectors stay in the local store), with two tests that hold 6333 down at start and bring it back. The falsifier was not run live, because it needs the configured Qdrant stopped and on the machine checked that store is shared by every practice. So this rests on the change and its tests, not on an observation.
     revisions:
       - "on": "2026-11-13"
         from: 0.7
