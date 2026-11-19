@@ -374,3 +374,41 @@ def test_a_malformed_released_revisions_value_is_a_problem_not_a_crash(bad):
 def test_a_boolean_is_not_a_confidence():
     assert _mod()._same_confidence(True, 1) is False
     assert _mod()._same_confidence(0.6, 0.6) is True
+
+
+# ── a second miss blocks (David 2026-11-19) ─────────────────────────────────
+# Three predictions shipped on their horizons but stayed `predicted` through seven releases, because a past horizon only warned.
+
+
+def test_an_item_already_past_its_horizon_at_the_last_release_and_untouched_since_is_a_second_miss():
+    mod = _mod()
+    released = _roadmap({**ITEM, "horizon": "1.15.0"})  # at the 1.15.1 tag it was already past
+    assert [i["id"] for i in mod.items_missed_twice(released, _roadmap(ITEM), "1.15.1", "2026-11-01")] == [
+        "wake-default"
+    ]
+
+
+def test_a_first_miss_is_not_a_second_one():
+    mod = _mod()
+    released = _roadmap({**ITEM, "horizon": "1.15.1"})  # the horizon WAS the last release, so it was not yet past then
+    assert mod.items_missed_twice(released, _roadmap({**ITEM, "horizon": "1.15.1"}), "1.15.1", "2026-11-01") == []
+
+
+def test_a_revision_dated_after_the_last_release_answers_the_second_miss():
+    mod = _mod()
+    revised = {**ITEM, "revisions": [{"on": "2026-11-05", "from": 0.6, "to": 0.6, "reason": "Still open: why."}]}
+    assert mod.items_missed_twice(_roadmap(ITEM), _roadmap(revised), "1.15.1", "2026-11-01") == []
+
+
+def test_a_revision_from_before_the_last_release_does_not():
+    mod = _mod()
+    old = {**ITEM, "revisions": [{"on": "2026-10-20", "from": 0.6, "to": 0.6, "reason": "Old."}]}
+    assert len(mod.items_missed_twice(_roadmap(old), _roadmap(old), "1.15.1", "2026-11-01")) == 1
+
+
+def test_the_docs_step_stops_on_a_second_miss(tmp_path, monkeypatch):
+    released = yaml.safe_dump(_roadmap(ITEM), sort_keys=False)  # ITEM's horizon 1.15.0 was past at a 1.15.1 tag
+    rm = _docs_step(tmp_path, monkeypatch, "1.15.2", released)
+    monkeypatch.setattr(rm, "_last_release", lambda: ("1.15.1", "2026-11-01"))
+    with pytest.raises(SystemExit):
+        rm.sync_readme_whats_new()

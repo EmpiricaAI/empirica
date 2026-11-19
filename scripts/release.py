@@ -444,6 +444,33 @@ def _revision_problems(old: dict, item: dict) -> list[str]:
     return []
 
 
+def items_missed_twice(released: dict | None, current: dict, last_version: str, last_date: str) -> list[dict]:
+    """Predicted items that were already past their horizon at the last release and have had no revision since.
+
+    A first miss warns; a second one stops the docs step (David, 2026-11-19), because three predictions shipped on their
+    horizons and stayed `predicted` through seven releases while the check only warned. A revision dated after the last
+    release (a moved horizon, or a dated note on why it stays open) answers it.
+    """
+    if not released:
+        return []
+    before = {i.get("id"): i for i in released.get("items") or [] if isinstance(i, dict)}
+    missed = []
+    for item in current["items"]:
+        if item.get("status") != "predicted":
+            continue
+        old = before.get(item.get("id"))
+        if not old or old.get("status") != "predicted":
+            continue
+        if _release_tuple(str(old["horizon"])) >= _release_tuple(last_version):
+            continue  # not yet past at the last release: this is the first miss
+        if _release_tuple(str(item["horizon"])) >= _release_tuple(last_version) and item["horizon"] != old["horizon"]:
+            continue  # moved past the last release
+        if any(str(r.get("on", "")) > last_date for r in item.get("revisions") or [] if isinstance(r, dict)):
+            continue
+        missed.append(item)
+    return missed
+
+
 def roadmap_silent_edits(released: dict, current: dict) -> list[str]:
     """What changed against the last RELEASED roadmap without leaving a trace, one message per problem.
 
@@ -1479,15 +1506,35 @@ class ReleaseManager:
         shown = subprocess.run(["git", "show", f"{tag.stdout.strip()}:docs/ROADMAP.yaml"], **git)
         return shown.stdout if shown.returncode == 0 else None
 
+    def _last_release(self) -> tuple[str, str] | None:
+        """The last release tag's version and date (YYYY-MM-DD), or None without a tag."""
+        git = dict(capture_output=True, text=True, cwd=str(self.repo_root), check=False)
+        tag = subprocess.run(["git", "describe", "--tags", "--abbrev=0"], **git).stdout.strip()
+        if not tag:
+            return None
+        date = subprocess.run(["git", "log", "-1", "--format=%cs", tag], **git).stdout.strip()
+        return tag.lstrip("v"), date
+
     def _garden_roadmap(self, roadmap: dict) -> None:
-        """Gardening for the forecast: stop on a silent edit against the last release, warn about every item past its horizon."""
+        """Gardening for the forecast: stop on a silent edit against the last release and on a second miss, warn about every
+        item past its horizon."""
         baseline = self._released_roadmap_text()
         if baseline:
             import yaml
 
-            problems = roadmap_silent_edits(yaml.safe_load(baseline) or {}, roadmap)
+            released = yaml.safe_load(baseline) or {}
+            problems = roadmap_silent_edits(released, roadmap)
             if problems:
                 error("docs/ROADMAP.yaml has edits that left no trace:\n  " + "\n  ".join(problems))
+            last = self._last_release()
+            twice = items_missed_twice(released, roadmap, *last) if last else []
+            if twice:
+                error(
+                    "roadmap items past their horizon at the last release too, with no revision since: "
+                    + ", ".join(i["id"] for i in twice)
+                    + ".\n   Grade each (shipped, dropped, retracted, superseded) or add a dated revision that says why it stays"
+                    " open or moves (forecast rule: open once with a reason, not twice)"
+                )
         for item in items_past_horizon(roadmap, self.version):
             warning(
                 f"roadmap item {item['id']} is past its horizon ({item['horizon']}, this is {self.version}): mark it shipped, dropped, "
