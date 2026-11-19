@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.17.11
-**Generated:** 2026-11-19 12:10:58 UTC
+**Framework version:** 1.17.12
+**Generated:** 2026-11-19 19:40:39 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -350,6 +350,8 @@ Create a new goal — the unit of tracked work. One per coherent deliverable: a 
   Constraints as JSON object
 - `--metadata` — optional
   Metadata as JSON object
+- `--kind` — optional · type=`choice` · choices={fix, refine, simplify, expand, investigate, sustain}
+  What the change is for: fix, refine, simplify, expand (product change), investigate or sustain (the work around it). Stored in the goal's metadata; the forecast reads the mix from it
 - `--use-beads` — optional · flag
   Create BEADS issue and link to goal
 - `--due` — optional
@@ -479,6 +481,8 @@ Decompose a goal into trackable units. One task per distinct piece of work you'l
   Epistemic importance
 - `--dependencies` — optional
   Dependencies as JSON array
+- `--kind` — optional · type=`choice` · choices={fix, refine, simplify, expand, investigate, sustain}
+  What this task's change is for (the same six kinds as goals-create)
 - `--estimated-tokens` — optional · type=`int`
   Estimated token usage
 - `--use-beads` — optional · flag
@@ -677,7 +681,7 @@ Log a discovery — something concrete you NOW know that wasn't obvious before. 
 - `--related-to` — optional · default=`[]`
   Anchor this artifact to another (relation=related). Repeatable.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
-  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
+  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=kept off Cortex; the other practices on this machine can read it.
 - `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed, harvested}
   How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -751,7 +755,7 @@ Log an open question — something you'd need to know before acting confidently,
 - `--related-to` — optional · default=`[]`
   Anchor this artifact to another (relation=related). Repeatable.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
-  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
+  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=kept off Cortex; the other practices on this machine can read it.
 - `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed, harvested}
   How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -863,7 +867,7 @@ Log an approach that didn't work. Use when you tried something and the result ru
 - `--related-to` — optional · default=`[]`
   Anchor this artifact to another (relation=related). Repeatable.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
-  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
+  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=kept off Cortex; the other practices on this machine can read it.
 - `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed, harvested}
   How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -914,7 +918,7 @@ Log a belief you're acting on without verification. Use when proceeding requires
 - `--cite-type` — optional · default=`reference`
   Source type for --cite (reference, doc, paper, url, design, …). Default: reference.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
-  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
+  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=kept off Cortex; the other practices on this machine can read it.
 - `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed, harvested}
   How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -971,7 +975,7 @@ Log a deliberate choice between alternatives. Use at every fork: which library, 
 - `--evidence-from` — optional · default=`[]`
   Finding/source IDs that ground this decision (relation=evidence). Repeatable.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
-  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
+  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=kept off Cortex; the other practices on this machine can read it.
 - `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed, harvested}
   How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -1022,7 +1026,7 @@ Log an error YOU made + how to prevent it. Use when you introduced a bug, mis-ap
 - `--cite-type` — optional · default=`reference`
   Source type for --cite (reference, doc, paper, url, design, …). Default: reference.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
-  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
+  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=kept off Cortex; the other practices on this machine can read it.
 - `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed, harvested}
   How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), mixed, or harvested (back-filled by /graph-harvest from existing material; never counted in calibration).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -1068,7 +1072,7 @@ Register external material as a citable source. Use for any evidence outside the
 - `--path` — optional
   File path (for local documents)
 - `--media` — optional
-  Local media/binary file (image, etc.) to register AND upload to cortex as a blob, so peers can fetch it cross-tenant via `source-get`. Implies --path. Pair with --visibility shared for cross-tenant reads (producer half of media-bearing sources).
+  Local media/binary file (image, etc.) to register AND upload to cortex as a blob, so peers can fetch it cross-tenant via `source-get`. Implies --path. Needs --visibility shared or public: at local the source is recorded and the file stays on this machine (producer half of media-bearing sources).
 - `--url` — optional
   URL (for web sources)
 - `--cortex-url` — optional
@@ -1082,7 +1086,7 @@ Register external material as a citable source. Use for any evidence outside the
 - `--confidence` — optional · type=`float` · default=`0.7`
   Confidence in source quality (0.0-1.0, default: 0.7)
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
-  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only. Required for cross-mesh source-map participation.
+  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=kept off Cortex; the other practices on this machine can read it. Required for cross-mesh source-map participation.
 - `--session-id` — optional
   Session ID (auto-derived from transaction)
 - `--project-id` — optional
@@ -5206,6 +5210,8 @@ Move this practice onto Cortex: sign in, register it, import its artifacts
   Report what would be registered and imported; write nothing
 - `--yes` — optional · flag
   Import even though some artifacts become visible to the whole team (without it, connect stops and asks)
+- `--include-local` — optional · flag
+  Also send the artifacts tagged local, visible to this project only on Cortex (without it they stay here)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
 
 

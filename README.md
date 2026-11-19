@@ -439,21 +439,21 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.17.11
+## What's New in 1.17.12
 
-- Empirica needs Python 3.11.5 or later
-- `auth login` checks Cortex's signed seat proof
-- `auth login` picks the remote flow by itself over SSH
-- A cockpit can run on its own tmux socket
-- `empirica doctor`, `empirica diagnose`, `setup-claude-code` and the plugin's `install.sh` check the real Python floor
-- Install on every platform (2026-11-19):
+- `local` means kept off Cortex, and now holds everywhere
+- Writing the ntfy settings no longer breaks a `credentials.json`
+- Goals and tasks can say what kind of work they are
+- `auth login` sets up the listeners' notifications
+- `/forecast plan` and `/forecast explore`
+- A private roadmap beside the public one
 
-The full entry is in the [CHANGELOG](CHANGELOG.md).
+Plus 1 more entry in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.17.11** — Empirica needs Python 3.11.5 or later
 - **1.17.10** — Sentinel gates on inputs nobody supplied are reported as not evaluated
-- **1.17.9** — `/graph-harvest`: put what existing material knows into the graph
 
 ## What's Coming
 
