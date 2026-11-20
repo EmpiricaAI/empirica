@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`/capability-review`: what Empirica provides, what gets used, and what should change.** `refresh` tours what is here, grouped by the moment you need it and filtered to your practice; `usage` measures what was actually used; `assess` proposes what to keep, make more prominent, teach in the instructions, demote or retire, each with its evidence, and nothing changes without your yes.
+- **`empirica efficiency-report` is now the usage census:** commands run and skills loaded in Claude Code sessions on this machine over a window (`--days`), commands and aliases never used with what in the package still names them, skills never loaded, and artifacts logged; it states what it cannot see. With `--session-id` it still prints a session's token-savings report.
+- **Deprecated commands are announced before they go.** A command or alias on `config/deprecated_commands.yaml` prints a notice naming its replacement and the release that removes it, and a test fails if it outlives that release. The list is empty until a batch is approved.
+
 ### Fixed
 
 - **Signing in no longer breaks a `credentials.json`.** `auth login` saves the Cortex URL it used, and that writer, like the ntfy one fixed in 1.17.12, wrote YAML into a JSON credentials file; every credentials writer now goes through the one that keeps the file's format.
