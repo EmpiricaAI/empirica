@@ -93,8 +93,9 @@ def test_the_machine_name_is_ref_safe():
     assert re.fullmatch(r"[a-z0-9][a-z0-9-]*", gx.machine_name())
 
 
-def test_the_export_is_on_by_default_now(monkeypatch):
+def test_the_export_is_off_unless_asked_for(monkeypatch):
+    """1.17.15 sweep: the per-machine layout can still bring back a withdrawn share, so it stays opt-in."""
     monkeypatch.delenv("EMPIRICA_VISIBILITY_NOTES", raising=False)
-    assert gx.visibility_notes_enabled() is True
-    monkeypatch.setenv("EMPIRICA_VISIBILITY_NOTES", "0")
     assert gx.visibility_notes_enabled() is False
+    monkeypatch.setenv("EMPIRICA_VISIBILITY_NOTES", "1")
+    assert gx.visibility_notes_enabled() is True

@@ -518,9 +518,10 @@ def export_graph_notes(conn, root: str, *, full: bool = False) -> dict:
 
 
 def visibility_notes_enabled() -> bool:
-    """On by default since each machine writes its own namespace (goal 221679b1); EMPIRICA_VISIBILITY_NOTES=0 turns the
-    export off. 1.17.14 shipped it off because every machine wrote the same refs."""
-    return os.environ.get("EMPIRICA_VISIBILITY_NOTES", "").strip() != "0"
+    """Off by default (EMPIRICA_VISIBILITY_NOTES=1 turns it on). The per-machine layout (goal 221679b1) still lets a share
+    that was withdrawn come back: entries carry export time, not change time; a renamed machine cannot override its old
+    namespace; two clones on one host share a name (1.17.15 sweep). Until a redesign, a single-machine practice only."""
+    return os.environ.get("EMPIRICA_VISIBILITY_NOTES", "").strip() == "1"
 
 
 def plan_graph_notes(conn, root: str) -> dict:

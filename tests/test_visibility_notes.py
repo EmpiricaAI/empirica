@@ -87,10 +87,10 @@ def test_the_export_is_on_unless_turned_off(practice, monkeypatch):
     db = SessionDatabase()
     try:
         _finding(db, "shared")
-        # On by default since each machine writes its own namespace (goal 221679b1); EMPIRICA_VISIBILITY_NOTES=0 opts out.
-        monkeypatch.setenv("EMPIRICA_VISIBILITY_NOTES", "0")
-        assert "visibility" not in gx.export_graph_notes(db.conn, str(practice), full=True)
+        # Off unless asked for (1.17.15 sweep: a withdrawn share can still come back across machines).
         monkeypatch.delenv("EMPIRICA_VISIBILITY_NOTES", raising=False)
+        assert "visibility" not in gx.export_graph_notes(db.conn, str(practice), full=True)
+        monkeypatch.setenv("EMPIRICA_VISIBILITY_NOTES", "1")
         assert "visibility" in gx.export_graph_notes(db.conn, str(practice), full=True)
         assert gx.plan_graph_notes(db.conn, str(practice))["visibility_tagged"] == 1
     finally:

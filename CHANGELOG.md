@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Visibility notes are safe across machines, and on by default.** Each machine now writes its tags under its own name, with when it saw each one change (a move back to `local` included), so machines syncing one practice never write the same notes and never refuse each other's sync. A rebuild takes the latest change per artifact across machines. 1.17.14's notes, written only with `EMPIRICA_VISIBILITY_NOTES=1`, still read, as the oldest. `EMPIRICA_VISIBILITY_NOTES=0` turns the export off.
+- **Visibility notes are written per machine** (still only with `EMPIRICA_VISIBILITY_NOTES=1`): each machine writes its tags under its own name, so two machines no longer write the same notes, and a rebuild takes the latest entry per artifact. It stays opt-in: a withdrawn share can still come back across machines, which a later release fixes.
 
 ## [1.17.14] - 2026-11-20
 
