@@ -121,3 +121,20 @@ def test_a_1_17_14_opt_in_user_who_withdraws_a_share_after_upgrading_keeps_it_lo
     finally:
         db.close()
     assert gx.discover_visibility_notes(str(practice))[fid] == "local"
+
+
+def test_a_share_withdrawn_while_the_flag_was_off_overrides_the_1_17_14_note(practice, monkeypatch):
+    """1.17.15 second pass, round 2: withdrawn with the export off, so this machine's notes never held the id and only the
+    1.17.14 flat note did. The first full export under a name overrides flat entries this database holds as local, as
+    1.17.14 dropped them when it rewrote the shard."""
+    monkeypatch.setattr(gx, "machine_name", lambda: "alpha-abc123")
+    db = SessionDatabase()
+    try:
+        fid = _finding(db, "local", "ab000000-0000-0000-0000-000000000006")
+        kept = _finding(db, "shared", "ab000000-0000-0000-0000-000000000007")
+        gx._write_note(str(practice), f"{gx.VISIBILITY_PREFIX}/ab", {"tiers": {fid: "shared", kept: "shared"}})
+        gx.export_visibility_notes(db.conn, str(practice))
+    finally:
+        db.close()
+    tiers = gx.discover_visibility_notes(str(practice))
+    assert tiers[fid] == "local" and tiers[kept] == "shared"

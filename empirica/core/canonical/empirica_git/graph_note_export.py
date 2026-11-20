@@ -375,6 +375,16 @@ def _existing_visibility_shards(root: str, machine: str) -> set[str]:
     return {r.rsplit("/", 1)[-1] for r in (refs.stdout.split() if refs and refs.returncode == 0 else [])}
 
 
+def _flat_visibility_shards(root: str) -> list[str]:
+    """The 1.17.14 layout's shard notes, empirica/visibility/<shard> directly under the prefix (no machine namespace)."""
+    refs = _git(["for-each-ref", "--format=%(refname)", f"refs/notes/{VISIBILITY_PREFIX}/"], root)
+    prefix = f"refs/notes/{VISIBILITY_PREFIX}/"
+    names = [
+        r[len(prefix) :] for r in (refs.stdout.split() if refs and refs.returncode == 0 else []) if r.startswith(prefix)
+    ]
+    return [n for n in names if "/" not in n]
+
+
 def _visibility_shards(conn) -> dict[str, dict[str, str]]:
     """{shard: {id: tier}} for every non-local row of this database."""
     shards: dict[str, dict[str, str]] = {}
@@ -454,6 +464,18 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
     everything = full or not previous
     candidates = set(shards) | set(previous) | (_existing_visibility_shards(root, machine) if everything else set())
     held: set[str] | None = None
+    # A full export also overrides 1.17.14's flat notes (one shared set of refs) for ids this database holds as local but
+    # they list as shared or public: 1.17.14 dropped them when it rewrote the shard, and a share withdrawn while the export
+    # was off is in no machine's own note (1.17.15 second pass). Older machines' namespaces are not overridden here.
+    legacy_local: dict[str, set[str]] = {}
+    if everything:
+        held = _held_ids(conn)
+        shared_here = {i for tiers in shards.values() for i in tiers}
+        for shard in _flat_visibility_shards(root):
+            for artifact_id, (tier, _when) in _read_shard(root, shard).items():
+                if tier != "local" and artifact_id in held and artifact_id not in shared_here:
+                    legacy_local.setdefault(_visibility_shard(artifact_id), set()).add(artifact_id)
+        candidates |= set(legacy_local)
     current: dict[str, str] = {}
     written = failed = 0
     now = time.time()
@@ -475,6 +497,9 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
                 held = _held_ids(conn)
             # Held here but no longer shared or public: moved back to local, recorded so it outranks older tags elsewhere.
             merged[artifact_id] = ["local", now] if artifact_id in held and tier != "local" else [tier, when]
+        for artifact_id in legacy_local.get(shard, ()):
+            if artifact_id not in merged:
+                merged[artifact_id] = ["local", now]
         if merged == note:
             continue
         if _write_note(root, f"{VISIBILITY_PREFIX}/{machine}/{shard}", {"machine": machine, "tiers": merged}):
