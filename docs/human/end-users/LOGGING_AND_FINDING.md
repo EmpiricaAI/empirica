@@ -283,7 +283,7 @@ Each session has its own state and trajectory. Inspect via:
 empirica sessions-list --limit 10
 
 # A specific session's full state
-empirica session-show <session-id>
+empirica sessions-show <session-id>
 
 # Snapshot to file
 empirica session-snapshot <session-id>

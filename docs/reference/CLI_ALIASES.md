@@ -5,6 +5,10 @@
 
 ---
 
+> **Going away in 1.17.15.** The aliases nobody used in a 30-day census (2026-11-20) print a deprecation notice from 1.17.14 and
+> are removed in 1.17.15: the list, with the full command each stands for, is `empirica/config/deprecated_commands.yaml`.
+> Aliases that were used (such as `gl`) stay. Use the full command names in anything you write down.
+
 ## Why Aliases?
 
 Aliases reduce typing for frequently used commands. They're especially useful for AI agents who call these commands programmatically.
