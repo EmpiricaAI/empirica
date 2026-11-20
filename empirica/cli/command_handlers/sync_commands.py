@@ -845,6 +845,11 @@ def _handle_sync_pull_command_helper(changes, errors, output_format, rebuild, re
                 print("   No changes (already up to date)")
             if rebuild and "rebuild" in result:
                 print("   🔄 Rebuilt SQLite from notes")
+                restored = (result.get("rebuild") or {}).get("visibility_restored")
+                if restored:
+                    print(f"   visibility: {restored} shared or public tags restored")
+                if result.get("visibility_note"):
+                    print(f"   ⚠ {result['visibility_note']}")
         else:
             print(f"❌ Pull failed from {remote}")
             for err in errors:

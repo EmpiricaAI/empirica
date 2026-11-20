@@ -15,6 +15,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -347,8 +348,16 @@ _TIERS = ("shared", "public")
 
 
 def _visibility_shard(artifact_id: str) -> str:
-    """The shard an id's tag lives in: its first two characters, lowercased (256 shards for UUIDs)."""
-    return str(artifact_id)[:2].lower()
+    """The shard an id's tag lives in: its first two characters, lowercased (256 shards for UUIDs). An id whose start
+    cannot name a git ref ('../x', '.h', 'a:b') goes to the shard 'other', or its note failed at every POSTFLIGHT."""
+    head = str(artifact_id)[:2].lower()
+    return head if re.fullmatch(r"[0-9a-z]{2}", head) else "other"
+
+
+def _existing_visibility_shards(root: str) -> set[str]:
+    """The shard notes already in the repository, so a full export also rewrites the ones that have emptied."""
+    refs = _git(["for-each-ref", "--format=%(refname)", f"refs/notes/{VISIBILITY_PREFIX}/"], root)
+    return {r.rsplit("/", 1)[-1] for r in (refs.stdout.split() if refs and refs.returncode == 0 else [])}
 
 
 def _visibility_shards(conn) -> dict[str, dict[str, str]]:
@@ -374,7 +383,11 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
     import hashlib
 
     shards = _visibility_shards(conn)
-    previous = {} if full else dict(_watermarks(root).get("visibility") or {})
+    # Full (and a missing watermark, as on a fresh clone): every shard note that exists is a candidate too, so one that has
+    # emptied is rewritten empty rather than left holding a tag that was moved back to local (1.17.14 sweep).
+    previous = dict(_watermarks(root).get("visibility") or {})
+    if full or not previous:
+        previous = dict.fromkeys(_existing_visibility_shards(root), "")
     current: dict[str, str] = {}
     written = failed = 0
     for shard in sorted(set(shards) | set(previous)):

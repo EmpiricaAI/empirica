@@ -70,3 +70,64 @@ def test_artifact_counts_come_from_the_store_inside_the_window(tmp_path):
     conn.executemany("INSERT INTO project_findings VALUES (?, ?)", [("a", now), ("b", now - 90 * 86400)])
     counts = uc.artifact_counts(conn, since=now - 30 * 86400)
     assert counts["finding"] == 1 and counts["decision"] == 0 and "unknown" not in counts  # a missing table is skipped
+
+
+def test_a_skill_a_person_typed_as_a_slash_command_counts_as_loaded(tmp_path):
+    """1.17.14 docs sweep: only the Skill tool was counted, so skills people load by typing /name read as never loaded."""
+    path = tmp_path / "p" / "a.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "\n".join(
+            json.dumps(x)
+            for x in (
+                {
+                    "type": "user",
+                    "message": {"role": "user", "content": "<command-name>/empirica:forecast</command-name>"},
+                },
+                {
+                    "type": "user",
+                    "message": {
+                        "role": "user",
+                        "content": [{"type": "text", "text": "<command-name>/pre-publish</command-name>"}],
+                    },
+                },
+                {"type": "user", "message": {"role": "user", "content": "<command-name>/compact</command-name>"}},
+                {
+                    "type": "assistant",
+                    "message": {"content": [{"type": "text", "text": "<command-name>/render</command-name>"}]},
+                },
+            )
+        )
+        + "\n"
+    )
+    skills = uc.transcript_usage(tmp_path, since=0)["skills"]
+    assert skills["forecast"] == 1 and skills["pre-publish"] == 1
+    assert "render" not in skills  # an assistant quoting the tag is not a person loading the skill
+
+
+def test_unused_aliases_carry_their_references_too(tmp_path):
+    out = uc.census(days=30, projects_root=tmp_path, conn=None)
+    assert set(out["aliases"]["references"]) == set(out["aliases"]["unused"])
+
+
+def test_calls_with_an_env_prefix_timeout_or_a_path_are_counted(tmp_path):
+    _transcript(
+        tmp_path / "p" / "a.jsonl",
+        ("bash", "FOO=1 empirica goals-list"),
+        ("bash", "timeout 30 empirica goals-list"),
+        ("bash", "/home/u/.local/bin/empirica goals-list"),
+    )
+    assert uc.transcript_usage(tmp_path, since=0)["commands"]["goals-list"] == 3
+
+
+def test_another_plugins_skill_with_the_same_name_is_not_ours(tmp_path):
+    _transcript(tmp_path / "p" / "a.jsonl", ("skill", "anthropic-skills:forecast"), ("skill", "empirica:forecast"))
+    assert uc.transcript_usage(tmp_path, since=0)["skills"]["forecast"] == 1
+
+
+def test_a_reference_to_a_longer_command_does_not_count_for_its_prefix(tmp_path):
+    (tmp_path / "hook.py").write_text("run('empirica check-submit -')\n")
+    assert uc.static_references(["check", "check-submit"], package_root=tmp_path) == {
+        "check": [],
+        "check-submit": ["hook.py"],
+    }

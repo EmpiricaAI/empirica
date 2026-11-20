@@ -77,17 +77,17 @@ Aliases reduce typing for frequently used commands. They're especially useful fo
 ## Usage Examples
 
 ```bash
-# Transaction shortcuts:
-empirica pre ...           # Instead of preflight-submit
-empirica post ...          # Instead of postflight-submit
+# Transaction shortcuts (pre and post go in 1.17.15; use the full names):
+empirica preflight-submit ...
+empirica postflight-submit ...
 
 # Quick goal creation:
 empirica gc --objective "Fix bug"
 
-# Quick breadcrumbs:
-empirica fl --finding "Found root cause" --impact 0.7
-empirica ul --unknown "Need to investigate X"
-empirica de --approach "Tried Y" --why-failed "Z"
+# Breadcrumbs (fl, ul and de go in 1.17.15; use the full names):
+empirica finding-log --finding "Found root cause" --impact 0.7
+empirica unknown-log --unknown "Need to investigate X"
+empirica deadend-log --approach "Tried Y" --why-failed "Z"
 
 # Project search (semantic, searches Qdrant — requires --project-id):
 empirica project-search --project-id <UUID> --task "isolation bugs"              # Focused: eidetic + episodic

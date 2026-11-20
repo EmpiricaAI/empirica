@@ -75,7 +75,7 @@ def test_shared_and_public_tags_come_back_and_local_stays_local(practice, tmp_pa
 
 
 def test_the_shards_follow_the_id_prefix_and_a_garbage_note_is_ignored(practice):
-    assert gx._visibility_shard("ab12cd34-0000") == "ab" and gx._visibility_shard("Z-weird") == "z-"
+    assert gx._visibility_shard("ab12cd34-0000") == "ab" and gx._visibility_shard("Z-weird") == "other"
     gx._write_note(str(practice), f"{gx.VISIBILITY_PREFIX}/zz", {"tiers": {"x": "banana", "y": "shared"}})
     assert gx.discover_visibility_notes(str(practice)) == {"y": "shared"}  # only tiers that exist
 
@@ -88,3 +88,27 @@ def test_the_full_export_and_the_plan_include_visibility(practice):
         assert gx.plan_graph_notes(db.conn, str(practice))["visibility_tagged"] == 1
     finally:
         db.close()
+
+
+def test_a_full_export_rewrites_a_shard_that_has_emptied(practice):
+    """1.17.14 sweep: full mode started from no watermark, so an emptied shard was never rewritten and a tag moved back to
+    local came back shared on a rebuild (and the same on a fresh clone, with no watermark file)."""
+    db = SessionDatabase()
+    try:
+        fid = _finding(db, "shared")
+        gx.export_visibility_notes(db.conn, str(practice))
+        db.conn.execute("UPDATE project_findings SET visibility = 'local' WHERE id = ?", (fid,))
+        db.conn.commit()
+        (practice / ".empirica" / "notes_export.json").unlink()  # a fresh clone has none
+        gx.export_visibility_notes(db.conn, str(practice), full=True)
+    finally:
+        db.close()
+    assert fid not in gx.discover_visibility_notes(str(practice))
+
+
+@pytest.mark.parametrize("artifact_id", ["../x", ".hidden", "a:b", "-weird"])
+def test_an_id_that_cannot_name_a_git_ref_still_gets_a_shard(artifact_id):
+    shard = gx._visibility_shard(artifact_id)
+    import re
+
+    assert re.fullmatch(r"[0-9a-z]{2}|other", shard)

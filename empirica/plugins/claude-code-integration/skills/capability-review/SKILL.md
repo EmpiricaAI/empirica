@@ -28,7 +28,7 @@ No mode word: run `refresh`, then offer `assess`.
 | What | Live source |
 |---|---|
 | Commands | `empirica --help` (the parser's own list); `empirica <command> --help` for one |
-| Skills | the plugin's `skills/` folder, one directory per skill with a `SKILL.md`; `docs/reference/SKILLS.md` says when each loads |
+| Skills | the plugin's `skills/` folder, one directory per skill with a `SKILL.md` whose description says when it loads (`docs/reference/SKILLS.md` in the repository indexes them) |
 | What the always-loaded prompt teaches | the lean prompt template (`templates/empirica-system-prompt-lean.md`), its WHEN TO LOAD SKILLS table above all |
 | What is used | `empirica efficiency-report [--days N] --output json`: the census |
 | What is going away | `config/deprecated_commands.yaml` |

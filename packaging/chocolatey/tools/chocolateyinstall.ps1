@@ -45,7 +45,7 @@ if ($exitCode -eq 0) {
     Write-Host "Empirica installed successfully!" -ForegroundColor Green
     Write-Host ""
     Write-Host "Quick Start:" -ForegroundColor Cyan
-    Write-Host "  empirica bootstrap --ai-id myagent --level extended"
+    Write-Host "  empirica project-bootstrap --ai-id myagent --level extended"
     Write-Host "  empirica --help"
     Write-Host ""
     Write-Host "Documentation: https://github.com/nubaeon/empirica" -ForegroundColor Cyan

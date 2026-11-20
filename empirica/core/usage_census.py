@@ -20,7 +20,9 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-_COMMAND = re.compile(r"(?:^|[;&|(]\s*|\n\s*|&&\s*|\$\(\s*)empirica\s+([a-z][a-z0-9-]+)")
+_SLASH = re.compile(r"<command-name>/([^<\s]+)</command-name>")
+# After any boundary: start, a separator, whitespace (an env prefix or `timeout 30`), or a path (`~/.local/bin/empirica`).
+_COMMAND = re.compile(r"(?:^|[\s;&|(]|\$\(|/)empirica\s+([a-z][a-z0-9-]+)")
 
 #: Artifact type -> its table; counted by created_timestamp inside the window.
 _ARTIFACT_TABLES = {
@@ -34,9 +36,10 @@ _ARTIFACT_TABLES = {
 }
 
 LIMITS = (
-    "Counts the empirica commands and skill loads the AI made through Claude Code on this machine. It does not see hooks or "
+    "Counts the empirica commands the AI ran and the skills loaded (by the AI, or typed as /name) in Claude Code on this machine. It does not see hooks or "
     "scripts calling Empirica directly, other harnesses (Codex, Desktop, the extension), other machines, or a person typing "
-    "in a terminal: an unused command is a candidate to look at, not proof that nothing needs it."
+    "in a terminal, and it also counts a command named inside a heredoc or a commit message: an unused command is a "
+    "candidate to look at, not proof that nothing needs it."
 )
 
 
@@ -77,6 +80,9 @@ def transcript_usage(projects_root: Path, since: float) -> dict[str, Any]:
         transcripts += 1
         with handle:
             for line in handle:
+                if "<command-name>" in line and ('"type": "user"' in line or '"type":"user"' in line):
+                    _count_slash_commands(line, skills)
+                    continue
                 if '"tool_use"' not in line:
                     continue
                 try:
@@ -84,19 +90,51 @@ def transcript_usage(projects_root: Path, since: float) -> dict[str, Any]:
                 except (ValueError, AttributeError):
                     continue
                 for block in content if isinstance(content, list) else []:
-                    if not isinstance(block, dict) or block.get("type") != "tool_use":
-                        continue
-                    tool_input = block.get("input") or {}
-                    if block.get("name") == "Skill":
-                        skills[str(tool_input.get("skill", "")).split(":")[-1]] += 1
-                    elif block.get("name") == "Bash":
-                        for match in _COMMAND.finditer(str(tool_input.get("command", ""))):
-                            name = match.group(1)
-                            if name in names:
-                                commands[names[name]] += 1
-                                if names[name] != name:
-                                    aliases[name] += 1
+                    _count_tool_use(block, names, commands, aliases, skills)
     return {"transcripts": transcripts, "commands": commands, "aliases_used": aliases, "skills": skills}
+
+
+def _count_tool_use(block, names: dict[str, str], commands: Counter, aliases: Counter, skills: Counter) -> None:
+    """One tool_use block: a Skill load, or the empirica commands inside a Bash call (aliases folded into their command)."""
+    if not isinstance(block, dict) or block.get("type") != "tool_use":
+        return
+    tool_input = block.get("input") or {}
+    if block.get("name") == "Skill":
+        skill = _empirica_skill(str(tool_input.get("skill", "")))
+        if skill:
+            skills[skill] += 1
+    elif block.get("name") == "Bash":
+        for match in _COMMAND.finditer(str(tool_input.get("command", ""))):
+            name = match.group(1)
+            if name in names:
+                commands[names[name]] += 1
+                if names[name] != name:
+                    aliases[name] += 1
+
+
+def _empirica_skill(name: str) -> str | None:
+    """'empirica:forecast' or 'forecast' -> 'forecast'; another plugin's same-named skill ('anthropic-skills:x') -> None."""
+    plugin, _, skill = name.rpartition(":")
+    return skill if plugin in ("", "empirica") and skill else None
+
+
+def _count_slash_commands(line: str, skills: Counter) -> None:
+    """A person typing /name records it in a user message as <command-name>/name</command-name>: a skill load the Skill tool
+    never sees (1.17.14 sweep). Built-in commands (/compact, /model) are counted too and dropped later: only shipped skill
+    names are reported."""
+    try:
+        record = json.loads(line)
+    except ValueError:
+        return
+    if record.get("type") != "user":
+        return
+    content = (record.get("message") or {}).get("content")
+    texts = [content] if isinstance(content, str) else [b.get("text", "") for b in content or [] if isinstance(b, dict)]
+    for text in texts:
+        for name in _SLASH.findall(str(text)):
+            skill = _empirica_skill(name)
+            if skill:
+                skills[skill] += 1
 
 
 def artifact_counts(conn, since: float) -> dict[str, int]:
@@ -117,7 +155,8 @@ def static_references(commands: list[str], package_root: Path | None = None) -> 
     hooks, skills, prompts, scripts. One pass over the package. The parsers and the dispatcher only register commands, so
     they are not callers."""
     root = package_root or Path(__file__).resolve().parent.parent
-    patterns = {c: re.compile(rf"empirica\s+{re.escape(c)}\b") for c in commands}
+    # Not followed by a word character or a hyphen: `empirica check-submit` is not a reference to `check`.
+    patterns = {c: re.compile(rf"empirica\s+{re.escape(c)}(?![\w-])") for c in commands}
     hits: dict[str, list[str]] = {c: [] for c in commands}
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.suffix not in (".py", ".md", ".sh", ".yaml", ".yml", ".json"):
@@ -146,6 +185,8 @@ def census(*, days: int = 30, projects_root: Path | None = None, conn=None) -> d
     alias_names = sorted(n for n, p in names.items() if n != p)
     used = usage["commands"]
     unused = [c for c in primary if not used.get(c)]
+    unused_aliases = [a for a in alias_names if not usage["aliases_used"].get(a)]
+    references = static_references([*unused, *unused_aliases])
     shipped_skills = plugin_skills()
     return {
         "window_days": days,
@@ -155,12 +196,13 @@ def census(*, days: int = 30, projects_root: Path | None = None, conn=None) -> d
             "used": {c: used[c] for c in sorted(used, key=lambda c: -used[c])},
             "unused": unused,
             "rare": sorted(c for c in primary if 0 < used.get(c, 0) <= 3),
-            "references": static_references(unused),
+            "references": {c: references[c] for c in unused},
         },
         "aliases": {
             "total": len(alias_names),
             "used": dict(usage["aliases_used"]),
-            "unused": [a for a in alias_names if not usage["aliases_used"].get(a)],
+            "unused": unused_aliases,
+            "references": {a: references[a] for a in unused_aliases},
         },
         "skills": {
             "shipped": len(shipped_skills),

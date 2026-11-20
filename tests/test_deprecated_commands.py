@@ -43,7 +43,7 @@ def test_a_listed_name_prints_a_notice_with_its_replacement(monkeypatch):
     assert deprecations.notice("goals-list") is None
 
 
-def test_the_data_file_parses_and_starts_empty_until_a_batch_is_approved():
+def test_the_data_file_parses():
     from pathlib import Path
 
     data = yaml.safe_load(

@@ -63,7 +63,8 @@ def handle_efficiency_report(args):
             conn = SessionDatabase().conn
         except Exception:  # outside a practice: the census still reads the transcripts
             conn = None
-        out = census(days=getattr(args, "days", 30) or 30, conn=conn)
+        days = getattr(args, "days", None)
+        out = census(days=30 if days is None else max(1, days), conn=conn)
         if args.output == "json":
             print(json.dumps(out, indent=2))
         else:
