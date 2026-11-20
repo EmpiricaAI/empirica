@@ -439,19 +439,21 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.17.13
+## What's New in 1.17.14
 
-- A rebuild from the git notes no longer turns goals `shared`
-- Each grounded verification records the goal it graded and the transaction's criticality
-- Profile import keeps imported artifacts `local`,
-- Goals and sources can be re-tagged
+- `/capability-review`: what Empirica provides, what gets used, and what should change
+- `empirica efficiency-report` is now the usage census:
+- Deprecated commands are announced before they go
+- 28 command aliases and three commands go away in 1.17.15
+- A read-only `sqlite3` with a display setting is no longer refused
+- Signing in no longer breaks a `credentials.json`
 
-The full entry is in the [CHANGELOG](CHANGELOG.md).
+Plus 1 more entry in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.17.13** — A rebuild from the git notes no longer turns goals `shared`
 - **1.17.12** — `local` means kept off Cortex, and now holds everywhere
-- **1.17.11** — Empirica needs Python 3.11.5 or later
 
 ## What's Coming
 

@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.17.13
-**Generated:** 2026-11-19 22:07:30 UTC
+**Framework version:** 1.17.14
+**Generated:** 2026-11-20 03:13:54 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -2739,12 +2739,14 @@ Project viable epistemic paths forward based on current grounding (Turtle Telesc
 
 #### `empirica efficiency-report`
 
-Show token efficiency report
+What Empirica gets used for: commands run, skills loaded and artifacts logged over a window, and what was never used (the census behind /capability-review). With --session-id, a session's token-savings report instead
 
 **Arguments:**
 
-- `--session-id` — **required**
-  Session ID
+- `--session-id` — optional
+  Show this session's token-savings report instead of the usage census
+- `--days` — optional · type=`int` · default=`30`
+  Census window in days (default 30)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 
