@@ -5,7 +5,7 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.17.15] - 2026-11-20
 
 ### Changed
 
@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Visibility notes are written per machine** (still only with `EMPIRICA_VISIBILITY_NOTES=1`): each machine writes its tags under its own name, so two machines no longer write the same notes, and a rebuild takes the latest entry per artifact. It stays opt-in: a withdrawn share can still come back across machines, which a later release fixes.
+- **If you opted in on 1.17.14,** the first export after upgrading is a full one, and it overrides the 1.17.14 notes for shares you have since moved back to `local`, so a rebuild keeps them local.
 
 ## [1.17.14] - 2026-11-20
 

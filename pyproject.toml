@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "empirica"
-version = "1.17.14"
+version = "1.17.15"
 description = "Measurement and calibration layer for AI — track what it knows, gate what it does"
 readme = "README.md"
 # 3.11.5: the soupsieve>=4.0 security floor needs it, and 3.10 reached end of life in October 2026. With ">=3.10"
