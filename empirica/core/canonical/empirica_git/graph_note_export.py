@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -344,7 +345,7 @@ VISIBILITY_TABLES = (
     "epistemic_sources",
     "goals",
 )
-_TIERS = ("shared", "public")
+_TIERS = ("shared", "public", "local")
 
 
 def _visibility_shard(artifact_id: str) -> str:
@@ -354,14 +355,28 @@ def _visibility_shard(artifact_id: str) -> str:
     return head if re.fullmatch(r"[0-9a-z]{2}", head) else "other"
 
 
-def _existing_visibility_shards(root: str) -> set[str]:
-    """The shard notes already in the repository, so a full export also rewrites the ones that have emptied."""
-    refs = _git(["for-each-ref", "--format=%(refname)", f"refs/notes/{VISIBILITY_PREFIX}/"], root)
+def machine_name() -> str:
+    """This machine's namespace for its visibility notes: the hostname, ref-safe, plus a short hash of /etc/machine-id (or of
+    the hostname) so two machines with the same hostname do not share refs (goal 221679b1)."""
+    import hashlib
+    import socket
+
+    host = re.sub(r"[^a-z0-9-]+", "-", socket.gethostname().lower()).strip("-")[:40] or "host"
+    try:
+        machine_id = Path("/etc/machine-id").read_text().strip()
+    except OSError:
+        machine_id = ""
+    return f"{host}-{hashlib.sha256((machine_id or host).encode()).hexdigest()[:6]}"
+
+
+def _existing_visibility_shards(root: str, machine: str) -> set[str]:
+    """The shard notes this machine has already written, so a full export also rewrites the ones that have emptied."""
+    refs = _git(["for-each-ref", "--format=%(refname)", f"refs/notes/{VISIBILITY_PREFIX}/{machine}/"], root)
     return {r.rsplit("/", 1)[-1] for r in (refs.stdout.split() if refs and refs.returncode == 0 else [])}
 
 
 def _visibility_shards(conn) -> dict[str, dict[str, str]]:
-    """{shard: {id: tier}} for every non-local row; local is the default a rebuild already restores, so it is not written."""
+    """{shard: {id: tier}} for every non-local row of this database."""
     shards: dict[str, dict[str, str]] = {}
     for table in VISIBILITY_TABLES:
         try:
@@ -387,50 +402,79 @@ def _held_ids(conn) -> set[str]:
     return held
 
 
-def _read_shard(root: str, shard: str) -> dict[str, str]:
-    """The tiers a shard note holds now ({} when there is none)."""
-    ref = f"{VISIBILITY_PREFIX}/{shard}"
+def _entries(payload) -> dict[str, list]:
+    """A note's tiers as {id: [tier, changed_at]}; the 1.17.14 flat layout ({id: tier}) reads as changed_at 0 (oldest)."""
+    tiers = payload.get("tiers") if isinstance(payload, dict) else None
+    out: dict[str, list] = {}
+    for artifact_id, value in (tiers or {}).items() if isinstance(tiers, dict) else []:
+        tier, when = (
+            (value, 0.0)
+            if isinstance(value, str)
+            else (list(value) + [0.0])[:2]
+            if isinstance(value, list) and value
+            else (None, 0.0)
+        )
+        if tier in _TIERS:
+            try:
+                out[str(artifact_id)] = [tier, float(when)]
+            except (TypeError, ValueError):
+                out[str(artifact_id)] = [tier, 0.0]
+    return out
+
+
+def _read_shard(root: str, path: str) -> dict[str, list]:
+    """The entries a note under empirica/visibility/<path> holds now ({} when there is none)."""
+    ref = f"{VISIBILITY_PREFIX}/{path}"
     listed = _git(["notes", f"--ref={ref}", "list"], root)
     first = (listed.stdout.splitlines() or [""])[0].split() if listed and listed.returncode == 0 else []
     if len(first) < 2:
         return {}
     shown = _git(["notes", f"--ref={ref}", "show", first[1]], root)
     try:
-        payload = json.loads(shown.stdout) if shown and shown.returncode == 0 else {}
+        return _entries(json.loads(shown.stdout) if shown and shown.returncode == 0 else {})
     except ValueError:
         return {}
-    tiers = payload.get("tiers") if isinstance(payload, dict) else None
-    return {str(k): v for k, v in tiers.items() if v in _TIERS} if isinstance(tiers, dict) else {}
 
 
 def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
-    """Write each visibility shard whose tags in this database changed since the last export (every shard when ``full`` or
-    when there is no watermark, as on a fresh clone), so a rebuild restores shared and public tags (goal ecea0fd4).
-
-    A shard is written as a merge: entries for ids this database does not hold are kept (another machine exported them,
-    and a clone that has not rebuilt yet must not empty them), entries for ids it holds take its tags, so a tag moved back
-    to local drops out (1.17.14 sweep, both passes). The watermark records this database's own view, so an unchanged shard
-    is skipped without reading its note. ``{"written", "failed", "shards"}``."""
+    """Write this machine's visibility shard notes (goals ecea0fd4, 221679b1): empirica/visibility/<machine>/<shard>, each
+    entry [tier, changed_at] for the ids this database holds as shared or public, and a tag moved back to local kept as
+    local, so it can win. Only this machine writes its namespace, so syncing machines never write the same ref (1.17.14
+    shared one set of refs, and two machines refused each other's sync). A shard is rewritten when this database's tags in
+    it changed since the last export (every shard of this machine when ``full`` or with no watermark). ``{"written",
+    "failed", "shards"}``."""
     import hashlib
 
+    machine = machine_name()
     shards = _visibility_shards(conn)
     previous = dict(_watermarks(root).get("visibility") or {})
     everything = full or not previous
-    candidates = set(shards) | set(previous) | (_existing_visibility_shards(root) if everything else set())
-    held = _held_ids(conn) if candidates else set()
+    candidates = set(shards) | set(previous) | (_existing_visibility_shards(root, machine) if everything else set())
+    held: set[str] | None = None
     current: dict[str, str] = {}
     written = failed = 0
+    now = time.time()
     for shard in sorted(candidates):
         mine = shards.get(shard, {})
         digest = hashlib.sha256(json.dumps(mine, sort_keys=True).encode()).hexdigest()[:16]
         current[shard] = digest
         if not everything and previous.get(shard) == digest:
             continue
-        note = _read_shard(root, shard)
-        merged = {i: t for i, t in note.items() if i not in held} | mine
+        note = _read_shard(root, f"{machine}/{shard}")
+        merged: dict[str, list] = {}
+        for artifact_id, tier in mine.items():
+            old = note.get(artifact_id)
+            merged[artifact_id] = old if old and old[0] == tier else [tier, now]
+        for artifact_id, (tier, when) in note.items():
+            if artifact_id in mine:
+                continue
+            if held is None:
+                held = _held_ids(conn)
+            # Held here but no longer shared or public: moved back to local, recorded so it outranks older tags elsewhere.
+            merged[artifact_id] = ["local", now] if artifact_id in held and tier != "local" else [tier, when]
         if merged == note:
-            continue  # nothing to change in the note itself
-        if _write_note(root, f"{VISIBILITY_PREFIX}/{shard}", {"tiers": merged}):
+            continue
+        if _write_note(root, f"{VISIBILITY_PREFIX}/{machine}/{shard}", {"machine": machine, "tiers": merged}):
             written += 1
         else:
             failed += 1
@@ -440,13 +484,14 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
 
 
 def discover_visibility_notes(root: str) -> dict[str, str]:
-    """{id: tier} from every shard note, for the rebuild; a tier that does not exist is ignored."""
-    out: dict[str, str] = {}
+    """{id: tier} for the rebuild: across every machine's notes (and the 1.17.14 flat layout, as oldest), the entry with
+    the latest changed_at wins, so a move back to local on one machine outranks an older shared tag on another."""
+    best: dict[str, list] = {}
     for payload in _discover(root, VISIBILITY_PREFIX):
-        for artifact_id, tier in (payload.get("tiers") or {}).items():
-            if tier in _TIERS:
-                out[str(artifact_id)] = tier
-    return out
+        for artifact_id, entry in _entries(payload).items():
+            if artifact_id not in best or entry[1] >= best[artifact_id][1]:
+                best[artifact_id] = entry
+    return {artifact_id: entry[0] for artifact_id, entry in best.items()}
 
 
 def export_graph_notes(conn, root: str, *, full: bool = False) -> dict:
@@ -473,10 +518,9 @@ def export_graph_notes(conn, root: str, *, full: bool = False) -> dict:
 
 
 def visibility_notes_enabled() -> bool:
-    """Off by default in 1.17.14 (goal 4b4e16d3, third pass): two machines syncing notes both write the same shard ref, and
-    core never merges notes, so every later sync-push/pull on both is refused as non-fast-forward. EMPIRICA_VISIBILITY_NOTES=1
-    turns the export on for a single-machine practice; the rebuild reads any shard notes that exist either way."""
-    return os.environ.get("EMPIRICA_VISIBILITY_NOTES", "").strip() == "1"
+    """On by default since each machine writes its own namespace (goal 221679b1); EMPIRICA_VISIBILITY_NOTES=0 turns the
+    export off. 1.17.14 shipped it off because every machine wrote the same refs."""
+    return os.environ.get("EMPIRICA_VISIBILITY_NOTES", "").strip() != "0"
 
 
 def plan_graph_notes(conn, root: str) -> dict:

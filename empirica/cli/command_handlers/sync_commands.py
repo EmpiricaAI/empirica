@@ -1853,7 +1853,8 @@ def _rebuild_visibility(db, rebuilt, root: str | None = None) -> None:
             except Exception:
                 continue
             if cur.rowcount:
-                rebuilt["visibility_restored"] += 1
+                # A local entry (a tag moved back, goal 221679b1) is applied but is not a restored share.
+                rebuilt["visibility_restored"] += tier != "local"
                 break
     db.adapter.conn.commit()
 
@@ -2019,9 +2020,9 @@ def _rebuild_reflexes_only(args, output_format: str) -> int:
 
 
 REBUILD_VISIBILITY_NOTE = (
-    "shared and public tags come back only from visibility notes, which are written when EMPIRICA_VISIBILITY_NOTES=1 (off "
-    "by default); everything else comes back local, kept off Cortex. Re-tag it with update-artifacts (visibility "
-    "shared). Lessons keep their sharing policy."
+    "shared and public tags come back from the visibility notes each machine writes at POSTFLIGHT (the latest change "
+    "wins); a tag set after a machine's last POSTFLIGHT comes back local, kept off Cortex. Re-tag it with "
+    "update-artifacts (visibility shared). Lessons keep their sharing policy."
 )
 
 
