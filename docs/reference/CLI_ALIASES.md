@@ -5,8 +5,8 @@
 
 ---
 
-> **Going away in 1.17.15.** The aliases nobody used in a 30-day census (2026-11-20) print a deprecation notice from 1.17.14 and
-> are removed in 1.17.15: the list, with the full command each stands for, is `empirica/config/deprecated_commands.yaml`.
+> **Going away in 1.18.0.** The aliases nobody used in a 30-day census (2026-11-20) print a deprecation notice from 1.17.14 and
+> are removed in 1.18.0: the list, with the full command each stands for, is `empirica/config/deprecated_commands.yaml`.
 > Aliases that were used (such as `gl`) stay. Use the full command names in anything you write down.
 
 ## Why Aliases?
@@ -77,14 +77,14 @@ Aliases reduce typing for frequently used commands. They're especially useful fo
 ## Usage Examples
 
 ```bash
-# Transaction shortcuts (pre and post go in 1.17.15; use the full names):
+# Transaction shortcuts (pre and post go in 1.18.0; use the full names):
 empirica preflight-submit ...
 empirica postflight-submit ...
 
 # Quick goal creation:
 empirica gc --objective "Fix bug"
 
-# Breadcrumbs (fl, ul and de go in 1.17.15; use the full names):
+# Breadcrumbs (fl, ul and de go in 1.18.0; use the full names):
 empirica finding-log --finding "Found root cause" --impact 0.7
 empirica unknown-log --unknown "Need to investigate X"
 empirica deadend-log --approach "Tried Y" --why-failed "Z"

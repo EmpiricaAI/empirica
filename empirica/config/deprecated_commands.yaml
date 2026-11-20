@@ -11,36 +11,37 @@
 #   remove_in:   the release that removes it (the next one after `since`, unless a reason says otherwise)
 #   replacement: what to use instead, or null when nothing replaces it
 #   reason:      one line: why it goes (usually: unused for N days, nothing in the package names it)
-# Batch 1, approved by David 2026-11-20 (/capability-review assess, goal cfc94d52).
+# Batch 1, approved by David 2026-11-20 (/capability-review assess, goal cfc94d52). Removal moved from 1.17.15 to 1.18.0 the
+# same day (David): 1.17.14 printed the notice only hours before 1.17.15, so the notice runs for weeks instead.
 commands:
-  - {name: bootstrap, since: "1.17.14", remove_in: "1.17.15", replacement: project-bootstrap, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: de, since: "1.17.14", remove_in: "1.17.15", replacement: deadend-log, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: fl, since: "1.17.14", remove_in: "1.17.15", replacement: finding-log, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: goal-activate, since: "1.17.14", remove_in: "1.17.15", replacement: goals-activate, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: goal-add-task, since: "1.17.14", remove_in: "1.17.15", replacement: goals-add-task, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: goal-archive, since: "1.17.14", remove_in: "1.17.15", replacement: goals-archive, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: goal-complete-task, since: "1.17.14", remove_in: "1.17.15", replacement: goals-complete-task, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: goal-list, since: "1.17.14", remove_in: "1.17.15", replacement: goals-list, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: goal-progress, since: "1.17.14", remove_in: "1.17.15", replacement: goals-progress, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: goal-reopen, since: "1.17.14", remove_in: "1.17.15", replacement: goals-reopen, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: mi, since: "1.17.14", remove_in: "1.17.15", replacement: message-inbox, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: mr, since: "1.17.14", remove_in: "1.17.15", replacement: message-read, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: ms, since: "1.17.14", remove_in: "1.17.15", replacement: message-send, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: msg-inbox, since: "1.17.14", remove_in: "1.17.15", replacement: message-inbox, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: msg-read, since: "1.17.14", remove_in: "1.17.15", replacement: message-read, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: msg-reply, since: "1.17.14", remove_in: "1.17.15", replacement: message-reply, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: msg-send, since: "1.17.14", remove_in: "1.17.15", replacement: message-send, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: pb, since: "1.17.14", remove_in: "1.17.15", replacement: project-bootstrap, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: post, since: "1.17.14", remove_in: "1.17.15", replacement: postflight-submit, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: pre, since: "1.17.14", remove_in: "1.17.15", replacement: preflight-submit, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: sc, since: "1.17.14", remove_in: "1.17.15", replacement: session-create, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: session-export, since: "1.17.14", remove_in: "1.17.15", replacement: sessions-export, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: session-resume, since: "1.17.14", remove_in: "1.17.15", replacement: sessions-resume, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: session-show, since: "1.17.14", remove_in: "1.17.15", replacement: sessions-show, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: sl, since: "1.17.14", remove_in: "1.17.15", replacement: sessions-list, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: sr, since: "1.17.14", remove_in: "1.17.15", replacement: sessions-resume, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: tx-adopt, since: "1.17.14", remove_in: "1.17.15", replacement: transaction-adopt, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: ul, since: "1.17.14", remove_in: "1.17.15", replacement: unknown-log, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
-  - {name: mco-load, since: "1.17.14", remove_in: "1.17.15", replacement: null, reason: "unused for 30 days; nothing in the package or docs names it; untouched since 2026-06"}
-  - {name: log-token-saving, since: "1.17.14", remove_in: "1.17.15", replacement: null, reason: "unused for 30 days; nothing names it; feeds only efficiency-report's --session-id token report"}
-  - {name: engagement-walk, since: "1.17.14", remove_in: "1.17.15", replacement: null, reason: "unused for 30 days; nothing names it; engagements live in empirica-workspace's CRM"}
+  - {name: bootstrap, since: "1.17.14", remove_in: "1.18.0", replacement: project-bootstrap, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: de, since: "1.17.14", remove_in: "1.18.0", replacement: deadend-log, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: fl, since: "1.17.14", remove_in: "1.18.0", replacement: finding-log, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: goal-activate, since: "1.17.14", remove_in: "1.18.0", replacement: goals-activate, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: goal-add-task, since: "1.17.14", remove_in: "1.18.0", replacement: goals-add-task, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: goal-archive, since: "1.17.14", remove_in: "1.18.0", replacement: goals-archive, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: goal-complete-task, since: "1.17.14", remove_in: "1.18.0", replacement: goals-complete-task, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: goal-list, since: "1.17.14", remove_in: "1.18.0", replacement: goals-list, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: goal-progress, since: "1.17.14", remove_in: "1.18.0", replacement: goals-progress, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: goal-reopen, since: "1.17.14", remove_in: "1.18.0", replacement: goals-reopen, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: mi, since: "1.17.14", remove_in: "1.18.0", replacement: message-inbox, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: mr, since: "1.17.14", remove_in: "1.18.0", replacement: message-read, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: ms, since: "1.17.14", remove_in: "1.18.0", replacement: message-send, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: msg-inbox, since: "1.17.14", remove_in: "1.18.0", replacement: message-inbox, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: msg-read, since: "1.17.14", remove_in: "1.18.0", replacement: message-read, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: msg-reply, since: "1.17.14", remove_in: "1.18.0", replacement: message-reply, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: msg-send, since: "1.17.14", remove_in: "1.18.0", replacement: message-send, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: pb, since: "1.17.14", remove_in: "1.18.0", replacement: project-bootstrap, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: post, since: "1.17.14", remove_in: "1.18.0", replacement: postflight-submit, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: pre, since: "1.17.14", remove_in: "1.18.0", replacement: preflight-submit, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: sc, since: "1.17.14", remove_in: "1.18.0", replacement: session-create, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: session-export, since: "1.17.14", remove_in: "1.18.0", replacement: sessions-export, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: session-resume, since: "1.17.14", remove_in: "1.18.0", replacement: sessions-resume, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: session-show, since: "1.17.14", remove_in: "1.18.0", replacement: sessions-show, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: sl, since: "1.17.14", remove_in: "1.18.0", replacement: sessions-list, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: sr, since: "1.17.14", remove_in: "1.18.0", replacement: sessions-resume, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: tx-adopt, since: "1.17.14", remove_in: "1.18.0", replacement: transaction-adopt, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: ul, since: "1.17.14", remove_in: "1.18.0", replacement: unknown-log, reason: "alias unused for 30 days (census 2026-11-20); the full command stays"}
+  - {name: mco-load, since: "1.17.14", remove_in: "1.18.0", replacement: null, reason: "unused for 30 days; nothing in the package or docs names it; untouched since 2026-06"}
+  - {name: log-token-saving, since: "1.17.14", remove_in: "1.18.0", replacement: null, reason: "unused for 30 days; nothing names it; feeds only efficiency-report's --session-id token report"}
+  - {name: engagement-walk, since: "1.17.14", remove_in: "1.18.0", replacement: null, reason: "unused for 30 days; nothing names it; engagements live in empirica-workspace's CRM"}

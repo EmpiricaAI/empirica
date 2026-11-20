@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The 31 deprecated command names go away in 1.18.0, not 1.17.15,** so their notice runs for weeks rather than hours.
+
 ### Fixed
 
 - **Visibility notes are safe across machines, and on by default.** Each machine now writes its tags under its own name, with when it saw each one change (a move back to `local` included), so machines syncing one practice never write the same notes and never refuse each other's sync. A rebuild takes the latest change per artifact across machines. 1.17.14's notes, written only with `EMPIRICA_VISIBILITY_NOTES=1`, still read, as the oldest. `EMPIRICA_VISIBILITY_NOTES=0` turns the export off.
