@@ -376,27 +376,61 @@ def _visibility_shards(conn) -> dict[str, dict[str, str]]:
     return shards
 
 
+def _held_ids(conn) -> set[str]:
+    """Every artifact id this database holds, whatever its tag."""
+    held: set[str] = set()
+    for table in VISIBILITY_TABLES:
+        try:
+            held.update(str(r[0]) for r in conn.execute(f"SELECT id FROM {table}").fetchall() if r[0])
+        except Exception:
+            continue
+    return held
+
+
+def _read_shard(root: str, shard: str) -> dict[str, str]:
+    """The tiers a shard note holds now ({} when there is none)."""
+    ref = f"{VISIBILITY_PREFIX}/{shard}"
+    listed = _git(["notes", f"--ref={ref}", "list"], root)
+    first = (listed.stdout.splitlines() or [""])[0].split() if listed and listed.returncode == 0 else []
+    if len(first) < 2:
+        return {}
+    shown = _git(["notes", f"--ref={ref}", "show", first[1]], root)
+    try:
+        payload = json.loads(shown.stdout) if shown and shown.returncode == 0 else {}
+    except ValueError:
+        return {}
+    tiers = payload.get("tiers") if isinstance(payload, dict) else None
+    return {str(k): v for k, v in tiers.items() if v in _TIERS} if isinstance(tiers, dict) else {}
+
+
 def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
-    """Write each visibility shard whose content changed since the last export (every shard when ``full``), so a rebuild
-    restores shared and public tags (goal ecea0fd4). A shard that has emptied is rewritten empty, so a tag moved back to
-    local does not come back. ``{"written", "failed", "shards"}``."""
+    """Write each visibility shard whose tags in this database changed since the last export (every shard when ``full`` or
+    when there is no watermark, as on a fresh clone), so a rebuild restores shared and public tags (goal ecea0fd4).
+
+    A shard is written as a merge: entries for ids this database does not hold are kept (another machine exported them,
+    and a clone that has not rebuilt yet must not empty them), entries for ids it holds take its tags, so a tag moved back
+    to local drops out (1.17.14 sweep, both passes). The watermark records this database's own view, so an unchanged shard
+    is skipped without reading its note. ``{"written", "failed", "shards"}``."""
     import hashlib
 
     shards = _visibility_shards(conn)
-    # Full (and a missing watermark, as on a fresh clone): every shard note that exists is a candidate too, so one that has
-    # emptied is rewritten empty rather than left holding a tag that was moved back to local (1.17.14 sweep).
     previous = dict(_watermarks(root).get("visibility") or {})
-    if full or not previous:
-        previous = dict.fromkeys(_existing_visibility_shards(root), "")
+    everything = full or not previous
+    candidates = set(shards) | set(previous) | (_existing_visibility_shards(root) if everything else set())
+    held = _held_ids(conn) if candidates else set()
     current: dict[str, str] = {}
     written = failed = 0
-    for shard in sorted(set(shards) | set(previous)):
-        tiers = shards.get(shard, {})
-        digest = hashlib.sha256(json.dumps(tiers, sort_keys=True).encode()).hexdigest()[:16]
+    for shard in sorted(candidates):
+        mine = shards.get(shard, {})
+        digest = hashlib.sha256(json.dumps(mine, sort_keys=True).encode()).hexdigest()[:16]
         current[shard] = digest
-        if previous.get(shard) == digest:
+        if not everything and previous.get(shard) == digest:
             continue
-        if _write_note(root, f"{VISIBILITY_PREFIX}/{shard}", {"tiers": tiers}):
+        note = _read_shard(root, shard)
+        merged = {i: t for i, t in note.items() if i not in held} | mine
+        if merged == note:
+            continue  # nothing to change in the note itself
+        if _write_note(root, f"{VISIBILITY_PREFIX}/{shard}", {"tiers": merged}):
             written += 1
         else:
             failed += 1

@@ -131,3 +131,8 @@ def test_a_reference_to_a_longer_command_does_not_count_for_its_prefix(tmp_path)
         "check": [],
         "check-submit": ["hook.py"],
     }
+
+
+def test_a_repository_path_ending_in_empirica_is_not_a_call(tmp_path):
+    _transcript(tmp_path / "p" / "a.jsonl", ("bash", "git -C /home/u/empirical-ai/empirica status"))
+    assert "status" not in uc.transcript_usage(tmp_path, since=0)["commands"]

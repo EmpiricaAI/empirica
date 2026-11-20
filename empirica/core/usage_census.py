@@ -21,8 +21,9 @@ from pathlib import Path
 from typing import Any
 
 _SLASH = re.compile(r"<command-name>/([^<\s]+)</command-name>")
-# After any boundary: start, a separator, whitespace (an env prefix or `timeout 30`), or a path (`~/.local/bin/empirica`).
-_COMMAND = re.compile(r"(?:^|[\s;&|(]|\$\(|/)empirica\s+([a-z][a-z0-9-]+)")
+# After any boundary: start, a separator, whitespace (an env prefix or `timeout 30`), or an install path ending in bin/
+# (`~/.local/bin/empirica`). Any other path is a directory: `git -C ~/repos/empirica status` is not an empirica call.
+_COMMAND = re.compile(r"(?:^|[\s;&|(]|\$\(|/bin/)empirica\s+([a-z][a-z0-9-]+)")
 
 #: Artifact type -> its table; counted by created_timestamp inside the window.
 _ARTIFACT_TABLES = {

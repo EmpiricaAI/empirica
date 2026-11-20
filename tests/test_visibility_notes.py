@@ -112,3 +112,17 @@ def test_an_id_that_cannot_name_a_git_ref_still_gets_a_shard(artifact_id):
     import re
 
     assert re.fullmatch(r"[0-9a-z]{2}|other", shard)
+
+
+def test_a_fresh_clone_keeps_the_tags_another_machine_exported(practice):
+    """1.17.14 second pass: with no watermark every shard was rewritten from this database's view, so a clone that had not
+    rebuilt yet emptied the notes it had fetched, and the next push carried that to the remote."""
+    gx._write_note(str(practice), f"{gx.VISIBILITY_PREFIX}/ab", {"tiers": {"ab12-from-a": "shared"}})
+    db = SessionDatabase()
+    try:
+        mine = _finding(db, "public")
+        gx.export_visibility_notes(db.conn, str(practice))
+    finally:
+        db.close()
+    tiers = gx.discover_visibility_notes(str(practice))
+    assert tiers["ab12-from-a"] == "shared" and tiers[mine] == "public"
