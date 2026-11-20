@@ -36,7 +36,8 @@ def infer(command, cwd="/work/proj", project="/work/proj"):
         ("npm install", ["install"]),
         ("rm -rf build", ["delete_recursive", "project_write"]),
         ("rm notes.txt", ["project_write"]),
-        ("ssh root@host uptime", ["remote_exec"]),
+        ("ssh root@host reboot", ["remote_exec"]),
+        ("ssh root@host uptime", ["remote_read"]),  # uptime is a read (goal 329c014e)
         ("scp a.txt host:/tmp/", ["network_send"]),
         ("curl -s https://example.com", []),
         ("curl -X POST -d '{}' https://example.com/api", ["network_send"]),

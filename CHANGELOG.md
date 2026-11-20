@@ -5,6 +5,12 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Outside a transaction, read-only probes no longer use up the change budget, and `empirica note` and the other logging verbs run on any line.** `uptime`, `nproc`, `top`, `pstree`, `pgrep`, `journalctl` (without its maintenance options), `tmux` list and show commands and arithmetic `$(( ))` are reads now; before, three of them spent the per-prompt budget and the fourth read was refused. A `*-log` verb, `note`, the batch artifact verbs, the `*-submit` verbs and the mailbox ack verbs next to anything else on a line were refused outright; they now run uncounted, while `setup`, `release`, `delete-artifacts` and other verbs are still judged as changes.
+
 ## [1.17.15] - 2026-11-20
 
 ### Changed

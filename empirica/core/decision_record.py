@@ -405,7 +405,18 @@ _READ_PROGRAMS = {
     "date", "stat", "file", "du", "df", "ps", "free", "uname", "printenv", "true", "false", "sleep", "cd", "test", "[",
     "xxd", "od", "strings", "basename", "dirname", "realpath", "readlink", "tokei", "scc", "pyright", "mypy", "radon",
     "vulture", "pip-audit", "jobs", "wait", "export", "read", ":", "[[",
+    # Process and system diagnostics (goal 329c014e: a slow-machine diagnosis spent the discipline budget on these).
+    "uptime", "nproc", "top", "pstree", "pgrep", "vmstat", "lscpu", "lsblk", "who",
 }  # fmt: skip
+#: journalctl options that change the journal; any other journalctl call reads it.
+_JOURNALCTL_CHANGES = ("vacuum-size", "vacuum-time", "vacuum-files", "rotate", "flush", "sync", "relinquish-var",
+                       "smart-relinquish-var", "setup-keys", "update-catalog", "cursor-file")  # fmt: skip
+#: tmux options that take a value before the command; and the commands that only read the server's state.
+_TMUX_VALUE_OPTIONS = {"-L", "-S", "-f", "-T"}  # not -c: it runs a shell command
+_TMUX_READS = {"list-sessions", "ls", "list-windows", "lsw", "list-panes", "lsp", "list-clients", "lsc", "list-buffers",
+               "lsb", "list-keys", "lsk", "list-commands", "lscm", "show-options", "show", "show-window-options", "showw",
+               "show-environment", "showenv", "show-hooks", "display-message", "display", "has-session", "has",
+               "show-buffer", "showb", "info", "server-info"}  # fmt: skip
 _PACKAGE_PROGRAMS = {
     "pip",
     "pip3",
@@ -834,6 +845,10 @@ def _classify_statement(
         return _read_shaped(program, args, cwd, project_path)
     if program == "git":
         return _git(args), True
+    if program == "journalctl":
+        return ({"unknown"} if any(_journalctl_changes(a) for a in args) else set()), True
+    if program == "tmux":
+        return _tmux(args), True
     if program == "gh":
         return _gh(args), True
     if program in _PACKAGE_PROGRAMS:
@@ -872,7 +887,11 @@ def _classify_other(
         return {"process"}, True
     if program == "empirica":
         words = _positional(args)
-        if not words or empirica_is_read("empirica " + " ".join(words[:2])):
+        # An option before the verb (`empirica --config note rebuild`) may take a value, so the verb is not the first
+        # positional word: never free (goal 329c014e review). --verbose and -v take none.
+        lead = [a for a in args if a not in ("--verbose", "-v")]
+        flag_first = bool(lead) and lead[0].startswith("-") and bool(words)
+        if not words or (not flag_first and empirica_is_read("empirica " + " ".join(words[:2]))):
             return set(), True
         if words[0] in ("setup", "setup-claude-code") and {"--help", "-h", "--dry-run"} & set(args):
             return set(), True  # help and a dry run write nothing (sweep B3)
@@ -1006,6 +1025,80 @@ def _xargs_run(args: list[str], cwd, project_path, empirica_is_read) -> tuple[se
     return found, reliable
 
 
+def _journalctl_changes(arg: str) -> bool:
+    """A journalctl option that changes the journal or writes a file: journalctl takes any unambiguous prefix of a long
+    option (``--rot`` is ``--rotate``), so a prefix of a changing one counts."""
+    if not arg.startswith("--") or len(arg) < 3:
+        return False
+    name = arg[2:].split("=", 1)[0]
+    return any(option.startswith(name) for option in _JOURNALCTL_CHANGES)
+
+
+def _tmux(args: list[str]) -> set[str]:
+    """tmux by its command: listing and showing the server's state reads; anything else (send-keys, kill-server, a new
+    session) is a program the classifier cannot read, counted rather than gated (goal 329c014e). Not a read: ``-v`` (it
+    writes log files), an argument ending in ``;`` (tmux starts a second command there) or a ``#()`` format (runs one)."""
+    i = 0
+    while i < len(args) and args[i].startswith("-"):
+        if "v" in args[i].lstrip("-") and not args[i].startswith("--"):
+            return {"unknown"}
+        i += 2 if args[i] in _TMUX_VALUE_OPTIONS else 1
+    runs = any(a.endswith(";") or "#(" in a for a in args)
+    return set() if i < len(args) and args[i] in _TMUX_READS and not runs else {"unknown"}
+
+
+#: What an arithmetic expansion's body may hold: names, numbers, operators, brackets and $name. No quote, ;, newline,
+#: comment or backtick, so a span that is really several statements (``'$((' ; rm -rf ~ ; '))'``) never matches.
+_ARITHMETIC_BODY = re.compile(r"[A-Za-z0-9_ \t+\-*/%<>=!&|^~?:,.\[\]$()]*")
+_ARITHMETIC_MAX = 2000
+
+
+def _mask_arithmetic(text: str) -> str:
+    """``text`` with each well-formed arithmetic expansion ``$(( ))`` replaced by ``0``: it computes a number and runs no
+    command, but its parentheses kept it from pairing as a substitution, so it read as an unparseable ``$(`` (goal
+    329c014e). Masked only when the body is plain arithmetic (``_ARITHMETIC_BODY``), its own parentheses balance, it holds
+    no ``$(``, it is not escaped, and it closes within ``_ARITHMETIC_MAX`` characters; anything else is left for the
+    parser, which judges it as before. bash runs ``$((true) && rm a && (true))`` as a command substitution: its body's
+    parentheses do not balance, so it is not masked."""
+    out: list[str] = []
+    i = 0
+    budget = 4 * _ARITHMETIC_MAX  # characters scanned in all: past it the rest is left unmasked, judged as before
+    while True:
+        start = text.find("$((", i)
+        if start < 0 or budget <= 0:
+            out.append(text[i:])
+            return "".join(out)
+        body_match = _ARITHMETIC_BODY.match(text, start + 3, min(len(text), start + 3 + _ARITHMETIC_MAX))
+        budget -= body_match.end() - start
+        end = _arithmetic_end(text, start + 3, body_match.end()) if start == 0 or text[start - 1] != "\\" else -1
+        if end < 0:
+            out.append(text[i : start + 3])
+            i = start + 3
+            continue
+        out.append(text[i:start] + "0")
+        i = end
+
+
+def _arithmetic_end(text: str, body_start: int, limit: int) -> int:
+    """The index just past the ``))`` closing an arithmetic body that starts at ``body_start`` and is plain up to ``limit``,
+    or -1: the body's parentheses must balance and never close more than they open, and it must hold no ``$(``."""
+    depth = 0
+    for j in range(body_start, limit + 1):
+        if text.startswith("))", j) and depth == 0:
+            body = text[body_start:j]
+            return j + 2 if "$(" not in body else -1
+        if j >= limit:
+            return -1
+        ch = text[j]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth < 0:
+                return -1
+    return -1
+
+
 def _wget_to_stdout(args: list[str]) -> bool:
     """wget writing to stdout (-O -, -qO-, -qO -, --output-document=-) saves no file."""
     for i, a in enumerate(args):
@@ -1019,7 +1112,7 @@ def _wget_to_stdout(args: list[str]) -> bool:
 def infer_shell_effects(command: str, *, cwd: str | None, project_path: str | None, empirica_is_read) -> dict:
     """{"classes": sorted inferred classes, "reliable": whether the text can settle it}. ``empirica_is_read`` answers
     whether an ``empirica <verb>`` only reads (the gate passes its own is_read_shaped_empirica_verb)."""
-    text = command or ""
+    text = _mask_arithmetic(command or "")
     reliable = "<<" not in text
     classes: set[str] = set()
     # The commands inside $(...) and backticks run too: classify them (goal e6ee7d01). A nested or unbalanced one is

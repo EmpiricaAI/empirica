@@ -1304,6 +1304,32 @@ def empirica_command_only_reads(cmd: str) -> bool:
     )
 
 
+def empirica_command_free_in_discipline(cmd: str) -> bool:
+    """Is this empirica command free outside a transaction, in discipline mode's judgement of a whole line? Reads, and the
+    artifact and workflow verbs (DISCIPLINE_FREE_VERBS and every *-log verb). Matched on whole verb tokens, so `empirica
+    notebook` is not `empirica note`. Before goal 329c014e a workflow verb beside any other statement went to the judge as a change it could
+    not read, and the line was refused: David, 2026-11-20, "its also gating empirica commands like notes"."""
+    if empirica_command_only_reads(cmd):
+        return True
+    tokens = cmd.split()
+    if len(tokens) < 2 or tokens[0] != "empirica":
+        return False
+    return (
+        tokens[1].endswith("-log") or tuple(tokens[1:3]) in DISCIPLINE_FREE_VERBS or tokens[1] in DISCIPLINE_FREE_VERBS
+    )
+
+
+#: The artifact and workflow verbs discipline mode lets run on any line outside a transaction (goal 329c014e): they record
+#: what the practitioner learned and open or close the measurement. Not every verb the gate allows on its own: setup,
+#: release, project-init and the like change the harness or reach the network, and delete-artifacts --apply deletes for
+#: good: those are judged as changes. Every *-log verb is in too.
+DISCIPLINE_FREE_VERBS = {
+    "note", "log-artifacts", "resolve-artifacts", "update-artifacts", "preflight-submit",
+    "check-submit", "postflight-submit", "goals-create", "goals-add-task", "goals-complete-task", "goals-complete",
+    "unknown-resolve", "finding-resolve", "lesson-create", "source-add", ("mailbox", "reply"), ("mailbox", "archive"),
+}  # fmt: skip
+
+
 def _is_plain_single_command(cmd: str) -> bool:
     """One statement, with nothing riding along: no chain, background, pipe or newline
     outside quotes, no file redirect, and no command substitution anywhere.
@@ -5911,7 +5937,7 @@ def _discipline_answer(tool_name: str, tool_input) -> tuple | None:
             cwd=cwd,
             project_root=project,
             suffix=_instance_suffix(),
-            empirica_is_read=empirica_command_only_reads,
+            empirica_is_read=empirica_command_free_in_discipline,
             transcript_path=hook_input.get("transcript_path"),
         )
         if answer is not None:
