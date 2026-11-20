@@ -1,0 +1,14 @@
+# CLI commands and aliases on their way out (goal cfc94d52, David 2026-11-20).
+#
+# /capability-review's assess mode proposes retire candidates from the usage census (empirica efficiency-report); David
+# approves a batch; each approved name is listed here. Using a listed name prints a notice on stderr naming the
+# replacement and the release it goes away in; the command still runs. In that release it is removed from the parser,
+# and tests/test_deprecated_commands.py fails while a name outlives its removal release.
+#
+# Each entry:
+#   name:        the command or alias as typed
+#   since:       the release that first printed the notice
+#   remove_in:   the release that removes it (the next one after `since`, unless a reason says otherwise)
+#   replacement: what to use instead, or null when nothing replaces it
+#   reason:      one line: why it goes (usually: unused for N days, nothing in the package names it)
+commands: []
