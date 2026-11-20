@@ -4236,6 +4236,19 @@ _SQLITE_SAFE_META = (
     ".HELP",
     ".DATABASES",
     ".FULLSCHEMA",
+    # Display and session settings that write nothing (goal 1131e094: '.timer on' before a SELECT gated a read). The unsafe
+    # list is checked first, so none of these can admit .shell, .output, .read or the rest.
+    ".TIMER",
+    ".HEADER",
+    ".NULLVALUE",
+    ".SEPARATOR",
+    ".ECHO",
+    ".SHOW",
+    ".EQP",
+    ".STATS",
+    ".CHANGES",
+    ".PRINT",
+    ".BAIL",
 )
 #: ANALYZE writes sqlite_stat tables and PRAGMA has setters, so neither is a read as a bare word.
 _SQLITE_SAFE_SQL = ("SELECT", "WITH", "EXPLAIN")

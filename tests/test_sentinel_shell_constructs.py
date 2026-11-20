@@ -75,6 +75,11 @@ class TestSqliteClassifier:
             'sqlite3 -line -readonly {db} "SELECT 1"',  # multiple bare flags
             "sqlite3 -separator ' | ' {db} \"SELECT a, b FROM t\"",  # value-flag
             'sqlite3 -header {db} "SELECT 1" 2>/dev/null',  # trailing redirect ignored
+            # Display-only dot-commands (note of 2026-11-18, goal 1131e094: '.timer on' gated a read)
+            'sqlite3 "file:{db}?mode=ro" ".timer on" "SELECT 1" "SELECT 2"',
+            'sqlite3 {db} ".headers on" ".nullvalue NULL" "SELECT a FROM t"',
+            'sqlite3 {db} ".echo on" ".show" "SELECT 1"',
+            'sqlite3 {db} ".eqp on" "SELECT * FROM t WHERE a = 1"',
         ],
     )
     def test_reads_are_noetic(self, gate, cmd):
@@ -91,6 +96,12 @@ class TestSqliteClassifier:
             'sqlite3 {db} "WITH x AS (SELECT 1) DELETE FROM t"',  # writable CTE
             'sqlite3 {db} ".output /tmp/x"',  # file-writing meta
             "sqlite3 {db}",  # interactive REPL — no query
+            # Near misses beside the display-only dot-commands: the safe ones must not let these through
+            'sqlite3 {db} ".timer on" "DELETE FROM t"',
+            'sqlite3 {db} ".timer on" ".shell rm -rf x"',
+            'sqlite3 {db} ".timer on" ".output /tmp/x" "SELECT 1"',
+            'sqlite3 {db} ".timer on" ".read script.sql"',
+            'sqlite3 {db} ".show" ".system id"',
         ],
     )
     def test_writes_and_interactive_are_praxic(self, gate, cmd):
