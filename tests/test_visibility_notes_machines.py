@@ -138,3 +138,31 @@ def test_a_share_withdrawn_while_the_flag_was_off_overrides_the_1_17_14_note(pra
         db.close()
     tiers = gx.discover_visibility_notes(str(practice))
     assert tiers[fid] == "local" and tiers[kept] == "shared"
+
+
+def test_an_empty_export_record_is_not_a_first_export(practice, monkeypatch):
+    """1.17.15 second pass, round 3: an empty record read as 'first export', so every POSTFLIGHT re-read the flat notes."""
+    monkeypatch.setattr(gx, "machine_name", lambda: "alpha-abc123")
+    calls = []
+    monkeypatch.setattr(gx, "_flat_visibility_shards", lambda root: calls.append(1) or [])
+    db = SessionDatabase()
+    try:
+        gx.export_visibility_notes(db.conn, str(practice))
+        gx.export_visibility_notes(db.conn, str(practice))
+    finally:
+        db.close()
+    assert len(calls) == 1
+
+
+def test_the_legacy_override_never_beats_another_machines_entry(practice, monkeypatch):
+    """Round 3: only a flat entry that is still the winner is overridden; another machine's own entry stands."""
+    monkeypatch.setattr(gx, "machine_name", lambda: "alpha-abc123")
+    db = SessionDatabase()
+    try:
+        fid = _finding(db, "local", "ab000000-0000-0000-0000-000000000008")
+        gx._write_note(str(practice), f"{gx.VISIBILITY_PREFIX}/ab", {"tiers": {fid: "shared"}})
+        gx._write_note(str(practice), f"{gx.VISIBILITY_PREFIX}/beta-def456/ab", {"tiers": {fid: ["shared", 50.0]}})
+        gx.export_visibility_notes(db.conn, str(practice))
+    finally:
+        db.close()
+    assert gx.discover_visibility_notes(str(practice))[fid] == "shared"

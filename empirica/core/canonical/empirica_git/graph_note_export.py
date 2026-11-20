@@ -460,20 +460,25 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
     # Per machine: 1.17.14 kept one record for its flat layout, and matching it skipped this machine's first export,
     # so a later withdrawal had no entry to override (1.17.15 second pass). A new name starts with a full export.
     record = f"visibility:{machine}"
-    previous = dict(_watermarks(root).get(record) or {})
-    everything = full or not previous
+    marks = _watermarks(root)
+    previous = dict(marks.get(record) or {})
+    everything = full or record not in marks  # an empty record is not a first export (1.17.15 second pass)
     candidates = set(shards) | set(previous) | (_existing_visibility_shards(root, machine) if everything else set())
     held: set[str] | None = None
     # A full export also overrides 1.17.14's flat notes (one shared set of refs) for ids this database holds as local but
     # they list as shared or public: 1.17.14 dropped them when it rewrote the shard, and a share withdrawn while the export
-    # was off is in no machine's own note (1.17.15 second pass). Older machines' namespaces are not overridden here.
+    # was off is in no machine's own note (1.17.15 second pass). Only a flat entry that is still the winner is overridden:
+    # another machine's own entry is newer than any flat one and stands.
     legacy_local: dict[str, set[str]] = {}
-    if everything:
+    flat = _flat_visibility_shards(root) if everything else []
+    if flat:
         held = _held_ids(conn)
         shared_here = {i for tiers in shards.values() for i in tiers}
-        for shard in _flat_visibility_shards(root):
+        winners = _winning_entries(root)
+        for shard in flat:
             for artifact_id, (tier, _when) in _read_shard(root, shard).items():
-                if tier != "local" and artifact_id in held and artifact_id not in shared_here:
+                win = winners.get(artifact_id)
+                if tier != "local" and win and win[1] == 0.0 and artifact_id in held and artifact_id not in shared_here:
                     legacy_local.setdefault(_visibility_shard(artifact_id), set()).add(artifact_id)
         candidates |= set(legacy_local)
     current: dict[str, str] = {}
@@ -511,15 +516,20 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
     return {"written": written, "failed": failed, "shards": len(shards)}
 
 
-def discover_visibility_notes(root: str) -> dict[str, str]:
-    """{id: tier} for the rebuild: across every machine's notes (and the 1.17.14 flat layout, as oldest), the entry with
-    the latest changed_at wins, so a move back to local on one machine outranks an older shared tag on another."""
+def _winning_entries(root: str) -> dict[str, list]:
+    """{id: [tier, changed_at]}: the latest entry per id across every machine's notes and the 1.17.14 flat layout."""
     best: dict[str, list] = {}
     for payload in _discover(root, VISIBILITY_PREFIX):
         for artifact_id, entry in _entries(payload).items():
             if artifact_id not in best or entry[1] >= best[artifact_id][1]:
                 best[artifact_id] = entry
-    return {artifact_id: entry[0] for artifact_id, entry in best.items()}
+    return best
+
+
+def discover_visibility_notes(root: str) -> dict[str, str]:
+    """{id: tier} for the rebuild: across every machine's notes (and the 1.17.14 flat layout, as oldest), the entry with
+    the latest changed_at wins, so a move back to local on one machine outranks an older shared tag on another."""
+    return {artifact_id: entry[0] for artifact_id, entry in _winning_entries(root).items()}
 
 
 def export_graph_notes(conn, root: str, *, full: bool = False) -> dict:
