@@ -7,7 +7,9 @@ throwaway practice: resolve really resolves, delete without apply only previews.
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 import time
 import uuid
 
@@ -27,6 +29,16 @@ def practice(tmp_path, monkeypatch):
     monkeypatch.setenv("EMPIRICA_SESSION_DB", str(tmp_path / ".empirica" / "sessions" / "sessions.db"))
     monkeypatch.setenv("EMPIRICA_QDRANT_URL", "http://127.0.0.1:9")
     monkeypatch.setenv("EMPIRICA_ENABLE_EMBEDDINGS", "false")
+    # The wrappers run `empirica` from PATH. Put a shim for this interpreter first, so the test never depends on an
+    # installed binary (the clean-environment suite runs with a system-only PATH: tests must not measure the box).
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    shim = bin_dir / "empirica"
+    shim.write_text(
+        f'#!/bin/sh\nexec "{sys.executable}" -c "import sys; from empirica.cli.cli_core import main; sys.exit(main())" "$@"\n'
+    )
+    shim.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
