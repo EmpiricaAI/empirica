@@ -331,6 +331,77 @@ def discover_lesson_notes(root: str) -> list[dict]:
     return [p["lesson"] for p in _discover(root, LESSON_PREFIX) if isinstance(p.get("lesson"), dict)]
 
 
+VISIBILITY_PREFIX = "empirica/visibility"
+#: The tables whose rows carry a visibility tag a rebuild must restore (the per-artifact notes carry none).
+VISIBILITY_TABLES = (
+    "project_findings",
+    "project_unknowns",
+    "project_dead_ends",
+    "mistakes_made",
+    "assumptions",
+    "decisions",
+    "epistemic_sources",
+    "goals",
+)
+_TIERS = ("shared", "public")
+
+
+def _visibility_shard(artifact_id: str) -> str:
+    """The shard an id's tag lives in: its first two characters, lowercased (256 shards for UUIDs)."""
+    return str(artifact_id)[:2].lower()
+
+
+def _visibility_shards(conn) -> dict[str, dict[str, str]]:
+    """{shard: {id: tier}} for every non-local row; local is the default a rebuild already restores, so it is not written."""
+    shards: dict[str, dict[str, str]] = {}
+    for table in VISIBILITY_TABLES:
+        try:
+            rows = conn.execute(
+                f"SELECT id, visibility FROM {table} WHERE visibility IN ('shared', 'public')"
+            ).fetchall()
+        except Exception:  # a table or column this store lacks
+            continue
+        for artifact_id, tier in rows:
+            if artifact_id:
+                shards.setdefault(_visibility_shard(artifact_id), {})[str(artifact_id)] = tier
+    return shards
+
+
+def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
+    """Write each visibility shard whose content changed since the last export (every shard when ``full``), so a rebuild
+    restores shared and public tags (goal ecea0fd4). A shard that has emptied is rewritten empty, so a tag moved back to
+    local does not come back. ``{"written", "failed", "shards"}``."""
+    import hashlib
+
+    shards = _visibility_shards(conn)
+    previous = {} if full else dict(_watermarks(root).get("visibility") or {})
+    current: dict[str, str] = {}
+    written = failed = 0
+    for shard in sorted(set(shards) | set(previous)):
+        tiers = shards.get(shard, {})
+        digest = hashlib.sha256(json.dumps(tiers, sort_keys=True).encode()).hexdigest()[:16]
+        current[shard] = digest
+        if previous.get(shard) == digest:
+            continue
+        if _write_note(root, f"{VISIBILITY_PREFIX}/{shard}", {"tiers": tiers}):
+            written += 1
+        else:
+            failed += 1
+            current[shard] = previous.get(shard, "")  # retried next time
+    _save_watermark(root, "visibility", {k: v for k, v in current.items() if v})
+    return {"written": written, "failed": failed, "shards": len(shards)}
+
+
+def discover_visibility_notes(root: str) -> dict[str, str]:
+    """{id: tier} from every shard note, for the rebuild; a tier that does not exist is ignored."""
+    out: dict[str, str] = {}
+    for payload in _discover(root, VISIBILITY_PREFIX):
+        for artifact_id, tier in (payload.get("tiers") or {}).items():
+            if tier in _TIERS:
+                out[str(artifact_id)] = tier
+    return out
+
+
 def export_graph_notes(conn, root: str, *, full: bool = False) -> dict:
     """Links, falsifiers and lessons into notes: incremental and bounded at each POSTFLIGHT, everything when ``full``
     (doctor --reconcile-notes --apply). Never raises; each part reports its own counts."""
@@ -339,6 +410,7 @@ def export_graph_notes(conn, root: str, *, full: bool = False) -> dict:
         ("edges", lambda: export_edge_notes(conn, root, full=full)),
         ("falsifiers", lambda: export_falsifier_notes(conn, root, full=full)),
         ("lessons", lambda: export_lesson_notes(conn, root, full=full)),
+        ("visibility", lambda: export_visibility_notes(conn, root, full=full)),
     ):
         try:
             out[name] = run()
@@ -354,4 +426,5 @@ def plan_graph_notes(conn, root: str) -> dict:
         "edge_sources": conn.execute("SELECT COUNT(DISTINCT from_id) FROM artifact_edges").fetchone()[0],
         "falsifiers": conn.execute("SELECT COUNT(*) FROM falsifiers").fetchone()[0],
         "lessons": conn.execute("SELECT COUNT(*) FROM lessons").fetchone()[0],
+        "visibility_tagged": sum(len(t) for t in _visibility_shards(conn).values()),
     }

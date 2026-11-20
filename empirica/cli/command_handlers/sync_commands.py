@@ -1484,7 +1484,7 @@ def _rebuild_ensure_orphan_goals(db, orphan_goal_ids, all_items_lists, now, rebu
 
 
 # Keys of a rebuild result that are not counts of rebuilt records.
-_REBUILD_NOT_RECORDS = frozenset({"error", "goals_status_unknown"})
+_REBUILD_NOT_RECORDS = frozenset({"error", "goals_status_unknown", "visibility_restored"})
 
 # key -> (table, the id field the note carries)
 _REBUILD_IDENTITY = {
@@ -1833,6 +1833,26 @@ def _rebuild_edges(db, rebuilt, root: str | None = None) -> None:
     db.adapter.conn.commit()
 
 
+def _rebuild_visibility(db, rebuilt, root: str | None = None) -> None:
+    """Shared and public tags from the visibility shard notes (goal ecea0fd4), applied after every row is restored; a row
+    with no tag in them stays local. Ids are unique across the artifact tables, so each is tried until one row matches."""
+    import os
+
+    from empirica.core.canonical.empirica_git.graph_note_export import VISIBILITY_TABLES, discover_visibility_notes
+
+    rebuilt.setdefault("visibility_restored", 0)
+    for artifact_id, tier in discover_visibility_notes(root or os.getcwd()).items():
+        for table in VISIBILITY_TABLES:
+            try:
+                cur = db.adapter.conn.execute(f"UPDATE {table} SET visibility = ? WHERE id = ?", (tier, artifact_id))
+            except Exception:
+                continue
+            if cur.rowcount:
+                rebuilt["visibility_restored"] += 1
+                break
+    db.adapter.conn.commit()
+
+
 def _rebuild_falsifiers(db, rebuilt, root: str | None = None) -> None:
     """Falsifiers from their notes, with their verdict (goal 966808c0). Only the table's own columns are restored; an
     existing falsifier is kept."""
@@ -1944,6 +1964,7 @@ def _rebuild_from_notes() -> dict[str, Any]:
         _rebuild_edges(db, rebuilt)
         _rebuild_falsifiers(db, rebuilt)
         _rebuild_lessons(db, rebuilt)
+        _rebuild_visibility(db, rebuilt)  # last: every row it tags must already be back
 
         db.close()
 
@@ -1993,8 +2014,9 @@ def _rebuild_reflexes_only(args, output_format: str) -> int:
 
 
 REBUILD_VISIBILITY_NOTE = (
-    "every rebuilt artifact except lessons (which keep their sharing policy) is local, kept off Cortex: the git notes "
-    "carry no visibility. Re-tag what should reach the team with update-artifacts (visibility shared)."
+    "shared and public tags come back from the visibility notes, which each POSTFLIGHT (and doctor --reconcile-notes "
+    "--apply) writes; anything tagged after the last of those comes back local, kept off Cortex. Re-tag it with "
+    "update-artifacts (visibility shared). Lessons keep their sharing policy."
 )
 
 
@@ -2014,6 +2036,8 @@ def _print_rebuild_human(result, rebuild_result, total_rebuilt, qdrant, qdrant_f
     unknown = rebuild_result.get("goals_status_unknown", 0)
     if unknown:
         print(f"   ⚠ {unknown} goal(s) rebuilt with status unknown (notes do not record completion)")
+    if rebuild_result.get("visibility_restored"):
+        print(f"   visibility: {rebuild_result['visibility_restored']} shared or public tags restored")
     if result.get("visibility_note"):
         print(f"   ⚠ {result['visibility_note']}")
     if qdrant and "qdrant" in result:

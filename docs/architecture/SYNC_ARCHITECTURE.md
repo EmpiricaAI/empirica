@@ -113,7 +113,7 @@ Artifacts come back under their own ids and creation times, with a resolved find
 
 It also restores decisions, assumptions, sources, a goal's tasks, the links between artifacts, falsifiers and lessons. It does not read the handoff or message notes, and calibration tables and reflex rows are not restored, except by the next mode.
 
-**Everything rebuilt is `local`** (kept off Cortex) except lessons, which keep their sharing policy: the notes carry no visibility. A practice that had shared artifacts stops sending them until they are re-tagged (`update-artifacts`, field `visibility`); the rebuild's output says so, on `sync-pull --rebuild` too.
+**Visibility comes back from its own notes.** Each POSTFLIGHT (and `doctor --reconcile-notes --apply`, in full) writes the shared and public tags as 256 shard notes, `empirica/visibility/<first two characters of the id>`, rewriting only a shard whose content changed; the rebuild applies them after every row is back. A row with no tag there is `local`, kept off Cortex, which covers anything tagged after the last export: re-tag it with `update-artifacts` (field `visibility`). Lessons keep their sharing policy. The rebuild's output says how many tags it restored, on `sync-pull --rebuild` too.
 
 - **`rebuild --qdrant`**: rebuild SQLite from notes first, then re-embed Qdrant.
 - **`rebuild --qdrant-only`**: re-embed Qdrant from the current SQLite and skip the notes import. This is the safe resync after direct SQL or bulk changes not yet persisted to notes; the default path would revert them, because notes win.

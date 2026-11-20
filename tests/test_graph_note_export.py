@@ -178,7 +178,12 @@ def test_doctor_reconcile_lists_and_exports_the_graph_notes(practice):
     db = SessionDatabase()
     try:
         _edge(db, "f1", "f2", "evidence", "2026-11-01 10:00:00")
-        assert gx.plan_graph_notes(db.conn, str(practice)) == {"edge_sources": 1, "falsifiers": 0, "lessons": 0}
+        assert gx.plan_graph_notes(db.conn, str(practice)) == {
+            "edge_sources": 1,
+            "falsifiers": 0,
+            "lessons": 0,
+            "visibility_tagged": 0,
+        }
         out = gx.export_graph_notes(db.conn, str(practice), full=True)
     finally:
         db.close()

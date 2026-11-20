@@ -5,6 +5,12 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A rebuild from the git notes restores shared and public tags.** Each POSTFLIGHT now writes artifacts' visibility to the notes (in 256 small shards, rewriting only what changed), and the rebuild applies it, so a rebuilt practice keeps sending what it had shared instead of everything coming back `local`. What was tagged after the last POSTFLIGHT still comes back `local`, and the rebuild says so.
+
 ## [1.17.13] - 2026-11-19
 
 ### Fixed
