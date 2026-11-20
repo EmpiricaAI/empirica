@@ -457,14 +457,26 @@ def export_graph_notes(conn, root: str, *, full: bool = False) -> dict:
         ("edges", lambda: export_edge_notes(conn, root, full=full)),
         ("falsifiers", lambda: export_falsifier_notes(conn, root, full=full)),
         ("lessons", lambda: export_lesson_notes(conn, root, full=full)),
-        ("visibility", lambda: export_visibility_notes(conn, root, full=full)),
     ):
         try:
             out[name] = run()
         except Exception as e:  # one part failing must not stop the others
             logger.warning("notes export (%s) failed: %s", name, e)
             out[name] = {"error": f"{type(e).__name__}: {e}"}
+    if visibility_notes_enabled():
+        try:
+            out["visibility"] = export_visibility_notes(conn, root, full=full)
+        except Exception as e:
+            logger.warning("notes export (visibility) failed: %s", e)
+            out["visibility"] = {"error": f"{type(e).__name__}: {e}"}
     return out
+
+
+def visibility_notes_enabled() -> bool:
+    """Off by default in 1.17.14 (goal 4b4e16d3, third pass): two machines syncing notes both write the same shard ref, and
+    core never merges notes, so every later sync-push/pull on both is refused as non-fast-forward. EMPIRICA_VISIBILITY_NOTES=1
+    turns the export on for a single-machine practice; the rebuild reads any shard notes that exist either way."""
+    return os.environ.get("EMPIRICA_VISIBILITY_NOTES", "").strip() == "1"
 
 
 def plan_graph_notes(conn, root: str) -> dict:

@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A read-only `sqlite3` with a display setting is no longer refused.** The Sentinel counted `sqlite3 db ".timer on" "SELECT …"` (and `.headers`, `.nullvalue`, `.echo`, `.show`, `.eqp` and similar) as a change; those settings write nothing. `.shell`, `.output`, `.read` and the other dot-commands that write or run something are still refused.
 - **Signing in no longer breaks a `credentials.json`.** `auth login` saves the Cortex URL it used, and that writer, like the ntfy one fixed in 1.17.12, wrote YAML into a JSON credentials file; every credentials writer now goes through the one that keeps the file's format.
-- **A rebuild from the git notes restores shared and public tags.** Each POSTFLIGHT now writes artifacts' visibility to the notes (in 256 small shards, rewriting only what changed), and the rebuild applies it, so a rebuilt practice keeps sending what it had shared instead of everything coming back `local`. What was tagged after the last POSTFLIGHT still comes back `local`, and the rebuild says so.
+- **A rebuild can restore shared and public tags, on one machine.** With `EMPIRICA_VISIBILITY_NOTES=1`, each POSTFLIGHT writes artifacts' visibility to the notes (in 256 small shards, rewriting only what changed), and the rebuild applies it. It is off by default: two machines syncing the same notes would both write the same shards and refuse each other's sync, which a later release fixes. Without it a rebuild brings artifacts back `local`, and says so.
 
 ## [1.17.13] - 2026-11-19
 

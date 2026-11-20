@@ -80,10 +80,14 @@ def test_the_shards_follow_the_id_prefix_and_a_garbage_note_is_ignored(practice)
     assert gx.discover_visibility_notes(str(practice)) == {"y": "shared"}  # only tiers that exist
 
 
-def test_the_full_export_and_the_plan_include_visibility(practice):
+def test_the_export_is_off_unless_asked_for_because_two_machines_would_collide(practice, monkeypatch):
+    """1.17.14 third pass: two machines syncing notes both wrote the same shard ref and every later sync was refused."""
     db = SessionDatabase()
     try:
         _finding(db, "shared")
+        monkeypatch.delenv("EMPIRICA_VISIBILITY_NOTES", raising=False)
+        assert "visibility" not in gx.export_graph_notes(db.conn, str(practice), full=True)
+        monkeypatch.setenv("EMPIRICA_VISIBILITY_NOTES", "1")
         assert "visibility" in gx.export_graph_notes(db.conn, str(practice), full=True)
         assert gx.plan_graph_notes(db.conn, str(practice))["visibility_tagged"] == 1
     finally:

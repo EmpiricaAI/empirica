@@ -2019,9 +2019,9 @@ def _rebuild_reflexes_only(args, output_format: str) -> int:
 
 
 REBUILD_VISIBILITY_NOTE = (
-    "shared and public tags come back from the visibility notes, which each POSTFLIGHT (and doctor --reconcile-notes "
-    "--apply) writes; anything tagged after the last of those comes back local, kept off Cortex. Re-tag it with "
-    "update-artifacts (visibility shared). Lessons keep their sharing policy."
+    "shared and public tags come back only from visibility notes, which are written when EMPIRICA_VISIBILITY_NOTES=1 (off "
+    "by default); everything else comes back local, kept off Cortex. Re-tag it with update-artifacts (visibility "
+    "shared). Lessons keep their sharing policy."
 )
 
 
