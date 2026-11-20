@@ -27,9 +27,48 @@ def handle_log_token_saving(args):
         print(f"✅ Token saving logged: {args.tokens} tokens saved ({args.type})")
 
 
+def _print_usage_census(out: dict) -> None:
+    c, s, a = out["commands"], out["skills"], out["aliases"]
+    print(
+        f"\n📊 Empirica usage, last {out['window_days']} days ({out['transcripts']} Claude Code sessions on this machine)"
+    )
+    print(
+        f"   Commands: {len(c['used'])} of {c['total']} used; {len(c['unused'])} unused; {len(c['rare'])} used 1-3 times"
+    )
+    print("   Most used: " + ", ".join(f"{k} {v}" for k, v in list(c["used"].items())[:10]))
+    for name in c["unused"]:
+        refs = c["references"].get(name) or []
+        print(
+            f"   unused: {name}"
+            + (f"  (named in {len(refs)} file(s), e.g. {refs[0]})" if refs else "  (nothing names it)")
+        )
+    print(f"   Aliases: {len(a['unused'])} of {a['total']} unused")
+    print(
+        f"   Skills: {len(s['loaded'])} of {s['shipped']} loaded; never loaded: {', '.join(s['never_loaded']) or 'none'}"
+    )
+    if out.get("artifacts"):
+        print("   Artifacts logged here: " + ", ".join(f"{k} {v}" for k, v in out["artifacts"].items()))
+    print(f"   ⚠ {out['limits']}")
+
+
 def handle_efficiency_report(args):
-    """Show token efficiency report for session"""
+    """The usage census (goal cfc94d52), or with --session-id a session's token-savings report."""
     from empirica.data.session_database import SessionDatabase
+
+    if not getattr(args, "session_id", None):
+        from empirica.core.usage_census import census
+
+        conn = None
+        try:
+            conn = SessionDatabase().conn
+        except Exception:  # outside a practice: the census still reads the transcripts
+            conn = None
+        out = census(days=getattr(args, "days", 30) or 30, conn=conn)
+        if args.output == "json":
+            print(json.dumps(out, indent=2))
+        else:
+            _print_usage_census(out)
+        return 0
 
     db = SessionDatabase()
     savings = db.get_session_token_savings(args.session_id)

@@ -22,8 +22,15 @@ def add_utility_parsers(subparsers):
     log_token_saving_parser.add_argument("--evidence", required=True, help="What was avoided/reused")
     log_token_saving_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
-    efficiency_report_parser = subparsers.add_parser("efficiency-report", help="Show token efficiency report")
-    efficiency_report_parser.add_argument("--session-id", required=True, help="Session ID")
+    efficiency_report_parser = subparsers.add_parser(
+        "efficiency-report",
+        help="What Empirica gets used for: commands run, skills loaded and artifacts logged over a window, and what was never "
+        "used (the census behind /capability-review). With --session-id, a session's token-savings report instead",
+    )
+    efficiency_report_parser.add_argument(
+        "--session-id", help="Show this session's token-savings report instead of the usage census"
+    )
+    efficiency_report_parser.add_argument("--days", type=int, default=30, help="Census window in days (default 30)")
     efficiency_report_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
     # Qdrant maintenance commands
