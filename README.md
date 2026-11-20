@@ -439,21 +439,18 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.17.14
+## What's New in 1.17.15
 
-- `/capability-review`: what Empirica provides, what gets used, and what should change
-- `empirica efficiency-report` is now the usage census:
-- Deprecated commands are announced before they go
-- 28 command aliases and three commands go away in 1.17.15
-- A read-only `sqlite3` with a display setting is no longer refused
-- Signing in no longer breaks a `credentials.json`
+- The 31 deprecated command names go away in 1.18.0, not 1.17.15,
+- Visibility notes are written per machine
+- If you opted in on 1.17.14,
 
-Plus 1 more entry in the [CHANGELOG](CHANGELOG.md).
+The full entry is in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.17.14** — `/capability-review`: what Empirica provides, what gets used, and what should change
 - **1.17.13** — A rebuild from the git notes no longer turns goals `shared`
-- **1.17.12** — `local` means kept off Cortex, and now holds everywhere
 
 ## What's Coming
 
