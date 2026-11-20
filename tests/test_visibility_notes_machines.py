@@ -99,3 +99,25 @@ def test_the_export_is_off_unless_asked_for(monkeypatch):
     assert gx.visibility_notes_enabled() is False
     monkeypatch.setenv("EMPIRICA_VISIBILITY_NOTES", "1")
     assert gx.visibility_notes_enabled() is True
+
+
+def test_a_1_17_14_opt_in_user_who_withdraws_a_share_after_upgrading_keeps_it_local(practice, monkeypatch):
+    """1.17.15 second pass: the 1.17.14 export record matched, so the first per-machine export wrote nothing, the withdrawal
+    had no entry to override and the flat note kept the share. The record is now per machine: the first export is full."""
+    import json as _json
+
+    monkeypatch.setattr(gx, "machine_name", lambda: "alpha-abc123")
+    db = SessionDatabase()
+    try:
+        fid = _finding(db, "shared", "ab000000-0000-0000-0000-000000000005")
+        # What 1.17.14 left behind: a flat note and its export record.
+        gx._write_note(str(practice), f"{gx.VISIBILITY_PREFIX}/ab", {"tiers": {fid: "shared"}})
+        digest = __import__("hashlib").sha256(_json.dumps({fid: "shared"}, sort_keys=True).encode()).hexdigest()[:16]
+        gx._save_watermark(str(practice), "visibility", {"ab": digest})
+        assert gx.export_visibility_notes(db.conn, str(practice))["written"] == 1
+        db.conn.execute("UPDATE project_findings SET visibility = 'local' WHERE id = ?", (fid,))
+        db.conn.commit()
+        gx.export_visibility_notes(db.conn, str(practice))
+    finally:
+        db.close()
+    assert gx.discover_visibility_notes(str(practice))[fid] == "local"

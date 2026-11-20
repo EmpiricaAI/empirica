@@ -447,7 +447,10 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
 
     machine = machine_name()
     shards = _visibility_shards(conn)
-    previous = dict(_watermarks(root).get("visibility") or {})
+    # Per machine: 1.17.14 kept one record for its flat layout, and matching it skipped this machine's first export,
+    # so a later withdrawal had no entry to override (1.17.15 second pass). A new name starts with a full export.
+    record = f"visibility:{machine}"
+    previous = dict(_watermarks(root).get(record) or {})
     everything = full or not previous
     candidates = set(shards) | set(previous) | (_existing_visibility_shards(root, machine) if everything else set())
     held: set[str] | None = None
@@ -479,7 +482,7 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
         else:
             failed += 1
             current[shard] = previous.get(shard, "")  # retried next time
-    _save_watermark(root, "visibility", {k: v for k, v in current.items() if v})
+    _save_watermark(root, record, {k: v for k, v in current.items() if v})
     return {"written": written, "failed": failed, "shards": len(shards)}
 
 
