@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.17.13-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.17.13)
+[![Version](https://img.shields.io/badge/version-1.17.14-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.17.14)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.11.5%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -133,13 +133,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.17.13-alpine
+docker pull nubaeon/empirica:1.17.14-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.17.13
+docker pull nubaeon/empirica:1.17.14
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.17.13 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.17.14 /bin/bash
 ```
 </details>
 
@@ -490,6 +490,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.17.13
+**Version:** 1.17.14
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*
