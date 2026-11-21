@@ -157,6 +157,18 @@ _COMPLEX_WORK = re.compile(
 )
 
 
+#: What makes a prompt planned work for the Sentinel (no out-of-loop budget): a request to plan, specify, implement or break
+#: down work. Not Empirica's vocabulary: transaction, preflight, artifact and epistemic are in nearly every prompt here, and
+#: with them 29% of typed prompts lost the budget, 19% for those words alone (14 days on one machine, goal b55139fd: David,
+#: "I still don't see the trivial tasks not requiring a transaction"). "complex" describes work rather than asking for a
+#: plan. _COMPLEX_WORK keeps the wide list for the /epistemic-transaction nudge, which only suggests.
+_PLAN_REQUEST = re.compile(
+    r"\b(?:plan|plans|planning|implement|implementation|implementing|spec|specs|specification|decompose|multi-step)\b"
+    r"|break this down|how should i approach",
+    re.IGNORECASE,
+)
+
+
 def _mark_plan_shaped(prompt: str, claude_session_id: str | None = None, cwd: str | None = None) -> None:
     """Keep the Sentinel's plan-shaped flag in step with the latest prompt (core/sentinel_discipline.py, goal 543fd1c6): in
     discipline mode, planned or multi-step work gets no out-of-loop budget. Loaded by file path; never raises."""
@@ -177,7 +189,7 @@ def _mark_plan_shaped(prompt: str, claude_session_id: str | None = None, cwd: st
         # The practice found the way the gate finds it (decision_record.project_path_for), so the mark and the ledger share
         # a key when there is no instance id (goal c6a1fdca).
         root = module._decision_record().project_path_for(claude_session_id, cwd or os.getcwd())
-        module.mark_plan_shaped(InstanceResolver.instance_suffix(), bool(_COMPLEX_WORK.search(prompt)), root)
+        module.mark_plan_shaped(InstanceResolver.instance_suffix(), bool(_PLAN_REQUEST.search(prompt)), root)
     except Exception:
         pass
 
