@@ -181,7 +181,7 @@ Which embedding model suits which hardware, and how to change it:
 pip install empirica
 
 # Specific version
-pip install empirica==1.17.15
+pip install empirica==1.17.16
 
 # Upgrade to latest
 pip install --upgrade empirica
@@ -196,13 +196,13 @@ brew install empirica
 ### Option 3: Docker
 ```bash
 # Standard image
-docker pull nubaeon/empirica:1.17.15
+docker pull nubaeon/empirica:1.17.16
 
 # Security-hardened Alpine (recommended)
-docker pull nubaeon/empirica:1.17.15-alpine
+docker pull nubaeon/empirica:1.17.16-alpine
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.17.15 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.17.16 /bin/bash
 ```
 
 ### Option 4: From Source
