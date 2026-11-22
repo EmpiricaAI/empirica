@@ -154,6 +154,24 @@
       "status": "verified_current",
       "reason": "Read 2026-11-12 and checked against HEAD: the four verbs (emit, config, backends, test) and every emit flag in the doc match `empirica notify --help` / `notify emit --help`; ~/.empirica/notify.yaml is the config the parser names; the three backends (stdout, log, ntfy) exist in empirica/core/notify/backends.py; the cockpit summary still carries the notify_dispatcher block.",
       "decided_by": "empirica (2026-11-12, 1.16.x)"
+    },
+    "docs/architecture/SECURITY_AUDIT.md": {
+      "status": "pending_review",
+      "reason": "Subject live: `empirica security-audit` answers --help with the flags the doc's Phase 1 describes (--project-root, --refresh-feeds, --output). Content not read against the code this pass.",
+      "decided_by": "empirica (2026-11-22, crossed 180 days during the 1.17.16 pre-publish)",
+      "review_by": "2027-01-31"
+    },
+    "docs/reference/api/data_infrastructure.md": {
+      "status": "pending_review",
+      "reason": "Subject live: empirica.data imports. Classes, methods and signatures the doc names were not checked against the code this pass.",
+      "decided_by": "empirica (2026-11-22, crossed 180 days during the 1.17.16 pre-publish)",
+      "review_by": "2027-01-31"
+    },
+    "docs/reference/api/metrics.md": {
+      "status": "pending_review",
+      "reason": "Subject live: the two modules it documents, empirica.metrics.flow_state and empirica.metrics.token_efficiency, are the only ones in the package and both import. Their APIs were not checked against the doc this pass.",
+      "decided_by": "empirica (2026-11-22, crossed 180 days during the 1.17.16 pre-publish)",
+      "review_by": "2027-01-31"
     }
   }
 }

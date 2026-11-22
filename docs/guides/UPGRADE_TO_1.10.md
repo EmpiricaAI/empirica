@@ -175,4 +175,4 @@ or yanks 0.136.3.
 
 - [CHANGELOG.md](../../CHANGELOG.md) — full release notes
 - `/empirica-constitution` Section XIII (ships with the Cortex bundle) — Practice Model concept that the entity CLI backs
-- [UPGRADE_TO_1.9.md](./UPGRADE_TO_1.9.md) — prior major upgrade guide
+- The 1.9 upgrade guide is archived (history); see the CHANGELOG for 1.9.x.
