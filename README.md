@@ -439,18 +439,18 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.17.15
+## What's New in 1.17.16
 
-- The 31 deprecated command names go away in 1.18.0, not 1.17.15,
-- Visibility notes are written per machine
-- If you opted in on 1.17.14,
+- A visibility note whose first write failed is retried at the next export,
+- Mentioning a transaction, PREFLIGHT, artifacts or "epistemic" no longer turns off the out-of-transaction allowance for the whole prompt
+- Outside a transaction, read-only probes no longer use up the change budget, and `empirica note` and the other logging verbs run on any line
 
 The full entry is in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.17.15** — The 31 deprecated command names go away in 1.18.0, not 1.17.15,
 - **1.17.14** — `/capability-review`: what Empirica provides, what gets used, and what should change
-- **1.17.13** — A rebuild from the git notes no longer turns goals `shared`
 
 ## What's Coming
 
