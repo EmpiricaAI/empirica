@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A visibility note whose first write failed is retried at the next export,** not only at the next full one (with `EMPIRICA_VISIBILITY_NOTES=1`).
 - **Mentioning a transaction, PREFLIGHT, artifacts or "epistemic" no longer turns off the out-of-transaction allowance for the whole prompt.** A prompt counts as planned work when it asks to plan, specify, implement or break work down; before, those four words, which nearly every prompt in an Empirica practice uses, did it too. On one machine over 14 days, 29% of typed prompts lost the allowance, 19% for those words alone; now 9%.
 - **Outside a transaction, read-only probes no longer use up the change budget, and `empirica note` and the other logging verbs run on any line.** `uptime`, `nproc`, `top`, `pstree`, `pgrep`, `journalctl` (without its maintenance options), `tmux` list and show commands and arithmetic `$(( ))` are reads now; before, three of them spent the per-prompt budget and the fourth read was refused. A `*-log` verb, `note`, the batch artifact verbs, the `*-submit` verbs and the mailbox ack verbs next to anything else on a line were refused outright; they now run uncounted, while `setup`, `release`, `delete-artifacts` and other verbs are still judged as changes.
 

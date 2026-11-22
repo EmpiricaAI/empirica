@@ -446,6 +446,10 @@ def _read_shard(root: str, path: str) -> dict[str, list]:
         return {}
 
 
+#: The export record's value for a shard whose write failed: never a real digest, so the shard is rewritten next time.
+_RETRY = "retry"
+
+
 def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
     """Write this machine's visibility shard notes (goals ecea0fd4, 221679b1): empirica/visibility/<machine>/<shard>, each
     entry [tier, changed_at] for the ids this database holds as shared or public, and a tag moved back to local kept as
@@ -462,7 +466,9 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
     record = f"visibility:{machine}"
     marks = _watermarks(root)
     previous = dict(marks.get(record) or {})
-    everything = full or record not in marks  # an empty record is not a first export (1.17.15 second pass)
+    # An empty record is not a first export (1.17.15 second pass); a write that failed is retried by a full export, the only
+    # one that recomputes the 1.17.14 overrides (goal c29b6931).
+    everything = full or record not in marks or _RETRY in previous.values()
     candidates = set(shards) | set(previous) | (_existing_visibility_shards(root, machine) if everything else set())
     held: set[str] | None = None
     # A full export also overrides 1.17.14's flat notes (one shared set of refs) for ids this database holds as local but
@@ -511,7 +517,7 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
             written += 1
         else:
             failed += 1
-            current[shard] = previous.get(shard, "")  # retried next time
+            current[shard] = _RETRY  # kept in the record, so the next export retries it (goal c29b6931)
     _save_watermark(root, record, {k: v for k, v in current.items() if v})
     return {"written": written, "failed": failed, "shards": len(shards)}
 

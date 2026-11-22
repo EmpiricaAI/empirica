@@ -166,3 +166,25 @@ def test_the_legacy_override_never_beats_another_machines_entry(practice, monkey
     finally:
         db.close()
     assert gx.discover_visibility_notes(str(practice))[fid] == "shared"
+
+
+def test_a_shard_whose_first_write_failed_is_retried_by_the_next_incremental_export(practice, monkeypatch):
+    """Goal c29b6931: a shard with no previous digest got an empty one on a failed write and dropped out of the record; a
+    shard holding no shared tag of this database (here, the first export's override of a 1.17.14 note) was never a
+    candidate again until a full export."""
+    monkeypatch.setattr(gx, "machine_name", lambda: "alpha-abc123")
+    db = SessionDatabase()
+    try:
+        fid = _finding(db, "local", "cd000000-0000-0000-0000-000000000009")
+        _finding(db, "shared", "ef000000-0000-0000-0000-000000000010")  # so the record is not empty after the first run
+        gx._write_note(str(practice), f"{gx.VISIBILITY_PREFIX}/cd", {"tiers": {fid: "shared"}})
+        real = gx._write_note
+        monkeypatch.setattr(
+            gx, "_write_note", lambda root, ref, payload: False if ref.endswith("/cd") else real(root, ref, payload)
+        )
+        assert gx.export_visibility_notes(db.conn, str(practice))["failed"] == 1
+        monkeypatch.setattr(gx, "_write_note", real)
+        assert gx.export_visibility_notes(db.conn, str(practice))["written"] == 1
+    finally:
+        db.close()
+    assert gx.discover_visibility_notes(str(practice))[fid] == "local"
