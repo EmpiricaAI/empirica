@@ -188,3 +188,23 @@ def test_a_shard_whose_first_write_failed_is_retried_by_the_next_incremental_exp
     finally:
         db.close()
     assert gx.discover_visibility_notes(str(practice))[fid] == "local"
+
+
+def test_a_write_that_keeps_failing_stops_forcing_full_exports(practice, monkeypatch):
+    """1.17.16 sweep: a shard that always failed kept a retry marker forever, and every POSTFLIGHT ran a full export
+    (514 git calls, about 4.5 s, on 256 shards). After three failed full retries it is retried on its own."""
+    monkeypatch.setattr(gx, "machine_name", lambda: "alpha-abc123")
+    db = SessionDatabase()
+    flat_reads = []
+    try:
+        _finding(db, "shared", "ab000000-0000-0000-0000-000000000011")
+        real = gx._write_note
+        monkeypatch.setattr(
+            gx, "_write_note", lambda root, ref, payload: False if ref.endswith("/ab") else real(root, ref, payload)
+        )
+        monkeypatch.setattr(gx, "_flat_visibility_shards", lambda root: flat_reads.append(1) or [])
+        for _ in range(6):
+            assert gx.export_visibility_notes(db.conn, str(practice))["failed"] == 1
+    finally:
+        db.close()
+    assert len(flat_reads) == 4  # the first export, then three full retries

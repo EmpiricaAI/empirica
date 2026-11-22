@@ -135,3 +135,46 @@ def test_the_arithmetic_mask_is_linear_on_hostile_input():
     start = time.monotonic()
     _classes("echo " + "$((" * 8000)
     assert time.monotonic() - start < 2
+
+
+# ── 1.17.16 pre-publish sweep ───────────────────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "ssh host empirica note x",
+        "ssh host 'empirica mailbox reply --parent-id p --result shipped'",
+        "ssh host empirica goals-complete --goal-id g",
+    ],
+)
+def test_a_workflow_verb_on_a_remote_host_is_a_remote_change(command):
+    """The free path is for this practice's own record; on another machine it is a remote change (SENTINEL_GATE_REFERENCE)."""
+    answer = _judge(command)
+    assert not (answer["trivial"] and answer.get("read")), answer
+
+
+def test_a_remote_empirica_read_is_still_a_remote_read():
+    assert _judge("ssh host empirica goals-list")["read"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "date; empirica goals-complete --goal-id g --merge-branch",
+        "date; empirica goals-complete --goal-id g --delete-branch",
+        "date; empirica source-add --title t --media ./clip.mp4 --visibility shared",
+    ],
+)
+def test_workflow_verbs_with_git_or_upload_options_are_judged(command):
+    answer = _judge(command)
+    assert not (answer["trivial"] and answer.get("read")), answer
+
+
+def test_the_same_verbs_without_those_options_stay_free():
+    for command in (
+        "date; empirica goals-complete --goal-id g --reason done",
+        "date; empirica source-add --title t --url u",
+    ):
+        answer = _judge(command)
+        assert answer["trivial"] and answer.get("read"), (command, answer)

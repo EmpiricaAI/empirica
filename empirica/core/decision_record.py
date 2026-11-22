@@ -869,7 +869,10 @@ def _classify_other(
         remote = _ssh_remote_command(args)
         if not remote:
             return {"remote_exec"}, True  # an interactive shell: anything can happen there
-        inner = infer_shell_effects(remote, cwd=None, project_path=None, empirica_is_read=empirica_is_read)
+        # On another host only a real read is a read: a predicate that also frees this practice's workflow verbs says what
+        # reads only through .reads_only (1.17.16 sweep: `ssh host empirica note x` became a free remote read).
+        reads_only = getattr(empirica_is_read, "reads_only", empirica_is_read)
+        inner = infer_shell_effects(remote, cwd=None, project_path=None, empirica_is_read=reads_only)
         return ({"remote_read"} if not inner["classes"] else {"remote_exec"}), True
     if _positional(args)[:1] == ["publish"] or (program == "docker" and "push" in _positional(args)[:1]):
         return {"network_send"}, True  # poetry/hatch/flit publish, docker push (goal 6063a146)
@@ -891,7 +894,8 @@ def _classify_other(
         # positional word: never free (goal 329c014e review). --verbose and -v take none.
         lead = [a for a in args if a not in ("--verbose", "-v")]
         flag_first = bool(lead) and lead[0].startswith("-") and bool(words)
-        if not words or (not flag_first and empirica_is_read("empirica " + " ".join(words[:2]))):
+        # The whole call, options included, so a predicate can tell `goals-complete --merge-branch` from a plain close.
+        if not words or (not flag_first and empirica_is_read("empirica " + " ".join(lead))):
             return set(), True
         if words[0] in ("setup", "setup-claude-code") and {"--help", "-h", "--dry-run"} & set(args):
             return set(), True  # help and a dry run write nothing (sweep B3)

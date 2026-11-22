@@ -211,8 +211,13 @@ that runs code, holds secrets or instructs the agent when something else reads i
 `*.env`). `_PROTECTED_PARTS` and `_PROTECTED_NAMES` in `empirica/core/sentinel_discipline.py` are the full list.
 
 A shell command is judged by the effect `decision_record.infer_shell_effects` reads from its text (since 1.17.4). A read
-(including an ssh command that only reads) runs and is not counted. A plain local change (a write to practice files, an
-`empirica` artifact verb, `git add`/`commit`/`mv`, literal words only, no `cd` or `sudo`) and a command the classifier
+(including an ssh command that only reads) runs and is not counted, and so do this practice's own artifact and workflow
+verbs on any line (every `*-log` verb, `note`, `log-artifacts`, `resolve-artifacts`, `update-artifacts`, the three
+`*-submit` verbs, `goals-create`, `goals-add-task`, `goals-complete-task`, `goals-complete`, `unknown-resolve`,
+`finding-resolve`, `lesson-create`, `source-add`, `mailbox reply` and `mailbox archive`; `DISCIPLINE_FREE_VERBS` in the
+gate), unless `--merge-branch`, `--delete-branch` or `--media` makes one do more than record, and not on another host,
+where any change is a remote change. A plain local change (a write to practice files, another `empirica` verb,
+`git add`/`commit`/`mv`, literal words only, no `cd` or `sudo`) and a command the classifier
 cannot read (an unknown program, an interpreter, a substitution it cannot parse) are counted acts. Anything clearly outward
 or irreversible (a push, a publish, an install, a recursive delete, a remote command that changes something, a network
 send, a write outside the practice or into a protected file) needs a transaction. The Sentinel is discipline, not
@@ -225,9 +230,9 @@ have run for one prompt the next is refused with what was already changed and a 
 reports the whole ledger, from every prompt since the last transaction, as `prior_untracked`, keeps it in the transaction
 file, and only then clears it. When the call's
 practice cannot be found, every write counts as outside it. Planned work gets no budget at all: when the latest prompt
-contains a planning word (plan, planning, implement, implementation, spec, specification, transaction, preflight,
-artifact, epistemic, decompose, complex, multi-step, "break this down", "how should I approach"; matched as whole
-words), or since that prompt the session entered plan mode, created two or more tasks (TaskCreate) or wrote a TodoWrite
+asks for planned work (plan, planning, implement, implementation, spec, specification, decompose, multi-step, "break
+this down", "how should I approach"; matched as whole words; Empirica's own vocabulary such as transaction, preflight,
+artifact or epistemic does not count), or since that prompt the session entered plan mode, created two or more tasks (TaskCreate) or wrote a TodoWrite
 of two or more items, a change outside a transaction is refused.
 
 | Setting | Values | Default |

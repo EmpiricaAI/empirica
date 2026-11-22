@@ -1306,17 +1306,29 @@ def empirica_command_only_reads(cmd: str) -> bool:
 
 def empirica_command_free_in_discipline(cmd: str) -> bool:
     """Is this empirica command free outside a transaction, in discipline mode's judgement of a whole line? Reads, and the
-    artifact and workflow verbs (DISCIPLINE_FREE_VERBS and every *-log verb). Matched on whole verb tokens, so `empirica
-    notebook` is not `empirica note`. Before goal 329c014e a workflow verb beside any other statement went to the judge as a change it could
-    not read, and the line was refused: David, 2026-11-20, "its also gating empirica commands like notes"."""
+    artifact and workflow verbs (DISCIPLINE_FREE_VERBS and every *-log verb), unless an option makes the verb do more than
+    record (DISCIPLINE_JUDGED_OPTIONS). Matched on whole verb tokens, so `empirica notebook` is not `empirica note`. Before
+    goal 329c014e a workflow verb beside any other statement went to the judge as a change it could not read, and the line
+    was refused: David, 2026-11-20, "its also gating empirica commands like notes"."""
     if empirica_command_only_reads(cmd):
         return True
     tokens = cmd.split()
     if len(tokens) < 2 or tokens[0] != "empirica":
         return False
+    if any(t.split("=", 1)[0] in DISCIPLINE_JUDGED_OPTIONS for t in tokens[2:]):
+        return False
     return (
         tokens[1].endswith("-log") or tuple(tokens[1:3]) in DISCIPLINE_FREE_VERBS or tokens[1] in DISCIPLINE_FREE_VERBS
     )
+
+
+#: What reads only, for a call made on another host: the decision record's ssh branch asks this, since a workflow verb
+#: there changes another machine (1.17.16 sweep).
+empirica_command_free_in_discipline.reads_only = empirica_command_only_reads  # type: ignore[attr-defined]
+
+#: Options that make a free workflow verb do more than record: git merges and branch deletes (goals-complete), and an
+#: upload to Cortex (source-add --media). A call carrying one is judged as a change (1.17.16 sweep).
+DISCIPLINE_JUDGED_OPTIONS = {"--merge-branch", "--delete-branch", "--media"}
 
 
 #: The artifact and workflow verbs discipline mode lets run on any line outside a transaction (goal 329c014e): they record

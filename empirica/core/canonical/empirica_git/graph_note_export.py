@@ -446,8 +446,19 @@ def _read_shard(root: str, path: str) -> dict[str, list]:
         return {}
 
 
-#: The export record's value for a shard whose write failed: never a real digest, so the shard is rewritten next time.
-_RETRY = "retry"
+#: The export record's value for a shard whose write failed, ``retry:<failures>``: never a real digest, so the shard is
+#: rewritten next time. Up to _RETRY_FULL failures it forces a full export (the only kind that recomputes the 1.17.14
+#: overrides); after that the shard is retried on its own, so a write that always fails does not make every POSTFLIGHT a
+#: full export (1.17.16 sweep: 514 git calls, about 4.5 s, on 256 shards).
+_RETRY = "retry:"
+_RETRY_FULL = 3
+
+
+def _failures(value) -> int:
+    try:
+        return int(str(value)[len(_RETRY) :]) if str(value).startswith(_RETRY) else 0
+    except ValueError:
+        return 1
 
 
 def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
@@ -468,7 +479,7 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
     previous = dict(marks.get(record) or {})
     # An empty record is not a first export (1.17.15 second pass); a write that failed is retried by a full export, the only
     # one that recomputes the 1.17.14 overrides (goal c29b6931).
-    everything = full or record not in marks or _RETRY in previous.values()
+    everything = full or record not in marks or any(0 < _failures(v) <= _RETRY_FULL for v in previous.values())
     candidates = set(shards) | set(previous) | (_existing_visibility_shards(root, machine) if everything else set())
     held: set[str] | None = None
     # A full export also overrides 1.17.14's flat notes (one shared set of refs) for ids this database holds as local but
@@ -517,7 +528,7 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
             written += 1
         else:
             failed += 1
-            current[shard] = _RETRY  # kept in the record, so the next export retries it (goal c29b6931)
+            current[shard] = f"{_RETRY}{_failures(previous.get(shard)) + 1}"  # retried next time (goal c29b6931)
     _save_watermark(root, record, {k: v for k, v in current.items() if v})
     return {"written": written, "failed": failed, "shards": len(shards)}
 
