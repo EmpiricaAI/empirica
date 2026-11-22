@@ -164,6 +164,9 @@ def test_a_remote_empirica_read_is_still_a_remote_read():
         "date; empirica goals-complete --goal-id g --merge-branch",
         "date; empirica goals-complete --goal-id g --delete-branch",
         "date; empirica source-add --title t --media ./clip.mp4 --visibility shared",
+        "empirica goals-complete --goal-id g --m --del; true",
+        "date; empirica source-add --title t --med ./clip.mp4 --visibility shared",
+        "date; empirica goals-complete --goal-id g --merge=yes",
     ],
 )
 def test_workflow_verbs_with_git_or_upload_options_are_judged(command):
