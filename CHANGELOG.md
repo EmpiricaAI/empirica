@@ -5,6 +5,12 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`release.py --prepare` stops when CI failed on the release commit.** A failed run used to fall through to a local test run, which could pass where CI had not; only a CI run that is missing or still running falls back to it now.
+
 ## [1.17.17] - 2026-11-23
 
 ### Fixed

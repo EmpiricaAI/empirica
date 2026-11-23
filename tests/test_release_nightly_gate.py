@@ -102,4 +102,4 @@ def test_prepare_calls_the_gate_unless_it_was_skipped():
     src = RELEASE_PY.read_text()
     prepare = src[src.index("def run_prepare") :]
     assert "run_nightly_checks()" in prepare and "skip_nightly" in prepare
-    assert prepare.index("run_nightly_checks()") < prepare.index("_develop_ci_green()")
+    assert prepare.index("run_nightly_checks()") < prepare.index("_develop_ci_state()")

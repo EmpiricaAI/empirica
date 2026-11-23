@@ -2498,19 +2498,17 @@ brew install empirica
             warning(f"Auto-issue check failed: {e}. Skipping gate.")
             return True
 
-    def _develop_ci_green(self) -> bool:
-        """True iff develop's latest CI run is a completed success for the
-        release commit (self.develop_head).
+    def _develop_ci_state(self) -> tuple[str, str]:
+        """("green" | "red" | "unknown", detail) for the CI workflow on the release commit (self.develop_head).
 
-        The full pytest suite is the release gate — but re-running it in
-        --prepare duplicates the run develop CI already did on the exact same
-        commit (nothing changes between the develop bump and the main merge).
-        When that CI is green we can trust it and skip the ~12min re-run (the
-        fast gates still run). Best-effort: any gh/parse failure returns False
-        so we fall back to running the full suite (safe default).
+        The full pytest suite is the release gate. Green: develop CI already ran it on this exact commit, so --prepare
+        trusts it and skips the ~12 min re-run (the fast gates still run). Red: CI failed on this commit, which a local run
+        cannot overrule (1.17.17: a test that failed on CI's filesystem passed locally and --prepare said "Ready to
+        Publish"; goal 7315d65f). Unknown (no run yet, in progress, gh unavailable): fall back to running the suite here.
+        Reads the recent develop runs, not only the newest, so a later push does not hide this commit's result.
         """
         if not self.develop_head:
-            return False
+            return "unknown", "no release commit"
         try:
             res = subprocess.run(
                 [
@@ -2520,9 +2518,9 @@ brew install empirica
                     "--branch",
                     "develop",
                     "--limit",
-                    "1",
+                    "20",
                     "--json",
-                    "headSha,status,conclusion,workflowName",
+                    "headSha,status,conclusion,workflowName,databaseId",
                 ],
                 capture_output=True,
                 text=True,
@@ -2530,20 +2528,28 @@ brew install empirica
                 cwd=str(self.repo_root),
             )
             if res.returncode != 0 or not res.stdout.strip():
-                return False
+                return "unknown", "gh run list failed"
             import json as _json
 
-            runs = _json.loads(res.stdout)
-            if not runs:
-                return False
-            r = runs[0]
-            return (
-                r.get("status") == "completed"
-                and r.get("conclusion") == "success"
-                and str(r.get("headSha", "")).startswith(self.develop_head[:12])
-            )
-        except Exception:
-            return False
+            runs = [
+                r
+                for r in _json.loads(res.stdout)
+                if r.get("workflowName") == "CI" and str(r.get("headSha", "")).startswith(self.develop_head[:12])
+            ]
+        except Exception as e:
+            return "unknown", f"could not read CI: {e}"
+        if not runs:
+            return "unknown", "no CI run for this commit yet"
+        latest = runs[0]
+        if latest.get("status") != "completed":
+            return "unknown", f"CI run {latest.get('databaseId')} is {latest.get('status')}"
+        if latest.get("conclusion") == "success":
+            return "green", f"CI run {latest.get('databaseId')}"
+        return "red", f"CI run {latest.get('databaseId')} concluded {latest.get('conclusion')}"
+
+    def _develop_ci_green(self) -> bool:
+        """True iff CI is green for the release commit (kept for callers that only need that)."""
+        return self._develop_ci_state()[0] == "green"
 
     def run_prepare(self):
         """Prepare release: merge to main, build, test. Does NOT publish.
@@ -2647,9 +2653,16 @@ brew install empirica
             # skip the ~12min re-run (fast gates above still ran). This keeps the
             # release un-reap-prone on environments that can't sustain a long run.
             # Falls through to the full re-run when CI isn't green/unknown.
+            ci_state, ci_detail = self._develop_ci_state()
+            if ci_state == "red":
+                # A failure on CI is evidence a local run cannot overrule (goal 7315d65f).
+                error_soft(f"develop CI failed for this commit ({self.develop_head[:8]}): {ci_detail}.")
+                warning("Fix it on develop and run --prepare again on the new commit. You are on the 'main' branch.")
+                warning("To go back: git checkout develop")
+                sys.exit(1)
             if self.skip_tests:
                 info("⏭  Skipping the full pytest re-run (--skip-tests) — relying on develop CI for the full suite.")
-            elif self._develop_ci_green():
+            elif ci_state == "green":
                 success(
                     f"develop CI is green for this commit ({self.develop_head[:8]}) — skipping the redundant full-suite re-run."
                 )
