@@ -478,8 +478,10 @@ def test_run_all_checks_returns_complete_list(all_checks):
     assert "Deployed plugin fresh" in names
 
 
-def test_run_all_checks_count_is_47(all_checks):
-    """+1 for check_engagement_registry_drift (engagement dual-write, 1.13.23).
+def test_run_all_checks_count_is_48(all_checks):
+    """+1 for check_visibility_notes (a visibility rebuild that never finished stalls every
+       visibility export silently; goal 38510fdd, third review).
+    +1 for check_engagement_registry_drift (engagement dual-write, 1.13.23).
     +1 for check_cli_matches_checkout (CLI/checkout skew the version cannot see).
     +1 for check_plugin_freshness (deployed plugin copy vs package version).
     +1 for check_notes_sqlite_divergence (gardening reached sqlite only; notes
@@ -538,7 +540,8 @@ def test_run_all_checks_count_is_47(all_checks):
     thinking about the suite" — when it fires, update it deliberately (and add
     the name assertion below), never by pasting the new number blind."""
     checks = all_checks
-    assert len(checks) == 47
+    assert len(checks) == 48
+    assert any(c.name == "Visibility notes" for c in checks)
     assert any(c.name == "Semantic search (Qdrant + embeddings)" for c in checks)
     assert any(c.name == "Sentinel mode" for c in checks)
     # The tripwire earns its keep only if the NEW check is named. A bumped

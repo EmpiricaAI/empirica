@@ -652,20 +652,25 @@ def _merge_visibility_notes(remote: str) -> tuple[bool, str]:
     a ref missing here, equal, or an ancestor of the fetched one. This writer's own refs are never taken (only it writes
     them), and a ref ahead here (a worktree sharing this ref store exported, or an old writer id not yet pushed) is kept
     rather than refused, so a pull is never refused by its own notes (goal 38510fdd review). (ok, error)."""
-    from empirica.core.canonical.empirica_git.graph_note_export import current_writer
+    from empirica.core.canonical.empirica_git.graph_note_export import mark_for_rewrite, push_writers
 
     root = _get_workspace_root()
 
     def git(*args, timeout=60):
         return subprocess.run(["git", *args], capture_output=True, cwd=root, text=True, timeout=timeout)
 
+    stale = git("for-each-ref", "--format=delete %(refname)", _VISIBILITY_INCOMING)  # left by an earlier failed merge
+    if stale.stdout.strip():
+        subprocess.run(["git", "update-ref", "--stdin"], input=stale.stdout, capture_output=True, cwd=root, text=True)
     fetched = git("fetch", remote, f"+refs/notes/empirica/visibility/*:{_VISIBILITY_INCOMING}*")
     error = "" if fetched.returncode == 0 or "no matching refs" in fetched.stderr.lower() else fetched.stderr.strip()
     incoming = git("for-each-ref", "--format=%(objectname) %(refname)", _VISIBILITY_INCOMING)
     local = git("for-each-ref", "--format=%(objectname) %(refname)", "refs/notes/empirica/visibility/")
     here = dict(reversed(line.split(" ", 1)) for line in local.stdout.splitlines() if " " in line)
-    writer = current_writer(root)
+    own = push_writers(root)
     updates: list[str] = []
+    rewrite: set[str] = set()
+    diverged = 0
     for line in incoming.stdout.splitlines():
         if " " not in line:
             continue
@@ -673,19 +678,25 @@ def _merge_visibility_notes(remote: str) -> tuple[bool, str]:
         name = ref[len(_VISIBILITY_INCOMING) :]
         target = f"refs/notes/empirica/visibility/{name}"
         updates.append(f"delete {ref}")
-        if writer and name.startswith(f"{writer}/"):
-            continue
         mine = here.get(target)
-        if mine == oid:
-            continue
-        if mine is None or git("merge-base", "--is-ancestor", mine, oid).returncode == 0:
-            updates.append(f"update {target} {oid}")
+        if mine == oid or (mine and git("merge-base", "--is-ancestor", oid, mine).returncode == 0):
+            continue  # the same, or ahead here (unpushed, or a worktree sharing this ref store)
+        if mine and git("merge-base", "--is-ancestor", mine, oid).returncode != 0:
+            # Diverged: only the writer writes its namespace, so the remote's history stands; if it is this checkout's
+            # own, its state is written again on top at the next export (goal 38510fdd, third review).
+            diverged += 1
+            if any(name.startswith(f"{w}/") for w in own):
+                rewrite.add(name.rsplit("/", 1)[-1])
+        updates.append(f"update {target} {oid}")
     if updates:
         applied = subprocess.run(
             ["git", "update-ref", "--stdin"], input="\n".join(updates) + "\n", capture_output=True, cwd=root, text=True
         )
         if applied.returncode != 0:
             error = error or applied.stderr.strip()
+    mark_for_rewrite(root, rewrite)
+    if diverged and not error:
+        return True, f"{diverged} visibility note(s) had diverged and were replaced by the remote's"
     return not error, error[:300]
 
 
@@ -696,10 +707,9 @@ def _pushes_visibility_ref(ref: str) -> bool:
     prefix = "refs/notes/empirica/visibility/"
     if not ref.startswith(prefix):
         return True
-    from empirica.core.canonical.empirica_git.graph_note_export import current_writer
+    from empirica.core.canonical.empirica_git.graph_note_export import push_writers
 
-    writer = current_writer(_get_workspace_root())
-    return bool(writer) and ref.startswith(f"{prefix}{writer}/")
+    return any(ref.startswith(f"{prefix}{writer}/") for writer in push_writers(_get_workspace_root()))
 
 
 def _push_one(remote: str, specs: list[str], timeout: int) -> tuple[bool, str]:
@@ -1910,16 +1920,17 @@ def _rebuild_edges(db, rebuilt, root: str | None = None) -> None:
     db.adapter.conn.commit()
 
 
-def _rebuild_visibility(db, rebuilt, root: str | None = None, held_before: set[str] | None = None) -> None:
+def _rebuild_visibility(
+    db, rebuilt, root: str | None = None, held_before: set[str] | None = None, after_crash: bool = False
+) -> None:
     """Shared and public tags from the visibility shard notes (goal ecea0fd4), applied after every row is restored; a row
     with no tag in them stays local. Ids are unique across the artifact tables, so each is tried until one row matches."""
-    import os
 
     from empirica.core.canonical.empirica_git.graph_note_export import apply_visibility_notes
 
     rebuilt.setdefault("visibility_restored", 0)
     rebuilt["visibility_restored"] += apply_visibility_notes(
-        db.adapter.conn, root or os.getcwd(), held_before=held_before
+        db.adapter.conn, root or _get_workspace_root(), held_before=held_before, after_crash=after_crash
     )
 
 
@@ -2000,13 +2011,11 @@ def _rebuild_from_notes() -> dict[str, Any]:
         from empirica.core.canonical.empirica_git.graph_note_export import _held_ids
 
         held_before = _held_ids(db.adapter.conn)  # rows that existed before this rebuild (goal 38510fdd review)
-        import os
 
         from empirica.core.canonical.empirica_git.graph_note_export import rebuild_started
 
-        rebuild_started(
-            os.getcwd()
-        )  # cleared by the visibility step; an export in between would read shares as withdrawn
+        # Cleared by the visibility step; an export in between would read shares as withdrawn. True: a rebuild crashed.
+        after_crash = rebuild_started(_get_workspace_root())
 
         finding_store = GitFindingStore()
         unknown_store = GitUnknownStore()
@@ -2044,7 +2053,7 @@ def _rebuild_from_notes() -> dict[str, Any]:
         _rebuild_edges(db, rebuilt)
         _rebuild_falsifiers(db, rebuilt)
         _rebuild_lessons(db, rebuilt)
-        _rebuild_visibility(db, rebuilt, held_before=held_before)  # last: every row it tags must already be back
+        _rebuild_visibility(db, rebuilt, held_before=held_before, after_crash=after_crash)  # last: every row is back
 
         db.close()
 

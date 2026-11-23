@@ -385,6 +385,23 @@ def _checkout_key(root: str) -> str:
         return ""
 
 
+def _writer_file(root: str) -> dict:
+    try:
+        data = json.loads((Path(root) / ".empirica" / WRITER_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def push_writers(root: str) -> list[str]:
+    """The writer ids whose visibility notes this checkout pushes: its current one and the ids it had before its writer
+    file got a new inode (restored from a backup, moved across filesystems), so notes it wrote under an earlier id and
+    never pushed still leave the machine; git pushes them only as fast-forwards (goal 38510fdd, third review)."""
+    data = _writer_file(root)
+    ids = [current_writer(root)] + [w for w in data.get("previous") or [] if isinstance(w, str)]
+    return [w for w in dict.fromkeys(ids) if w and _WRITER_RE.fullmatch(w)]
+
+
 def current_writer(root: str) -> str | None:
     """This checkout's visibility writer id, or None before its first export or when the file was made for another
     checkout (goal 38510fdd)."""
@@ -427,13 +444,28 @@ def _baseline_lock(root: str):
         handle.close()
 
 
-def rebuild_started(root: str) -> None:
+def rebuild_started(root: str) -> bool:
     """Mark a rebuild as under way: rows come back untagged before the visibility step sets them, and an export in
-    between would read every share as withdrawn. apply_visibility_notes clears it (goal 38510fdd, second review)."""
+    between would read every share as withdrawn. apply_visibility_notes clears it (goal 38510fdd, second review). True
+    when an earlier rebuild's marker was still there: that rebuild crashed, so this one passes ``after_crash`` and trusts
+    the notes for every row (third review)."""
     path = Path(root) / ".empirica" / REBUILD_MARKER
+    existed = path.exists()
     with contextlib.suppress(OSError):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(str(time.time()), encoding="utf-8")
+    return existed
+
+
+def visibility_health(root: str) -> dict:
+    """What doctor reports about this checkout's visibility notes: a rebuild marker left behind (visibility exports are
+    skipped until a rebuild finishes; run `empirica sync-pull --rebuild`), and the writer ids it pushes."""
+    marker = Path(root) / ".empirica" / REBUILD_MARKER
+    try:
+        age = time.time() - float(marker.read_text(encoding="utf-8").strip() or 0)
+    except (OSError, ValueError):
+        age = None
+    return {"rebuild_pending": marker.exists(), "rebuild_marker_age_s": age, "writers": push_writers(root)}
 
 
 def _rebuild_pending(root: str) -> bool:
@@ -469,13 +501,18 @@ def writer_id(root: str) -> str:
     existing = current_writer(root)
     if existing:
         return existing
+    old = _writer_file(root)  # made for another inode: keep its id among the ones this checkout pushes
+    previous = [
+        w for w in (old.get("previous") or []) + [old.get("writer")] if isinstance(w, str) and _WRITER_RE.fullmatch(w)
+    ]
     host = re.sub(r"[^a-z0-9-]+", "-", socket.gethostname().lower()).strip("-")[:40] or "host"
     writer = f"{host}-{secrets.token_hex(4)}"
     path = Path(root) / ".empirica" / WRITER_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"writer": writer}) + "\n", encoding="utf-8")
     # Rewritten in place, so the inode recorded is this file's own.
-    path.write_text(json.dumps({"writer": writer, "checkout": _checkout_key(root)}) + "\n", encoding="utf-8")
+    record = {"writer": writer, "checkout": _checkout_key(root), "previous": previous[-8:]}
+    path.write_text(json.dumps(record) + "\n", encoding="utf-8")
     return writer
 
 
@@ -746,17 +783,30 @@ def _beats(entry, best) -> bool:
     return entry[1] > best[1] or (entry[1] == best[1] and entry[0] == "local" and best[0] != "local")
 
 
-def apply_visibility_notes(conn, root: str, *, held_before: set[str] | None = None) -> int:
+def apply_visibility_notes(conn, root: str, *, held_before: set[str] | None = None, after_crash: bool = False) -> int:
     """Set each artifact's tag from the notes (the latest entry per id across writers) and record it in this checkout's
     baseline; return how many shares and public tags were restored. A row that existed before this rebuild and whose tag
     differs from the baseline was changed here and not yet exported: it is left alone, so a pull before POSTFLIGHT does
     not undo a withdrawal (goal 38510fdd review). Rows this rebuild created (``held_before`` lacks them) always take the
     notes' tag."""
     with _baseline_lock(root):
-        restored = _apply_visibility_notes(conn, root, held_before or set())
+        # After a crashed rebuild the rows it reset are not changes made here: trust the notes for every row.
+        restored = _apply_visibility_notes(conn, root, set() if after_crash else (held_before or set()))
     with contextlib.suppress(OSError):
         (Path(root) / ".empirica" / REBUILD_MARKER).unlink()
     return restored
+
+
+def mark_for_rewrite(root: str, shards: set[str]) -> None:
+    """Make the next export rewrite these shards of this writer (a diverged note of its own was replaced by the remote's
+    in a pull, so this checkout's state must be written again on top of it)."""
+    writer = current_writer(root)
+    if not writer or not shards:
+        return
+    record = f"visibility:{writer}"
+    marks = dict(_watermarks(root).get(record) or {})
+    marks.update(dict.fromkeys(shards, f"{_RETRY}0"))
+    _save_watermark(root, record, marks)
 
 
 def _own_entries(root: str) -> dict[str, list]:

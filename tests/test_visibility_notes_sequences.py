@@ -259,3 +259,102 @@ def test_without_a_baseline_a_pull_does_not_undo_an_unexported_withdrawal(world,
     (a.root / ".empirica" / gx.BASELINE_FILE).unlink()
     a.pull(monkeypatch)
     assert a.tier() == "local"
+
+
+# ── third review (31327c020) ────────────────────────────────────────────────────────────────────────────────────────────
+
+
+def test_a_retried_rebuild_after_a_crash_restores_shares_rather_than_withdrawing_them(world, monkeypatch):
+    a, b = world("a"), world("b")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    b.pull(monkeypatch)
+    b.export()
+    assert gx.rebuild_started(str(b.root)) is False  # a rebuild starts, rows come back untagged, it crashes
+    b.tag("local")
+    assert gx.rebuild_started(str(b.root)) is True  # the retry finds the marker
+    held = {r[0] for r in b.conn.execute("SELECT id FROM project_findings")}
+    gx.apply_visibility_notes(b.conn, str(b.root), held_before=held, after_crash=True)
+    assert b.tier() == "shared"
+    b.export()
+    b.push(monkeypatch)
+    a.pull(monkeypatch)
+    assert a.tier() == "shared"
+
+
+def test_a_stale_rebuild_marker_is_reported(tmp_path):
+    root = tmp_path
+    (root / ".empirica").mkdir()
+    gx.rebuild_started(str(root))
+    assert gx.visibility_health(str(root))["rebuild_pending"] is True
+
+
+def test_a_checkout_whose_writer_file_got_a_new_inode_still_pushes_its_old_notes(world, monkeypatch):
+    a, b = world("a"), world("b")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    b.pull(monkeypatch)
+    a.tag("local")
+    a.export()  # withdrawn, not pushed
+    writer_file = a.root / ".empirica" / gx.WRITER_FILE
+    content = writer_file.read_text()
+    writer_file.unlink()
+    writer_file.write_text(content)  # restored from backup: same content, new inode
+    a.export()
+    assert a.push(monkeypatch) == 0
+    b.pull(monkeypatch)
+    assert b.tier() == "local"
+
+
+def test_a_fresh_clone_given_this_checkouts_writer_builds_on_its_notes(world, monkeypatch, tmp_path):
+    import shutil
+
+    a, b = world("a"), world("b")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    fresh = world("a2")
+    shutil.copy2(a.root / ".empirica" / gx.WRITER_FILE, fresh.root / ".empirica" / gx.WRITER_FILE)
+    shutil.copy2(a.root / ".empirica" / gx.BASELINE_FILE, fresh.root / ".empirica" / gx.BASELINE_FILE)
+    monkeypatch.setattr(gx, "_checkout_key", lambda root: json_key(a.root))  # the moved .empirica keeps its binding
+    fresh.pull(monkeypatch)
+    fresh.tag("local")
+    fresh.export()
+    assert fresh.push(monkeypatch) == 0
+    b.pull(monkeypatch)
+    assert b.tier() == "local"
+
+
+def json_key(root):
+    import json
+
+    return json.loads((root / ".empirica" / gx.WRITER_FILE).read_text())["checkout"]
+
+
+def test_a_diverged_copy_of_another_writers_note_takes_the_remote(world, monkeypatch):
+    a, b = world("a"), world("b")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    b.pull(monkeypatch)
+    writer_a = gx.current_writer(str(a.root))
+    # b's copy of a's note diverges (a stray local write)
+    gx._write_note(str(b.root), f"{gx.VISIBILITY_PREFIX}/{writer_a}/ab", {"tiers": {X: ["shared", 1.0]}})
+    a.tag("local")
+    a.export()
+    a.push(monkeypatch)
+    b.pull(monkeypatch)
+    assert b.tier() == "local"
+
+
+def test_doctor_warns_about_a_rebuild_that_never_finished(tmp_path, monkeypatch):
+    from empirica.cli.command_handlers import doctor
+
+    (tmp_path / ".empirica").mkdir()
+    monkeypatch.setattr(doctor, "_run", lambda cmd: (1, "", ""))
+    assert doctor.check_visibility_notes(tmp_path).status == doctor.PASS
+    gx.rebuild_started(str(tmp_path))
+    check = doctor.check_visibility_notes(tmp_path)
+    assert check.status == doctor.WARN and "sync-pull --rebuild" in check.hint

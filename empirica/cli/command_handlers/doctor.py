@@ -623,6 +623,28 @@ def check_sentinel_mode(cwd: Path | None = None) -> Check:
     return Check("Sentinel mode", PASS, detail, data=data)
 
 
+def check_visibility_notes(cwd: Path | None = None) -> Check:
+    """A visibility rebuild that never finished (goal 38510fdd, third review): its marker makes every POSTFLIGHT skip the
+    visibility export, so a withdrawal made meanwhile never leaves the machine. WARN with the command that clears it."""
+    from empirica.core.canonical.empirica_git.graph_note_export import visibility_health
+
+    here = Path(cwd or Path.cwd())
+    code, out, _err = _run(["git", "-C", str(here), "rev-parse", "--show-toplevel"])
+    root = Path(out.strip()) if code == 0 and out.strip() else here
+    health = visibility_health(str(root))
+    if health["rebuild_pending"]:
+        age = health["rebuild_marker_age_s"]
+        when = f"{age / 3600:.1f} h ago" if age is not None else "at an unknown time"
+        return Check(
+            "Visibility notes",
+            WARN,
+            f"a rebuild started {when} and did not finish; visibility exports are skipped until one does",
+            "empirica sync-pull --rebuild",
+            data=health,
+        )
+    return Check("Visibility notes", PASS, f"writers {', '.join(health['writers']) or 'none yet'}", data=health)
+
+
 def check_git_present() -> Check:
     path = _which("git")
     if not path:
@@ -3029,6 +3051,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_git_present(),
         check_noetic_tools(),
         check_sentinel_mode(cwd),
+        check_visibility_notes(cwd),
         # Project state
         check_empirica_folder(cwd),
         check_project_yaml(cwd),
