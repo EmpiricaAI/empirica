@@ -444,17 +444,27 @@ def _baseline_lock(root: str):
         handle.close()
 
 
-def rebuild_started(root: str) -> bool:
-    """Mark a rebuild as under way: rows come back untagged before the visibility step sets them, and an export in
-    between would read every share as withdrawn. apply_visibility_notes clears it (goal 38510fdd, second review). True
-    when an earlier rebuild's marker was still there: that rebuild crashed, so this one passes ``after_crash`` and trusts
-    the notes for every row (third review)."""
+def rebuild_started(root: str, held_before: set[str] | None = None) -> set[str] | None:
+    """Mark a rebuild as under way, with the ids its database held before it began: rows come back untagged before the
+    visibility step sets them, and an export in between would read every share as withdrawn. apply_visibility_notes clears
+    it (goal 38510fdd, second review). Returns None, or, when an earlier rebuild's marker is still there (it crashed), the
+    ids that one held before it began: the rows it inserted since are the only ones it can have left untagged, so the
+    caller trusts the notes for those and keeps any change made here to the others (third and fourth reviews)."""
     path = Path(root) / ".empirica" / REBUILD_MARKER
-    existed = path.exists()
+    earlier: set[str] | None = None
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            earlier = {str(i) for i in data.get("held_before") or []} if isinstance(data, dict) else set()
+        except (OSError, ValueError):
+            earlier = set()
+    if earlier is not None and held_before is not None:
+        held_before = held_before & earlier  # keep the earliest known pre-crash set across repeated crashes
     with contextlib.suppress(OSError):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(str(time.time()), encoding="utf-8")
-    return existed
+        record = {"ts": time.time(), "held_before": sorted(held_before or [])}
+        path.write_text(json.dumps(record), encoding="utf-8")
+    return earlier
 
 
 def visibility_health(root: str) -> dict:
@@ -462,8 +472,9 @@ def visibility_health(root: str) -> dict:
     skipped until a rebuild finishes; run `empirica sync-pull --rebuild`), and the writer ids it pushes."""
     marker = Path(root) / ".empirica" / REBUILD_MARKER
     try:
-        age = time.time() - float(marker.read_text(encoding="utf-8").strip() or 0)
-    except (OSError, ValueError):
+        data = json.loads(marker.read_text(encoding="utf-8"))
+        age = time.time() - float(data.get("ts") if isinstance(data, dict) else data)
+    except (OSError, ValueError, TypeError):
         age = None
     return {"rebuild_pending": marker.exists(), "rebuild_marker_age_s": age, "writers": push_writers(root)}
 
@@ -783,15 +794,14 @@ def _beats(entry, best) -> bool:
     return entry[1] > best[1] or (entry[1] == best[1] and entry[0] == "local" and best[0] != "local")
 
 
-def apply_visibility_notes(conn, root: str, *, held_before: set[str] | None = None, after_crash: bool = False) -> int:
+def apply_visibility_notes(conn, root: str, *, held_before: set[str] | None = None) -> int:
     """Set each artifact's tag from the notes (the latest entry per id across writers) and record it in this checkout's
     baseline; return how many shares and public tags were restored. A row that existed before this rebuild and whose tag
     differs from the baseline was changed here and not yet exported: it is left alone, so a pull before POSTFLIGHT does
     not undo a withdrawal (goal 38510fdd review). Rows this rebuild created (``held_before`` lacks them) always take the
     notes' tag."""
     with _baseline_lock(root):
-        # After a crashed rebuild the rows it reset are not changes made here: trust the notes for every row.
-        restored = _apply_visibility_notes(conn, root, set() if after_crash else (held_before or set()))
+        restored = _apply_visibility_notes(conn, root, held_before or set())
     with contextlib.suppress(OSError):
         (Path(root) / ".empirica" / REBUILD_MARKER).unlink()
     return restored

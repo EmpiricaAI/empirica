@@ -712,6 +712,16 @@ def _pushes_visibility_ref(ref: str) -> bool:
     return any(ref.startswith(f"{prefix}{writer}/") for writer in push_writers(_get_workspace_root()))
 
 
+def _earlier_writer_specs(batches: list[list[str]]) -> set[str]:
+    """The push specs for visibility notes under this checkout's earlier writer ids (not its current one)."""
+    from empirica.core.canonical.empirica_git.graph_note_export import push_writers
+
+    writers = push_writers(_get_workspace_root())
+    earlier = writers[1:]
+    prefix = "refs/notes/empirica/visibility/"
+    return {s for b in batches for s in b if any(s.startswith(f"{prefix}{w}/") for w in earlier)}
+
+
 def _push_one(remote: str, specs: list[str], timeout: int) -> tuple[bool, str]:
     """One `git push`; (ok, error text). A timeout is an error here, not an exception for the caller."""
     try:
@@ -754,11 +764,21 @@ def _push_note_namespaces(remote: str) -> tuple[dict[str, bool], list[str]]:
                 errors.append(f"{name}: {err}")
             continue
         all_ok = True
+        earlier = _earlier_writer_specs(batches)
         for index, specs in enumerate(batches, 1):
+            specs = [s for s in specs if s not in earlier]
+            if not specs:
+                continue
             ok, err = _push_one(remote, specs, max(timeout, _NOTES_BATCH_TIMEOUT))
             if not ok:
                 all_ok = False
                 errors.append(f"{name} (batch {index} of {len(batches)}): {err}")
+        if earlier:
+            # Notes under an earlier writer id: pushed as fast-forwards when they are this checkout's unpushed work; when
+            # a still-living original has pushed further, refused, and that is not this push failing (fourth review).
+            ok, err = _push_one(remote, sorted(earlier), max(timeout, _NOTES_BATCH_TIMEOUT))
+            if not ok:
+                errors.append(f"{name}: notes under an earlier writer id were not pushed (warning): {err}")
         results[name] = all_ok
     return results, errors
 
@@ -1920,9 +1940,7 @@ def _rebuild_edges(db, rebuilt, root: str | None = None) -> None:
     db.adapter.conn.commit()
 
 
-def _rebuild_visibility(
-    db, rebuilt, root: str | None = None, held_before: set[str] | None = None, after_crash: bool = False
-) -> None:
+def _rebuild_visibility(db, rebuilt, root: str | None = None, held_before: set[str] | None = None) -> None:
     """Shared and public tags from the visibility shard notes (goal ecea0fd4), applied after every row is restored; a row
     with no tag in them stays local. Ids are unique across the artifact tables, so each is tried until one row matches."""
 
@@ -1930,7 +1948,7 @@ def _rebuild_visibility(
 
     rebuilt.setdefault("visibility_restored", 0)
     rebuilt["visibility_restored"] += apply_visibility_notes(
-        db.adapter.conn, root or _get_workspace_root(), held_before=held_before, after_crash=after_crash
+        db.adapter.conn, root or _get_workspace_root(), held_before=held_before
     )
 
 
@@ -2014,8 +2032,11 @@ def _rebuild_from_notes() -> dict[str, Any]:
 
         from empirica.core.canonical.empirica_git.graph_note_export import rebuild_started
 
-        # Cleared by the visibility step; an export in between would read shares as withdrawn. True: a rebuild crashed.
-        after_crash = rebuild_started(_get_workspace_root())
+        # Cleared by the visibility step; an export in between would read shares as withdrawn. After a crashed rebuild,
+        # only the rows that existed before it can carry a change made here; the ones it inserted take the notes' tag.
+        crashed = rebuild_started(_get_workspace_root(), held_before)
+        if crashed is not None:
+            held_before &= crashed
 
         finding_store = GitFindingStore()
         unknown_store = GitUnknownStore()
@@ -2053,7 +2074,7 @@ def _rebuild_from_notes() -> dict[str, Any]:
         _rebuild_edges(db, rebuilt)
         _rebuild_falsifiers(db, rebuilt)
         _rebuild_lessons(db, rebuilt)
-        _rebuild_visibility(db, rebuilt, held_before=held_before, after_crash=after_crash)  # last: every row is back
+        _rebuild_visibility(db, rebuilt, held_before=held_before)  # last: every row it tags must already be back
 
         db.close()
 

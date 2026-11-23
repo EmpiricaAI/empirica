@@ -264,23 +264,38 @@ def test_without_a_baseline_a_pull_does_not_undo_an_unexported_withdrawal(world,
 # ── third review (31327c020) ────────────────────────────────────────────────────────────────────────────────────────────
 
 
-def test_a_retried_rebuild_after_a_crash_restores_shares_rather_than_withdrawing_them(world, monkeypatch):
+def test_a_retried_rebuild_after_a_crash_restores_the_rows_it_had_added(world, monkeypatch):
+    """An emptied database rebuilt from the notes: the crashed rebuild inserted the row untagged; the retry trusts the
+    notes for it rather than reading it as a withdrawal."""
     a, b = world("a"), world("b")
     a.tag("shared")
     a.export()
     a.push(monkeypatch)
     b.pull(monkeypatch)
     b.export()
-    assert gx.rebuild_started(str(b.root)) is False  # a rebuild starts, rows come back untagged, it crashes
-    b.tag("local")
-    assert gx.rebuild_started(str(b.root)) is True  # the retry finds the marker
+    b.conn.execute("DELETE FROM project_findings")  # the database is emptied
+    assert gx.rebuild_started(str(b.root), set()) is None  # a rebuild starts on an empty database ...
+    b.conn.execute("INSERT INTO project_findings VALUES (?, 'local')", (X,))  # ... inserts the row untagged, crashes
     held = {r[0] for r in b.conn.execute("SELECT id FROM project_findings")}
-    gx.apply_visibility_notes(b.conn, str(b.root), held_before=held, after_crash=True)
+    crashed = gx.rebuild_started(str(b.root), held)  # the retry finds the marker
+    assert crashed == set()
+    gx.apply_visibility_notes(b.conn, str(b.root), held_before=held - (held - crashed))
     assert b.tier() == "shared"
+
+
+def test_a_withdrawal_made_after_a_crashed_rebuild_survives_the_retry(world, monkeypatch):
+    a, b = world("a"), world("b")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    b.pull(monkeypatch)
     b.export()
-    b.push(monkeypatch)
-    a.pull(monkeypatch)
-    assert a.tier() == "shared"
+    held = {r[0] for r in b.conn.execute("SELECT id FROM project_findings")}
+    gx.rebuild_started(str(b.root), held)  # a rebuild crashes; the row existed before it
+    b.tag("local")  # the owner withdraws after the crash
+    crashed = gx.rebuild_started(str(b.root), held)
+    gx.apply_visibility_notes(b.conn, str(b.root), held_before=held - (held - (crashed or set())))
+    assert b.tier() == "local"
 
 
 def test_a_stale_rebuild_marker_is_reported(tmp_path):
@@ -358,3 +373,22 @@ def test_doctor_warns_about_a_rebuild_that_never_finished(tmp_path, monkeypatch)
     gx.rebuild_started(str(tmp_path))
     check = doctor.check_visibility_notes(tmp_path)
     assert check.status == doctor.WARN and "sync-pull --rebuild" in check.hint
+
+
+def test_a_copy_pushing_its_originals_older_notes_is_not_a_failed_push(world, monkeypatch):
+    from empirica.cli.command_handlers import sync_commands as sc
+
+    a = world("a")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    writer_file = a.root / ".empirica" / gx.WRITER_FILE
+    content = writer_file.read_text()
+    writer_file.unlink()
+    writer_file.write_text(content)  # new inode: the next export makes a new writer id; the old one is "previous"
+    a.export()
+    previous = gx.push_writers(str(a.root))[1]
+    gx._write_note(str(a.root), f"{gx.VISIBILITY_PREFIX}/{previous}/ab", {"tiers": {X: ["shared", 5.0]}})  # diverges
+    monkeypatch.setattr(sc, "_get_workspace_root", lambda: str(a.root))
+    results, errors = sc._push_note_namespaces("origin")
+    assert results["empirica/*"], (results, errors)
