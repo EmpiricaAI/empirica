@@ -624,8 +624,8 @@ def check_sentinel_mode(cwd: Path | None = None) -> Check:
 
 
 def check_visibility_notes(cwd: Path | None = None) -> Check:
-    """A visibility rebuild that never finished (goal 38510fdd, third review): its marker makes every POSTFLIGHT skip the
-    visibility export, so a withdrawal made meanwhile never leaves the machine. WARN with the command that clears it."""
+    """A visibility rebuild that never finished (goal 38510fdd, third review): the rows it added have unknown tags and are
+    left out of every visibility export until a rebuild finishes. WARN with the command that clears it."""
     from empirica.core.canonical.empirica_git.graph_note_export import visibility_health
 
     here = Path(cwd or Path.cwd())
@@ -638,7 +638,7 @@ def check_visibility_notes(cwd: Path | None = None) -> Check:
         return Check(
             "Visibility notes",
             WARN,
-            f"a rebuild started {when} and did not finish; visibility exports are skipped until one does",
+            f"a rebuild started {when} and did not finish; the rows it added are left out of visibility exports until one does",
             "empirica sync-pull --rebuild",
             data=health,
         )

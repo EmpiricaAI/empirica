@@ -479,10 +479,6 @@ def visibility_health(root: str) -> dict:
     return {"rebuild_pending": marker.exists(), "rebuild_marker_age_s": age, "writers": push_writers(root)}
 
 
-def _rebuild_pending(root: str) -> bool:
-    return (Path(root) / ".empirica" / REBUILD_MARKER).exists()
-
-
 def load_baseline(root: str) -> dict[str, list]:
     try:
         data = json.loads((Path(root) / ".empirica" / BASELINE_FILE).read_text(encoding="utf-8"))
@@ -636,18 +632,42 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
     shared one set of refs, and two machines refused each other's sync). A shard is rewritten when this database's tags in
     it changed since the last export (every shard of this machine when ``full`` or with no watermark). ``{"written",
     "failed", "shards"}``."""
-    if _rebuild_pending(root):
-        return {"written": 0, "failed": 0, "shards": 0, "skipped": "a rebuild is under way"}
+    # A rebuild that has not finished (or crashed) left the rows it inserted untagged; they are left out rather than read
+    # as withdrawals, and every other row is exported as usual (goal 8b802b67: skipping the whole export stalled it
+    # silently, and a change made meanwhile was overwritten by the retried rebuild).
+    unknown = _rows_of_unfinished_rebuild(conn, root)
     with _baseline_lock(root):
-        return _export_visibility_notes(conn, root, full=full)
+        return _export_visibility_notes(conn, root, full=full, unknown=unknown)
 
 
-def _export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
+def _rows_of_unfinished_rebuild(conn, root: str) -> set[str]:
+    """The ids an unfinished rebuild inserted: held now but not before it began (its marker records those). Empty when
+    no rebuild is under way."""
+    marker = Path(root) / ".empirica" / REBUILD_MARKER
+    if not marker.exists():
+        return set()
+    try:
+        data = json.loads(marker.read_text(encoding="utf-8"))
+        before = {str(i) for i in data.get("held_before") or []} if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        before = None
+    held = _held_ids(conn)
+    return held if before is None else held - before
+
+
+def _export_visibility_notes(conn, root: str, *, full: bool = False, unknown: set[str] | None = None) -> dict:
     import hashlib
 
     machine = writer_id(root)
-    shards = _visibility_shards(conn)
+    unknown = unknown or set()
+    shards = {
+        shard: {i: t for i, t in tiers.items() if i not in unknown} for shard, tiers in _visibility_shards(conn).items()
+    }
+    shards = {shard: tiers for shard, tiers in shards.items() if tiers}
     baseline = load_baseline(root)
+    # Only a checkout that has never synced under this layout adopts another writer's time for a matching tag: once it has
+    # a baseline, an id missing from it was never adopted here, so a matching tag was set here (goal 8b802b67).
+    adopt_elsewhere = not baseline
     # Per machine: 1.17.14 kept one record for its flat layout, and matching it skipped this machine's first export,
     # so a later withdrawal had no entry to override (1.17.15 second pass). A new name starts with a full export.
     record = f"visibility:{machine}"
@@ -685,13 +705,13 @@ def _export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
         note = _read_shard(root, f"{machine}/{shard}")
         others = [ns for ns in refs.get(shard, []) if ns != machine]
         if held is None:
-            held = _held_ids(conn)
+            held = _held_ids(conn) - unknown
         merged = _stamp_tags(
             mine,
             note,
             {i: e for i, e in baseline.items() if _visibility_shard(i) == shard},
             held,
-            lambda shard=shard, others=others: _shard_winners(root, shard, others),
+            (lambda shard=shard, others=others: _shard_winners(root, shard, others)) if adopt_elsewhere else dict,
             now,
         )
         for artifact_id in legacy_local.get(shard, ()):

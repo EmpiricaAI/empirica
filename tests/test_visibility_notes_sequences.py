@@ -73,7 +73,15 @@ def world(tmp_path, monkeypatch):
     _git(tmp_path, "clone", "-q", str(remote), "seed")
     _git(seed, "commit", "-q", "--allow-empty", "-m", "init")
     _git(seed, "push", "-q", "origin", "HEAD")
-    return lambda name: Machine(tmp_path / name, remote)
+    made: list[Machine] = []
+
+    def make(name):
+        made.append(Machine(tmp_path / name, remote))
+        return made[-1]
+
+    yield make
+    for machine in made:
+        machine.conn.close()
 
 
 def test_a_pull_before_postflight_does_not_undo_a_withdrawal(world, monkeypatch):
@@ -180,10 +188,13 @@ def test_a_rebuild_into_an_emptied_database_applies_the_notes(world, monkeypatch
     a.tag("shared")
     a.export()
     fresh = sqlite3.connect(":memory:")
-    fresh.execute("CREATE TABLE project_findings (id TEXT PRIMARY KEY, visibility TEXT)")
-    fresh.execute("INSERT INTO project_findings VALUES (?, 'local')", (X,))  # re-imported, born local
-    gx.apply_visibility_notes(fresh, str(a.root), held_before=set())
-    assert fresh.execute("SELECT visibility FROM project_findings").fetchone()[0] == "shared"
+    try:
+        fresh.execute("CREATE TABLE project_findings (id TEXT PRIMARY KEY, visibility TEXT)")
+        fresh.execute("INSERT INTO project_findings VALUES (?, 'local')", (X,))  # re-imported, born local
+        gx.apply_visibility_notes(fresh, str(a.root), held_before=set())
+        assert fresh.execute("SELECT visibility FROM project_findings").fetchone()[0] == "shared"
+    finally:
+        fresh.close()
 
 
 # ── second review of the baseline (2cb26a3e1) ───────────────────────────────────────────────────────────────────────────
@@ -246,7 +257,10 @@ def test_worktrees_do_not_refuse_each_others_pull(world, monkeypatch, tmp_path):
     wt.conn.execute("INSERT INTO project_findings VALUES (?, 'local')", (X,))
     a.tag("public")
     a.export()  # a's ref is ahead of the remote, in the ref store both worktrees share
-    assert wt.pull(monkeypatch) == 0
+    try:
+        assert wt.pull(monkeypatch) == 0
+    finally:
+        wt.conn.close()
 
 
 def test_without_a_baseline_a_pull_does_not_undo_an_unexported_withdrawal(world, monkeypatch):
@@ -427,3 +441,60 @@ def test_a_public_tag_on_an_id_never_synced_here_survives_a_pull(world, monkeypa
     b.tag("public")
     b.pull(monkeypatch)
     assert b.tier() == "public"
+
+
+# ── follow-up goal 8b802b67 ─────────────────────────────────────────────────────────────────────────────────────────────
+
+
+def test_a_change_made_after_a_crash_on_a_row_that_predates_it_is_exported(world, monkeypatch, notes_on):
+    """U3: a leftover marker used to skip every export, so the retried rebuild overwrote the change."""
+    a, b = world("a"), world("b")
+    a.tag("shared")
+    a.export()
+    a.tag("local")
+    a.export()
+    a.push(monkeypatch)
+    held = {r[0] for r in b.conn.execute("SELECT id FROM project_findings")}
+    gx.rebuild_started(str(b.root), held)  # a rebuild crashes; b's row existed before it
+    b.tag("shared")  # b shares an id it has never synced
+    b.export()  # POSTFLIGHT
+    assert gx._read_shard(str(b.root), f"{gx.writer_id(str(b.root))}/ab")[X][0] == "shared"
+    b.pull(monkeypatch)
+    assert b.tier() == "shared"
+
+
+def test_rows_the_crashed_rebuild_inserted_are_not_exported_as_withdrawals(world, monkeypatch, notes_on):
+    a, b = world("a"), world("b")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    b.pull(monkeypatch)
+    b.export()
+    b.conn.execute("DELETE FROM project_findings")
+    gx.rebuild_started(str(b.root), set())  # an emptied database: the rebuild inserts the row untagged and crashes
+    b.conn.execute("INSERT INTO project_findings VALUES (?, 'local')", (X,))
+    b.export()
+    b.push(monkeypatch)
+    a.pull(monkeypatch)
+    assert a.tier() == "shared"
+
+
+def test_an_independent_reset_by_a_synced_checkout_is_stamped_now(world, monkeypatch, notes_on):
+    """Round 6: C has synced before (it has a baseline) but never this id; it fetched A's public tag without a rebuild,
+    B then shares, and C sets public itself, later. C's entry must carry its own time, not A's, so it wins over B's."""
+    a, b, c = world("a"), world("b"), world("c")
+    gx.save_baseline(str(c.root), {"other-id": ["shared", 1.0]})
+    a.tag("public")
+    a.export()
+    a.push(monkeypatch)
+    monkeypatch.setattr(sc, "_get_workspace_root", lambda: str(c.root))
+    _git(c.root, "fetch", "origin", *sc._notes_fetch_refspecs())
+    sc._merge_visibility_notes("origin")  # refs fetched, no rebuild: c's database never adopted the tag
+    b.tag("shared")
+    b.export()
+    b.push(monkeypatch)
+    c.tag("public")  # c sets it independently, after b
+    c.export()
+    c.push(monkeypatch)
+    a.pull(monkeypatch)
+    assert a.tier() == "public"
