@@ -52,6 +52,8 @@ class Machine:
     def pull(self, monkeypatch, rebuild=True):
         monkeypatch.setattr(sc, "_get_workspace_root", lambda: str(self.root))
         rc = _git(self.root, "fetch", "origin", *sc._notes_fetch_refspecs()).returncode
+        ok, _error = sc._merge_visibility_notes("origin")
+        rc = rc or (0 if ok else 1)
         if rebuild:
             held = {r[0] for r in self.conn.execute("SELECT id FROM project_findings")}
             gx.apply_visibility_notes(self.conn, str(self.root), held_before=held)
@@ -182,3 +184,78 @@ def test_a_rebuild_into_an_emptied_database_applies_the_notes(world, monkeypatch
     fresh.execute("INSERT INTO project_findings VALUES (?, 'local')", (X,))  # re-imported, born local
     gx.apply_visibility_notes(fresh, str(a.root), held_before=set())
     assert fresh.execute("SELECT visibility FROM project_findings").fetchone()[0] == "shared"
+
+
+# ── second review of the baseline (2cb26a3e1) ───────────────────────────────────────────────────────────────────────────
+
+
+def test_moving_a_checkout_keeps_its_writer(world, monkeypatch):
+    a = world("a")
+    a.tag("shared")
+    a.export()
+    before = gx.writer_id(str(a.root))
+    moved = a.root.with_name("a-moved")
+    a.root.rename(moved)
+    assert gx.writer_id(str(moved)) == before
+
+
+def test_a_failed_note_write_then_a_rebuild_keeps_the_withdrawal(world, monkeypatch):
+    a, b = world("a"), world("b")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    a.tag("local")
+    real = gx._write_note
+    monkeypatch.setattr(gx, "_write_note", lambda *args, **kw: False)
+    a.export()  # the write fails
+    monkeypatch.setattr(gx, "_write_note", real)
+    a.pull(monkeypatch)
+    assert a.tier() == "local"
+    a.export()
+    a.push(monkeypatch)
+    b.pull(monkeypatch)
+    assert b.tier() == "local"
+
+
+def test_an_interrupted_rebuild_does_not_export_withdrawals(world, monkeypatch):
+    a, b = world("a"), world("b")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    b.pull(monkeypatch)
+    b.export()
+    gx.rebuild_started(str(b.root))  # a rebuild that stopped before the visibility step
+    b.tag("local")  # rows came back untagged
+    b.export()
+    b.push(monkeypatch)
+    a.pull(monkeypatch)
+    assert a.tier() == "shared"
+
+
+def test_worktrees_do_not_refuse_each_others_pull(world, monkeypatch, tmp_path):
+    a = world("a")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    _git(a.root, "worktree", "add", "-q", str(tmp_path / "a-wt"), "-b", "wt")
+    wt = Machine.__new__(Machine)
+    wt.root = tmp_path / "a-wt"
+    (wt.root / ".empirica").mkdir(exist_ok=True)
+    wt.conn = sqlite3.connect(":memory:")
+    wt.conn.execute("CREATE TABLE project_findings (id TEXT PRIMARY KEY, visibility TEXT)")
+    wt.conn.execute("INSERT INTO project_findings VALUES (?, 'local')", (X,))
+    a.tag("public")
+    a.export()  # a's ref is ahead of the remote, in the ref store both worktrees share
+    assert wt.pull(monkeypatch) == 0
+
+
+def test_without_a_baseline_a_pull_does_not_undo_an_unexported_withdrawal(world, monkeypatch):
+    a, b = world("a"), world("b")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    b.pull(monkeypatch)
+    a.tag("local")  # withdrawn, not yet exported
+    (a.root / ".empirica" / gx.BASELINE_FILE).unlink()
+    a.pull(monkeypatch)
+    assert a.tier() == "local"

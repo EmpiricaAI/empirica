@@ -614,15 +614,79 @@ def _note_wildcard_batches(refspec: str) -> list[list[str]] | None:
     return [specs[i : i + _NOTES_PUSH_BATCH] for i in range(0, len(specs), _NOTES_PUSH_BATCH)]
 
 
+def _fetch_empirica_notes(remote: str, fetch_results: dict, errors: list) -> None:
+    """Fetch all empirica notes at once, the visibility notes through _merge_visibility_notes (goal 38510fdd)."""
+    try:
+        result = subprocess.run(
+            ["git", "fetch", remote, *_notes_fetch_refspecs()],
+            capture_output=True,
+            cwd=_get_workspace_root(),
+            text=True,
+            timeout=60,
+        )
+        fetch_results["empirica/*"] = result.returncode == 0
+        # "no matching refs" is not an error
+        if result.returncode != 0 and result.stderr and "no matching refs" not in result.stderr.lower():
+            errors.append(f"empirica/*: {result.stderr.strip()}")
+        vis_ok, vis_error = _merge_visibility_notes(remote)
+        fetch_results["empirica/visibility"] = vis_ok
+        if vis_error:
+            errors.append(f"empirica/visibility: {vis_error}")
+    except subprocess.TimeoutExpired:
+        errors.append("Fetch timed out")
+    except Exception as e:
+        errors.append(str(e))
+
+
 def _notes_fetch_refspecs() -> list[str]:
-    """The empirica notes to fetch: everything except this writer's own visibility notes, which only this checkout writes,
-    so fetching them could only be refused (non-fast-forward once it exported since its last push) or, forced, rewind an
-    unpushed change (goal 38510fdd review). A negative refspec needs git 2.29."""
+    """The empirica notes to fetch directly: everything but the visibility notes, which _merge_visibility_notes takes
+    (goal 38510fdd review). A negative refspec needs git 2.29."""
+    return ["refs/notes/empirica/*:refs/notes/empirica/*", "^refs/notes/empirica/visibility/*"]
+
+
+_VISIBILITY_INCOMING = "refs/empirica-incoming/visibility/"
+
+
+def _merge_visibility_notes(remote: str) -> tuple[bool, str]:
+    """Fetch the visibility notes into a scratch namespace and take each one only where that is a fast-forward:
+    a ref missing here, equal, or an ancestor of the fetched one. This writer's own refs are never taken (only it writes
+    them), and a ref ahead here (a worktree sharing this ref store exported, or an old writer id not yet pushed) is kept
+    rather than refused, so a pull is never refused by its own notes (goal 38510fdd review). (ok, error)."""
     from empirica.core.canonical.empirica_git.graph_note_export import current_writer
 
-    writer = current_writer(_get_workspace_root())
-    specs = ["refs/notes/empirica/*:refs/notes/empirica/*"]
-    return specs + ([f"^refs/notes/empirica/visibility/{writer}/*"] if writer else [])
+    root = _get_workspace_root()
+
+    def git(*args, timeout=60):
+        return subprocess.run(["git", *args], capture_output=True, cwd=root, text=True, timeout=timeout)
+
+    fetched = git("fetch", remote, f"+refs/notes/empirica/visibility/*:{_VISIBILITY_INCOMING}*")
+    error = "" if fetched.returncode == 0 or "no matching refs" in fetched.stderr.lower() else fetched.stderr.strip()
+    incoming = git("for-each-ref", "--format=%(objectname) %(refname)", _VISIBILITY_INCOMING)
+    local = git("for-each-ref", "--format=%(objectname) %(refname)", "refs/notes/empirica/visibility/")
+    here = dict(reversed(line.split(" ", 1)) for line in local.stdout.splitlines() if " " in line)
+    writer = current_writer(root)
+    updates: list[str] = []
+    for line in incoming.stdout.splitlines():
+        if " " not in line:
+            continue
+        oid, ref = line.split(" ", 1)
+        name = ref[len(_VISIBILITY_INCOMING) :]
+        target = f"refs/notes/empirica/visibility/{name}"
+        updates.append(f"delete {ref}")
+        if writer and name.startswith(f"{writer}/"):
+            continue
+        mine = here.get(target)
+        if mine == oid:
+            continue
+        if mine is None or git("merge-base", "--is-ancestor", mine, oid).returncode == 0:
+            updates.append(f"update {target} {oid}")
+    if updates:
+        applied = subprocess.run(
+            ["git", "update-ref", "--stdin"], input="\n".join(updates) + "\n", capture_output=True, cwd=root, text=True
+        )
+        if applied.returncode != 0:
+            error = error or applied.stderr.strip()
+    return not error, error[:300]
 
 
 def _pushes_visibility_ref(ref: str) -> bool:
@@ -922,24 +986,7 @@ def handle_sync_pull_command(args):
         fetch_results = {}
         errors = []
 
-        # Fetch all empirica notes at once
-        try:
-            result = subprocess.run(
-                ["git", "fetch", remote, *_notes_fetch_refspecs()],
-                capture_output=True,
-                cwd=_get_workspace_root(),
-                text=True,
-                timeout=60,
-            )
-            fetch_results["empirica/*"] = result.returncode == 0
-            if result.returncode != 0 and result.stderr:
-                # Check if it's just "no matching refs" (not an error)
-                if "no matching refs" not in result.stderr.lower():
-                    errors.append(f"empirica/*: {result.stderr.strip()}")
-        except subprocess.TimeoutExpired:
-            errors.append("Fetch timed out")
-        except Exception as e:
-            errors.append(str(e))
+        _fetch_empirica_notes(remote, fetch_results, errors)
 
         # Fetch breadcrumbs separately
         try:
@@ -1953,6 +2000,13 @@ def _rebuild_from_notes() -> dict[str, Any]:
         from empirica.core.canonical.empirica_git.graph_note_export import _held_ids
 
         held_before = _held_ids(db.adapter.conn)  # rows that existed before this rebuild (goal 38510fdd review)
+        import os
+
+        from empirica.core.canonical.empirica_git.graph_note_export import rebuild_started
+
+        rebuild_started(
+            os.getcwd()
+        )  # cleared by the visibility step; an export in between would read shares as withdrawn
 
         finding_store = GitFindingStore()
         unknown_store = GitUnknownStore()

@@ -376,9 +376,13 @@ _WRITER_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,60}")
 
 
 def _checkout_key(root: str) -> str:
-    """What binds a writer id to one checkout: its absolute path on this machine. A writer file copied into another
-    checkout (cp -r, rsync, a cloned VM) does not match and gets a new id, so two checkouts never write the same refs."""
-    return f"{machine_name()}:{Path(root).resolve()}"
+    """What binds a writer id to one checkout: the inode of its writer file. Moving or renaming the checkout, or the
+    machine, keeps it; a copy (cp -r, rsync) makes a new file with a new inode, so the copy gets a new id and two checkouts
+    never write the same refs. Binding to the path stranded a moved checkout's writer (goal 38510fdd, second review)."""
+    try:
+        return f"inode:{(Path(root) / '.empirica' / WRITER_FILE).stat().st_ino}"
+    except OSError:
+        return ""
 
 
 def current_writer(root: str) -> str | None:
@@ -400,6 +404,42 @@ def current_writer(root: str) -> str | None:
 BASELINE_FILE = "visibility_baseline.json"
 
 
+REBUILD_MARKER = "visibility_rebuild.pending"
+
+
+@contextlib.contextmanager
+def _baseline_lock(root: str):
+    """Serialise the baseline's read-modify-write across processes: a background POSTFLIGHT export and a rebuild can run
+    at once (goal 38510fdd, second review). POSIX only; elsewhere it does not lock."""
+    path = Path(root) / ".empirica" / "visibility_baseline.lock"
+    try:
+        import fcntl
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = path.open("a")
+    except (ImportError, OSError):
+        yield
+        return
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        yield
+    finally:
+        handle.close()
+
+
+def rebuild_started(root: str) -> None:
+    """Mark a rebuild as under way: rows come back untagged before the visibility step sets them, and an export in
+    between would read every share as withdrawn. apply_visibility_notes clears it (goal 38510fdd, second review)."""
+    path = Path(root) / ".empirica" / REBUILD_MARKER
+    with contextlib.suppress(OSError):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(time.time()), encoding="utf-8")
+
+
+def _rebuild_pending(root: str) -> bool:
+    return (Path(root) / ".empirica" / REBUILD_MARKER).exists()
+
+
 def load_baseline(root: str) -> dict[str, list]:
     try:
         data = json.loads((Path(root) / ".empirica" / BASELINE_FILE).read_text(encoding="utf-8"))
@@ -412,7 +452,7 @@ def save_baseline(root: str, baseline: dict[str, list]) -> None:
     path = Path(root) / ".empirica" / BASELINE_FILE
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(baseline, sort_keys=True), encoding="utf-8")
         tmp.replace(path)
     except OSError:
@@ -433,6 +473,8 @@ def writer_id(root: str) -> str:
     writer = f"{host}-{secrets.token_hex(4)}"
     path = Path(root) / ".empirica" / WRITER_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"writer": writer}) + "\n", encoding="utf-8")
+    # Rewritten in place, so the inode recorded is this file's own.
     path.write_text(json.dumps({"writer": writer, "checkout": _checkout_key(root)}) + "\n", encoding="utf-8")
     return writer
 
@@ -546,6 +588,13 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
     shared one set of refs, and two machines refused each other's sync). A shard is rewritten when this database's tags in
     it changed since the last export (every shard of this machine when ``full`` or with no watermark). ``{"written",
     "failed", "shards"}``."""
+    if _rebuild_pending(root):
+        return {"written": 0, "failed": 0, "shards": 0, "skipped": "a rebuild is under way"}
+    with _baseline_lock(root):
+        return _export_visibility_notes(conn, root, full=full)
+
+
+def _export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
     import hashlib
 
     machine = writer_id(root)
@@ -600,10 +649,11 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
         for artifact_id in legacy_local.get(shard, ()):
             if artifact_id not in merged:
                 merged[artifact_id] = ["local", now]
-        baseline.update(merged)
         if merged == note:
+            baseline.update(merged)
             continue
         if _write_note(root, f"{VISIBILITY_PREFIX}/{machine}/{shard}", {"machine": machine, "tiers": merged}):
+            baseline.update(merged)  # only what reached the notes: a failed write keeps the change pending
             written += 1
         else:
             failed += 1
@@ -702,8 +752,31 @@ def apply_visibility_notes(conn, root: str, *, held_before: set[str] | None = No
     differs from the baseline was changed here and not yet exported: it is left alone, so a pull before POSTFLIGHT does
     not undo a withdrawal (goal 38510fdd review). Rows this rebuild created (``held_before`` lacks them) always take the
     notes' tag."""
+    with _baseline_lock(root):
+        restored = _apply_visibility_notes(conn, root, held_before or set())
+    with contextlib.suppress(OSError):
+        (Path(root) / ".empirica" / REBUILD_MARKER).unlink()
+    return restored
+
+
+def _own_entries(root: str) -> dict[str, list]:
+    """This checkout's own exported entries (its writer namespace, and the hostname namespace 1.17.15-16 wrote): what the
+    baseline would hold, for a checkout that has none yet or lost it (goal 38510fdd, second review)."""
+    namespaces = [w for w in (current_writer(root), machine_name()) if w]
+    own: dict[str, list] = {}
+    for shard, found in _visibility_refs(root).items():
+        for namespace in namespaces:
+            if namespace in found:
+                for artifact_id, entry in _read_shard(root, f"{namespace}/{shard}").items():
+                    if artifact_id not in own or entry[1] > own[artifact_id][1]:
+                        own[artifact_id] = entry
+    return own
+
+
+def _apply_visibility_notes(conn, root: str, held_before: set[str]) -> int:
     baseline = load_baseline(root)
-    held_before = held_before or set()
+    if not baseline and held_before:
+        baseline = _own_entries(root)
     restored = 0
     for artifact_id, (tier, when) in _winning_entries(root).items():
         for table in VISIBILITY_TABLES:
