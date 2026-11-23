@@ -441,6 +441,7 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ## What's New in 1.17.17
 
+- A cockpit's `server_access` users are granted read-only access again on tmux 3.5 and later
 - Visibility notes are correct across machines
 
 The full entry is in the [CHANGELOG](CHANGELOG.md).
