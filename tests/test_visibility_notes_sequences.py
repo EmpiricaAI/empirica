@@ -1,0 +1,184 @@
+"""Visibility across machines, sequence by sequence (goal 38510fdd, adversarial review of 21b9bfbb7).
+
+Each test is a sequence the review ran against clones of one bare remote. The cause it found: the export judged "changed
+here" by comparing the database with this writer's own note, so a tag set by a rebuild read as a local change, or was
+missed. Each checkout now keeps a baseline (what it last learned the notes say, at each rebuild and each export); the
+export compares the database with it, and the rebuild leaves a row with an unexported change here alone.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+import subprocess
+import time
+
+import pytest
+
+from empirica.cli.command_handlers import sync_commands as sc
+from empirica.core.canonical.empirica_git import graph_note_export as gx
+
+X = "ab000000-0000-0000-0000-00000000000x"
+
+
+def _git(cwd, *args):
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+
+
+class Machine:
+    def __init__(self, root, remote):
+        self.root = root
+        _git(root.parent, "clone", "-q", str(remote), root.name)
+        (root / ".empirica").mkdir(exist_ok=True)
+        self.conn = sqlite3.connect(":memory:")
+        self.conn.execute("CREATE TABLE project_findings (id TEXT PRIMARY KEY, visibility TEXT)")
+        self.conn.execute("INSERT INTO project_findings VALUES (?, 'local')", (X,))
+
+    def tag(self, tier):
+        self.conn.execute("UPDATE project_findings SET visibility = ? WHERE id = ?", (tier, X))
+        time.sleep(0.002)
+
+    def tier(self):
+        return self.conn.execute("SELECT visibility FROM project_findings WHERE id = ?", (X,)).fetchone()[0]
+
+    def export(self):
+        gx.export_visibility_notes(self.conn, str(self.root))
+        time.sleep(0.002)
+
+    def push(self, monkeypatch):
+        monkeypatch.setattr(sc, "_get_workspace_root", lambda: str(self.root))
+        specs = [s for b in (sc._note_wildcard_batches("refs/notes/empirica/*:refs/notes/empirica/*") or []) for s in b]
+        return _git(self.root, "push", "origin", *specs).returncode if specs else 0
+
+    def pull(self, monkeypatch, rebuild=True):
+        monkeypatch.setattr(sc, "_get_workspace_root", lambda: str(self.root))
+        rc = _git(self.root, "fetch", "origin", *sc._notes_fetch_refspecs()).returncode
+        if rebuild:
+            held = {r[0] for r in self.conn.execute("SELECT id FROM project_findings")}
+            gx.apply_visibility_notes(self.conn, str(self.root), held_before=held)
+        return rc
+
+
+@pytest.fixture
+def world(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    cfg = tmp_path / "gitconfig"
+    cfg.write_text("[user]\n\tname = t\n\temail = t@example.invalid\n[commit]\n\tgpgsign = false\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(cfg))
+    remote = tmp_path / "remote.git"
+    _git(tmp_path, "init", "-q", "--bare", str(remote))
+    seed = tmp_path / "seed"
+    _git(tmp_path, "clone", "-q", str(remote), "seed")
+    _git(seed, "commit", "-q", "--allow-empty", "-m", "init")
+    _git(seed, "push", "-q", "origin", "HEAD")
+    return lambda name: Machine(tmp_path / name, remote)
+
+
+def test_a_pull_before_postflight_does_not_undo_a_withdrawal(world, monkeypatch):
+    a, b = world("a"), world("b")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    b.pull(monkeypatch)
+    a.tag("local")  # withdrawn, not yet exported
+    assert a.pull(monkeypatch) == 0
+    assert a.tier() == "local"
+    a.export()
+    a.push(monkeypatch)
+    b.pull(monkeypatch)
+    assert b.tier() == "local"
+
+
+def test_a_copied_withdrawal_does_not_override_the_owners_later_reshare(world, monkeypatch):
+    a, b = world("a"), world("b")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    b.pull(monkeypatch)
+    b.export()
+    b.push(monkeypatch)
+    a.tag("local")
+    a.export()
+    a.push(monkeypatch)
+    b.pull(monkeypatch)
+    assert b.tier() == "local"
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)  # the owner shares it again
+    b.export()
+    b.push(monkeypatch)  # b has not pulled the re-share
+    a.pull(monkeypatch)
+    b.pull(monkeypatch)
+    assert a.tier() == "shared" and b.tier() == "shared"
+
+
+def test_the_owners_reshare_after_a_rebuild_is_recorded(world, monkeypatch):
+    a, b = world("a"), world("b")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    b.pull(monkeypatch)
+    b.tag("local")
+    b.export()
+    b.push(monkeypatch)  # b withdraws
+    a.pull(monkeypatch)
+    assert a.tier() == "local"
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)  # a shares again
+    b.pull(monkeypatch)
+    assert b.tier() == "shared"
+
+
+def test_a_withdrawal_before_the_first_export_after_adopting_is_recorded(world, monkeypatch):
+    a, c = world("a"), world("c")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    c.pull(monkeypatch)
+    assert c.tier() == "shared"
+    c.tag("local")
+    c.export()
+    c.push(monkeypatch)
+    a.pull(monkeypatch)
+    c.pull(monkeypatch)
+    assert a.tier() == "local" and c.tier() == "local"
+
+
+def test_pull_after_this_writer_exported_is_not_refused(world, monkeypatch):
+    a, b = world("a"), world("b")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    a.tag("public")
+    a.export()  # exported, not pushed
+    b.tag("shared")
+    b.export()
+    b.push(monkeypatch)
+    assert a.pull(monkeypatch) == 0
+
+
+def test_a_copied_writer_file_gets_a_new_writer(world, monkeypatch):
+    a, b = world("a"), world("b")
+    a.export()
+    (b.root / ".empirica" / gx.WRITER_FILE).write_text((a.root / ".empirica" / gx.WRITER_FILE).read_text())
+    assert gx.writer_id(str(b.root)) != gx.writer_id(str(a.root))
+
+
+def test_on_a_tie_a_withdrawal_wins(world):
+    a = world("a")
+    gx._write_note(str(a.root), f"{gx.VISIBILITY_PREFIX}/w1/ab", {"tiers": {X: ["shared", 0.0]}})
+    gx._write_note(str(a.root), f"{gx.VISIBILITY_PREFIX}/w2/ab", {"tiers": {X: ["local", 0.0]}})
+    gx._write_note(str(a.root), f"{gx.VISIBILITY_PREFIX}/w0/ab", {"tiers": {X: ["shared", 0.0]}})
+    assert gx.discover_visibility_notes(str(a.root))[X] == "local"
+
+
+def test_a_rebuild_into_an_emptied_database_applies_the_notes(world, monkeypatch):
+    a = world("a")
+    a.tag("shared")
+    a.export()
+    fresh = sqlite3.connect(":memory:")
+    fresh.execute("CREATE TABLE project_findings (id TEXT PRIMARY KEY, visibility TEXT)")
+    fresh.execute("INSERT INTO project_findings VALUES (?, 'local')", (X,))  # re-imported, born local
+    gx.apply_visibility_notes(fresh, str(a.root), held_before=set())
+    assert fresh.execute("SELECT visibility FROM project_findings").fetchone()[0] == "shared"

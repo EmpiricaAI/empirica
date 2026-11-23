@@ -375,13 +375,48 @@ WRITER_FILE = "visibility_writer.json"
 _WRITER_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,60}")
 
 
+def _checkout_key(root: str) -> str:
+    """What binds a writer id to one checkout: its absolute path on this machine. A writer file copied into another
+    checkout (cp -r, rsync, a cloned VM) does not match and gets a new id, so two checkouts never write the same refs."""
+    return f"{machine_name()}:{Path(root).resolve()}"
+
+
 def current_writer(root: str) -> str | None:
-    """This checkout's visibility writer id, or None before its first export (goal 38510fdd)."""
+    """This checkout's visibility writer id, or None before its first export or when the file was made for another
+    checkout (goal 38510fdd)."""
     try:
-        writer = json.loads((Path(root) / ".empirica" / WRITER_FILE).read_text(encoding="utf-8")).get("writer")
-    except (OSError, ValueError, AttributeError):
+        data = json.loads((Path(root) / ".empirica" / WRITER_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
         return None
-    return writer if isinstance(writer, str) and _WRITER_RE.fullmatch(writer) else None
+    writer = data.get("writer") if isinstance(data, dict) else None
+    if not (isinstance(writer, str) and _WRITER_RE.fullmatch(writer)) or data.get("checkout") != _checkout_key(root):
+        return None
+    return writer
+
+
+#: Where a checkout keeps its visibility baseline: what it last learned the notes say, {id: [tier, changed_at]}, written
+#: by every rebuild and every export. The export compares the database with it, so only a tag changed here since is
+#: stamped now, and the rebuild leaves a row with an unexported change here alone (goal 38510fdd review).
+BASELINE_FILE = "visibility_baseline.json"
+
+
+def load_baseline(root: str) -> dict[str, list]:
+    try:
+        data = json.loads((Path(root) / ".empirica" / BASELINE_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return _entries({"tiers": data}) if isinstance(data, dict) else {}
+
+
+def save_baseline(root: str, baseline: dict[str, list]) -> None:
+    path = Path(root) / ".empirica" / BASELINE_FILE
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(baseline, sort_keys=True), encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        pass
 
 
 def writer_id(root: str) -> str:
@@ -398,7 +433,7 @@ def writer_id(root: str) -> str:
     writer = f"{host}-{secrets.token_hex(4)}"
     path = Path(root) / ".empirica" / WRITER_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"writer": writer}) + "\n", encoding="utf-8")
+    path.write_text(json.dumps({"writer": writer, "checkout": _checkout_key(root)}) + "\n", encoding="utf-8")
     return writer
 
 
@@ -515,6 +550,7 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
 
     machine = writer_id(root)
     shards = _visibility_shards(conn)
+    baseline = load_baseline(root)
     # Per machine: 1.17.14 kept one record for its flat layout, and matching it skipped this machine's first export,
     # so a later withdrawal had no entry to override (1.17.15 second pass). A new name starts with a full export.
     record = f"visibility:{machine}"
@@ -524,6 +560,11 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
     # one that recomputes the 1.17.14 overrides (goal c29b6931).
     everything = full or record not in marks or any(0 < _failures(v) <= _RETRY_FULL for v in previous.values())
     candidates = set(shards) | set(previous) | (_existing_visibility_shards(root, machine) if everything else set())
+    # Shards where the database's tag differs from the baseline: a tag adopted by a rebuild and changed here since (a
+    # withdrawal of an adopted share leaves nothing shared in the shard, and this writer may never have written it).
+    tagged = {i: t for tiers in shards.values() for i, t in tiers.items()}
+    differs = {_visibility_shard(i) for i, (t, _w) in baseline.items() if tagged.get(i, "local") != t}
+    candidates |= differs
     held: set[str] | None = None
     # This checkout's older namespaces: 1.17.14's flat notes (one shared set of refs) and the hostname namespace 1.17.15
     # and 1.17.16 wrote, when its export record is here. A full export overrides their shared or public entries for ids this
@@ -540,21 +581,26 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
         mine = shards.get(shard, {})
         digest = hashlib.sha256(json.dumps(mine, sort_keys=True).encode()).hexdigest()[:16]
         current[shard] = digest
-        if not everything and previous.get(shard) == digest:
+        # Unchanged since the last export, unless a rebuild moved the baseline in between (shared, local by a rebuild,
+        # shared again reads as the same digest).
+        if not everything and previous.get(shard) == digest and shard not in differs:
             continue
         note = _read_shard(root, f"{machine}/{shard}")
         others = [ns for ns in refs.get(shard, []) if ns != machine]
-        merged = _stamp_tags(mine, note, lambda shard=shard, others=others: _shard_winners(root, shard, others), now)
-        for artifact_id, (tier, when) in note.items():
-            if artifact_id in mine:
-                continue
-            if held is None:
-                held = _held_ids(conn)
-            # Held here but no longer shared or public: moved back to local, recorded so it outranks older tags elsewhere.
-            merged[artifact_id] = ["local", now] if artifact_id in held and tier != "local" else [tier, when]
+        if held is None:
+            held = _held_ids(conn)
+        merged = _stamp_tags(
+            mine,
+            note,
+            {i: e for i, e in baseline.items() if _visibility_shard(i) == shard},
+            held,
+            lambda shard=shard, others=others: _shard_winners(root, shard, others),
+            now,
+        )
         for artifact_id in legacy_local.get(shard, ()):
             if artifact_id not in merged:
                 merged[artifact_id] = ["local", now]
+        baseline.update(merged)
         if merged == note:
             continue
         if _write_note(root, f"{VISIBILITY_PREFIX}/{machine}/{shard}", {"machine": machine, "tiers": merged}):
@@ -563,6 +609,7 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
             failed += 1
             current[shard] = f"{_RETRY}{_failures(previous.get(shard)) + 1}"  # retried next time (goal c29b6931)
     _save_watermark(root, record, {k: v for k, v in current.items() if v})
+    save_baseline(root, baseline)
     return {"written": written, "failed": failed, "shards": len(shards)}
 
 
@@ -588,18 +635,33 @@ def _owned_legacy_overrides(
     return out
 
 
-def _stamp_tags(mine: dict[str, str], note: dict[str, list], elsewhere, now: float) -> dict[str, list]:
-    """This checkout's shared and public tags for one shard as [tier, changed_at]. An unchanged tag keeps its entry; a tag
-    adopted from another writer keeps the time that writer set it; only a tag that differs from every other writer's latest
-    entry was changed here, now. Stamping adopted tags with the export time let a machine that pulled a share and exported
-    after the owner withdrew it outrank the withdrawal (1.17.15 sweep). ``elsewhere`` reads the other writers' entries,
-    only when needed."""
+def _stamp_tags(
+    mine: dict[str, str], note: dict[str, list], baseline: dict[str, list], held: set[str], elsewhere, now: float
+) -> dict[str, list]:
+    """This checkout's entries for one shard, [tier, changed_at] (goal 38510fdd). For each id this checkout has a tag for
+    (shared or public in the database, or in its baseline or its own note), with the database's tier (local when it holds
+    the row untagged): when the baseline knows the id, it decides: the same tier keeps the baseline's entry and its time
+    (including a withdrawal copied from another writer), any other tier was changed here, now (a re-share after a rebuild
+    brought a withdrawal). Without a baseline entry, this writer's own entry with that tier is kept; else another writer's
+    latest entry with that tier (adopted before this checkout had a baseline); else the tier was changed here, now. A row this checkout holds local and never had a tag for is not written: it is not a withdrawal. An id this
+    database does not hold keeps its entry. ``elsewhere`` reads the other writers' entries, only when needed."""
     others: dict | None = None
     merged: dict[str, list] = {}
-    for artifact_id, tier in mine.items():
-        old = note.get(artifact_id)
-        if old and old[0] == tier:
-            merged[artifact_id] = old
+    for artifact_id in set(mine) | set(baseline) | set(note):
+        tier = mine.get(artifact_id) or ("local" if artifact_id in held else None)
+        if tier is None:
+            if artifact_id in note:
+                merged[artifact_id] = note[artifact_id]
+            continue
+        known = baseline.get(artifact_id)
+        if known:  # what this checkout last learned decides: same tier, keep its time; any other, changed here
+            merged[artifact_id] = known if known[0] == tier else [tier, now]
+            continue
+        own = note.get(artifact_id)
+        if own and own[0] == tier:
+            merged[artifact_id] = own
+            continue
+        if tier == "local" and not own:
             continue
         if others is None:
             others = elsewhere()
@@ -613,7 +675,7 @@ def _shard_winners(root: str, shard: str, namespaces: list[str]) -> dict[str, tu
     best: dict[str, tuple[str, float, str]] = {}
     for namespace in namespaces:
         for artifact_id, (tier, when) in _read_shard(root, f"{namespace}/{shard}" if namespace else shard).items():
-            if artifact_id not in best or when >= best[artifact_id][1]:
+            if artifact_id not in best or _beats((tier, when), best[artifact_id]):
                 best[artifact_id] = (tier, when, namespace)
     return best
 
@@ -623,9 +685,45 @@ def _winning_entries(root: str) -> dict[str, list]:
     best: dict[str, list] = {}
     for payload in _discover(root, VISIBILITY_PREFIX):
         for artifact_id, entry in _entries(payload).items():
-            if artifact_id not in best or entry[1] >= best[artifact_id][1]:
+            if artifact_id not in best or _beats(entry, best[artifact_id]):
                 best[artifact_id] = entry
     return best
+
+
+def _beats(entry, best) -> bool:
+    """The later entry wins; on a tie a withdrawal wins, so no order of reading lets a share outlast an equally recent
+    withdrawal (goal 38510fdd review: two entries at time 0 were settled by the writer ids' order)."""
+    return entry[1] > best[1] or (entry[1] == best[1] and entry[0] == "local" and best[0] != "local")
+
+
+def apply_visibility_notes(conn, root: str, *, held_before: set[str] | None = None) -> int:
+    """Set each artifact's tag from the notes (the latest entry per id across writers) and record it in this checkout's
+    baseline; return how many shares and public tags were restored. A row that existed before this rebuild and whose tag
+    differs from the baseline was changed here and not yet exported: it is left alone, so a pull before POSTFLIGHT does
+    not undo a withdrawal (goal 38510fdd review). Rows this rebuild created (``held_before`` lacks them) always take the
+    notes' tag."""
+    baseline = load_baseline(root)
+    held_before = held_before or set()
+    restored = 0
+    for artifact_id, (tier, when) in _winning_entries(root).items():
+        for table in VISIBILITY_TABLES:
+            try:
+                row = conn.execute(f"SELECT visibility FROM {table} WHERE id = ?", (artifact_id,)).fetchone()
+            except Exception:
+                continue
+            if row is None:
+                continue
+            current = row[0] or "local"
+            known = baseline.get(artifact_id)
+            if artifact_id in held_before and known and current != known[0]:
+                break  # changed here since this checkout last synced
+            conn.execute(f"UPDATE {table} SET visibility = ? WHERE id = ?", (tier, artifact_id))
+            baseline[artifact_id] = [tier, when]
+            restored += tier != "local"
+            break
+    conn.commit()
+    save_baseline(root, baseline)
+    return restored
 
 
 def discover_visibility_notes(root: str) -> dict[str, str]:
@@ -658,9 +756,8 @@ def export_graph_notes(conn, root: str, *, full: bool = False) -> dict:
 
 
 def visibility_notes_enabled() -> bool:
-    """Off by default (EMPIRICA_VISIBILITY_NOTES=1 turns it on). The per-machine layout (goal 221679b1) still lets a share
-    that was withdrawn come back: entries carry export time, not change time; a renamed machine cannot override its old
-    namespace; two clones on one host share a name (1.17.15 sweep). Until a redesign, a single-machine practice only."""
+    """Off by default (EMPIRICA_VISIBILITY_NOTES=1 turns it on) until the multi-machine design (goal 38510fdd: writer per
+    checkout, baseline, adopted times, own-refs push and fetch) has had a clean independent review and David's word."""
     return os.environ.get("EMPIRICA_VISIBILITY_NOTES", "").strip() == "1"
 
 

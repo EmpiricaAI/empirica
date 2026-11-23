@@ -614,6 +614,17 @@ def _note_wildcard_batches(refspec: str) -> list[list[str]] | None:
     return [specs[i : i + _NOTES_PUSH_BATCH] for i in range(0, len(specs), _NOTES_PUSH_BATCH)]
 
 
+def _notes_fetch_refspecs() -> list[str]:
+    """The empirica notes to fetch: everything except this writer's own visibility notes, which only this checkout writes,
+    so fetching them could only be refused (non-fast-forward once it exported since its last push) or, forced, rewind an
+    unpushed change (goal 38510fdd review). A negative refspec needs git 2.29."""
+    from empirica.core.canonical.empirica_git.graph_note_export import current_writer
+
+    writer = current_writer(_get_workspace_root())
+    specs = ["refs/notes/empirica/*:refs/notes/empirica/*"]
+    return specs + ([f"^refs/notes/empirica/visibility/{writer}/*"] if writer else [])
+
+
 def _pushes_visibility_ref(ref: str) -> bool:
     """Every ref except another writer's visibility notes (goal 38510fdd): each checkout writes only its own namespace, so
     pushing the copies it fetched of a peer's sent stale refs that the remote refused until this machine pulled. Before a
@@ -914,7 +925,7 @@ def handle_sync_pull_command(args):
         # Fetch all empirica notes at once
         try:
             result = subprocess.run(
-                ["git", "fetch", remote, "refs/notes/empirica/*:refs/notes/empirica/*"],
+                ["git", "fetch", remote, *_notes_fetch_refspecs()],
                 capture_output=True,
                 cwd=_get_workspace_root(),
                 text=True,
@@ -1852,25 +1863,17 @@ def _rebuild_edges(db, rebuilt, root: str | None = None) -> None:
     db.adapter.conn.commit()
 
 
-def _rebuild_visibility(db, rebuilt, root: str | None = None) -> None:
+def _rebuild_visibility(db, rebuilt, root: str | None = None, held_before: set[str] | None = None) -> None:
     """Shared and public tags from the visibility shard notes (goal ecea0fd4), applied after every row is restored; a row
     with no tag in them stays local. Ids are unique across the artifact tables, so each is tried until one row matches."""
     import os
 
-    from empirica.core.canonical.empirica_git.graph_note_export import VISIBILITY_TABLES, discover_visibility_notes
+    from empirica.core.canonical.empirica_git.graph_note_export import apply_visibility_notes
 
     rebuilt.setdefault("visibility_restored", 0)
-    for artifact_id, tier in discover_visibility_notes(root or os.getcwd()).items():
-        for table in VISIBILITY_TABLES:
-            try:
-                cur = db.adapter.conn.execute(f"UPDATE {table} SET visibility = ? WHERE id = ?", (tier, artifact_id))
-            except Exception:
-                continue
-            if cur.rowcount:
-                # A local entry (a tag moved back, goal 221679b1) is applied but is not a restored share.
-                rebuilt["visibility_restored"] += tier != "local"
-                break
-    db.adapter.conn.commit()
+    rebuilt["visibility_restored"] += apply_visibility_notes(
+        db.adapter.conn, root or os.getcwd(), held_before=held_before
+    )
 
 
 def _rebuild_falsifiers(db, rebuilt, root: str | None = None) -> None:
@@ -1947,6 +1950,9 @@ def _rebuild_from_notes() -> dict[str, Any]:
         from empirica.data.session_database import SessionDatabase
 
         db = SessionDatabase()
+        from empirica.core.canonical.empirica_git.graph_note_export import _held_ids
+
+        held_before = _held_ids(db.adapter.conn)  # rows that existed before this rebuild (goal 38510fdd review)
 
         finding_store = GitFindingStore()
         unknown_store = GitUnknownStore()
@@ -1984,7 +1990,7 @@ def _rebuild_from_notes() -> dict[str, Any]:
         _rebuild_edges(db, rebuilt)
         _rebuild_falsifiers(db, rebuilt)
         _rebuild_lessons(db, rebuilt)
-        _rebuild_visibility(db, rebuilt)  # last: every row it tags must already be back
+        _rebuild_visibility(db, rebuilt, held_before=held_before)  # last: every row it tags must already be back
 
         db.close()
 
