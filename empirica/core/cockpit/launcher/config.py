@@ -118,7 +118,7 @@ class LauncherConfig:
     # every tmux call for this session passes -S <socket>; the socket is made group-readable after the server starts.
     socket: str | None = None
     socket_group: str = "cockpit-users"
-    server_access: list[str] = field(default_factory=list)  # users granted read-only access: server-access -a <u> -r
+    server_access: list[str] = field(default_factory=list)  # users granted read-only access: server-access -a -r <u>
 
     def project_names(self) -> list[str]:
         return [p.name for p in self.projects]

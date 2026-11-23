@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
+
+import pytest
 
 from empirica.core.cockpit import tmux_socket as ts
 
@@ -60,7 +63,7 @@ def test_share_socket_opens_the_socket_to_the_group_and_grants_read_only_access(
     cfg = SimpleNamespace(socket=str(sock), socket_group=group, server_access=["cockpit"])
     out = lt.share_socket(cfg, run=lambda argv, **k: calls.append(argv) or SimpleNamespace(returncode=0, stderr=""))
     assert oct(sock.stat().st_mode & 0o777) == "0o660" and out["errors"] == []
-    assert ["tmux", "-S", str(sock), "server-access", "-a", "cockpit", "-r"] in calls
+    assert ["tmux", "-S", str(sock), "server-access", "-a", "-r", "cockpit"] in calls  # flags before the user
     assert ["tmux", "-S", str(sock), "set-environment", "-g", "EMPIRICA_TMUX_SOCKET", str(sock)] in calls
     assert lt.share_socket(SimpleNamespace(socket=None)) is None
 
@@ -125,3 +128,26 @@ def test_every_cockpit_command_aims_at_the_configured_socket():
     lines = (_ROOT / "empirica/cli/command_handlers/cockpit_launcher_commands.py").read_text().splitlines()
     loads = [i for i, line in enumerate(lines) if "config = load_config(" in line]
     assert len(loads) >= 4 and all("use_socket(" in lines[i + 1] for i in loads)
+
+
+@pytest.mark.skipif(shutil.which("tmux") is None, reason="needs tmux")
+def test_server_access_is_accepted_by_real_tmux(tmp_path, monkeypatch):
+    """prop_nus3q64yzvg5xets3zrcvmfhgq: tmux 3.5+ takes the flags before the user; 'server-access -a USER -r' failed with
+    'too many arguments' and every grant was silently dropped. Runs the real tmux on a server under tmp_path."""
+    import getpass
+    import grp
+    import os
+    import subprocess
+    from types import SimpleNamespace
+
+    from empirica.core.cockpit.launcher import tmux as lt
+
+    sock = tmp_path / "s"
+    subprocess.run(["tmux", "-S", str(sock), "new-session", "-d", "-s", "t"], check=True, timeout=20)
+    try:
+        monkeypatch.setenv(ts.ENV, str(sock))
+        group = grp.getgrgid(os.getgid()).gr_name
+        out = lt.share_socket(SimpleNamespace(socket=str(sock), socket_group=group, server_access=[getpass.getuser()]))
+        assert not any("too many arguments" in e for e in out["errors"]), out["errors"]
+    finally:
+        subprocess.run(["tmux", "-S", str(sock), "kill-server"], check=False, timeout=20)

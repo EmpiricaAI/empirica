@@ -179,7 +179,9 @@ def share_socket(config, run=subprocess.run) -> dict | None:
     except (OSError, LookupError) as e:
         out["errors"].append(f"permissions: {e}")
     for user in config.server_access:
-        r = run(tmux_argv("server-access", "-a", user, "-r"), capture_output=True, text=True, check=False, timeout=10)
+        # Flags before the user: tmux 3.5+ rejects 'server-access -a USER -r' ("too many arguments")
+        # (prop_nus3q64yzvg5xets3zrcvmfhgq).
+        r = run(tmux_argv("server-access", "-a", "-r", user), capture_output=True, text=True, check=False, timeout=10)
         if r.returncode != 0:
             out["errors"].append(f"server-access {user}: {(r.stderr or '').strip()[:160]}")
     r = run(
