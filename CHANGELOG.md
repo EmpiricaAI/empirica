@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Visibility notes (opt-in): a rebuild that never finished no longer stops the export.** Only the rows it added, whose tags are unknown, are left out until a rebuild finishes; a change made meanwhile on any other row is exported. A checkout that has synced before stamps a tag it set itself with its own time, even when another writer set the same tag earlier.
+- **Visibility notes (opt-in): a rebuild that never finished no longer stops the export.** Only the rows it added, whose tags are unknown, are left out until a rebuild finishes; a change made meanwhile on any other row is exported. A checkout that has synced before stamps a tag it set itself with its own time, even when another writer set the same tag earlier. `profile-sync --import-only` applies the visibility notes to the rows it restores, as a rebuild does.
 - **`release.py --prepare` stops when CI failed on the release commit.** A failed run used to fall through to a local test run, which could pass where CI had not; only a CI run that is missing or still running falls back to it now.
 
 ## [1.17.17] - 2026-11-23

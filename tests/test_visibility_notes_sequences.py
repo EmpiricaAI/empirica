@@ -548,3 +548,39 @@ def test_an_upgraded_checkout_whose_first_export_partly_failed_still_adopts(worl
     c.push(monkeypatch)
     b.pull(monkeypatch)
     assert b.tier() == "local"
+
+
+def test_a_profile_import_into_an_emptied_database_applies_the_notes(world, monkeypatch, notes_on):
+    """Round 8: profile-sync --import-only restored rows as local without applying the notes, so with the baseline kept the
+    next POSTFLIGHT export withdrew every share nobody withdrew."""
+    from empirica.core.canonical.empirica_git import profile_import
+
+    a, b = world("a"), world("b")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    b.pull(monkeypatch)
+    b.export()
+    b.conn.execute("DELETE FROM project_findings")  # the database is emptied; the baseline survives
+
+    importer = profile_import.ProfileImporter(workspace_root=str(b.root))
+    monkeypatch.setattr(
+        importer,
+        "import_findings",
+        lambda db: db.conn.execute("INSERT INTO project_findings VALUES (?, 'local')", (X,)),
+    )
+    for name in ("import_unknowns", "import_dead_ends", "import_mistakes", "import_decisions", "import_assumptions",
+                 "import_goals", "import_sources"):  # fmt: skip
+        monkeypatch.setattr(importer, name, lambda db: 0)
+    importer._stats = {}
+    importer.import_all(SimpleDb(b.conn))
+    assert b.tier() == "shared"
+    b.export()
+    b.push(monkeypatch)
+    a.pull(monkeypatch)
+    assert a.tier() == "shared"
+
+
+class SimpleDb:
+    def __init__(self, conn):
+        self.conn = conn

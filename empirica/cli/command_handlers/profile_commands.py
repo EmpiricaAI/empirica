@@ -194,6 +194,9 @@ def _print_sync_pretty(result, import_result, remote, import_only, do_push, do_q
             if type_stats.get("total", 0) > 0:
                 failed_note = f", {type_stats['failed']} REFUSED by the table" if type_stats.get("failed") else ""
                 print(f"     {artifact_type}: {type_stats['imported']} new / {type_stats['total']} total{failed_note}")
+        visibility_error = (stats.get("_visibility") or {}).get("error")
+        if visibility_error:
+            print(f"   ⚠️  Visibility tags not applied ({visibility_error}); run: empirica sync-pull --rebuild")
         if do_push:
             print(f"   Pushed to: {remote}")
         if do_qdrant:

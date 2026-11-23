@@ -594,6 +594,16 @@ class ProfileImporter:
             }
         """
         self._stats = {}
+        # Restored rows are born local (_mark_local); the visibility notes then set their tags, exactly as the rebuild does,
+        # so an import into an emptied database does not read every share as withdrawn at the next export (goal 8b802b67,
+        # review round 8). A failure here is recorded in the stats, not swallowed.
+        from empirica.core.canonical.empirica_git import graph_note_export as notes
+
+        try:
+            held_before: set[str] | None = notes.prepare_visibility_rebuild(db.conn, self.workspace_root)
+        except Exception as e:
+            held_before = None
+            self._visibility_error = f"before import: {e}"
 
         self.import_findings(db)
         self.import_unknowns(db)
@@ -604,10 +614,22 @@ class ProfileImporter:
         self.import_goals(db)
         self.import_sources(db)
 
+        visibility: dict = {}
+        if held_before is not None:
+            try:
+                visibility["restored"] = notes.apply_visibility_notes(
+                    db.conn, self.workspace_root, held_before=held_before
+                )
+            except Exception as e:
+                visibility["error"] = f"applying the notes: {e}"
+        else:
+            visibility["error"] = getattr(self, "_visibility_error", "not run")
+
         total_imported = sum(s["imported"] for s in self._stats.values())
         total_skipped = sum(s["skipped"] for s in self._stats.values())
         total_notes = sum(s["total"] for s in self._stats.values())
 
+        self._stats["_visibility"] = visibility
         self._stats["_summary"] = {
             "imported": total_imported,
             "skipped": total_skipped,
