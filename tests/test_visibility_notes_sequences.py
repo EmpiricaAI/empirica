@@ -483,7 +483,7 @@ def test_an_independent_reset_by_a_synced_checkout_is_stamped_now(world, monkeyp
     """Round 6: C has synced before (it has a baseline) but never this id; it fetched A's public tag without a rebuild,
     B then shares, and C sets public itself, later. C's entry must carry its own time, not A's, so it wins over B's."""
     a, b, c = world("a"), world("b"), world("c")
-    gx.save_baseline(str(c.root), {"other-id": ["shared", 1.0]})
+    gx._mark_synced(str(c.root))  # c has synced before, just not this id
     a.tag("public")
     a.export()
     a.push(monkeypatch)
@@ -498,3 +498,53 @@ def test_an_independent_reset_by_a_synced_checkout_is_stamped_now(world, monkeyp
     c.push(monkeypatch)
     a.pull(monkeypatch)
     assert a.tier() == "public"
+
+
+# ── round 7 of the review ───────────────────────────────────────────────────────────────────────────────────────────────
+
+Y = "cd000000-0000-0000-0000-00000000000y"
+
+
+def test_a_checkout_that_synced_with_nothing_tagged_stamps_its_own_time(world, monkeypatch, notes_on):
+    """Seed 5, trial 3: an empty baseline is not 'never synced'."""
+    a, b, c = world("a"), world("b"), world("c")
+    c.export()  # a full export with nothing tagged: synced, empty baseline
+    a.tag("public")
+    a.export()
+    a.push(monkeypatch)
+    monkeypatch.setattr(sc, "_get_workspace_root", lambda: str(c.root))
+    _git(c.root, "fetch", "origin", *sc._notes_fetch_refspecs())
+    sc._merge_visibility_notes("origin")
+    b.tag("shared")
+    b.export()
+    b.push(monkeypatch)
+    c.tag("public")
+    c.export()
+    c.push(monkeypatch)
+    a.pull(monkeypatch)
+    assert a.tier() == "public"
+
+
+def test_an_upgraded_checkout_whose_first_export_partly_failed_still_adopts(world, monkeypatch, notes_on):
+    """G1: X was adopted by an old-version rebuild (no baseline); the first export's write for X's shard failed, leaving a
+    baseline with only Y; the next export stamped X now and beat the owner's withdrawal."""
+    a, b, c = world("a"), world("b"), world("c")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    _git(c.root, "fetch", "origin", "refs/notes/empirica/*:refs/notes/empirica/*")
+    c.conn.execute("INSERT INTO project_findings VALUES (?, 'shared')", (Y,))
+    c.tag("shared")  # adopted by an old rebuild
+    a.tag("local")
+    a.export()
+    a.push(monkeypatch)  # the owner withdraws
+    real = gx._write_note
+    monkeypatch.setattr(
+        gx, "_write_note", lambda root, ref, payload: False if ref.endswith("/ab") else real(root, ref, payload)
+    )
+    c.export()
+    monkeypatch.setattr(gx, "_write_note", real)
+    c.export()
+    c.push(monkeypatch)
+    b.pull(monkeypatch)
+    assert b.tier() == "local"

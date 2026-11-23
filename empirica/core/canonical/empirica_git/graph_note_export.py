@@ -422,6 +422,21 @@ BASELINE_FILE = "visibility_baseline.json"
 
 
 REBUILD_MARKER = "visibility_rebuild.pending"
+#: Written once this checkout has synced under the per-writer layout: a full export with no failed write, or a finished
+#: rebuild. Until then a tag matching another writer's entry is taken as adopted (it keeps that writer's time); after,
+#: as set here (goal 8b802b67, review round 7: an empty or partial baseline is not the test).
+SYNCED_MARKER = "visibility_synced"
+
+
+def _synced(root: str) -> bool:
+    return (Path(root) / ".empirica" / SYNCED_MARKER).exists()
+
+
+def _mark_synced(root: str) -> None:
+    path = Path(root) / ".empirica" / SYNCED_MARKER
+    with contextlib.suppress(OSError):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(time.time()), encoding="utf-8")
 
 
 @contextlib.contextmanager
@@ -665,9 +680,9 @@ def _export_visibility_notes(conn, root: str, *, full: bool = False, unknown: se
     }
     shards = {shard: tiers for shard, tiers in shards.items() if tiers}
     baseline = load_baseline(root)
-    # Only a checkout that has never synced under this layout adopts another writer's time for a matching tag: once it has
-    # a baseline, an id missing from it was never adopted here, so a matching tag was set here (goal 8b802b67).
-    adopt_elsewhere = not baseline
+    # Only a checkout that has not yet synced under this layout adopts another writer's time for a matching tag: once it
+    # has, an id missing from its baseline was never adopted here, so a matching tag was set here (goal 8b802b67).
+    adopt_elsewhere = not _synced(root)
     # Per machine: 1.17.14 kept one record for its flat layout, and matching it skipped this machine's first export,
     # so a later withdrawal had no entry to override (1.17.15 second pass). A new name starts with a full export.
     record = f"visibility:{machine}"
@@ -728,6 +743,8 @@ def _export_visibility_notes(conn, root: str, *, full: bool = False, unknown: se
             current[shard] = f"{_RETRY}{_failures(previous.get(shard)) + 1}"  # retried next time (goal c29b6931)
     _save_watermark(root, record, {k: v for k, v in current.items() if v})
     save_baseline(root, baseline)
+    if everything and not failed and not unknown:
+        _mark_synced(root)
     return {"written": written, "failed": failed, "shards": len(shards)}
 
 
@@ -836,6 +853,7 @@ def apply_visibility_notes(conn, root: str, *, held_before: set[str] | None = No
     notes' tag."""
     with _baseline_lock(root):
         restored = _apply_visibility_notes(conn, root, held_before or set())
+    _mark_synced(root)
     with contextlib.suppress(OSError):
         (Path(root) / ".empirica" / REBUILD_MARKER).unlink()
     return restored
