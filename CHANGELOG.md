@@ -5,6 +5,12 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Visibility notes are correct across machines** (still only with `EMPIRICA_VISIBILITY_NOTES=1`). A share withdrawn on one machine no longer comes back from another: a tag a machine adopted keeps the time it was set, rather than the time that machine exported it. Each checkout writes under its own writer id, kept in `.empirica/`, so two clones on one host no longer refuse each other's sync, and renaming a machine changes nothing. `sync-push` sends only this checkout's visibility notes. A timestamp that is not a real time no longer locks a tag. The notes written by 1.17.14 to 1.17.16 still read, and a checkout's first export overrides its own older entries for shares it has since withdrawn.
+
 ## [1.17.16] - 2026-11-22
 
 ### Fixed

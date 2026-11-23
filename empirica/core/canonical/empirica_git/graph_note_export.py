@@ -14,6 +14,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import math
 import os
 import re
 import threading
@@ -369,20 +370,55 @@ def machine_name() -> str:
     return f"{host}-{hashlib.sha256((machine_id or host).encode()).hexdigest()[:6]}"
 
 
+#: Where a checkout keeps its visibility writer id: ``.empirica/`` is not versioned, so each checkout has its own.
+WRITER_FILE = "visibility_writer.json"
+_WRITER_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,60}")
+
+
+def current_writer(root: str) -> str | None:
+    """This checkout's visibility writer id, or None before its first export (goal 38510fdd)."""
+    try:
+        writer = json.loads((Path(root) / ".empirica" / WRITER_FILE).read_text(encoding="utf-8")).get("writer")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return writer if isinstance(writer, str) and _WRITER_RE.fullmatch(writer) else None
+
+
+def writer_id(root: str) -> str:
+    """The namespace this checkout writes its visibility notes under: the hostname for readability plus a random suffix,
+    made once and kept in ``.empirica/`` (goal 38510fdd). Per checkout, not per host: 1.17.15 named it from the hostname,
+    so two clones on one host wrote the same refs and a renamed machine could not override its own older entries."""
+    import secrets
+    import socket
+
+    existing = current_writer(root)
+    if existing:
+        return existing
+    host = re.sub(r"[^a-z0-9-]+", "-", socket.gethostname().lower()).strip("-")[:40] or "host"
+    writer = f"{host}-{secrets.token_hex(4)}"
+    path = Path(root) / ".empirica" / WRITER_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"writer": writer}) + "\n", encoding="utf-8")
+    return writer
+
+
+def _visibility_refs(root: str) -> dict[str, list[str]]:
+    """{shard: [namespace, ...]} for every visibility note ref; the 1.17.14 flat layout's namespace is ""."""
+    prefix = f"refs/notes/{VISIBILITY_PREFIX}/"
+    refs = _git(["for-each-ref", "--format=%(refname)", prefix], root)
+    out: dict[str, list[str]] = {}
+    for ref in refs.stdout.split() if refs and refs.returncode == 0 else []:
+        if not ref.startswith(prefix):
+            continue
+        namespace, _, shard = ref[len(prefix) :].rpartition("/")
+        out.setdefault(shard, []).append(namespace)
+    return out
+
+
 def _existing_visibility_shards(root: str, machine: str) -> set[str]:
     """The shard notes this machine has already written, so a full export also rewrites the ones that have emptied."""
     refs = _git(["for-each-ref", "--format=%(refname)", f"refs/notes/{VISIBILITY_PREFIX}/{machine}/"], root)
     return {r.rsplit("/", 1)[-1] for r in (refs.stdout.split() if refs and refs.returncode == 0 else [])}
-
-
-def _flat_visibility_shards(root: str) -> list[str]:
-    """The 1.17.14 layout's shard notes, empirica/visibility/<shard> directly under the prefix (no machine namespace)."""
-    refs = _git(["for-each-ref", "--format=%(refname)", f"refs/notes/{VISIBILITY_PREFIX}/"], root)
-    prefix = f"refs/notes/{VISIBILITY_PREFIX}/"
-    names = [
-        r[len(prefix) :] for r in (refs.stdout.split() if refs and refs.returncode == 0 else []) if r.startswith(prefix)
-    ]
-    return [n for n in names if "/" not in n]
 
 
 def _visibility_shards(conn) -> dict[str, dict[str, str]]:
@@ -425,11 +461,18 @@ def _entries(payload) -> dict[str, list]:
             else (None, 0.0)
         )
         if tier in _TIERS:
-            try:
-                out[str(artifact_id)] = [tier, float(when)]
-            except (TypeError, ValueError):
-                out[str(artifact_id)] = [tier, 0.0]
+            out[str(artifact_id)] = [tier, _sane_time(when)]
     return out
+
+
+def _sane_time(when) -> float:
+    """A changed_at as a time, or 0.0 (oldest) when it is not one: not a number, not finite, negative, or more than a day
+    ahead of this clock. A NaN or far-future time used to win every comparison and lock the tag (1.17.15 sweep)."""
+    try:
+        value = float(when)
+    except (TypeError, ValueError):
+        return 0.0
+    return value if math.isfinite(value) and 0.0 <= value <= time.time() + 86400 else 0.0
 
 
 def _read_shard(root: str, path: str) -> dict[str, list]:
@@ -470,7 +513,7 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
     "failed", "shards"}``."""
     import hashlib
 
-    machine = machine_name()
+    machine = writer_id(root)
     shards = _visibility_shards(conn)
     # Per machine: 1.17.14 kept one record for its flat layout, and matching it skipped this machine's first export,
     # so a later withdrawal had no entry to override (1.17.15 second pass). A new name starts with a full export.
@@ -482,22 +525,14 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
     everything = full or record not in marks or any(0 < _failures(v) <= _RETRY_FULL for v in previous.values())
     candidates = set(shards) | set(previous) | (_existing_visibility_shards(root, machine) if everything else set())
     held: set[str] | None = None
-    # A full export also overrides 1.17.14's flat notes (one shared set of refs) for ids this database holds as local but
-    # they list as shared or public: 1.17.14 dropped them when it rewrote the shard, and a share withdrawn while the export
-    # was off is in no machine's own note (1.17.15 second pass). Only a flat entry that is still the winner is overridden:
-    # another machine's own entry is newer than any flat one and stands.
-    legacy_local: dict[str, set[str]] = {}
-    flat = _flat_visibility_shards(root) if everything else []
-    if flat:
-        held = _held_ids(conn)
-        shared_here = {i for tiers in shards.values() for i in tiers}
-        winners = _winning_entries(root)
-        for shard in flat:
-            for artifact_id, (tier, _when) in _read_shard(root, shard).items():
-                win = winners.get(artifact_id)
-                if tier != "local" and win and win[1] == 0.0 and artifact_id in held and artifact_id not in shared_here:
-                    legacy_local.setdefault(_visibility_shard(artifact_id), set()).add(artifact_id)
-        candidates |= set(legacy_local)
+    # This checkout's older namespaces: 1.17.14's flat notes (one shared set of refs) and the hostname namespace 1.17.15
+    # and 1.17.16 wrote, when its export record is here. A full export overrides their shared or public entries for ids this
+    # database holds as local, while one of them is still the winner: they were this checkout's own tags, and a share
+    # withdrawn while the export was off or under another name is in no current note (1.17.15 second pass, goal 38510fdd).
+    # Another writer's entries are never overridden: a row merely never shared here is not a withdrawal.
+    refs = _visibility_refs(root)
+    legacy_local = _owned_legacy_overrides(conn, root, refs, machine, marks, shards) if everything else {}
+    candidates |= set(legacy_local)
     current: dict[str, str] = {}
     written = failed = 0
     now = time.time()
@@ -508,10 +543,8 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
         if not everything and previous.get(shard) == digest:
             continue
         note = _read_shard(root, f"{machine}/{shard}")
-        merged: dict[str, list] = {}
-        for artifact_id, tier in mine.items():
-            old = note.get(artifact_id)
-            merged[artifact_id] = old if old and old[0] == tier else [tier, now]
+        others = [ns for ns in refs.get(shard, []) if ns != machine]
+        merged = _stamp_tags(mine, note, lambda shard=shard, others=others: _shard_winners(root, shard, others), now)
         for artifact_id, (tier, when) in note.items():
             if artifact_id in mine:
                 continue
@@ -531,6 +564,58 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
             current[shard] = f"{_RETRY}{_failures(previous.get(shard)) + 1}"  # retried next time (goal c29b6931)
     _save_watermark(root, record, {k: v for k, v in current.items() if v})
     return {"written": written, "failed": failed, "shards": len(shards)}
+
+
+def _owned_legacy_overrides(
+    conn, root: str, refs: dict, machine: str, marks: dict, shards: dict
+) -> dict[str, set[str]]:
+    """{shard: ids} a full export writes as local: entries in this checkout's older namespaces (1.17.14's flat notes, and
+    the hostname namespace 1.17.15 and 1.17.16 wrote, when its export record is here) that are still the winner, shared or
+    public, for ids this database holds as local. They were this checkout's own tags, and a share withdrawn while the export
+    was off or under another name is in no current note (1.17.15 second pass, goal 38510fdd). Another writer's entries are
+    never overridden: a row merely never shared here is not a withdrawal."""
+    old_name = machine_name()
+    owned = {""} | ({old_name} if old_name != machine and f"visibility:{old_name}" in marks else set())
+    if not any(owned & set(namespaces) for namespaces in refs.values()):
+        return {}
+    held = _held_ids(conn)
+    shared_here = {i for tiers in shards.values() for i in tiers}
+    out: dict[str, set[str]] = {}
+    for shard, namespaces in refs.items():
+        for artifact_id, (tier, _when, source) in _shard_winners(root, shard, namespaces).items():
+            if source in owned and tier != "local" and artifact_id in held and artifact_id not in shared_here:
+                out.setdefault(shard, set()).add(artifact_id)
+    return out
+
+
+def _stamp_tags(mine: dict[str, str], note: dict[str, list], elsewhere, now: float) -> dict[str, list]:
+    """This checkout's shared and public tags for one shard as [tier, changed_at]. An unchanged tag keeps its entry; a tag
+    adopted from another writer keeps the time that writer set it; only a tag that differs from every other writer's latest
+    entry was changed here, now. Stamping adopted tags with the export time let a machine that pulled a share and exported
+    after the owner withdrew it outrank the withdrawal (1.17.15 sweep). ``elsewhere`` reads the other writers' entries,
+    only when needed."""
+    others: dict | None = None
+    merged: dict[str, list] = {}
+    for artifact_id, tier in mine.items():
+        old = note.get(artifact_id)
+        if old and old[0] == tier:
+            merged[artifact_id] = old
+            continue
+        if others is None:
+            others = elsewhere()
+        win = others.get(artifact_id)
+        merged[artifact_id] = [tier, win[1]] if win and win[0] == tier else [tier, now]
+    return merged
+
+
+def _shard_winners(root: str, shard: str, namespaces: list[str]) -> dict[str, tuple[str, float, str]]:
+    """{id: (tier, changed_at, namespace)}: the latest entry per id in one shard across the given namespaces."""
+    best: dict[str, tuple[str, float, str]] = {}
+    for namespace in namespaces:
+        for artifact_id, (tier, when) in _read_shard(root, f"{namespace}/{shard}" if namespace else shard).items():
+            if artifact_id not in best or when >= best[artifact_id][1]:
+                best[artifact_id] = (tier, when, namespace)
+    return best
 
 
 def _winning_entries(root: str) -> dict[str, list]:

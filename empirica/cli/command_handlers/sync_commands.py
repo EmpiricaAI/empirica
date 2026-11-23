@@ -609,8 +609,22 @@ def _note_wildcard_batches(refspec: str) -> list[list[str]] | None:
         # An empty listing read as 'nothing to push' and the namespace was reported pushed.
         raise RuntimeError((listing.stderr or "git for-each-ref failed").strip()[:200])
     refs = [line.strip() for line in listing.stdout.splitlines() if line.strip()]
+    refs = [ref for ref in refs if _pushes_visibility_ref(ref)]
     specs = [f"{ref}:{ref}" for ref in refs]
     return [specs[i : i + _NOTES_PUSH_BATCH] for i in range(0, len(specs), _NOTES_PUSH_BATCH)]
+
+
+def _pushes_visibility_ref(ref: str) -> bool:
+    """Every ref except another writer's visibility notes (goal 38510fdd): each checkout writes only its own namespace, so
+    pushing the copies it fetched of a peer's sent stale refs that the remote refused until this machine pulled. Before a
+    checkout's first export it has no writer id and pushes no visibility ref."""
+    prefix = "refs/notes/empirica/visibility/"
+    if not ref.startswith(prefix):
+        return True
+    from empirica.core.canonical.empirica_git.graph_note_export import current_writer
+
+    writer = current_writer(_get_workspace_root())
+    return bool(writer) and ref.startswith(f"{prefix}{writer}/")
 
 
 def _push_one(remote: str, specs: list[str], timeout: int) -> tuple[bool, str]:

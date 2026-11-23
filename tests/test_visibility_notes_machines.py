@@ -46,7 +46,7 @@ def _refs(root):
 
 
 def test_each_machine_writes_only_under_its_own_name(practice, monkeypatch):
-    monkeypatch.setattr(gx, "machine_name", lambda: "alpha-1")
+    monkeypatch.setattr(gx, "writer_id", lambda root: "alpha-1")
     db = SessionDatabase()
     try:
         _finding(db, "shared", "ab000000-0000-0000-0000-000000000001")
@@ -74,7 +74,7 @@ def test_a_1_17_14_flat_shard_counts_as_the_oldest(practice):
 
 
 def test_a_tag_moved_back_to_local_is_written_as_local_so_it_can_win(practice, monkeypatch):
-    monkeypatch.setattr(gx, "machine_name", lambda: "alpha")
+    monkeypatch.setattr(gx, "writer_id", lambda root: "alpha")
     db = SessionDatabase()
     try:
         fid = _finding(db, "shared", "aa000000-0000-0000-0000-000000000004")
@@ -106,7 +106,7 @@ def test_a_1_17_14_opt_in_user_who_withdraws_a_share_after_upgrading_keeps_it_lo
     had no entry to override and the flat note kept the share. The record is now per machine: the first export is full."""
     import json as _json
 
-    monkeypatch.setattr(gx, "machine_name", lambda: "alpha-abc123")
+    monkeypatch.setattr(gx, "writer_id", lambda root: "alpha-abc123")
     db = SessionDatabase()
     try:
         fid = _finding(db, "shared", "ab000000-0000-0000-0000-000000000005")
@@ -127,7 +127,7 @@ def test_a_share_withdrawn_while_the_flag_was_off_overrides_the_1_17_14_note(pra
     """1.17.15 second pass, round 2: withdrawn with the export off, so this machine's notes never held the id and only the
     1.17.14 flat note did. The first full export under a name overrides flat entries this database holds as local, as
     1.17.14 dropped them when it rewrote the shard."""
-    monkeypatch.setattr(gx, "machine_name", lambda: "alpha-abc123")
+    monkeypatch.setattr(gx, "writer_id", lambda root: "alpha-abc123")
     db = SessionDatabase()
     try:
         fid = _finding(db, "local", "ab000000-0000-0000-0000-000000000006")
@@ -142,9 +142,12 @@ def test_a_share_withdrawn_while_the_flag_was_off_overrides_the_1_17_14_note(pra
 
 def test_an_empty_export_record_is_not_a_first_export(practice, monkeypatch):
     """1.17.15 second pass, round 3: an empty record read as 'first export', so every POSTFLIGHT re-read the flat notes."""
-    monkeypatch.setattr(gx, "machine_name", lambda: "alpha-abc123")
+    monkeypatch.setattr(gx, "writer_id", lambda root: "alpha-abc123")
     calls = []
-    monkeypatch.setattr(gx, "_flat_visibility_shards", lambda root: calls.append(1) or [])
+    real = gx._existing_visibility_shards
+    monkeypatch.setattr(
+        gx, "_existing_visibility_shards", lambda root, w: calls.append(1) or real(root, w)
+    )  # full exports only
     db = SessionDatabase()
     try:
         gx.export_visibility_notes(db.conn, str(practice))
@@ -156,7 +159,7 @@ def test_an_empty_export_record_is_not_a_first_export(practice, monkeypatch):
 
 def test_the_legacy_override_never_beats_another_machines_entry(practice, monkeypatch):
     """Round 3: only a flat entry that is still the winner is overridden; another machine's own entry stands."""
-    monkeypatch.setattr(gx, "machine_name", lambda: "alpha-abc123")
+    monkeypatch.setattr(gx, "writer_id", lambda root: "alpha-abc123")
     db = SessionDatabase()
     try:
         fid = _finding(db, "local", "ab000000-0000-0000-0000-000000000008")
@@ -172,7 +175,7 @@ def test_a_shard_whose_first_write_failed_is_retried_by_the_next_incremental_exp
     """Goal c29b6931: a shard with no previous digest got an empty one on a failed write and dropped out of the record; a
     shard holding no shared tag of this database (here, the first export's override of a 1.17.14 note) was never a
     candidate again until a full export."""
-    monkeypatch.setattr(gx, "machine_name", lambda: "alpha-abc123")
+    monkeypatch.setattr(gx, "writer_id", lambda root: "alpha-abc123")
     db = SessionDatabase()
     try:
         fid = _finding(db, "local", "cd000000-0000-0000-0000-000000000009")
@@ -193,7 +196,7 @@ def test_a_shard_whose_first_write_failed_is_retried_by_the_next_incremental_exp
 def test_a_write_that_keeps_failing_stops_forcing_full_exports(practice, monkeypatch):
     """1.17.16 sweep: a shard that always failed kept a retry marker forever, and every POSTFLIGHT ran a full export
     (514 git calls, about 4.5 s, on 256 shards). After three failed full retries it is retried on its own."""
-    monkeypatch.setattr(gx, "machine_name", lambda: "alpha-abc123")
+    monkeypatch.setattr(gx, "writer_id", lambda root: "alpha-abc123")
     db = SessionDatabase()
     flat_reads = []
     try:
@@ -202,7 +205,8 @@ def test_a_write_that_keeps_failing_stops_forcing_full_exports(practice, monkeyp
         monkeypatch.setattr(
             gx, "_write_note", lambda root, ref, payload: False if ref.endswith("/ab") else real(root, ref, payload)
         )
-        monkeypatch.setattr(gx, "_flat_visibility_shards", lambda root: flat_reads.append(1) or [])
+        full = gx._existing_visibility_shards
+        monkeypatch.setattr(gx, "_existing_visibility_shards", lambda root, w: flat_reads.append(1) or full(root, w))
         for _ in range(6):
             assert gx.export_visibility_notes(db.conn, str(practice))["failed"] == 1
     finally:
