@@ -315,8 +315,9 @@ def test_a_checkout_whose_writer_file_got_a_new_inode_still_pushes_its_old_notes
     a.export()  # withdrawn, not pushed
     writer_file = a.root / ".empirica" / gx.WRITER_FILE
     content = writer_file.read_text()
-    writer_file.unlink()
-    writer_file.write_text(content)  # restored from backup: same content, new inode
+    fresh = writer_file.with_name("restored.tmp")
+    fresh.write_text(content)  # made while the old file exists, so it cannot reuse its inode
+    fresh.replace(writer_file)  # restored from backup: same content, new inode
     a.export()
     assert a.push(monkeypatch) == 0
     b.pull(monkeypatch)
@@ -384,8 +385,9 @@ def test_a_copy_pushing_its_originals_older_notes_is_not_a_failed_push(world, mo
     a.push(monkeypatch)
     writer_file = a.root / ".empirica" / gx.WRITER_FILE
     content = writer_file.read_text()
-    writer_file.unlink()
-    writer_file.write_text(content)  # new inode: the next export makes a new writer id; the old one is "previous"
+    fresh = writer_file.with_name("restored.tmp")
+    fresh.write_text(content)  # made while the old file exists, so it cannot reuse its inode
+    fresh.replace(writer_file)  # new inode: the next export makes a new writer id; the old one is "previous"
     a.export()
     previous = gx.push_writers(str(a.root))[1]
     gx._write_note(str(a.root), f"{gx.VISIBILITY_PREFIX}/{previous}/ab", {"tiers": {X: ["shared", 5.0]}})  # diverges
