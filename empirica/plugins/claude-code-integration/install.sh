@@ -15,7 +15,7 @@
 
 set -e
 
-PLUGIN_VERSION="1.17.16"
+PLUGIN_VERSION="1.17.17"
 MIN_PYTHON="3.11.5"  # pyproject requires-python; empirica/core/python_floor.py
 
 echo "🧠 Installing Empirica + Claude Code integration v${PLUGIN_VERSION}..."
