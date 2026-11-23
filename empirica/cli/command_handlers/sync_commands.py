@@ -2026,17 +2026,10 @@ def _rebuild_from_notes() -> dict[str, Any]:
         from empirica.data.session_database import SessionDatabase
 
         db = SessionDatabase()
-        from empirica.core.canonical.empirica_git.graph_note_export import _held_ids
+        from empirica.core.canonical.empirica_git.graph_note_export import prepare_visibility_rebuild
 
-        held_before = _held_ids(db.adapter.conn)  # rows that existed before this rebuild (goal 38510fdd review)
-
-        from empirica.core.canonical.empirica_git.graph_note_export import rebuild_started
-
-        # Cleared by the visibility step; an export in between would read shares as withdrawn. After a crashed rebuild,
-        # only the rows that existed before it can carry a change made here; the ones it inserted take the notes' tag.
-        crashed = rebuild_started(_get_workspace_root(), held_before)
-        if crashed is not None:
-            held_before &= crashed
+        # Export this checkout's tags first, then mark the rebuild under way (goal 38510fdd).
+        held_before = prepare_visibility_rebuild(db.adapter.conn, _get_workspace_root())
 
         finding_store = GitFindingStore()
         unknown_store = GitUnknownStore()

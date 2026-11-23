@@ -794,6 +794,20 @@ def _beats(entry, best) -> bool:
     return entry[1] > best[1] or (entry[1] == best[1] and entry[0] == "local" and best[0] != "local")
 
 
+def prepare_visibility_rebuild(conn, root: str) -> set[str]:
+    """What a rebuild does before restoring rows, in order (goal 38510fdd, fifth review): export this checkout's tags
+    first, when the export is on, so a change made here since the last POSTFLIGHT reaches the notes and its baseline rather
+    than being overwritten by them (a share or a public tag on an id this checkout had never synced was lost); then record
+    the ids held now and mark the rebuild under way. Returns the ids whose tags may carry a change made here: those held
+    before this rebuild, narrowed to those held before an earlier rebuild that crashed (its inserted rows take the notes'
+    tag)."""
+    if visibility_notes_enabled():
+        export_visibility_notes(conn, root)
+    held_before = _held_ids(conn)
+    crashed = rebuild_started(root, held_before)
+    return held_before & crashed if crashed is not None else held_before
+
+
 def apply_visibility_notes(conn, root: str, *, held_before: set[str] | None = None) -> int:
     """Set each artifact's tag from the notes (the latest entry per id across writers) and record it in this checkout's
     baseline; return how many shares and public tags were restored. A row that existed before this rebuild and whose tag

@@ -55,7 +55,7 @@ class Machine:
         ok, _error = sc._merge_visibility_notes("origin")
         rc = rc or (0 if ok else 1)
         if rebuild:
-            held = {r[0] for r in self.conn.execute("SELECT id FROM project_findings")}
+            held = gx.prepare_visibility_rebuild(self.conn, str(self.root))
             gx.apply_visibility_notes(self.conn, str(self.root), held_before=held)
         return rc
 
@@ -392,3 +392,36 @@ def test_a_copy_pushing_its_originals_older_notes_is_not_a_failed_push(world, mo
     monkeypatch.setattr(sc, "_get_workspace_root", lambda: str(a.root))
     results, errors = sc._push_note_namespaces("origin")
     assert results["empirica/*"], (results, errors)
+
+
+# ── fifth review (07eb90b98) ────────────────────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def notes_on(monkeypatch):
+    monkeypatch.setenv("EMPIRICA_VISIBILITY_NOTES", "1")
+
+
+def test_a_share_on_an_id_never_synced_here_survives_a_pull(world, monkeypatch, notes_on):
+    a, b = world("a"), world("b")
+    a.tag("shared")
+    a.export()
+    a.tag("local")
+    a.export()
+    a.push(monkeypatch)  # the notes hold a's withdrawal
+    b.tag("shared")  # b shares it, never having synced it
+    b.pull(monkeypatch)
+    assert b.tier() == "shared"
+    b.push(monkeypatch)
+    a.pull(monkeypatch)
+    assert a.tier() == "shared"
+
+
+def test_a_public_tag_on_an_id_never_synced_here_survives_a_pull(world, monkeypatch, notes_on):
+    a, b = world("a"), world("b")
+    a.tag("shared")
+    a.export()
+    a.push(monkeypatch)
+    b.tag("public")
+    b.pull(monkeypatch)
+    assert b.tier() == "public"
