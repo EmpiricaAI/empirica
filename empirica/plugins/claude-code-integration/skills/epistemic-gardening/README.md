@@ -6,6 +6,6 @@
 
 Resolve what's dead so retrieval surfaces what's live. Recency-decay knows *age*, not *wrongness* — a superseded finding still scores high on impact and keeps resurfacing.
 
-Skill `epistemic-gardening` · version 2.0.0 · load with `/epistemic-gardening` in Claude Code.
+Skill `epistemic-gardening` · version 2.1.0 · load with `/epistemic-gardening` in Claude Code.
 
 Full skill: [SKILL.md](SKILL.md)
