@@ -1,7 +1,7 @@
 ---
 name: epistemic-gardening
 description: "Use when the user says '/epistemic-gardening', 'garden the graph', 'de-weed', 'prune artifacts', 'epistemic hygiene', 'clean up findings/goals/sources', 'graph hygiene pass', or 'pre-release cleanup'. A PRAXIC pass that de-weeds a practice's epistemic graph — resolve stale/superseded findings, close answered unknowns, verify or drop assumptions, archive done goals and stale sources, prune dangling edges — so retrieval surfaces what's live, not what's rotted. Includes the mesh-wide propagation pattern for getting every practice to garden."
-version: 2.0.0
+version: 2.1.0
 ---
 
 # Epistemic Gardening 🌱
@@ -87,36 +87,55 @@ assumptions, archive done goals + stale sources, prune dangling edges. Success: 
 FOCUS surfaces only live artifacts."
 ```
 
-### 1 — Survey (noetic)
+### 1 — Survey (noetic): every type, by subject
 
-**See the whole graph first — the list verbs scope to the active project's top-N, so
-artifacts under divergent `project_id`s are invisible.** One real pass found artifacts across
-12 ids while the default view showed a fraction.
+**Holistic, never by keyword or impact.** A pass that reads the top findings by impact never
+sees old, low-impact leftovers, and one that greps for a word resolves artifacts that only
+mention it: of 39 open findings matching removed names (2026-11-24), 8 were about them. Survey
+every artifact type, group by subject, read the group, and judge each artifact on its own
+reading. A keyword, an impact score or a registry hit only says what to read next.
+
+**First, the whole graph.** List verbs scope to the active project, so artifacts under
+divergent `project_id`s are invisible; one pass found artifacts across 12 ids. Consolidate
+identity before triaging: reattach your own divergent duplicates to the live `project_id`,
+leave other practices' orphans to them.
 
 ```bash
 empirica goals-list --all-projects
-empirica goals-list --all-projects --status abandoned   # dead goals: archive them, do not leave them to accumulate
+empirica goals-list --all-projects --status abandoned   # dead goals: archive, do not accumulate
 empirica unknown-list --all-projects
-sqlite3 .empirica/sessions/sessions.db \
-  "SELECT project_id, COUNT(*) FROM project_findings WHERE is_resolved IS NOT 1 GROUP BY project_id ORDER BY 2 DESC"
+empirica falsifier-list
+empirica lesson-list
+empirica note --list
+empirica sources-check        # unreviewed / stale-review
+# Open artifacts per type (assumptions, decisions, dead ends and mistakes have no list verb):
+sqlite3 .empirica/sessions/sessions.db "
+  SELECT 'finding',    COUNT(*) FROM project_findings  WHERE is_resolved IS NOT 1 UNION ALL
+  SELECT 'unknown',    COUNT(*) FROM project_unknowns  WHERE is_resolved IS NOT 1 UNION ALL
+  SELECT 'assumption', COUNT(*) FROM assumptions       WHERE status NOT IN ('verified','falsified','expired') UNION ALL
+  SELECT 'decision',   COUNT(*) FROM decisions         WHERE outcome IS NULL UNION ALL
+  SELECT 'dead_end',   COUNT(*) FROM project_dead_ends UNION ALL
+  SELECT 'mistake',    COUNT(*) FROM mistakes_made"
 ```
 
-**If artifacts are scattered, consolidate identity BEFORE triaging** — reattach your own
-divergent duplicates to the live `project_id`, resolve genuinely-other-practice orphans.
-Fixing the scatter once is cheaper than gardening each stray id.
-
-Then read current state:
+**Then pick the subjects to read, not the rows.** A subject is something the graph talks
+about: an open goal, a component or verb changed since the last pass (`git log --since=<last
+pass>`), something removed (the CHANGELOG's Removed entries), a theme the bootstrap keeps
+surfacing, a release. For each subject:
 
 ```bash
-empirica goals-list
-empirica project-search --task "<recent theme>"
-empirica sources-map          # --global for shared
-empirica sources-check        # unreviewed / stale-review
-
+empirica project-search --task "<subject>"     # semantic, across every type
 sqlite3 .empirica/sessions/sessions.db \
-  "SELECT id, substr(finding,1,60), impact FROM project_findings \
-   WHERE is_resolved IS NULL OR is_resolved=0 ORDER BY impact DESC LIMIT 40"
+  "SELECT relation, from_id, to_id FROM artifact_edges WHERE from_id = '<id>' OR to_id = '<id>'"
 ```
+
+Read the cluster whole (findings, unknowns, assumptions, decisions, dead ends, mistakes, lessons,
+falsifiers, goals, sources), then decide each artifact by what it says: still true, answered,
+superseded, wrong when written, or about something that no longer exists. Mentioning a subject
+is not being about it. Dead ends and mistakes are read like the rest and resolved only by
+evidence that the constraint is false (see Lever choice); a decision closes with an honest
+outcome (upheld, reversed, mixed) or stays open; an assumption whose subject went away is
+`expired`, not verified.
 
 ### 2 — CHECK
 
@@ -124,7 +143,7 @@ sqlite3 .empirica/sessions/sessions.db \
 empirica check-submit - << 'EOF'
 {"vectors": {"...": "YOUR assessment — what the survey actually taught you"},
  "current_phase": "noetic",
- "reasoning": "Surveyed — N stale findings, M answered unknowns, K done goals, J stale sources."}
+ "reasoning": "Surveyed K subjects across every type: N findings stale or superseded, M unknowns answered, A assumptions expired, D decisions graded, G goals done."}
 EOF
 ```
 
