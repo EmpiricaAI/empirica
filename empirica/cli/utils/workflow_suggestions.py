@@ -272,7 +272,7 @@ def get_workflow_suggestions(project_id: str, session_id: str | None = None, db=
                     "action": "Create session for work tracking",
                     "reason": "No active session detected",
                     "guide": "Use: empirica session-create --ai-id <your-ai-id>",
-                    "source": "architecture/AI_WORKFLOW_AUTOMATION.md#auto-session",
+                    "source": "human/end-users/SESSION_GOAL_WORKFLOW.md",
                 }
             )
 
