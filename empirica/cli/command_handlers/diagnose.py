@@ -583,7 +583,7 @@ def check_active_session() -> CheckResult:
             detail="Project DB exists but no active session",
             hint=(
                 "Restart Claude Code in this directory (session-init hook will create one), "
-                "or run `empirica session-create --ai-id claude-code` manually"
+                "or run `empirica session-create` manually"
             ),
             data={"db_path": str(db_path), "active_session": None},
         )

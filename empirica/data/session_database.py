@@ -36,17 +36,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Import canonical structures
-try:
-    from canonical.reflex_frame import Action, EpistemicAssessment, VectorState  # noqa: F401, I001 — availability check for CANONICAL_AVAILABLE  # pyright: ignore[reportUnusedImport,reportMissingImports]
-
-    CANONICAL_AVAILABLE = True
-except ImportError:
-    CANONICAL_AVAILABLE = False
-
 # Import formatters
-from .epistemic_source import graded_transaction  # noqa: E402 — after conditional canonical import
-from .formatters import generate_context_markdown  # noqa: E402 — after conditional canonical import
+from .epistemic_source import graded_transaction  # noqa: E402 — after the logger
+from .formatters import generate_context_markdown  # noqa: E402 — after the logger
 
 
 def _resolve_canonical_project_root() -> str | None:
@@ -477,59 +469,6 @@ class SessionDatabase:
             drift_monitored,
         )
 
-    def log_epistemic_assessment(self, cascade_id: str, assessment: Any, phase: str):
-        """
-        DEPRECATED: Use store_vectors() instead.
-
-        This method is kept for backward compatibility with canonical structures.
-        """
-        if not CANONICAL_AVAILABLE:
-            logger.warning("[DB] Canonical structures not available, skipping epistemic assessment")
-            return
-
-        # Extract vectors from assessment object
-        vectors = {
-            "engagement": assessment.engagement.score,
-            "know": assessment.know.score,
-            "do": assessment.do.score,
-            "context": assessment.context.score,
-            "clarity": assessment.clarity.score,
-            "coherence": assessment.coherence.score,
-            "signal": assessment.signal.score,
-            "density": assessment.density.score,
-            "state": assessment.state.score,
-            "change": assessment.change.score,
-            "completion": assessment.completion.score,
-            "impact": assessment.impact.score,
-            "uncertainty": assessment.uncertainty.score,
-        }
-
-        # Build metadata from rationales
-        metadata = {
-            "assessment_id": assessment.assessment_id,
-            "engagement_gate_passed": assessment.engagement_gate_passed,
-            "foundation_confidence": assessment.foundation_confidence,
-            "comprehension_confidence": assessment.comprehension_confidence,
-            "execution_confidence": assessment.execution_confidence,
-            "overall_confidence": assessment.overall_confidence,
-            "recommended_action": assessment.recommended_action.value,
-        }
-
-        # Get session_id from cascade
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT session_id FROM cascades WHERE cascade_id = ?", (cascade_id,))
-        row = cursor.fetchone()
-        if not row:
-            logger.error(f"Cascade {cascade_id} not found")
-            return
-
-        session_id = row[0]
-
-        # Store using reflexes table
-        self.store_vectors(
-            session_id=session_id, phase=phase.upper(), vectors=vectors, cascade_id=cascade_id, metadata=metadata
-        )
-
     def log_bayesian_belief(
         self,
         cascade_id: str,
@@ -574,21 +513,6 @@ class SessionDatabase:
     def get_session_cascades(self, session_id: str) -> list[dict]:
         """Get all cascades for a session (delegates to SessionRepository)"""
         return self.sessions.get_session_cascades(session_id)
-
-    def get_cascade_assessments(self, cascade_id: str) -> list[dict]:
-        """
-        DEPRECATED: Use reflexes table queries instead.
-
-        Get all assessments for a cascade from reflexes table.
-        """
-        cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            SELECT * FROM reflexes WHERE cascade_id = ? ORDER BY timestamp
-        """,
-            (cascade_id,),
-        )
-        return [dict(row) for row in cursor.fetchall()]
 
     def log_preflight_assessment(
         self,
@@ -1256,15 +1180,6 @@ class SessionDatabase:
             dead_ends: List of dead end strings (e.g., "Attempted X - blocked by Y")
         """
         return self.goals.update_subtask_dead_ends(subtask_id, dead_ends)
-
-    def complete_subtask(self, subtask_id: str, evidence: str):
-        """Mark subtask as completed with evidence (delegates to GoalRepository)
-
-        Args:
-            subtask_id: Subtask UUID
-            evidence: Evidence of completion (e.g., "Documented in design doc", "PR merged")
-        """
-        return self.goals.complete_subtask(subtask_id, evidence)
 
     def get_all_sessions(self, ai_id: str | None = None, limit: int = 50) -> list[dict]:
         """List all sessions, optionally filtered by ai_id (delegates to SessionRepository)
@@ -2749,70 +2664,6 @@ class SessionDatabase:
             description=description,
         )
 
-    def log_session_finding(
-        self,
-        session_id: str,
-        finding: str,
-        goal_id: str | None = None,
-        subtask_id: str | None = None,
-        subject: str | None = None,
-        impact: float | None = None,
-    ) -> str:
-        """Log a session-scoped finding (ephemeral, session-specific learning)"""
-        # Auto-derive impact from latest CASCADE if not provided
-        if impact is None:
-            impact = self._get_latest_impact_score(session_id)
-
-        return self.breadcrumbs.log_session_finding(session_id, finding, goal_id, subtask_id, subject, impact)
-
-    def log_session_unknown(
-        self,
-        session_id: str,
-        unknown: str,
-        goal_id: str | None = None,
-        subtask_id: str | None = None,
-        subject: str | None = None,
-        impact: float | None = None,
-    ) -> str:
-        """Log a session-scoped unknown"""
-        if impact is None:
-            impact = self._get_latest_impact_score(session_id)
-
-        return self.breadcrumbs.log_session_unknown(session_id, unknown, goal_id, subtask_id, subject, impact)
-
-    def log_session_dead_end(
-        self,
-        session_id: str,
-        approach: str,
-        why_failed: str,
-        goal_id: str | None = None,
-        subtask_id: str | None = None,
-        subject: str | None = None,
-        impact: float | None = None,
-    ) -> str:
-        """Log a session-scoped dead end"""
-        if impact is None:
-            impact = self._get_latest_impact_score(session_id)
-
-        return self.breadcrumbs.log_session_dead_end(
-            session_id, approach, why_failed, goal_id, subtask_id, subject, impact
-        )
-
-    def log_session_mistake(
-        self,
-        session_id: str,
-        mistake: str,
-        why_wrong: str,
-        cost_estimate: str | None = None,
-        root_cause_vector: str | None = None,
-        prevention: str | None = None,
-        goal_id: str | None = None,
-    ) -> str:
-        """Log a session-scoped mistake"""
-        return self.breadcrumbs.log_session_mistake(
-            session_id, mistake, why_wrong, cost_estimate, root_cause_vector, prevention, goal_id
-        )
-
     def log_unknown(
         self,
         project_id: str,
@@ -3244,49 +3095,6 @@ class SessionDatabase:
             epistemic_source=epistemic_source,
             description=description,
             source_ids=source_ids,
-        )
-
-    def log_bead(
-        self,
-        project_id: str,
-        session_id: str,
-        coordination_state: str = "open",
-        updated_at: float | None = None,
-        last_transition_actor: str | None = None,
-        beads_issue_id: str | None = None,
-        scope: str | None = None,
-        goal_id: str | None = None,
-        transaction_id: str | None = None,
-        entity_type: str | None = None,
-        entity_id: str | None = None,
-        visibility: str | None = None,
-        epistemic_source: str | None = None,
-        description: str | None = None,
-    ) -> str:
-        """Log a bead v0 coordination-record (delegates to BreadcrumbRepository).
-
-        RETIRED 2026-06-02 (empirica 1.11.2). The v0 bead concept retired
-        three-way (cortex/empirica/extension) 2026-06-01. Cross-practitioner
-        "is every target done" is one multi-target proposal with a per-target
-        ack (cortex 97820077); the interim SER record type was itself retired
-        2026-10-24. Kept as an inert legacy path for backward read of
-        pre-retirement rows; nothing new should call it.
-        """
-        return self.breadcrumbs.log_bead(
-            project_id,
-            session_id,
-            coordination_state=coordination_state,
-            updated_at=updated_at,
-            last_transition_actor=last_transition_actor,
-            beads_issue_id=beads_issue_id,
-            scope=scope,
-            goal_id=goal_id,
-            transaction_id=transaction_id,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            visibility=visibility,
-            epistemic_source=epistemic_source,
-            description=description,
         )
 
     def log_token_saving(self, session_id: str, saving_type: str, tokens_saved: int, evidence: str) -> str:

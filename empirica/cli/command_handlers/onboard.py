@@ -164,9 +164,7 @@ Project Management:
    $ empirica project-switch <name>              # Switch project
 
 Domain Compliance:
-   $ empirica domain-list                              # List domains + criticalities
-   $ empirica domain-show cybersec                     # Show checklist for a domain
-   $ empirica domain-resolve code --domain cybersec    # What checks would run?
+   $ empirica domain-validate                          # Validate the domain YAML files
    $ empirica resolve <artifact-id>                    # Resolve any artifact by ID
 
 Calibration Reports:

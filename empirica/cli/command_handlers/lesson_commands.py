@@ -6,9 +6,9 @@ Commands:
 - lesson-load: Load and display a lesson
 - lesson-list: List all lessons
 - lesson-search: Search for lessons
-- lesson-replay-start: Start tracking a lesson replay
-- lesson-replay-end: End a lesson replay
+- lesson-recommend: Recommend lessons for the current epistemic state
 - lesson-stats: Show lesson storage statistics
+- lesson-embed: Embed lessons into the vector store
 """
 
 import json

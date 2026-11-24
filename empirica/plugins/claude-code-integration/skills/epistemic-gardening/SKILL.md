@@ -109,7 +109,6 @@ Then read current state:
 
 ```bash
 empirica goals-list
-empirica goals-get-stale
 empirica project-search --task "<recent theme>"
 empirica sources-map          # --global for shared
 empirica sources-check        # unreviewed / stale-review
@@ -166,7 +165,7 @@ durables. `null` impact is not a noise signal.
 empirica goals-complete --goal-id <id> --reason "<evidence>"
 empirica goals-archive  --goal-id <id>            # one completed or abandoned goal
 empirica goals-archive  --older-than 30 --apply   # the sweep: every completed or abandoned goal that ended 30+ days ago (dry run without --apply)
-empirica goals-mark-stale --goal-id <id>
+empirica goals-mark-stale --goal-id <id>         # ABANDONS the goal: dead, not delivered (name kept; no 'stale' status since migration 038)
 empirica source-archive --source-id <id> --reason {user_deleted,file_missing,url_unreachable,superseded}
 empirica source-update  --source-id <id> --url <new-path-or-url>   # re-point a source whose file moved
 ```

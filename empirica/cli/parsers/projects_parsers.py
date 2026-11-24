@@ -2,7 +2,7 @@
 
 projects-discover  — walk the filesystem looking for .empirica/ directories
 projects-list      — list discovered projects (cached or fresh-scanned)
-projects-bulk-register — register all discovered projects on Cortex (T2)
+projects-sync     — discover, upsert the registry and register on Cortex in one verb
 
 See docs/specs/PROPOSAL_BULK_PROJECT_LINK.md (not in this repo) (mirrored from
 empirica-extension/docs/v0.5-BULK-PROJECT-LINK.md) for the design rationale.
@@ -21,8 +21,8 @@ def add_projects_parsers(subparsers) -> None:
         description=(
             "Find all local Empirica projects by walking from one or more roots. "
             "Outputs a manifest (yaml/json) describing each discovered project's "
-            "path, name, and git remote URL. Used by projects-bulk-register to "
-            "import many projects to Cortex in one shot."
+            "path, name, and git remote URL. projects-sync runs this walk and "
+            "then registers the projects on Cortex in one shot."
         ),
     )
     discover.add_argument(
@@ -203,15 +203,15 @@ def add_projects_parsers(subparsers) -> None:
             "(Alias: project-sync.)"
         ),
         description=(
-            "Master command for end-to-end project sync. Equivalent to:\n"
-            "  empirica projects-discover --register [--prune]\n"
-            "  empirica projects-bulk-register [filters...]\n"
-            "But in one verb with one set of flags. Default: full pipeline "
+            "Master command for end-to-end project sync: "
+            "`empirica projects-discover --register [--prune]` followed by "
+            "registering each project on Cortex, in one verb with one set of "
+            "flags. Default: full pipeline "
             "(walk filesystem, write manifest cache, upsert registry.yaml, "
             "POST each to Cortex). Phase-skip flags peel off as needed. "
-            "One verb hides the multi-step protocol; the individual "
-            "`projects-discover` / `projects-bulk-register` verbs remain as the "
-            "power-user surface for fine-grained control.\n\n"
+            "One verb hides the multi-step protocol; `projects-discover` and "
+            "`project-register` (one project) remain as the power-user surface "
+            "for fine-grained control.\n\n"
             "Exit status is meaningful: 0 only when every phase that ran "
             "succeeded, 1 on any failure or partial failure. Under "
             "`--output json` the failure path emits JSON too, so a caller never "
@@ -347,7 +347,7 @@ def add_projects_parsers(subparsers) -> None:
             "on the cortex project row, removes the project_id from the "
             "caller's user.project_ids so it stops surfacing in roster / "
             "threads projections. Proposals, artifacts and historical records stay "
-            "readable for audit. Reversible by re-running `projects-bulk-register` "
+            "readable for audit. Reversible by re-running `project-register` "
             "on the same project.\n\n"
             "Hard purge (--purge --confirm): deletes the project row and "
             "cascade-deletes proposals, artifacts and historical records owned by it. "

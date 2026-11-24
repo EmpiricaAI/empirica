@@ -5,7 +5,7 @@ Spawns agents that:
 1. Inherit persona profiles (epistemic priors as PREFLIGHT)
 2. Work within investigation branches
 3. Report POSTFLIGHT vectors when done
-4. Aggregate via auto-merge scoring
+4. Aggregate via auto-merge scoring (empirica investigate-merge-branches)
 
 Usage:
     from empirica.core.agents import spawn_epistemic_agent, EpistemicAgentConfig
@@ -110,7 +110,7 @@ def load_persona(config: EpistemicAgentConfig) -> PersonaProfile:
         return manager.load_persona(config.persona_id)
     except FileNotFoundError:
         # Return default persona with balanced priors.
-        # Must satisfy persona schema requirements used by agent-spawn.
+        # Must satisfy the persona schema (PersonaProfile validation).
         from empirica.core.persona import EpistemicConfig, PersonaProfile, SigningIdentityConfig
 
         return PersonaProfile(
@@ -432,115 +432,3 @@ def spawn_epistemic_agent(
 
     finally:
         db.close()
-
-
-def aggregate_agent_results(
-    session_id: str, results: list[EpistemicAgentResult], investigation_round: int = 1
-) -> dict[str, Any]:
-    """
-    Aggregate results from multiple epistemic agents.
-
-    Uses auto-merge scoring to select winner and combine findings.
-
-    Args:
-        session_id: Parent session ID
-        results: List of agent results
-        investigation_round: Round number for merge decision
-
-    Returns:
-        Aggregation summary with winner, combined findings, etc.
-    """
-
-    if not results:
-        return {"error": "No results to aggregate"}
-
-    db = SessionDatabase()
-
-    try:
-        # Run auto-merge on all branches
-        branch_ids = [r.branch_id for r in results if r.success]
-
-        if not branch_ids:
-            return {"error": "No successful agent results"}
-
-        # Get merge decision
-        merge_result = db.branches.merge_branches(session_id=session_id, investigation_round=investigation_round)
-
-        # Find winner
-        winner = None
-        for r in results:
-            if r.branch_id == merge_result.get("winning_branch_id"):
-                winner = r
-                break
-
-        # Combine all findings (winner first, then others)
-        all_findings = []
-        all_unknowns = []
-
-        if winner:
-            all_findings.extend(winner.findings)
-            all_unknowns.extend(winner.unknowns)
-
-        for r in results:
-            if r.branch_id != (winner.branch_id if winner else None):
-                # Add non-winner findings with lower priority
-                for f in r.findings:
-                    if f not in all_findings:
-                        all_findings.append(f)
-                for u in r.unknowns:
-                    if u not in all_unknowns:
-                        all_unknowns.append(u)
-
-        # Calculate aggregate vectors (weighted by merge score)
-        total_weight = sum(r.merge_score or 0.1 for r in results if r.success)
-        aggregate_vectors = {}
-
-        for key in ["know", "uncertainty", "context", "clarity", "completion", "impact"]:
-            weighted_sum = sum(
-                (r.postflight_vectors or {}).get(key, 0.5) * (r.merge_score or 0.1) for r in results if r.success
-            )
-            aggregate_vectors[key] = weighted_sum / total_weight if total_weight > 0 else 0.5
-
-        return {
-            "winner": {
-                "branch_id": winner.branch_id if winner else None,
-                "persona_id": winner.persona_id if winner else None,
-                "merge_score": winner.merge_score if winner else None,
-                "learning_delta": winner.learning_delta if winner else {},
-            },
-            "all_agents": [
-                {
-                    "branch_id": r.branch_id,
-                    "persona_id": r.persona_id,
-                    "merge_score": r.merge_score,
-                    "success": r.success,
-                }
-                for r in results
-            ],
-            "combined_findings": all_findings,
-            "combined_unknowns": all_unknowns,
-            "aggregate_vectors": aggregate_vectors,
-            "merge_decision": merge_result,
-            "investigation_round": investigation_round,
-        }
-
-    finally:
-        db.close()
-
-
-# Convenience function for Claude Code integration
-def create_epistemic_agent_prompt(
-    session_id: str, task: str, persona_id: str = "general", parent_context: str | None = None
-) -> tuple[str, str]:
-    """
-    Create prompt for spawning via Claude Code Task tool.
-
-    Returns:
-        Tuple of (prompt, branch_id) - use branch_id to report results later
-    """
-    config = EpistemicAgentConfig(
-        session_id=session_id, task=task, persona_id=persona_id, parent_context=parent_context
-    )
-
-    result = spawn_epistemic_agent(config, execute_fn=None)
-    return result.output, result.branch_id

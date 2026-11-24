@@ -181,32 +181,6 @@ def test_without_tag_losers_the_merge_logs_no_dead_ends(db, project, tmp_path, m
     assert db.conn.execute("SELECT COUNT(*) FROM project_dead_ends WHERE session_id = ?", (sid,)).fetchone()[0] == 0
 
 
-def test_the_agent_aggregation_calls_merge_branches_with_the_real_keyword(db, project, tmp_path, monkeypatch):
-    _, sid = project
-    branch_ids = _two_branches(db, sid)
-    monkeypatch.setenv("EMPIRICA_SESSION_DB", str(tmp_path / "s.db"))
-    from types import SimpleNamespace as NS
-
-    from empirica.core.agents.epistemic_agent import aggregate_agent_results
-
-    results = [
-        NS(
-            branch_id=b,
-            success=True,
-            findings=[f"f{i}"],
-            unknowns=[],
-            merge_score=0.5 + i / 10,
-            postflight_vectors={},
-            persona_id=f"p{i}",
-            learning_delta={},
-        )
-        for i, b in enumerate(branch_ids)
-    ]
-    summary = aggregate_agent_results(sid, results, investigation_round=1)
-    assert "error" not in summary or "unexpected keyword" not in str(summary["error"])
-    assert db.conn.execute("SELECT COUNT(*) FROM merge_decisions WHERE session_id = ?", (sid,)).fetchone()[0] == 1
-
-
 def test_the_facade_forwards_transaction_id_to_create_branch_and_project_id_to_store_vectors(db, project):
     _, sid = project
     pre = dict.fromkeys(VECTOR_NAMES, 0.5)

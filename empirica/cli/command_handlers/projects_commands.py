@@ -1,7 +1,7 @@
 """Bulk-project verbs (v0.5): projects-discover + projects-list.
 
-projects-bulk-register lives in the same module once T2 ships — it consumes
-the manifest produced here.
+The Cortex registration loop that projects-sync runs lives here too; it
+consumes the manifest produced by the walk.
 
 Filesystem walk strategy: walk roots ($HOME by default), skip well-known
 noise dirs, look for any directory containing a `.empirica/` subdirectory.

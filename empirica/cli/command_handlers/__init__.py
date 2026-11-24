@@ -97,7 +97,6 @@ from .entity_commands import (
 )
 from .epistemics_commands import (
     handle_epistemics_list_command,
-    handle_epistemics_search_command,
     handle_epistemics_stats_command,
 )
 from .epp_commands import (
@@ -260,7 +259,7 @@ from .visibility_commands import (
 )
 
 # handle_goal_analysis_command removed - was in noetic_praxic_commands (deprecated)
-from .vision_commands import handle_vision_analyze, handle_vision_log
+from .vision_commands import handle_vision_analyze
 from .voice_commands import (
     handle_voice_apply_command,
     handle_voice_group_command,
@@ -334,7 +333,6 @@ __all__ = [  # noqa: RUF022
     "handle_enp_setup_command",
     "handle_epistemics_list_command",
     # Epistemic trajectory commands
-    "handle_epistemics_search_command",
     "handle_epistemics_stats_command",
     "handle_epp_activate_command",
     "handle_finding_log_command",
@@ -493,7 +491,6 @@ __all__ = [  # noqa: RUF022
     "handle_visibility_show_command",
     # Vision commands
     "handle_vision_analyze",
-    "handle_vision_log",
     # Voice profile commands
     "handle_voice_apply_command",
     "handle_voice_group_command",

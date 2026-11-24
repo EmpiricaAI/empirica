@@ -215,29 +215,6 @@ class GoalDataRepository(BaseRepository):
 
         self.commit()
 
-    def complete_subtask(self, subtask_id: str, evidence: str):
-        """Mark subtask as completed with evidence
-
-        Args:
-            subtask_id: Subtask UUID
-            evidence: Evidence of completion (e.g., "Documented in design doc", "PR merged")
-        """
-        self._execute(
-            """
-            UPDATE subtasks
-            SET status = 'completed',
-                completion_evidence = ?,
-                completed_timestamp = ?
-            WHERE id = ?
-        """,
-            (evidence, time.time(), subtask_id),
-        )
-
-        self.commit()
-        row = self._execute("SELECT goal_id FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
-        if row:
-            self._restamp_note(row[0], "task_completed")  # the goal note carries its tasks (goal 25f4ab9a)
-
     def get_goal_tree(self, session_id: str) -> list[dict]:
         """Get complete goal tree for a session
 

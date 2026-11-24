@@ -983,7 +983,7 @@ class EpistemicDocsAgent:
         3. Activity gaps - Docs in directories with recent code changes but stale doc timestamps
         4. Explicit mentions - Dead ends/findings that literally reference doc paths
 
-        For deep semantic analysis, use agent-spawn with an LLM.
+        Deterministic only: semantic staleness needs an AI to read the flagged docs.
 
         Args:
             threshold: Unused (kept for API compatibility)
@@ -1099,7 +1099,7 @@ class EpistemicDocsAgent:
                 "explicit_reference": [i for i in issues if i["type"] == "explicit_reference"],
             },
             "by_severity": {"high": high[:15], "medium": medium[:15], "low": low[:10]},
-            "note": "For deep semantic analysis, use: empirica agent-spawn --task 'Analyze <doc> for staleness'",
+            "note": "Deterministic heuristics only; for semantic staleness, have an AI read the flagged docs.",
         }
 
     def _check_orphaned_references(self, doc_files: list, docs_dir: Path, cli_commands: set, issues: list) -> None:

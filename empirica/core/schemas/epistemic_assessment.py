@@ -5,7 +5,6 @@ This is THE single source of truth for the 13-vector epistemic assessment format
 
 Used by:
 - CLI parser (empirica preflight-submit, check-submit, postflight-submit)
-- MCP tools (submit_preflight_assessment, submit_check_assessment, submit_postflight_assessment)
 - PersonaHarness (apply persona priors)
 - SentinelOrchestrator (merge multi-persona assessments)
 - Validation layer (ensure format correctness)
@@ -114,7 +113,7 @@ class EpistemicAssessmentSchema:
 
     This is THE format for all epistemic assessments across:
     - PREFLIGHT, THINK, INVESTIGATE, CHECK, ACT, POSTFLIGHT phases
-    - CLI commands, MCP tools, PersonaHarness, SentinelOrchestrator
+    - CLI commands, PersonaHarness, SentinelOrchestrator
     - Human assessments and AI self-assessments
 
     Structure:
@@ -155,7 +154,7 @@ class EpistemicAssessmentSchema:
 
     def to_nested_dict(self) -> dict[str, Any]:
         """
-        Convert to nested format (for CLI/MCP)
+        Convert to nested format (for the CLI)
 
         Returns nested dict with structure:
         {
@@ -224,7 +223,7 @@ class EpistemicAssessmentSchema:
         cls, data: dict[str, Any], phase: CascadePhase = CascadePhase.PREFLIGHT
     ) -> "EpistemicAssessmentSchema":
         """
-        Parse from nested format (CLI/MCP input)
+        Parse from nested format (CLI input)
 
         Args:
             data: Nested dict with foundation/comprehension/execution structure

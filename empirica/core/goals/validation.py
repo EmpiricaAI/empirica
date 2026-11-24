@@ -7,17 +7,14 @@ Designed to catch errors early and provide clear feedback.
 """
 
 import logging
-from typing import Any
 
 from .types import Goal, ScopeVector, SuccessCriterion
 
 logger = logging.getLogger(__name__)
 
-# The criterion vocabulary. ONE definition — this list was hand-maintained in two
-# places (the CLI validator and the MCP validator), which is the two-sources-of-
-# truth shape that has bitten this repo repeatedly; widening one and not the
-# other would have made a criterion legal over one surface and rejected over the
-# other.
+# The criterion vocabulary. ONE definition — this list was once hand-maintained in
+# two places (the CLI validator and a since-removed MCP validator), the two-
+# sources-of-truth shape that has bitten this repo repeatedly.
 #
 # `prose` and `undetermined` exist so an UNCHECKABLE done-condition can be
 # recorded honestly. Without them the set forced a lie: measured 2026-09-03
@@ -198,137 +195,3 @@ def validate_goal(goal: Goal) -> None:
     validate_success_criteria(goal.success_criteria)
     validate_complexity(goal.estimated_complexity)
     validate_scope_vector(goal.scope)
-
-
-def _validate_mcp_success_criteria(success_criteria_data: Any) -> None:
-    """Validate success criteria from MCP input."""
-    if not success_criteria_data:
-        raise ValidationError("At least one success criterion is required")
-
-    if not isinstance(success_criteria_data, list):
-        raise ValidationError("success_criteria must be an array")
-
-    valid_methods = list(VALID_VALIDATION_METHODS)
-
-    for idx, sc_data in enumerate(success_criteria_data):
-        if not isinstance(sc_data, dict):
-            raise ValidationError(f"Success criterion {idx} must be an object")
-
-        if "description" not in sc_data or not sc_data["description"]:
-            raise ValidationError(f"Success criterion {idx}: missing 'description'")
-
-        if "validation_method" not in sc_data:
-            raise ValidationError(f"Success criterion {idx}: missing 'validation_method'")
-
-        if sc_data["validation_method"] not in valid_methods:
-            raise ValidationError(f"Success criterion {idx}: validation_method must be one of {valid_methods}")
-
-        if sc_data["validation_method"] == "metric_threshold" and "threshold" not in sc_data:
-            raise ValidationError(f"Success criterion {idx}: 'threshold' required for metric_threshold validation")
-
-
-def _validate_mcp_scope(scope: Any) -> None:
-    """Validate scope vector from MCP input."""
-    if not isinstance(scope, dict):
-        raise ValidationError(f"scope must be an object with breadth/duration/coordination, got {type(scope)}")
-
-    required_fields = ["breadth", "duration", "coordination"]
-    for field in required_fields:
-        if field not in scope:
-            raise ValidationError(f"scope.{field} is required")
-
-        try:
-            value = float(scope[field])
-            if not (0.0 <= value <= 1.0):
-                raise ValidationError(f"scope.{field} must be 0.0-1.0, got {value}")
-        except (TypeError, ValueError) as e:
-            raise ValidationError(f"scope.{field} must be a number, got {scope[field]}") from e
-
-
-def _validate_mcp_complexity(complexity: Any) -> None:
-    """Validate complexity from MCP input."""
-    try:
-        complexity_float = float(complexity)
-        if not (0.0 <= complexity_float <= 1.0):
-            raise ValidationError(f"estimated_complexity must be between 0.0 and 1.0, got {complexity}")
-    except (TypeError, ValueError) as e:
-        raise ValidationError(f"estimated_complexity must be a number, got {type(complexity)}") from e
-
-
-def validate_mcp_goal_input(arguments: dict[str, Any]) -> None:
-    """
-    Validate MCP create_goal input arguments
-
-    Args:
-        arguments: MCP tool arguments dict
-
-    Raises:
-        ValidationError: If arguments are invalid
-    """
-    # Validate objective
-    objective = arguments.get("objective", "")
-    if not objective or not objective.strip():
-        raise ValidationError("Missing or empty 'objective' field")
-
-    # Validate success_criteria
-    success_criteria_data = arguments.get("success_criteria", [])
-    _validate_mcp_success_criteria(success_criteria_data)
-
-    # Validate scope if provided
-    scope = arguments.get("scope")
-    if scope:
-        _validate_mcp_scope(scope)
-
-    # Validate complexity if provided
-    complexity = arguments.get("estimated_complexity")
-    if complexity is not None:
-        _validate_mcp_complexity(complexity)
-
-
-def validate_mcp_subtask_input(arguments: dict[str, Any]) -> None:
-    """
-    Validate MCP add_subtask input arguments
-
-    Args:
-        arguments: MCP tool arguments dict
-
-    Raises:
-        ValidationError: If arguments are invalid
-    """
-    # Validate goal_id
-    if not arguments.get("goal_id"):
-        raise ValidationError("Missing 'goal_id' field")
-
-    # Validate description
-    description = arguments.get("description", "")
-    if not description or not description.strip():
-        raise ValidationError("Missing or empty 'description' field")
-
-    if len(description) > 500:
-        raise ValidationError("description too long (max 500 characters)")
-
-    # Validate epistemic_importance if provided
-    importance = arguments.get("epistemic_importance")
-    if importance:
-        valid_importance = ["critical", "high", "medium", "low"]
-        if importance not in valid_importance:
-            raise ValidationError(f"epistemic_importance must be one of {valid_importance}, got '{importance}'")
-
-    # Validate estimated_tokens if provided
-    tokens = arguments.get("estimated_tokens")
-    if tokens is not None:
-        try:
-            tokens_int = int(tokens)
-            if tokens_int < 0:
-                raise ValidationError("estimated_tokens must be non-negative")
-        except (TypeError, ValueError) as e:
-            raise ValidationError(f"estimated_tokens must be an integer, got {type(tokens)}") from e
-
-    # Validate dependencies if provided
-    dependencies = arguments.get("dependencies")
-    if dependencies is not None:
-        if not isinstance(dependencies, list):
-            raise ValidationError("dependencies must be an array")
-        for dep in dependencies:
-            if not isinstance(dep, str):
-                raise ValidationError("dependencies must be array of strings (subtask IDs)")

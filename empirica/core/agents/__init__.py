@@ -11,7 +11,6 @@ Sub-agent orchestration with Turtle Principle:
 from .epistemic_agent import (
     EpistemicAgentConfig,
     EpistemicAgentResult,
-    aggregate_agent_results,
     format_agent_prompt,
     parse_postflight,
     spawn_epistemic_agent,
@@ -20,7 +19,6 @@ from .epistemic_agent import (
 __all__ = [
     "EpistemicAgentConfig",
     "EpistemicAgentResult",
-    "aggregate_agent_results",
     "format_agent_prompt",
     "parse_postflight",
     "spawn_epistemic_agent",

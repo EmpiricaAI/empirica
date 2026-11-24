@@ -489,9 +489,8 @@ def add_checkpoint_parsers(subparsers):
             "Atomic single-project register: read .empirica/project.yaml at PATH, "
             "dual-write workspace.db (global_projects + entity_registry), upsert "
             "~/.empirica/registry.yaml, POST to cortex with the local project_id. "
-            "Replaces the chained 'projects-discover --register NAME && "
-            "projects-bulk-register --include NAME' with one verb for the "
-            "AI-as-CLI-user / copy-prompt UX (extension's Discover/Register surface)."
+            "One verb for the AI-as-CLI-user / copy-prompt UX "
+            "(extension's Discover/Register surface)."
         ),
     )
     project_register_parser.add_argument(
@@ -2390,11 +2389,11 @@ written to git notes (breadcrumbs ref) for audit trail.
     goals_mark_stale_parser = subparsers.add_parser(
         "goals-mark-stale",
         help=(
-            "Flag in_progress goals as stale so they are re-evaluated later "
-            "(no hook calls this: the pre-compact hook leaves goals alone, "
-            "because goals are the durable layer that survives compaction). "
-            "Not for cleanup — use goals-prune for that. Pair: "
-            "goals-get-stale to retrieve."
+            "With --goal-id: ABANDON that goal (status='abandoned', not delivered; "
+            "there is no 'stale' status since migration 038). Without --goal-id: "
+            "annotate the session's open goals with stale_since metadata only, "
+            "status untouched (goals-get-stale lists them). No hook calls this. "
+            "Not for cleanup — use goals-prune for that."
         ),
     )
     goals_mark_stale_parser.add_argument(

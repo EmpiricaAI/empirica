@@ -1103,7 +1103,7 @@ def handle_goals_add_dependency_command(args):
             result = {
                 "ok": False,
                 "error": f"Goal not found: {goal_id}",
-                "hint": "Use 'empirica goals-list-all' to see available goals",
+                "hint": "Use 'empirica goals-list --all-projects' to see available goals",
             }
             print(json.dumps(result, indent=2) if output_format == "json" else f"Error: {result['error']}")
             db.close()
@@ -1115,7 +1115,7 @@ def handle_goals_add_dependency_command(args):
             result = {
                 "ok": False,
                 "error": f"Dependency goal not found: {depends_on_goal_id}",
-                "hint": "Use 'empirica goals-list-all' to see available goals",
+                "hint": "Use 'empirica goals-list --all-projects' to see available goals",
             }
             print(json.dumps(result, indent=2) if output_format == "json" else f"Error: {result['error']}")
             db.close()
@@ -2170,10 +2170,12 @@ def handle_goals_search_command(args):
 
 
 def handle_goals_mark_stale_command(args):
-    """Handle goals-mark-stale command - Mark in_progress goals as stale during compaction
+    """Handle goals-mark-stale command.
 
-    Used by pre-compact hooks to signal that AI context about goals has been lost.
-    Post-compact AI should re-evaluate these goals before continuing work.
+    With --goal-id it ABANDONS that one goal (status='abandoned', is_completed=0):
+    the verb keeps its old name, but the 'stale' status was removed in migration 038.
+    Without --goal-id it annotates the session's open goals with stale_since
+    metadata and leaves their status alone. No hook calls it.
     """
     try:
         from empirica.core.goals.repository import GoalRepository

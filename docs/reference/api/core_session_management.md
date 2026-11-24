@@ -535,8 +535,8 @@ For command-line usage, see [CLI Commands Reference](../../human/developers/CLI_
 empirica session-create --ai-id <AI_ID> --output json
 empirica sessions-list --output json
 empirica sessions-show --session-id <ID>
-empirica session-snapshot --session-id <ID>
-empirica memory-compact --session-id <ID>
+empirica session-snapshot <ID>
+echo '{"session_id": "<ID>"}' | empirica memory-compact -
 ```
 
 ### CASCADE Workflow Commands

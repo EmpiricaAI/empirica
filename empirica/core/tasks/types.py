@@ -37,7 +37,7 @@ class SubTask:
     """
     Individual subtask within a goal
 
-    MVP Design: AI creates these explicitly via MCP tools.
+    MVP Design: AI creates these explicitly via the CLI (goals-add-task).
     """
 
     id: str

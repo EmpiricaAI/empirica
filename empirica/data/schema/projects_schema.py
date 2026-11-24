@@ -263,8 +263,9 @@ SCHEMAS = [
     )
     """,
     # Beads: v0 coordination-records — RETIRED 2026-06-02 (empirica 1.11.2).
-    # Cross-practitioner coordination state moved to cortex-resident SER
-    # (Shared Epistemic Record); see empirica-cortex SHARED_EPISTEMIC_RECORD.md.
+    # Cross-practitioner coordination moved to cortex-resident SER, which was
+    # itself retired 2026-10-24: it now runs on multi-target cortex proposals
+    # (target_claudes, one ack per target).
     # The table is kept here (non-destructive) so any pre-retirement rows
     # remain readable; no current code path writes to it. The state-machine
     # CHECK constraint stays for historical-row integrity. `beads_issue_id`

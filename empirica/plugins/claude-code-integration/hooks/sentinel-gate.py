@@ -804,7 +804,6 @@ EMPIRICA_TIER1_PREFIXES = (
     "empirica gl",  # Goal list + aliases
     "empirica goals-progress",
     "empirica goal-progress",  # Goal progress + alias
-    "empirica get-goal-progress",
     "empirica goals-get-tasks",
     "empirica goals-discover",
     "empirica goal-analysis",  # Goal queries
@@ -813,10 +812,6 @@ EMPIRICA_TIER1_PREFIXES = (
     "empirica project-switch",
     "empirica project-list",  # Administrative - always allowed
     "empirica session-snapshot",
-    "empirica get-session-summary",
-    "empirica get-epistemic-state",
-    "empirica get-calibration-report",
-    "empirica monitor",
     "empirica workspace-overview",
     "empirica workspace-map",
     "empirica entity-list",
@@ -826,11 +821,6 @@ EMPIRICA_TIER1_PREFIXES = (
     "empirica efficiency-report",
     "empirica skill-suggest",
     "empirica goals-ready",
-    "empirica list-goals",
-    "empirica query-mistakes",
-    "empirica query-handoff",
-    "empirica discover-goals",
-    "empirica list-identities",
     "empirica issue-list",
     "empirica docs-assess",  # Documentation assessment - read-only investigation tool
     "empirica doctor",  # Read-only diagnostic — MUST stay allowed (recovery escape hatch)
@@ -850,19 +840,13 @@ EMPIRICA_TIER1_PREFIXES = (
     "empirica sentinel-check",  # Sentinel queries - read-only
     "empirica goals-search",
     "empirica goals-get-stale",  # Goal queries - read-only
-    "empirica unknown-list",
-    "empirica assumption-list",  # Artifact queries - read-only
-    "empirica deadend-list",
-    "empirica finding-list",  # Artifact queries - read-only
-    "empirica decision-list",
-    "empirica mistake-list",  # Artifact queries - read-only
+    "empirica unknown-list",  # Artifact queries - read-only
     "empirica compliance-report",  # Compliance report - read-only
     "empirica workspace-list",
     "empirica ecosystem-check",  # Workspace queries - read-only
     "empirica --help",
     "empirica -h",
     "empirica help",  # subcommand form (`empirica help` and `empirica help <category>`)
-    "empirica version",
     "empirica profile-status",  # Profile status - read-only
     "empirica noetic-batch",  # Batched noetic primitive — IS a noetic operation
     "empirica sentinel ",  # Sentinel subcommand: pause/resume/status
@@ -896,7 +880,7 @@ EMPIRICA_TIER1_PREFIXES = (
     # Resolved from the four verbs left gated when the suffix rule landed; the
     # other three earned their gate: `scan` writes three files (its "read-only"
     # help means it does not mutate the SERVICES it inspects, not the DB),
-    # `vision` has a `vision log` subcommand, and `module` is slated to gain
+    # `vision --session-id` logs findings, and `module` is slated to gain
     # fetch/provision. Checked rather than inferred from the help text — `scan`
     # is exactly the verb that reads as safe and is not.
     "empirica query",
@@ -914,7 +898,6 @@ EMPIRICA_TIER2_PREFIXES = (
     "empirica unknown-log",
     "empirica deadend-log",
     "empirica mistake-log",
-    "empirica log-mistake",
     "empirica note",  # Scratchpad note-to-self (metadata-only, ungated like *-log)
     "empirica log-artifacts",
     "empirica resolve-artifacts",
@@ -938,21 +921,12 @@ EMPIRICA_TIER2_PREFIXES = (
     "empirica goals-resume",  # Goal management
     "empirica goals-claim",
     "empirica session-create",
-    "empirica session-end",
-    "empirica create-goal",
-    "empirica add-task",
-    "empirica complete-task",
-    "empirica create-handoff",
-    "empirica resume-goal",
     "empirica unknown-resolve",
     "empirica finding-resolve",  # Resolve/supersede a finding (#307) — analog of unknown-resolve
     "empirica issue-handoff",
     "empirica project-init",
     "empirica project-embed",
-    "empirica create-git-checkpoint",
-    "empirica load-git-checkpoint",
     "empirica memory-compact",
-    "empirica resume-previous-session",
     "empirica investigate",
     "empirica source-add",
     "empirica assumption-log",
@@ -976,7 +950,6 @@ EMPIRICA_TIER2_PREFIXES = (
     # stale hook can't run the very command that fixes it (deploy-staleness deadlock).
     "empirica setup",
     "empirica plugin-sync",
-    "empirica plugin-version",
 )
 
 
@@ -1565,7 +1538,6 @@ _RECOVERY_MEASUREMENT_PREFIXES = (
     "empirica unknown-log",
     "empirica deadend-log",
     "empirica mistake-log",
-    "empirica log-mistake",
     "empirica assumption-log",
     "empirica decision-log",
     "empirica log-artifacts",

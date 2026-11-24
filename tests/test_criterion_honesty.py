@@ -59,9 +59,9 @@ def test_an_unknown_method_is_still_rejected():
         validate_success_criteria([_crit("x", method="nonsense")])
 
 
-def test_both_validators_read_ONE_vocabulary():
-    """The list was hand-maintained in two places — the CLI validator and the MCP
-    validator. Widening one and not the other would make a criterion legal over
+def test_the_validator_reads_ONE_vocabulary():
+    """The list was hand-maintained in two places — the CLI validator and a
+    since-removed MCP validator. A second copy would make a criterion legal over
     one surface and rejected over the other, which is the two-sources-of-truth
     shape this repo keeps producing. Asserted by reading the source: no literal
     method list may survive alongside the constant."""
@@ -74,7 +74,7 @@ def test_both_validators_read_ONE_vocabulary():
     assert '"completion", "quality_gate", "metric_threshold"]' not in body, (
         "a second hand-maintained copy of the vocabulary has reappeared"
     )
-    assert body.count("VALID_VALIDATION_METHODS") >= 2, "both validators must read the constant"
+    assert body.count("VALID_VALIDATION_METHODS") >= 1, "the validator must read the constant"
 
 
 # ── completion stops over-claiming ───────────────────────────────────────────

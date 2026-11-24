@@ -157,7 +157,7 @@ def auto_close_previous_sessions(db, ai_id, current_project_id, current_instance
                         "session_id": session_id,
                         "project_id": session_project_id,
                         "project_name": project_name,
-                        "message": f"Active session in project '{project_name}' - run 'empirica session-close' there",
+                        "message": f"Active session in project '{project_name}' - left open; the next session-create there closes it",
                     }
                 )
 

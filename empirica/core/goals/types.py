@@ -83,7 +83,7 @@ class Goal:
     """
     Structured goal representation
 
-    MVP Design: AI creates goals explicitly via MCP tools.
+    MVP Design: AI creates goals explicitly via the CLI (goals-create).
     No automatic parsing - keeps it simple and heuristic-free.
     """
 

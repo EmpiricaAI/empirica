@@ -68,7 +68,7 @@ def test_missing_stamp_triggers_sync(harness):
     assert len(harness["calls"]) == 1
 
 
-@pytest.mark.parametrize("verb", ["plugin-sync", "setup-claude-code", "plugin-version", "doctor", "help"])
+@pytest.mark.parametrize("verb", ["plugin-sync", "setup-claude-code", "doctor", "help"])
 def test_exempt_verb_never_syncs(harness, verb):
     _stamp(harness["plugin"], "1.0.0")  # drift present...
     cli_core._maybe_autosync_plugin(verb)  # ...but the verb is exempt (no re-entrancy)

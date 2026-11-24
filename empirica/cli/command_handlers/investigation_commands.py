@@ -374,8 +374,6 @@ def handle_investigate_multi_command(args):
             "aggregate_strategy": strategy,
             "next_steps": [
                 "Execute each agent's prompt (see branches[persona_id].prompt)",
-                "Report results: empirica agent-report --branch-id <ID> --postflight '<json>'",
-                f"Aggregate: empirica agent-aggregate --session-id {session_id}",
             ],
         }
 
@@ -404,8 +402,6 @@ def handle_investigate_multi_command(args):
 
             print("\n📝 Next Steps:")
             print("   1. Execute each agent prompt (shown below)")
-            print("   2. Report: empirica agent-report --branch-id <ID> --postflight '<json>'")
-            print(f"   3. Aggregate: empirica agent-aggregate --session-id {session_id}")
 
             # Show prompts
             for pid, branch in branches.items():

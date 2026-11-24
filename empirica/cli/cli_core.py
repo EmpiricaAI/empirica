@@ -606,7 +606,6 @@ _HELP_CATEGORIES = {
         "investigate-multi",
     ],
     "monitoring": [
-        "monitor",
         "assess-state",
         "trajectory-project",
         "efficiency-report",
@@ -764,9 +763,7 @@ def _handle_command_result(result, parsed_args) -> int:
 
 # Self-heal verbs that must NOT trigger the plugin auto-sync (they'd re-invoke
 # it → infinite loop), plus cheap/help paths.
-_PLUGIN_AUTOSYNC_EXEMPT = frozenset(
-    {"plugin-sync", "setup", "setup-claude-code", "plugin-version", "doctor", "diagnose", "help"}
-)
+_PLUGIN_AUTOSYNC_EXEMPT = frozenset({"plugin-sync", "setup", "setup-claude-code", "doctor", "diagnose", "help"})
 
 
 def _maybe_autosync_plugin(command: str) -> None:

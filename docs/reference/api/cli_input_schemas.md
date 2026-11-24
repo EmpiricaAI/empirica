@@ -11,7 +11,7 @@
 This document covers the Pydantic input schemas used to validate JSON
 payloads on stdin to Empirica CLI commands, plus the dataclass and
 helper classes used internally by the CLI command handlers (vision,
-docs assessment, monitoring, help formatting).
+docs assessment, help formatting).
 
 The Pydantic models live in `empirica/cli/validation.py` and are the
 authoritative schemas for the AI-first stdin JSON mode of every
@@ -198,28 +198,13 @@ actually learned.
 - `similarity: float` — Vector similarity (0.0–1.0)
 - `suggestion: str` — Human-readable remediation hint
 
-### `UsageMonitor`
-
-Tracks and displays adapter usage statistics for CLI monitoring commands.
-
-Persists usage stats to disk (default `~/.empirica/usage_stats.json`)
-and exposes a small API for incrementing counters and querying
-aggregated metrics. Used by the `empirica usage-stats` and related
-monitoring CLI commands.
-
-**Tracks per adapter:**
-- Request counts (total and by call type)
-- Total cost in USD
-- Average latency in milliseconds
-- Success / failure rates and recent error log
-
 ### `VisionAnalyzer`
 
 Lightweight image analyzer used by the vision CLI commands.
 
 Provides metadata-only assessment of image files (no ML models, no
 LLM calls — just PIL/Pillow inspection) suitable for the
-`empirica vision-assess` command and pitch-deck slide auditing.
+`empirica vision` command and pitch-deck slide auditing.
 
 **Capabilities:**
 - Read image dimensions, aspect ratio, file size

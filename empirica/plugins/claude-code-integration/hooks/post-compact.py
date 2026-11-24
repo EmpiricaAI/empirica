@@ -1104,7 +1104,7 @@ def _run_cli_json(cmd: list, timeout: int = 15) -> dict | None:
 
 
 def _fetch_optional_context(project_id: str, result: dict) -> None:
-    """Fetch optional context (memory, related goals, stale goals) from Qdrant.
+    """Fetch optional context (memory, related goals) from Qdrant.
 
     All fetches are non-fatal -- failures are silently ignored.
     """
@@ -1145,11 +1145,6 @@ def _fetch_optional_context(project_id: str, result: dict) -> None:
     )
     if goals and goals.get("results"):
         result["related_goals"] = goals["results"]
-
-    # Stale goals (marked during pre-compact)
-    stale = _run_cli_json(["empirica", "goals-get-stale", "--project-id", project_id, "--output", "json"], timeout=10)
-    if stale and stale.get("stale_goals"):
-        result["stale_goals"] = stale["stale_goals"]
 
 
 def _create_session_and_bootstrap(ai_id: str, project_id: str | None = None) -> dict:
@@ -1336,18 +1331,8 @@ def _format_memory_context(memory_context: dict) -> str:
 
 
 def _format_goals(dynamic_context: dict) -> str:
-    """Format goals for prompt, including semantic search results and stale goals."""
+    """Format goals for prompt, including semantic search results."""
     lines = []
-
-    # Stale goals (marked during pre-compact) - show first as they need attention
-    if dynamic_context.get("stale_goals"):
-        lines.append("  **⚠️ STALE (context lost during compaction - re-evaluate before continuing):**")
-        for g in dynamic_context["stale_goals"]:
-            obj = g.get("objective", "Unknown")
-            reason = g.get("stale_reason", "memory_compact")
-            lines.append(f"  - ⚠️ {obj[:80]}... (stale: {reason})")
-            lines.append(f"       Refresh with: empirica goals-refresh --goal-id {g['goal_id']}")
-        lines.append("  ")  # separator
 
     # Active goals from project-bootstrap
     if dynamic_context.get("active_goals"):

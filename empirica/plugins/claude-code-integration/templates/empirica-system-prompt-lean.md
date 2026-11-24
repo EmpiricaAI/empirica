@@ -437,7 +437,7 @@ loading it." The skill content evolves. Trigger fired → load → act.
 ## CORE COMMANDS (Quick Reference)
 
 ```bash
-empirica session-create --ai-id claude-code --output json
+empirica session-create --output json
 empirica project-bootstrap --output json
 empirica preflight-submit -          # Opens transaction (JSON stdin)
 empirica check-submit -              # Gates noetic → praxic

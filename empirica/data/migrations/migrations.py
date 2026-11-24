@@ -2483,9 +2483,10 @@ def migration_048_beads_table(cursor: sqlite3.Cursor):
 
     HISTORICAL CONTEXT — RETIRED 2026-06-02 (empirica 1.11.2): the v0
     bead-as-graph-node concept retired three-way (cortex/empirica/extension)
-    on 2026-06-01. Cross-practitioner coordination state lives in
-    cortex-resident SER (Shared Epistemic Record) now — see
-    `empirica-cortex/docs/architecture/SHARED_EPISTEMIC_RECORD.md`. The
+    on 2026-06-01. Cross-practitioner coordination then moved to
+    cortex-resident SER (Shared Epistemic Record), itself retired 2026-10-24;
+    it now runs on multi-target cortex proposals (target_claudes, one ack per
+    target). The
     `bead` node type + 4 v0 edges (`tracks`/`owned_by`/`about`/`worked_by`)
     were removed from graph_commands.py NODE_REQUIRED_FIELDS +
     VALID_RELATIONS in 1.11.2. This migration is kept intact for historical

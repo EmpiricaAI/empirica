@@ -77,7 +77,6 @@ def test_recovery_verb_escapes_rush_guard(command):
         "empirica setup-claude-code",
         "empirica setup-claude-code --force",
         "empirica plugin-sync",
-        "empirica plugin-version",
     ],
 )
 def test_self_heal_verbs_allow_listed(cmd):

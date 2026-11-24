@@ -55,7 +55,7 @@ class VisionAnalyzer:
 
     Provides metadata-only assessment of image files (no ML models, no
     LLM calls — just PIL/Pillow inspection) suitable for the
-    `empirica vision-assess` command and pitch-deck slide auditing.
+    `empirica vision` command and pitch-deck slide auditing.
 
     Capabilities:
         * Read image dimensions, aspect ratio, file size
@@ -123,7 +123,7 @@ class VisionAnalyzer:
 
 
 def handle_vision_analyze(args):
-    """Handle vision-analyze command"""
+    """Handle the vision command (one image, or a deck via --pattern)."""
     from empirica.data.session_database import SessionDatabase
 
     # The parser used to give `image_path` while this read `args.image` and
@@ -177,41 +177,3 @@ def handle_vision_analyze(args):
             db.close()
 
     return 0
-
-
-def handle_vision_log(args):
-    """Handle vision-log command - manually log visual observation"""
-    from empirica.data.session_database import SessionDatabase
-
-    db = SessionDatabase()
-    try:
-        # Log as finding
-        db.log_finding(session_id=args.session_id, finding=args.observation, source="vision-log")
-
-        if args.output == "json":
-            print(json.dumps({"ok": True, "logged": True}))
-        else:
-            print("✓ Visual observation logged to session")
-
-        return 0
-    finally:
-        db.close()
-
-
-def add_vision_parsers(subparsers):
-    """Add vision command parsers"""
-
-    # vision-analyze: Analyze image(s) with optional session logging
-    vision_analyze = subparsers.add_parser("vision-analyze", help="Analyze image(s) and optionally log to session")
-    vision_analyze.add_argument("--image", help="Single image path")
-    vision_analyze.add_argument("--pattern", help="Image pattern (e.g., slides/*.png)")
-    vision_analyze.add_argument("--session-id", help="Session ID to log findings")
-    vision_analyze.add_argument("--output", choices=["json", "human"], default="json", help="Output format")
-    vision_analyze.set_defaults(func=handle_vision_analyze)
-
-    # vision-log: Manually log visual observation to session
-    vision_log = subparsers.add_parser("vision-log", help="Log visual observation to session")
-    vision_log.add_argument("--session-id", required=True, help="Session ID")
-    vision_log.add_argument("--observation", required=True, help="Visual observation text")
-    vision_log.add_argument("--output", choices=["json", "human"], default="json", help="Output format")
-    vision_log.set_defaults(func=handle_vision_log)

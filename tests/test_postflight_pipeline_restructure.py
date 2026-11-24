@@ -377,9 +377,8 @@ class TestCortexExtractTransactionGraph:
 
 # ─── bead retirement (2026-06-02) ─────────────────────────────────────────
 # Bead v0 was retired three-way (cortex/empirica/extension) 2026-06-01.
-# log_bead repo function + db.beads table writes remain in the codebase as
-# inert legacy paths (existing rows readable, no new emits from any current
-# code path). These tests assert empirica's /v1/sync graph payload + the
+# The beads table remains so pre-retirement rows stay readable; its writer
+# (log_bead) was removed. These tests assert empirica's /v1/sync graph payload + the
 # log-artifacts path no longer flow bead artifacts to cortex, where cortex
 # would silently reject them at validation.
 
@@ -406,23 +405,21 @@ class TestBeadRetirement:
 
     def test_graph_extract_no_longer_ships_beads(self, tmp_path, monkeypatch):
         """A bead logged under a transaction does NOT ride the /v1/sync
-        graph payload anymore. log_bead still writes the row (legacy path
-        kept inert), but the cortex-bound extractor omits the beads table
+        graph payload anymore. A legacy row may still sit in the local table,
+        but the cortex-bound extractor omits the beads table
         entirely now — protecting against cortex's stricter validation."""
         from empirica.cli.command_handlers import _workflow_postflight as wp
 
         db = self._build_db(tmp_path)
         PID, SID, TX, GID = "proj", "sess", "tx-bead", "goal-bead"
-        # log_bead still callable (inert legacy path); row lands locally.
-        db.log_bead(
-            PID,
-            SID,
-            coordination_state="open",
-            beads_issue_id="bd-7",
-            goal_id=GID,
-            transaction_id=TX,
-            description="should not ship to cortex",
+        # A pre-retirement row still in the legacy table (no writer is left).
+        db.conn.execute(
+            "INSERT INTO beads (id, coordination_state, updated_at, beads_issue_id, description, entity_type, "
+            "entity_id, project_id, session_id, transaction_id, goal_id, created_timestamp) "
+            "VALUES ('bead-1', 'open', 0, 'bd-7', 'should not ship to cortex', 'project', ?, ?, ?, ?, ?, 0)",
+            (PID, PID, SID, TX, GID),
         )
+        db.conn.commit()
         monkeypatch.setattr(wp.R, "transaction_read", lambda *a, **k: {"transaction_id": TX})
         monkeypatch.setattr(wp, "_get_db_for_session", lambda _sid: db)
         graph = wp._cortex_extract_transaction_graph(SID)

@@ -14,7 +14,6 @@ import hashlib
 import json
 import logging
 import time
-import uuid
 from pathlib import Path
 
 import yaml
@@ -989,90 +988,6 @@ class LessonStorageManager:
                     }
                 )
         return results
-
-    # ==================== REPLAY TRACKING ====================
-
-    def start_replay(
-        self,
-        lesson_id: str,
-        session_id: str,
-        ai_id: str | None = None,
-        epistemic_before: dict[str, float] | None = None,
-    ) -> str:
-        """Start tracking a lesson replay"""
-        cursor = self._conn.cursor()
-        replay_id = str(uuid.uuid4())
-
-        lesson = self.get_lesson(lesson_id)
-        total_steps = len(getattr(lesson, "steps", [])) if lesson else 0
-
-        cursor.execute(
-            """
-            INSERT INTO lesson_replays
-            (id, lesson_id, session_id, ai_id, started_timestamp,
-             total_steps, epistemic_before)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                replay_id,
-                lesson_id,
-                session_id,
-                ai_id,
-                time.time(),
-                total_steps,
-                json.dumps(epistemic_before) if epistemic_before else None,
-            ),
-        )
-        self._conn.commit()
-        return replay_id
-
-    def complete_replay(
-        self,
-        replay_id: str,
-        success: bool,
-        steps_completed: int,
-        epistemic_after: dict[str, float] | None = None,
-        error_message: str | None = None,
-    ):
-        """Mark a lesson replay as complete"""
-        cursor = self._conn.cursor()
-        cursor.execute(
-            """
-            UPDATE lesson_replays
-            SET completed_timestamp = ?,
-                success = ?,
-                steps_completed = ?,
-                epistemic_after = ?,
-                error_message = ?
-            WHERE id = ?
-        """,
-            (
-                time.time(),
-                success,
-                steps_completed,
-                json.dumps(epistemic_after) if epistemic_after else None,
-                error_message,
-                replay_id,
-            ),
-        )
-
-        # Update lesson stats if successful
-        if success:
-            cursor.execute(
-                """
-                UPDATE lessons
-                SET replay_count = replay_count + 1,
-                    success_rate = (
-                        SELECT CAST(SUM(CASE WHEN success THEN 1 ELSE 0 END) AS REAL) / COUNT(*)
-                        FROM lesson_replays
-                        WHERE lesson_id = (SELECT lesson_id FROM lesson_replays WHERE id = ?)
-                    )
-                WHERE id = (SELECT lesson_id FROM lesson_replays WHERE id = ?)
-            """,
-                (replay_id, replay_id),
-            )
-
-        self._conn.commit()
 
     # ==================== IMMUNE SYSTEM: CONFIDENCE DECAY ====================
 

@@ -247,7 +247,7 @@ Switch active project for current instance.
 
 ```bash
 empirica project-switch empirica
-empirica project-switch --project-id 748a81a2-...
+empirica project-switch 748a81a2-...   # name or UUID
 ```
 
 ### `ecosystem-check`

@@ -257,8 +257,9 @@ class AIIdentity:
             self.public_key = Ed25519PublicKey.from_public_bytes(public_bytes)
             logger.info(f"✓ Loaded unencrypted keypair for {self.ai_id}")
             logger.warning(
-                "Keypair is not encrypted. Run 'empirica identity-rotate' "
-                "with EMPIRICA_IDENTITY_PASSWORD set to encrypt."
+                "Keypair is not encrypted. To get an encrypted one, set EMPIRICA_IDENTITY_PASSWORD and run "
+                "'empirica identity-create --overwrite' (this replaces the keypair: earlier signatures "
+                "will not verify against the new key)."
             )
 
         self.created_at = keypair_data["created_at"]

@@ -271,7 +271,7 @@ def _update_active_work(
     Args:
         project_path: Full path to the project directory
         folder_name: The project's folder name (ground truth identifier)
-        empirica_session_id: Optional session ID to attach to (for Sentinel/MCP tools)
+        empirica_session_id: Optional session ID to attach to (read by the Sentinel and CLI verbs)
         claude_session_id: Claude Code conversation UUID (for instance isolation when called via Bash tool)
 
     Returns:
