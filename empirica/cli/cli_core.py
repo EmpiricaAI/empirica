@@ -5,14 +5,6 @@ This module provides the main() function and argument parser setup.
 Parser definitions are modularized in the parsers/ subdirectory.
 """
 
-# Apply asyncio fixes early (before any MCP connections)
-try:
-    from empirica.cli.asyncio_fix import patch_asyncio_for_mcp
-
-    patch_asyncio_for_mcp()
-except Exception:
-    pass  # Don't fail if fix can't be applied
-
 import argparse
 import json
 import sys

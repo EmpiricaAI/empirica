@@ -5,7 +5,7 @@ Diagnosed 2026-06-17: `import empirica.cli` cost ~1.0s on Windows while
 to two heavy *leaf* dependencies pulled in at module-import time, even for
 trivial commands like `goals-list` that never touch them:
 
-  - httpx (~190ms) — imported by ``empirica.cli.asyncio_fix`` whose
+  - httpx (~190ms) — once imported by the removed ``empirica.cli.asyncio_fix``, whose
     ``patch_asyncio_for_mcp()`` ran at CLI import (cli_core.py) purely to
     monkey-patch ``httpx.AsyncClient.__del__`` for MCP server cleanup.
   - GitPython ``git`` (~140ms) — imported at module top in
@@ -95,8 +95,7 @@ def test_cli_import_does_not_pull_httpx():
     """httpx is ~190ms and only needed for MCP/cloud paths, not the CLI core."""
     loaded = _modules_after("empirica.cli")
     assert "httpx" not in loaded, (
-        "empirica.cli eagerly imported httpx — the asyncio_fix httpx "
-        "monkey-patch must stay lazy (only patch when httpx is already loaded)."
+        "empirica.cli eagerly imported httpx — it is only needed on cloud paths and must stay lazy."
     )
 
 

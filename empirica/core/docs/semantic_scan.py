@@ -72,6 +72,7 @@ SKIP_PATTERNS = (
     ".venv",
     ".egg-info",
     "node_modules",
+    "_archive/",  # gitignored, local to the machine that archived it (goal 95c3ee16)
 )
 
 MIN_FILE_SIZE = 100  # bytes

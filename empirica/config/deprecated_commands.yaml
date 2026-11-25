@@ -45,3 +45,5 @@ commands:
   - {name: mco-load, since: "1.17.14", remove_in: "1.18.0", replacement: null, reason: "unused for 30 days; nothing in the package or docs names it; untouched since 2026-06"}
   - {name: log-token-saving, since: "1.17.14", remove_in: "1.18.0", replacement: null, reason: "unused for 30 days; nothing names it; feeds only efficiency-report's --session-id token report"}
   - {name: engagement-walk, since: "1.17.14", remove_in: "1.18.0", replacement: null, reason: "unused for 30 days; nothing names it; engagements live in empirica-workspace's CRM"}
+  - {name: goals-get-stale, since: "1.17.18", remove_in: "1.18.0", replacement: null, reason: "the stale goal status was removed in migration 038; it always returns an empty list"}
+  - {name: goals-refresh, since: "1.17.18", remove_in: "1.18.0", replacement: null, reason: "refreshes the removed stale status; a documented no-op"}
