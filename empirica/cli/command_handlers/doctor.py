@@ -628,12 +628,23 @@ def check_visibility_notes(cwd: Path | None = None) -> Check:
     left out of every visibility export until a rebuild finishes. WARN with the command that clears it."""
     from empirica.core.canonical.empirica_git.graph_note_export import visibility_health, visibility_notes_enabled
 
-    if not visibility_notes_enabled():  # an old marker matters only to an opted-in export (1.17.18 fourth pass)
-        return Check("Visibility notes", SKIP, "off (EMPIRICA_VISIBILITY_NOTES=1 turns them on)")
     here = Path(cwd or Path.cwd())
     code, out, _err = _run(["git", "-C", str(here), "rev-parse", "--show-toplevel"])
     root = Path(out.strip()) if code == 0 and out.strip() else here
     health = visibility_health(str(root))
+    if not visibility_notes_enabled():  # an old marker matters only to an opted-in export (1.17.18 fourth pass)
+        # Said anyway: the opt-in is read per process, and a hook may have it while this shell does not (fifth pass).
+        leftover = (
+            "; a rebuild marker is present, which matters to any process that has them on"
+            if health["rebuild_pending"]
+            else ""
+        )
+        return Check(
+            "Visibility notes",
+            SKIP,
+            f"off in this shell (EMPIRICA_VISIBILITY_NOTES=1 turns them on){leftover}",
+            data=health,
+        )
     if health["rebuild_pending"]:
         age = health["rebuild_marker_age_s"]
         when = f"{age / 3600:.1f} h ago" if age is not None else "at an unknown time"

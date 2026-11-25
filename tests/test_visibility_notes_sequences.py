@@ -382,6 +382,8 @@ def test_a_diverged_copy_of_another_writers_note_takes_the_remote(world, monkeyp
 def test_doctor_warns_about_a_rebuild_that_never_finished(tmp_path, monkeypatch):
     from empirica.cli.command_handlers import doctor
 
+    monkeypatch.setenv("EMPIRICA_VISIBILITY_NOTES", "1")  # doctor reports the marker only with the opt-in
+
     (tmp_path / ".empirica").mkdir()
     monkeypatch.setattr(doctor, "_run", lambda cmd: (1, "", ""))
     assert doctor.check_visibility_notes(tmp_path).status == doctor.PASS

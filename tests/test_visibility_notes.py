@@ -39,7 +39,8 @@ def _finding(db, visibility):
     return fid
 
 
-def test_shared_and_public_tags_come_back_and_local_stays_local(practice, tmp_path):
+def test_shared_and_public_tags_come_back_and_local_stays_local(practice, tmp_path, monkeypatch):
+    monkeypatch.setenv("EMPIRICA_VISIBILITY_NOTES", "1")  # a rebuild applies the notes only with the opt-in
     db = SessionDatabase()
     try:
         shared, public, local = _finding(db, "shared"), _finding(db, "public"), _finding(db, "local")

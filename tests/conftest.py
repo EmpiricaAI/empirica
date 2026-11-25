@@ -830,3 +830,14 @@ def _no_live_local_server_probe(request):
         yield
     finally:
         mp.undo()
+
+
+@pytest.fixture(autouse=True)
+def _visibility_notes_off_unless_a_test_opts_in():
+    """The opt-in comes from the developer's environment (Claude Code settings can set it), so a run on a machine that
+    opted in tested a different program than CI did (1.17.18 fifth pass). Tests that need it set it themselves.
+    Its OWN MonkeyPatch, not the fixture: see no_real_service_mutations (depending on `monkeypatch` reorders teardown)."""
+    mp = MonkeyPatch()
+    mp.delenv("EMPIRICA_VISIBILITY_NOTES", raising=False)
+    yield
+    mp.undo()

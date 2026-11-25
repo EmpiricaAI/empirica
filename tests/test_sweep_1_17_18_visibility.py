@@ -106,3 +106,12 @@ def test_a_rebuild_with_notes_on_prepares(monkeypatch, tmp_path):
     monkeypatch.setenv("EMPIRICA_VISIBILITY_NOTES", "1")
     monkeypatch.setattr(gx, "prepare_visibility_rebuild", lambda conn, root: {"a"})
     assert sync_commands._prepare_visibility(None, str(tmp_path)) == {"a"}
+
+
+def test_doctor_with_notes_off_still_mentions_a_leftover_marker(monkeypatch, tmp_path):
+    from empirica.cli.command_handlers import doctor
+
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / gx.REBUILD_MARKER).write_text("{}")
+    check = doctor.check_visibility_notes(tmp_path)
+    assert check.status == doctor.SKIP and "marker" in check.detail
