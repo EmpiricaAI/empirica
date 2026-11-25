@@ -319,12 +319,16 @@ def _mint_or_adopt_project(git_root, output_format):
     try:
         from types import SimpleNamespace
 
-        from empirica.cli.command_handlers.project_init import run_project_init
+        from empirica.cli.command_handlers.project_init import default_project_name, run_project_init
+
+        named = default_project_name(git_root)
+        if named != git_root.name and output_format != "json":
+            print(f"   📛 Named {named!r} from .empirica/project.yaml (the folder is {git_root.name!r})")
 
         init_args = SimpleNamespace(
             non_interactive=True,
             output="json" if output_format == "json" else "default",
-            project_name=git_root.name,
+            project_name=default_project_name(git_root),
             project_description=None,
             enable_beads=False,
             create_semantic_index=False,

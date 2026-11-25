@@ -169,10 +169,28 @@ def _refuse_unknown_domain_flag(args, git_root, output_format) -> bool:
     return True
 
 
+def default_project_name(git_root) -> str:
+    """The practice's name: ``name`` from a tracked ``.empirica/project.yaml``, else the folder (goal dc55912b).
+
+    Per-person clones (/srv/practices/<practice>/<person>) named every store after the person; project.yaml carries the
+    practice's own name, tracked in git, so a fresh clone's store takes it.
+    """
+    try:
+        import yaml
+
+        data = yaml.safe_load((Path(git_root) / ".empirica" / "project.yaml").read_text(encoding="utf-8")) or {}
+        name = data.get("name") if isinstance(data, dict) else None
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    except Exception:
+        pass
+    return Path(git_root).name
+
+
 def _collect_project_config_interactive(git_root) -> dict:
     """Collect project configuration via interactive prompts."""
     print("📋 Project Configuration\n")
-    default_name = git_root.name
+    default_name = default_project_name(git_root)
     project_name = input(f"Project name [{default_name}]: ").strip() or default_name
     project_description = input("Project description (optional): ").strip() or None
 
@@ -211,7 +229,7 @@ def _collect_project_config_interactive(git_root) -> dict:
 def _collect_project_config_from_args(args, git_root) -> dict:
     """Collect project configuration from CLI args (non-interactive)."""
     return {
-        "project_name": getattr(args, "project_name", None) or git_root.name,
+        "project_name": getattr(args, "project_name", None) or default_project_name(git_root),
         "project_description": getattr(args, "project_description", None),
         "enable_beads": getattr(args, "enable_beads", False),
         "create_semantic_index": getattr(args, "create_semantic_index", False),
