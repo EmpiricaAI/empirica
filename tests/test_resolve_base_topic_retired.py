@@ -5,18 +5,6 @@ from __future__ import annotations
 from empirica.core.cockpit import notification_channels as nc
 
 
-def test_derive_org_prefix_basic():
-    """Verify _derive_org_prefix works with basic inputs."""
-    result = nc._derive_org_prefix(["empirica-eco", "empirica-system"])
-    assert result == "empirica-"
-
-
-def test_derive_org_prefix_mod():
-    """Verify _derive_org_prefix works with mod prefix."""
-    result = nc._derive_org_prefix(["mod-system", "mod-eco"])
-    assert result == "mod-"
-
-
 def test_resolve_base_topic_skips_bare_orchestration_events():
     """Explicit bare orchestration-events (no org prefix) should be skipped."""
     body = {
@@ -28,7 +16,7 @@ def test_resolve_base_topic_skips_bare_orchestration_events():
     }
     # Should derive from sibling channels instead of using bare
     result = nc._resolve_base_topic(body)
-    assert result == "empirica-orchestration-events"
+    assert result is None  # no derivation: the per-org topic is retired on Cortex (prop_hovbwxnx)
 
 
 def test_resolve_base_topic_skips_retired_orchestration_events():
@@ -45,7 +33,7 @@ def test_resolve_base_topic_skips_retired_orchestration_events():
     }
     # Should derive from sibling channels instead of using retired explicit topic
     result = nc._resolve_base_topic(body)
-    assert result == "empirica-orchestration-events"
+    assert result is None  # no derivation: the per-org topic is retired on Cortex (prop_hovbwxnx)
 
 
 def test_resolve_base_topic_uses_non_retired_explicit():
@@ -75,7 +63,7 @@ def test_resolve_base_topic_excludes_retired_from_prefix_derivation():
     }
     # Should derive prefix from empirica-* topics, not old-org-*
     result = nc._resolve_base_topic(body)
-    assert result == "empirica-orchestration-events"
+    assert result is None  # no derivation: the per-org topic is retired on Cortex (prop_hovbwxnx)
 
 
 def test_resolve_base_topic_skips_bare_and_derives_from_valid_topics():
@@ -89,7 +77,7 @@ def test_resolve_base_topic_skips_bare_and_derives_from_valid_topics():
         ]
     }
     result = nc._resolve_base_topic(body)
-    assert result == "mod-orchestration-events"
+    assert result is None  # no derivation: the per-org topic is retired on Cortex (prop_hovbwxnx)
 
 
 def test_resolve_base_topic_returns_none_when_only_bare_or_retired():
@@ -131,4 +119,4 @@ def test_resolve_base_topic_skips_retired_topic_by_topic_hint():
     }
     result = nc._resolve_base_topic(body)
     # Should derive instead of using retired
-    assert result == "empirica-orchestration-events"
+    assert result is None  # no derivation: the per-org topic is retired on Cortex (prop_hovbwxnx)

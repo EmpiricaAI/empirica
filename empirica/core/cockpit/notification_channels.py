@@ -287,22 +287,9 @@ def _resolve_base_topic(body: dict | None) -> str | None:
         kind = ch.get("kind") or ch.get("category")
         if kind == _ORCH_EVENTS_KIND or _ORCH_EVENTS_NAME_HINT in topic:
             return topic
-    # 2. Derive the org prefix from sibling channels. Cortex returns every
-    #    channel fully org-prefixed (`empirica-system`, `empirica-eco-david`,
-    #    `mod-collab`, ...); the orchestration-events topic shares that
-    #    prefix even though the endpoint doesn't list it yet.
-    topics = [
-        c.get("topic")
-        for c in channels
-        if c.get("topic") and c.get("topic") not in retired and c.get("topic") != _ORCH_EVENTS_NAME_HINT
-    ]
-    for key in ("system_topic", "eco_topic", "collab_topic", "roster_changed_topic"):
-        t = body.get(key)
-        if isinstance(t, dict) and t.get("topic") and t.get("topic") not in retired:
-            topics.append(t["topic"])
-    prefix = _derive_org_prefix(topics)
-    if prefix:
-        return f"{prefix}{_ORCH_EVENTS_NAME_HINT}"
+    # No derivation from sibling channels: the per-org `<org>-orchestration-events` it produced is not served and Cortex
+    # lists it in retired_channels (prop_hovbwxnx, 2026-11-25). Only a topic Cortex names is used; else None, and the
+    # listener falls back to its last-resolved-good cache, then refuses.
     return None
 
 
@@ -319,29 +306,6 @@ def retired_topic_names(body: dict | None) -> set[str]:
     if not body:
         return set()
     return {c["name"] for c in body.get("retired_channels") or [] if isinstance(c, dict) and c.get("name")}
-
-
-def _derive_org_prefix(topics: list[str]) -> str | None:
-    """Org prefix (incl. trailing '-') from a set of per-org topic names.
-
-    Longest common prefix trimmed to the last '-' boundary. Needs >=2
-    distinct topics so the boundary is unambiguous (cortex always returns
-    several: eco/collab/system/publish/roster):
-
-        ['empirica-system', 'empirica-eco-david', 'empirica-publish'] -> 'empirica-'
-        ['mod-collab', 'mod-system']                                  -> 'mod-'
-
-    Returns None when it can't derive one safely.
-    """
-    import os
-
-    distinct = sorted({t for t in topics if t})
-    if len(distinct) < 2:
-        return None
-    lcp = os.path.commonprefix(distinct)
-    if "-" in lcp:
-        return lcp[: lcp.rindex("-") + 1]
-    return None
 
 
 def reset_cache() -> None:

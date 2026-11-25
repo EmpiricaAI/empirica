@@ -157,7 +157,7 @@ def test_resolver_raises_on_missing_creds(monkeypatch):
         nc.resolve_orchestration_events_topic("empirica")
 
 
-def test_resolver_derives_prefix_when_no_explicit_channel(monkeypatch):
+def test_resolver_refuses_when_no_explicit_channel(monkeypatch):
     """No orchestration-events channel, but >=2 org-prefixed siblings →
     derive the org prefix and build `<org>-orchestration-events`.
 
@@ -173,8 +173,9 @@ def test_resolver_derives_prefix_when_no_explicit_channel(monkeypatch):
         ],
     }
     monkeypatch.setattr(nc, "_request", lambda url, key: body)
-    topic = nc.resolve_orchestration_events_topic("empirica")
-    assert topic == "ntfy:empirica-orchestration-events?tags=org.tenant.empirica"
+    # No derivation from siblings any more: the per-org topic it produced is retired on Cortex (prop_hovbwxnx).
+    with pytest.raises(RuntimeError, match="orchestration-events"):
+        nc.resolve_orchestration_events_topic("empirica")
 
 
 def test_resolver_raises_when_no_prefixable_channels(monkeypatch):
