@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **A hand-edited visibility writer file no longer crashes `empirica doctor`.**
+- **`empirica profile-sync --push` refuses a public host**, as `sync-push` does: notes go to GitHub, GitLab, Bitbucket, Codeberg or a remote declared public only with `--force`.
+- **`empirica project-register` joins a shared practice another member of your org registered**, instead of stopping at an owner conflict and suggesting a fork; Cortex refuses a practice in another org.
+- **A new store takes the practice's name from its tracked `.empirica/project.yaml`**, not the folder, so per-person clones no longer show the person's name.
+- **The cockpit starts tmux inline when the systemd user manager lacks groups the login has**, so panes can open group-restricted practice folders; it says why and how to restore the survive-logout start.
 
 ### Changed
 
