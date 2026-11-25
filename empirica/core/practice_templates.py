@@ -26,6 +26,16 @@ def templates() -> dict[str, dict]:
     return catalog().get("templates") or {}
 
 
+def template_provides(type_: str | None, domain: str | None) -> list[str]:
+    """The default ``provides`` of the template whose (type, domain) is exactly this practice's, else []."""
+    if not (type_ and domain):
+        return []
+    for spec in templates().values():
+        if isinstance(spec, dict) and spec.get("type") == type_ and spec.get("domain") == domain:
+            return [str(d) for d in spec.get("provides") or []]
+    return []
+
+
 def presets() -> dict[str, dict]:
     return catalog().get("presets") or {}
 

@@ -348,6 +348,35 @@ def _infer_tenant_org(cwd: Path) -> tuple[str | None, str | None]:
     return tenant, org
 
 
+def _provides_step(args, project_yaml: Path, dry_run: bool) -> dict:
+    """Write the template's default provides_domains into project.yaml when it declares none (goal b15f79b9).
+
+    The template is the one whose (type, domain) is exactly this practice's; project-register sends the list to Cortex's
+    roster, which routes client- and prospect-facing write-ups by it (David, 2026-11-25).
+    """
+    step: dict = {"step": "provides-domains", "changed": False}
+    from empirica.core.practice_templates import template_provides
+
+    default = template_provides(getattr(args, "type", None), getattr(args, "domain", None))
+    if not default:
+        return step
+    try:
+        data = yaml.safe_load(project_yaml.read_text()) or {} if yaml else {}
+    except Exception as e:
+        return {**step, "error": f"project.yaml unreadable: {e}"}
+    if not isinstance(data, dict) or "provides_domains" in data:
+        return {**step, "note": "already declared"}
+    from empirica.utils.yaml_cache import is_shared_repo
+
+    if is_shared_repo(data):  # the tracked file is the repo's, not this clone's to rewrite (as _patch_project_yaml)
+        return {**step, "note": "shared practice repo: declare provides_domains in the repo itself"}
+    if dry_run:
+        return {**step, "changed": True, "note": f"dry-run, would declare {', '.join(default)}"}
+    data["provides_domains"] = default
+    project_yaml.write_text(yaml.safe_dump(data, sort_keys=False))
+    return {**step, "changed": True, "note": f"declared {', '.join(default)}"}
+
+
 def _patch_project_yaml(
     project_yaml: Path, ai_id: str, tenant: str | None, org: str | None, substrate: str, dry_run: bool
 ) -> bool:
@@ -863,6 +892,7 @@ def _provision_one(args) -> int:
             project_yaml, ai_id=ai_id, tenant=tenant, org=org, substrate=substrate, dry_run=dry_run
         )
         steps.append({"step": "patch-project-yaml", "changed": changed})
+        steps.append(_provides_step(args, project_yaml, dry_run))
 
     steps.append(_gitignore_step(proj_dir, dry_run))
     steps.append(_initial_commit_step(proj_dir, dry_run))

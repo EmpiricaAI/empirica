@@ -80,6 +80,9 @@ templates:
     domain: marketing
     skills: []
     suggested_by: [outreach]
+    # Roster role (goal b15f79b9, David 2026-11-25): client- and prospect-facing write-ups go to the practice that provides
+    # client-documents. Written into project.yaml provides_domains at provisioning. No other template has a role yet.
+    provides: [client-documents, publishing, newsletter, prospect-research]
     starter:
       objective: "First outreach list: {focus}"
       tasks:
