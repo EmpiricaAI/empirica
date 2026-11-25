@@ -194,6 +194,14 @@ def search_trajectories(
     Returns:
         List of trajectory matches with scores
     """
+    import warnings
+
+    # Nothing in the package calls it; documented as an API, so it gets a release of notice (goal 95c3ee16).
+    warnings.warn(
+        "search_trajectories is deprecated and goes away in 1.18.0; use `empirica project-search`",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     from empirica.core.qdrant.vector_store import search_epistemics
 
     # Build filters (simplified for now - can extend)

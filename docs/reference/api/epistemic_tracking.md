@@ -229,6 +229,8 @@ How much each phase-dependent vector counts depends on the transaction's `work_t
 
 `search_trajectories` finds sessions with a similar learning trajectory (requires Qdrant).
 
+> **Deprecated:** goes away in 1.18.0; use `empirica project-search`.
+
 ```python
 from empirica.core.epistemic_trajectory import search_trajectories
 
