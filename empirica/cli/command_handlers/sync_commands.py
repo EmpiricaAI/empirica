@@ -1942,18 +1942,15 @@ def _rebuild_edges(db, rebuilt, root: str | None = None) -> None:
 
 def _prepare_visibility(conn, root: str) -> set[str] | None:
     """Before a rebuild restores rows: export this checkout's tags, then mark the rebuild under way (goal 38510fdd). Only
-    with the opt-in; with it unset there is nothing to prepare, and a marker left by an earlier crashed rebuild is cleared,
-    since only an opted-in rebuild would otherwise remove it and doctor kept warning (1.17.18 third pass)."""
+    with the opt-in. A marker an earlier opted-in rebuild left is kept even with it unset: an opted-in process later still
+    needs it to leave that rebuild's untagged rows out of its export (1.17.18 fourth pass); doctor stays quiet about it
+    while notes are off."""
     from empirica.core.canonical.empirica_git.graph_note_export import (
-        REBUILD_MARKER,
         prepare_visibility_rebuild,
         visibility_notes_enabled,
     )
 
-    if visibility_notes_enabled():
-        return prepare_visibility_rebuild(conn, root)
-    (Path(root) / ".empirica" / REBUILD_MARKER).unlink(missing_ok=True)
-    return None
+    return prepare_visibility_rebuild(conn, root) if visibility_notes_enabled() else None
 
 
 def _rebuild_visibility(db, rebuilt, root: str | None = None, held_before: set[str] | None = None) -> None:

@@ -78,8 +78,8 @@ def pytest_fail():
     raise AssertionError("visibility notes applied with the opt-in unset")
 
 
-def test_a_rebuild_with_notes_off_prepares_nothing_and_clears_an_old_marker(monkeypatch, tmp_path):
-    """Third pass: the prepare gate had no test, and a marker from an earlier crashed rebuild was never cleared."""
+def test_a_rebuild_with_notes_off_prepares_nothing_and_keeps_an_old_marker(monkeypatch, tmp_path):
+    """The prepare gate, and (fourth pass) an opted-in rebuild's marker is kept: an opted-in export still needs it."""
     from empirica.cli.command_handlers import sync_commands
 
     monkeypatch.delenv("EMPIRICA_VISIBILITY_NOTES", raising=False)
@@ -88,7 +88,16 @@ def test_a_rebuild_with_notes_off_prepares_nothing_and_clears_an_old_marker(monk
     marker = tmp_path / ".empirica" / gx.REBUILD_MARKER
     marker.write_text("{}")
     assert sync_commands._prepare_visibility(None, str(tmp_path)) is None
-    assert not marker.exists()
+    assert marker.exists()
+
+
+def test_doctor_is_quiet_about_visibility_with_notes_off(monkeypatch, tmp_path):
+    from empirica.cli.command_handlers import doctor
+
+    monkeypatch.delenv("EMPIRICA_VISIBILITY_NOTES", raising=False)
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / gx.REBUILD_MARKER).write_text("{}")
+    assert doctor.check_visibility_notes(tmp_path).status == doctor.SKIP
 
 
 def test_a_rebuild_with_notes_on_prepares(monkeypatch, tmp_path):

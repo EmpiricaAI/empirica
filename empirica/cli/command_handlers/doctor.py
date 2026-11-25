@@ -626,8 +626,10 @@ def check_sentinel_mode(cwd: Path | None = None) -> Check:
 def check_visibility_notes(cwd: Path | None = None) -> Check:
     """A visibility rebuild that never finished (goal 38510fdd, third review): the rows it added have unknown tags and are
     left out of every visibility export until a rebuild finishes. WARN with the command that clears it."""
-    from empirica.core.canonical.empirica_git.graph_note_export import visibility_health
+    from empirica.core.canonical.empirica_git.graph_note_export import visibility_health, visibility_notes_enabled
 
+    if not visibility_notes_enabled():  # an old marker matters only to an opted-in export (1.17.18 fourth pass)
+        return Check("Visibility notes", SKIP, "off (EMPIRICA_VISIBILITY_NOTES=1 turns them on)")
     here = Path(cwd or Path.cwd())
     code, out, _err = _run(["git", "-C", str(here), "rev-parse", "--show-toplevel"])
     root = Path(out.strip()) if code == 0 and out.strip() else here
