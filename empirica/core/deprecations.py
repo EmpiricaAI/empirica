@@ -30,3 +30,29 @@ def notice(command: str | None) -> str | None:
     return (
         f"⚠ `empirica {command}` is deprecated and goes away in {entry.get('remove_in', 'a coming release')}{instead}"
     )
+
+
+@lru_cache(maxsize=1)
+def deprecated_flags() -> list[dict]:
+    """The ``flags:`` entries of the data file (goal 95c3ee16); empty when it is missing or unreadable."""
+    try:
+        import yaml
+
+        data = yaml.safe_load(_FILE.read_text()) or {}
+    except Exception:
+        return []
+    return [e for e in data.get("flags") or [] if isinstance(e, dict) and e.get("command") and e.get("flag")]
+
+
+def flag_notices(command: str | None, argv: list[str]) -> list[str]:
+    """One line for each deprecated flag of ``command`` used in ``argv`` (``--flag`` or ``--flag=value``)."""
+    lines = []
+    for e in deprecated_flags():
+        flag = str(e["flag"])
+        if e["command"] != command or not any(a == flag or a.startswith(flag + "=") for a in argv):
+            continue
+        instead = f"; use {e['replacement']} instead" if e.get("replacement") else ""
+        lines.append(
+            f"⚠ `empirica {command} {flag}` is deprecated and goes away in {e.get('remove_in', 'a coming release')}{instead}"
+        )
+    return lines

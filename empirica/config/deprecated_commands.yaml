@@ -47,3 +47,11 @@ commands:
   - {name: engagement-walk, since: "1.17.14", remove_in: "1.18.0", replacement: null, reason: "unused for 30 days; nothing names it; engagements live in empirica-workspace's CRM"}
   - {name: goals-get-stale, since: "1.17.18", remove_in: "1.18.0", replacement: null, reason: "the stale goal status was removed in migration 038; it always returns an empty list"}
   - {name: goals-refresh, since: "1.17.18", remove_in: "1.18.0", replacement: null, reason: "refreshes the removed stale status; a documented no-op"}
+
+# Flags on their way out (goal 95c3ee16): aliases and no-ops kept for compatibility. Using one prints a notice; the command
+# still runs. Each entry: command, flag (as typed, with --), since, remove_in, replacement (a flag, or null), reason.
+flags:
+  - {command: check, flag: --remaining-unknowns, since: "1.17.18", remove_in: "1.18.0", replacement: --unknowns, reason: "a compatibility alias of --unknowns"}
+  - {command: postflight-submit, flag: --changes, since: "1.17.18", remove_in: "1.18.0", replacement: --reasoning, reason: "a compatibility alias of --reasoning"}
+  - {command: checkpoint-load, flag: --format, since: "1.17.18", remove_in: "1.18.0", replacement: --output, reason: "a compatibility alias of --output"}
+  - {command: delete-artifacts, flag: --dry-run, since: "1.17.18", remove_in: "1.18.0", replacement: null, reason: "a no-op: preview is already the default; --apply applies"}

@@ -901,14 +901,17 @@ def _reconfigure_win32_streams() -> None:
             pass
 
 
-def _print_deprecation_notice(command) -> None:
-    """A deprecated command still runs, after one line on stderr naming its replacement and removal release (goal cfc94d52)."""
+def _print_deprecation_notice(command, argv: list[str] | None = None) -> None:
+    """A deprecated command or flag still runs, after one line on stderr naming its replacement and removal release
+    (goals cfc94d52, 95c3ee16)."""
     try:
-        from empirica.core.deprecations import notice
+        from empirica.core.deprecations import flag_notices, notice
 
         line = notice(command)
         if line:
             print(line, file=sys.stderr)
+        for flag_line in flag_notices(command, list(argv or [])):
+            print(flag_line, file=sys.stderr)
     except Exception:  # a notice is never a reason for a command to fail
         pass
 
@@ -959,7 +962,7 @@ def main(args=None):
     # `pip -U`), bootstrapping boxes whose plugin predates the session-init
     # auto-heal. Fail-safe + debounced + re-entrancy-guarded (see helper).
     _maybe_autosync_plugin(parsed_args.command)
-    _print_deprecation_notice(parsed_args.command)
+    _print_deprecation_notice(parsed_args.command, raw_args)
 
     # Normalize --project-id: resolve names to UUIDs via workspace.db
     if hasattr(parsed_args, "project_id") and parsed_args.project_id:
