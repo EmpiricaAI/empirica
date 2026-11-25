@@ -1231,6 +1231,54 @@ def _manifest_project_id(path) -> str | None:
     return str(pid) if pid else None
 
 
+def _declared_provides_domains(path) -> list[str] | None:
+    """What a practice declares it provides (roster roles, goal b15f79b9), or None when it declares nothing.
+
+    ``provides_domains`` in ``.empirica/project.yaml`` first; else ``provides.domains`` of a ``module.yaml`` at the root or in
+    ``.empirica/``. None means "say nothing", so Cortex keeps what it has; an empty list is a declaration and clears it.
+    """
+    if not path:
+        return None
+    root = Path(path)
+    try:
+        import yaml
+
+        data = yaml.safe_load((root / ".empirica" / "project.yaml").read_text(encoding="utf-8")) or {}
+    except Exception:  # missing or unparseable: an unreadable file declares nothing
+        data = {}
+    declared = data.get("provides_domains") if isinstance(data, dict) else None
+    if isinstance(declared, list):
+        return [str(d).strip() for d in declared if str(d).strip()]
+    for candidate in (root / "module.yaml", root / ".empirica" / "module.yaml"):
+        if not candidate.is_file():
+            continue
+        try:
+            from empirica.core.modules.manifest import load_manifest
+
+            return list(load_manifest(candidate).provides.domains)
+        except Exception:
+            return None
+    return None
+
+
+def _single_register_payload(
+    project_id: str, name: str, repo_url: str | None, force_metadata_update: bool, provides_domains: list[str] | None
+) -> dict[str, Any]:
+    """The register body for one practice from ``project-register``."""
+    payload: dict[str, Any] = {
+        "project_id": project_id,  # ask cortex to adopt the local UUID
+        "name": name,
+        "display_name": name,
+    }
+    if repo_url:
+        payload["repo_url"] = repo_url
+    if force_metadata_update:
+        payload["force_metadata_update"] = True
+    if provides_domains is not None:
+        payload["provides_domains"] = provides_domains
+    return payload
+
+
 def _register_payload(project: dict[str, Any], force_metadata_update: bool) -> dict[str, Any]:
     """The register body for one practice from the bulk manifest."""
     payload: dict[str, Any] = {"name": project["name"]}
@@ -1245,6 +1293,9 @@ def _register_payload(project: dict[str, Any], force_metadata_update: bool) -> d
         payload["display_name"] = project["name"]
     if force_metadata_update:
         payload["force_metadata_update"] = True
+    provides = _declared_provides_domains(project.get("path"))
+    if provides is not None:
+        payload["provides_domains"] = provides
     return payload
 
 
@@ -2034,6 +2085,7 @@ def handle_project_register_command(args) -> None:
             force_metadata_update=force_metadata_update,
             timeout=timeout,
             org_id=project_yaml.get("org_id") or None,
+            provides_domains=_declared_provides_domains(project_path),
         )
 
         # 5b. Identity reconcile — converge local stores to the cortex-canonical
@@ -2078,6 +2130,7 @@ def _project_register_cortex_step(
     force_metadata_update: bool,
     timeout: float,
     org_id: str | None = None,
+    provides_domains: list[str] | None = None,
 ) -> dict[str, Any]:
     """The cortex POST step of handle_project_register_command.
 
@@ -2118,15 +2171,7 @@ def _project_register_cortex_step(
                 f"empirica auth login --org {org_id}"
             )
 
-    payload: dict[str, Any] = {
-        "project_id": project_id,  # ask cortex to adopt the local UUID
-        "name": name,
-        "display_name": name,
-    }
-    if repo_url:
-        payload["repo_url"] = repo_url
-    if force_metadata_update:
-        payload["force_metadata_update"] = True
+    payload = _single_register_payload(project_id, name, repo_url, force_metadata_update, provides_domains)
 
     try:
         status, body = _post_project(
@@ -2234,6 +2279,8 @@ def _interpret_cortex_register_response(
             "project_id": returned_id or local_project_id,
             "diverged": diverged,
             "local_project_id": local_project_id if diverged else None,
+            # Cortex's answer to a provides_domains declaration (goal b15f79b9); absent when none was sent.
+            **{k: (body or {})[k] for k in ("provides_domains_stored", "provides_domains_error") if k in (body or {})},
         }
     if status == 409 and "slug_taken" in str(body or ""):
         # A DIFFERENT project holds this slug: a collision, not this project already registered (cortex D2,
