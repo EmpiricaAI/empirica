@@ -1,6 +1,6 @@
 """The CLI start installs no global asyncio or warnings patch (goal 95c3ee16).
 
-cli/asyncio_fix.py, written for the removed empirica-mcp server, ran on every CLI start: global warning filters (including
+cli/asyncio_fix.py, written for the removed MCP server, ran on every CLI start: global warning filters (including
 one hiding "coroutine was never awaited"), an event loop and an atexit hook. Nothing in the package needs it.
 """
 

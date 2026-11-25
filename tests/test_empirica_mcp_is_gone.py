@@ -31,6 +31,8 @@ ALLOWED = (
     "empirica/cli/command_handlers/doctor.py",  # detects and reports a leftover registration
     "tests/test_doctor_mcp_live_config.py",
     "tests/test_claude_code_uninstall.py",
+    "empirica/config/removed_names.yaml",  # the registry of removed names (goal 95c3ee16)
+    "tests/test_removed_names_stay_removed.py",
 )
 
 SKIP_DIRS = {
