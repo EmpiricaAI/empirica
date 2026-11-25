@@ -5,6 +5,20 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`empirica practice-context` lists peers reachable through cross-org agreements** (role `cross_org`, with the agreement's scope). Only the caller's own org was read, so every practice shared by another tenant or org was invisible to an AI. Only active agreements count; a seat-to-seat agreement counts only from the practice it names.
+
+### Fixed
+
+- **A hand-edited visibility writer file no longer crashes `empirica doctor`.**
+
+### Changed
+
+- **The public contract no longer carries the identity-crossing (group B) routes' request and response detail or the write-tier conformance suite**; they live with Cortex. The local server still answers those routes with `501 {capability}`.
+
 ## [1.17.18] - 2026-11-25
 
 ### Added

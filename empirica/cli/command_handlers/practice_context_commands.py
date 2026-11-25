@@ -205,7 +205,48 @@ def _project_roster_to_addressbook(
                 }
             )
 
+    rows.extend(_cross_org_rows(roster, self_ai_id, {r.get("ai_id_mesh") for r in rows}))
     return rows
+
+
+def _cross_org_rows(roster: dict[str, Any], self_ai_id: str | None, seen: set) -> list[dict[str, Any]]:
+    """Peers reachable through a cross-org agreement (the roster's ``cross_org_visible``, goal f92d7fff).
+
+    A practice practice-context does not return does not exist for an AI, and only self and org.tenants[] were read, so
+    every peer of a tenant-tenant or org-org agreement was invisible. Only active agreements count. A seat-seat agreement
+    is reachable only from the practice its ``reachable_from`` names; one that names none is left out. A practice already
+    listed (one of the caller's own) is not repeated.
+    """
+    out: list[dict[str, Any]] = []
+    for agreement in roster.get("cross_org_visible") or []:
+        if not isinstance(agreement, dict) or agreement.get("state", "active") != "active":
+            continue
+        scope = agreement.get("scope")
+        party = agreement.get("other_party") or {}
+        if scope == "seat_seat":
+            reachable = party.get("reachable_from") or agreement.get("reachable_from")
+            if not (reachable and self_ai_id and (reachable == self_ai_id or reachable.split(".")[-1] == self_ai_id)):
+                continue
+        for practice in agreement.get("practices") or []:
+            mesh = practice.get("canonical_ai_id_mesh") if isinstance(practice, dict) else None
+            if not mesh or mesh in seen:
+                continue
+            seen.add(mesh)
+            parts = mesh.split(".", 2)
+            out.append(
+                {
+                    "ai_id": practice.get("slug") or (parts[-1] if len(parts) == 3 else mesh),
+                    "tenant": party.get("tenant_slug") or (parts[1] if len(parts) == 3 else "unknown"),
+                    "substrate": "cortex",
+                    "role": "cross_org",
+                    "scope": scope,
+                    "ai_id_tenant": None,
+                    "ai_id_mesh": mesh,
+                    "project_id": practice.get("project_id"),
+                    "org": party.get("org_slug") or (parts[0] if len(parts) == 3 else "unknown"),
+                }
+            )
+    return out
 
 
 def _render_human(rows: list[dict[str, Any]]) -> None:
