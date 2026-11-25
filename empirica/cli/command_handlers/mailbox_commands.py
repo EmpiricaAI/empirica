@@ -1066,6 +1066,13 @@ def handle_mailbox_show_command(
         )
         return 1
 
+    try:  # read: the cockpit's mail count drops an FYI once its practice has read it (goal f5148923)
+        from empirica.core.mailbox_seen import mark_seen
+
+        mark_seen(_default_resolve_ai_id() or "", proposal_id)
+    except Exception:
+        pass
+
     gap = _decision_gap(proposal)
     if gap:
         sys.stderr.write(f"⚠ mailbox show {proposal_id}: {gap}\n")

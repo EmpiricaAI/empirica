@@ -712,6 +712,9 @@ def _names(ai_id: str, wire: object, canonical: str | None = None) -> bool:
 def mail_count(ai_id: str, path: str, run=subprocess.run) -> int | None:
     """Mail addressed to this practice that still needs its reply; None when the mailbox could not be read.
 
+    A collab_brief (an FYI or a question) leaves the count once the practice has read it with `mailbox show`, since Cortex
+    keeps no read marker (core/mailbox_seen.py, goal f5148923); other kinds stay until answered or archived.
+
     Accepted and not archived, still pending for this practice when it was sent to several (its ack not given), and not
     answered by a message from this practice in reply to it (parent_id). Everything accepted and never archived only ever grew
     (outreach read 108, most of it answered or for other targets: prop_xlduifbf5vdenieiq2hrbk4jk4).
@@ -728,9 +731,14 @@ def mail_count(ai_id: str, path: str, run=subprocess.run) -> int | None:
     if outbox is None:
         return None  # replies unreadable: unknown, never "nothing answered"
     answered = {p.get("parent_id") for p in outbox if p.get("parent_id")}
+    from empirica.core.mailbox_seen import seen_ids
+
+    read = seen_ids(ai_id)  # an FYI needs no reply: once read it no longer waits on this practice (goal f5148923)
     count = 0
     for p in inbox:
         if p.get("is_archived") or p.get("id") in answered:
+            continue
+        if p.get("type") == "collab_brief" and p.get("id") in read:
             continue
         pending = p.get("pending_targets") or []
         if pending and not any(_names(ai_id, w, meta.get("queried_as")) for w in pending):

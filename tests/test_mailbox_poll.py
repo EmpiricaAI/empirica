@@ -10,11 +10,22 @@ from __future__ import annotations
 import json
 import types
 
+import pytest
+
 from empirica.cli.command_handlers.mailbox_commands import (
     handle_mailbox_archive_command,
     handle_mailbox_poll_command,
     handle_mailbox_show_command,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_read_mark(monkeypatch):
+    """`mailbox show` records a read mark under the home folder; a test must not write the real one."""
+    import empirica.core.mailbox_seen as _ms
+
+    monkeypatch.setattr(_ms, "mark_seen", lambda *a, **k: None)
+
 
 _CREDS_OK = lambda: ("http://cortex.test", "key-abc")  # noqa: E731
 _CREDS_MISSING = lambda: (None, None)  # noqa: E731

@@ -36,6 +36,15 @@ from empirica.cli.command_handlers.mailbox_commands import (
     handle_mailbox_show_command,
 )
 
+
+@pytest.fixture(autouse=True)
+def _no_read_mark(monkeypatch):
+    """`mailbox show` records a read mark under the home folder; a test must not write the real one."""
+    import empirica.core.mailbox_seen as _ms
+
+    monkeypatch.setattr(_ms, "mark_seen", lambda *a, **k: None)
+
+
 # ─── the two callers, driven through their injection seams ────────────
 
 

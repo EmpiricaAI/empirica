@@ -10,7 +10,17 @@ from __future__ import annotations
 import json
 import subprocess
 
+import pytest
+
 from empirica.core.cockpit import bar
+
+
+@pytest.fixture(autouse=True)
+def _empty_read_marks(monkeypatch):
+    """mail_count reads this machine's read marks (core/mailbox_seen.py); a test must not read the real ones."""
+    import empirica.core.mailbox_seen as _ms
+
+    monkeypatch.setattr(_ms, "seen_ids", lambda *a, **k: set())
 
 
 def _run(inbox, outbox):
