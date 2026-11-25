@@ -72,10 +72,14 @@ def private_tmux(monkeypatch, tmp_path):
 
     started = tmux("-f", "/dev/null", "new-session", "-d", "-s", "cock", "-x", "160", "-y", "50", "sleep 120")
     assert started.returncode == 0, started.stderr
+    socket_path = tmux("display-message", "-p", "#{socket_path}").stdout.strip()
     try:
         yield socket, tmux
     finally:
         subprocess.run(["tmux", "-L", socket, "kill-server"], capture_output=True, timeout=10)
+        # tmux 3.6's kill-server leaves the socket file: 223 dead ones had piled up in /tmp/tmux-<uid> (goal 3dfcb8a3).
+        if socket_path:
+            Path(socket_path).unlink(missing_ok=True)
 
 
 def _install(monkeypatch, tmp_path, socket, tmux) -> Path:
