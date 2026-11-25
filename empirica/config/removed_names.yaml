@@ -1,0 +1,21 @@
+# Things Empirica removed, so they must not reappear as current in docs, skills, hooks, templates or code
+# (goal 95c3ee16, David 2026-11-24: removed things still discoverable as current mislead). Read by
+# tests/test_removed_names_stay_removed.py. History stays: CHANGELOG.md, docs/guides/UPGRADE_TO_*, docs/_archive.
+# allowed_in: files where a mention is a guard, a removal note or dated history, not a claim that it exists.
+removed:
+  - {name: "empirica-mcp", removed_in: "1.14", replaced_by: "the empirica CLI; Cortex's hosted MCP for GUI clients",
+     allowed_in: ["empirica/cli/command_handlers/doctor.py", "docs/architecture/PROPOSAL_AI_SERVICE_SCANNER.md", "docs/specs/PROPOSAL_BOOTSTRAP_AGGREGATOR.md"]}
+  - {name: "mcp__empirica__", removed_in: "1.14", replaced_by: "the empirica CLI", allowed_in: ["docs/research/", "docs/specs/PROPOSAL_BOOTSTRAP_AGGREGATOR.md"]}
+  - {name: "mcp-list-tools", removed_in: "1.14", replaced_by: null, allowed_in: []}
+  - {name: "agent-spawn", removed_in: "1.12.24", replaced_by: "the harness's own subagents", allowed_in: []}
+  - {name: "agent-report", removed_in: "1.12.24", replaced_by: null, allowed_in: []}
+  - {name: "agent-aggregate", removed_in: "1.12.24", replaced_by: null, allowed_in: []}
+  - {name: "goals-list-all", removed_in: "1.12", replaced_by: "goals-list --all-projects", allowed_in: []}
+  - {name: "session-close", removed_in: "never existed", replaced_by: "POSTFLIGHT", allowed_in: []}
+  - {name: "identity-rotate", removed_in: "never existed", replaced_by: "identity-create --overwrite", allowed_in: []}
+  - {name: "projects-bulk-register", removed_in: "never existed", replaced_by: "project-register",
+     allowed_in: ["empirica/cli/command_handlers/projects_commands.py", "docs/human/developers/CLI_COMMANDS_UNIFIED.md"]}
+  - {name: "vision-assess", removed_in: "never existed", replaced_by: "vision", allowed_in: []}
+  - {name: "EMPIRICA_SESSION_ID", removed_in: "1.8.x", replaced_by: "session resolution by instance", allowed_in: []}
+  - {name: "refdoc-add", removed_in: "goal 3d6aeb08", replaced_by: "source-add",
+     allowed_in: ["empirica/data/schema/projects_schema.py", "empirica/cli/parsers/checkpoint_parsers.py"]}
