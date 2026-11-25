@@ -2013,9 +2013,11 @@ def _local_server_tail(args, ai_id: str) -> int | None:
             return None
     except Exception:
         return None
-    command = (
-        f'tail -F -n 0 ~/.empirica/loop_fires.log 2>/dev/null | grep -E --line-buffered \'"instance_id": "{ai_id}"\''
-    )
+    import shlex
+
+    short = ai_id.split(".", 2)[-1] if ai_id.count(".") >= 2 else ai_id  # the wake log carries the short name
+    needle = shlex.quote(f'"instance_id": "{short}"')
+    command = f"tail -F -n 0 ~/.empirica/loop_fires.log 2>/dev/null | grep -F --line-buffered {needle}"
     payload = {
         "ok": True,
         "mode": "local_server_tail",

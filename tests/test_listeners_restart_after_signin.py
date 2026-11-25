@@ -16,6 +16,7 @@ class _Svc:
 
     def restart_if_running(self, ai_id):
         self.restarted.append(ai_id)
+        return True
 
 
 def test_installed_ids_come_from_both_backends(tmp_path):
@@ -42,8 +43,10 @@ def test_none_installed_says_how_to_turn_one_on(tmp_path):
 
 def test_restart_if_running_uses_try_restart(monkeypatch):
     calls = []
-    monkeypatch.setattr(pl, "_systemctl", lambda *a, **k: calls.append(a))
+    import subprocess
+
+    monkeypatch.setattr(pl, "_systemctl", lambda *a, **k: calls.append(a) or subprocess.CompletedProcess(a, 0, "", ""))
     svc = pl.PersistentListenerService.__new__(pl.PersistentListenerService)
     svc.backend = "systemd"
     svc.restart_if_running("empirica")
-    assert calls == [("try-restart", "empirica-listener-empirica.service")]
+    assert calls[-1] == ("try-restart", "empirica-listener-empirica.service")

@@ -1247,18 +1247,35 @@ def _declared_provides_domains(path) -> list[str] | None:
     except Exception:  # missing or unparseable: an unreadable file declares nothing
         data = {}
     declared = data.get("provides_domains") if isinstance(data, dict) else None
-    if isinstance(declared, list):
-        return [str(d).strip() for d in declared if str(d).strip()]
+    if declared is not None:
+        return _domain_list(declared)
     for candidate in (root / "module.yaml", root / ".empirica" / "module.yaml"):
         if not candidate.is_file():
             continue
+        # Read the raw key, not the manifest model: the model defaults domains to [], and sending that for every module
+        # that declares none wiped Cortex's stored list (1.17.18 sweep).
         try:
-            from empirica.core.modules.manifest import load_manifest
-
-            return list(load_manifest(candidate).provides.domains)
+            manifest = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
         except Exception:
             return None
+        block = manifest.get("empirica_module", manifest) if isinstance(manifest, dict) else {}
+        provides = block.get("provides") if isinstance(block, dict) else None
+        if isinstance(provides, dict) and "domains" in provides:
+            return _domain_list(provides.get("domains"))
+        return None
     return None
+
+
+def _domain_list(value) -> list[str]:
+    """A declared provides list; a single string is one domain (it was dropped without a word)."""
+    items = [value] if isinstance(value, str) else (value if isinstance(value, list) else [])
+    return [str(d).strip() for d in items if str(d).strip()]
+
+
+def _provides_ack(body) -> dict[str, Any]:
+    """Cortex's answer to a provides_domains declaration, when it gave one."""
+    body = body if isinstance(body, dict) else {}
+    return {k: body[k] for k in ("provides_domains_stored", "provides_domains_error") if k in body}
 
 
 def _single_register_payload(
@@ -1346,6 +1363,7 @@ def _register_one_project(
                 "outcome": "registered",
                 "status": status,
                 "project_id": project_id,
+                **_provides_ack(body),
             }
             break
         if status == 409 and "slug_taken" in str(body or ""):
@@ -1368,6 +1386,7 @@ def _register_one_project(
                 "status": 409,
                 "reason": "already_exists",
                 "project_id": project_id,
+                **_provides_ack(body),
             }
             break
         if status in (404, 405) and path == CORTEX_REGISTER_PATH:
@@ -2305,6 +2324,7 @@ def _interpret_cortex_register_response(
             "project_id": returned_id or local_project_id,
             "diverged": diverged,
             "local_project_id": local_project_id if diverged else None,
+            **_provides_ack(body),
         }
     if _is_owner_conflict(status, body):
         return {

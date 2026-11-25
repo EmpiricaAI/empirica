@@ -72,7 +72,6 @@ SKIP_PATTERNS = (
     ".venv",
     ".egg-info",
     "node_modules",
-    "_archive/",  # gitignored, local to the machine that archived it (goal 95c3ee16)
 )
 
 MIN_FILE_SIZE = 100  # bytes
@@ -82,6 +81,8 @@ NOINDEX_MARKER = ".noindex"
 
 
 def _should_skip(relpath: str) -> bool:
+    if "/_archive/" in "/" + relpath:  # a folder named exactly _archive, not my_archive (1.17.18 sweep)
+        return True
     return any(pat in relpath for pat in SKIP_PATTERNS)
 
 

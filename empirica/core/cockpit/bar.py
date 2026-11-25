@@ -739,7 +739,8 @@ def mail_count(ai_id: str, path: str, run=subprocess.run) -> int | None:
     answered = {p.get("parent_id") for p in outbox if p.get("parent_id")}
     from empirica.core.mailbox_seen import seen_ids
 
-    read = seen_ids(ai_id)  # an FYI needs no reply: once read it no longer waits on this practice (goal f5148923)
+    # A read collab_brief leaves the count (David: FYIs leave once read); a question sent as one leaves too (goal f5148923).
+    read = seen_ids(ai_id)
     count = 0
     for p in inbox:
         if p.get("is_archived") or p.get("id") in answered:

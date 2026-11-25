@@ -862,7 +862,7 @@ EMPIRICA_TIER1_PREFIXES = (
     # (#255) exists to close is denied "No open transaction". Cortex classified
     # mailbox reads as noetic (prop_iefo2tdx); the poll/show verbs only GET.
     "empirica mailbox poll",  # Read cortex inbox/outbox (pure read)
-    "empirica mailbox show",  # Read one proposal body (pure read)
+    "empirica mailbox show",  # Read one proposal body; records only a local read mark for the cockpit count
     # The rest of the mesh's reads, left gated because only the verbs that existed when the receive
     # side was classified were listed. Each was read in its handler, not judged from its name:
     "empirica mesh tail",  # Spawns `tail` on loop_fires.log and prints it
@@ -1265,8 +1265,9 @@ def is_read_shaped_empirica_verb(cmd: str) -> bool:
 
 # empirica commands that only read although their verb is not read-shaped, for the decision record's inference of what a
 # command changes (not for gating: the firewall lets these through on its own lists). Checked 2026-11-07 against the handlers:
-# investigate is project-search, which stamps nothing; mailbox poll and show fetch and print. project-bootstrap is NOT here:
-# it stamps retrieval telemetry.
+# investigate is project-search, which stamps nothing; mailbox poll and show fetch and print (show also records a local
+# read mark, ~/.empirica/mailbox_seen, for the cockpit's mail count: a receipt, no shared state). project-bootstrap is NOT
+# here: it stamps retrieval telemetry.
 EMPIRICA_READS_BY_NAME = ("empirica investigate", "empirica mailbox poll", "empirica mailbox show")
 
 

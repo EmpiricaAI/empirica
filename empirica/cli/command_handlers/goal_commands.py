@@ -477,7 +477,7 @@ def _check_goal_duplicates(objective, session_id, output_format, args, config_da
                             "ok": False,
                             "error": "Similar goal(s) already exist",
                             "similar_goals": similar_goals,
-                            "hint": "Use --force to create anyway, or use goals-refresh to resume a stale goal",
+                            "hint": "Use --force to create anyway, or continue the existing goal",
                             "objective": objective,
                         }
                     )

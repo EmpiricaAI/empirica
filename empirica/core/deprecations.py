@@ -44,12 +44,21 @@ def deprecated_flags() -> list[dict]:
     return [e for e in data.get("flags") or [] if isinstance(e, dict) and e.get("command") and e.get("flag")]
 
 
-def flag_notices(command: str | None, argv: list[str]) -> list[str]:
-    """One line for each deprecated flag of ``command`` used in ``argv`` (``--flag`` or ``--flag=value``)."""
+def flag_notices(command: str | None, argv: list[str], options: set[str] | None = None) -> list[str]:
+    """One line for each deprecated flag of ``command`` used in ``argv``: ``--flag``, ``--flag=value``, or, given the
+    command's ``options``, an abbreviation argparse resolved to it (a prefix that is not itself another option; 1.17.18
+    sweep: `--chang` ran with no notice)."""
+    tokens = [a.split("=", 1)[0] for a in argv if a.startswith("--")]
     lines = []
     for e in deprecated_flags():
         flag = str(e["flag"])
-        if e["command"] != command or not any(a == flag or a.startswith(flag + "=") for a in argv):
+        if e["command"] != command:
+            continue
+        used = any(
+            t == flag or (options is not None and len(t) > 2 and flag.startswith(t) and t not in options)
+            for t in tokens
+        )
+        if not used:
             continue
         instead = f"; use {e['replacement']} instead" if e.get("replacement") else ""
         lines.append(

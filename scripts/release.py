@@ -2545,6 +2545,9 @@ brew install empirica
             return "unknown", f"CI run {latest.get('databaseId')} is {latest.get('status')}"
         if latest.get("conclusion") == "success":
             return "green", f"CI run {latest.get('databaseId')}"
+        if latest.get("conclusion") in ("cancelled", "skipped", "neutral"):
+            # Nothing failed: the local suite decides, as for a run in progress (1.17.18 sweep).
+            return "unknown", f"CI run {latest.get('databaseId')} concluded {latest.get('conclusion')}"
         return "red", f"CI run {latest.get('databaseId')} concluded {latest.get('conclusion')}"
 
     def _develop_ci_green(self) -> bool:

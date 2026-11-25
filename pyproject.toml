@@ -336,7 +336,6 @@ section-order = ["future", "standard-library", "third-party", "first-party", "lo
 "empirica/core/statusline_cache.py" = ["S110"]  # cache reads — stale/missing cache is normal
 "empirica/core/canonical/*.py" = ["S110"]  # artifact extraction — partial extraction is fine
 "empirica/data/*.py" = ["S110"]  # database operations — graceful fallback on schema/data issues
-"empirica/cli/asyncio_fix.py" = ["S110"]  # asyncio patching — errors are expected on some platforms
 "empirica/core/qdrant/*.py" = ["S110"]  # vector store — Qdrant down is a normal condition
 "empirica/utils/memory_swap.py" = ["S110"]  # memory swap — fallback on swap issues
 "empirica/plugins/**/*.py" = ["S108", "S110"]  # hooks: temp paths + resilient try-except-pass (crash = CLI block)

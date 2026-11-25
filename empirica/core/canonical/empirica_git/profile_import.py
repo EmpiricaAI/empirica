@@ -599,11 +599,13 @@ class ProfileImporter:
         # review round 8). A failure here is recorded in the stats, not swallowed.
         from empirica.core.canonical.empirica_git import graph_note_export as notes
 
-        try:
-            held_before: set[str] | None = notes.prepare_visibility_rebuild(db.conn, self.workspace_root)
-        except Exception as e:
-            held_before = None
-            self._visibility_error = f"before import: {e}"
+        held_before: set[str] | None = None
+        notes_on = notes.visibility_notes_enabled()
+        if notes_on:  # opt-in: with it unset, restored rows stay local as before (1.17.18 sweep)
+            try:
+                held_before = notes.prepare_visibility_rebuild(db.conn, self.workspace_root)
+            except Exception as e:
+                self._visibility_error = f"before import: {e}"
 
         self.import_findings(db)
         self.import_unknowns(db)
@@ -615,7 +617,9 @@ class ProfileImporter:
         self.import_sources(db)
 
         visibility: dict = {}
-        if held_before is not None:
+        if not notes_on:
+            visibility["skipped"] = "visibility notes are off (EMPIRICA_VISIBILITY_NOTES)"
+        elif held_before is not None:
             try:
                 visibility["restored"] = notes.apply_visibility_notes(
                     db.conn, self.workspace_root, held_before=held_before

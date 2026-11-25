@@ -2392,7 +2392,7 @@ written to git notes (breadcrumbs ref) for audit trail.
             "With --goal-id: ABANDON that goal (status='abandoned', not delivered; "
             "there is no 'stale' status since migration 038). Without --goal-id: "
             "annotate the session's open goals with stale_since metadata only, "
-            "status untouched (goals-get-stale lists them). No hook calls this. "
+            "status untouched. No hook calls this. "
             "Not for cleanup — use goals-prune for that."
         ),
     )

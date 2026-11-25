@@ -465,7 +465,11 @@ def rebuild_started(root: str, held_before: set[str] | None = None) -> set[str] 
     it (goal 38510fdd, second review). Returns None, or, when an earlier rebuild's marker is still there (it crashed), the
     ids that one held before it began: the rows it inserted since are the only ones it can have left untagged, so the
     caller trusts the notes for those and keeps any change made here to the others (third and fourth reviews)."""
-    path = Path(root) / ".empirica" / REBUILD_MARKER
+    with _baseline_lock(root):  # an export reads the marker under this lock, so it sees the rebuild or none of it
+        return _rebuild_started(Path(root) / ".empirica" / REBUILD_MARKER, held_before)
+
+
+def _rebuild_started(path: Path, held_before: set[str] | None) -> set[str] | None:
     earlier: set[str] | None = None
     if path.exists():
         try:
@@ -650,8 +654,10 @@ def export_visibility_notes(conn, root: str, *, full: bool = False) -> dict:
     # A rebuild that has not finished (or crashed) left the rows it inserted untagged; they are left out rather than read
     # as withdrawals, and every other row is exported as usual (goal 8b802b67: skipping the whole export stalled it
     # silently, and a change made meanwhile was overwritten by the retried rebuild).
-    unknown = _rows_of_unfinished_rebuild(conn, root)
     with _baseline_lock(root):
+        # Inside the lock: read before it, a rebuild could start while this export waited, and its untagged rows were
+        # then read as withdrawals (1.17.18 sweep). rebuild_started writes its marker under the same lock.
+        unknown = _rows_of_unfinished_rebuild(conn, root)
         return _export_visibility_notes(conn, root, full=full, unknown=unknown)
 
 

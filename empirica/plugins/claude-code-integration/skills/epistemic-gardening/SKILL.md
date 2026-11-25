@@ -114,8 +114,8 @@ sqlite3 .empirica/sessions/sessions.db "
   SELECT 'unknown',    COUNT(*) FROM project_unknowns  WHERE is_resolved IS NOT 1 UNION ALL
   SELECT 'assumption', COUNT(*) FROM assumptions       WHERE status NOT IN ('verified','falsified','expired') UNION ALL
   SELECT 'decision',   COUNT(*) FROM decisions         WHERE outcome IS NULL UNION ALL
-  SELECT 'dead_end',   COUNT(*) FROM project_dead_ends UNION ALL
-  SELECT 'mistake',    COUNT(*) FROM mistakes_made"
+  SELECT 'dead_end',   COUNT(*) FROM project_dead_ends WHERE is_invalidated IS NOT 1 UNION ALL
+  SELECT 'mistake',    COUNT(*) FROM mistakes_made WHERE is_invalidated IS NOT 1"
 ```
 
 **Then pick the subjects to read, not the rows.** A subject is something the graph talks

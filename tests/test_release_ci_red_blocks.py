@@ -52,6 +52,11 @@ def _run(sha, status="completed", conclusion="success", name="CI", rid=1):
         ),  # not only the newest run
         ([_run("abc123def4567890ffff", name="Nightly", conclusion="failure")], "unknown"),  # another workflow
         ([], "unknown"),
+        # Nothing failed: a cancelled, skipped or neutral run is not red; the local suite decides (1.17.18 sweep).
+        ([_run("abc123def4567890ffff", conclusion="cancelled")], "unknown"),
+        ([_run("abc123def4567890ffff", conclusion="skipped")], "unknown"),
+        ([_run("abc123def4567890ffff", conclusion="neutral")], "unknown"),
+        ([_run("abc123def4567890ffff", conclusion="timed_out")], "red"),
     ],
 )
 def test_ci_state_for_the_release_commit(mod, monkeypatch, runs, expected):

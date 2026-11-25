@@ -357,13 +357,17 @@ def _provides_step(args, project_yaml: Path, dry_run: bool) -> dict:
     step: dict = {"step": "provides-domains", "changed": False}
     from empirica.core.practice_templates import template_provides
 
-    default = template_provides(getattr(args, "type", None), getattr(args, "domain", None))
-    if not default:
-        return step
     try:
         data = yaml.safe_load(project_yaml.read_text()) or {} if yaml else {}
     except Exception as e:
         return {**step, "error": f"project.yaml unreadable: {e}"}
+    # The practice's stored type wins over the flags: re-provisioning with other flags does not change it (1.17.18 sweep).
+    stored = data if isinstance(data, dict) else {}
+    default = template_provides(
+        stored.get("type") or getattr(args, "type", None), stored.get("domain") or getattr(args, "domain", None)
+    )
+    if not default:
+        return step
     if not isinstance(data, dict) or "provides_domains" in data:
         return {**step, "note": "already declared"}
     from empirica.utils.yaml_cache import is_shared_repo

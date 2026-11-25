@@ -166,10 +166,18 @@ def last_tag_refusal() -> str | None:
     return _last_tag_refusal
 
 
+def is_signin_expired(reason: str | None) -> bool:
+    """Whether a credential reason says the Cortex sign-in expired (cortex_oauth._no_token_reason's wording). Not any
+    'expired': a TLS 'certificate has expired' needs a different fix than `auth login` (1.17.18 sweep)."""
+    import re
+
+    return bool(reason and re.search(r"\btoken expired\b", reason, re.IGNORECASE))
+
+
 def _refuse(err_stream, reason: str) -> None:
     global _last_tag_refusal
     _last_tag_refusal = reason
-    if "expired" in reason:  # the one line a person reads first; the detail follows (prop_bgchkdc6)
+    if is_signin_expired(reason):  # the one line a person reads first; the detail follows (prop_bgchkdc6)
         err_stream.write(f"listener: {SIGNIN_EXPIRED_LINE}\n")
 
 
@@ -1013,6 +1021,8 @@ def _run_listener_body(  # noqa: C901 — held-connection loop; clarity beats de
             "  password: ...\n"
             "Or set ORCHESTRATION_NTFY_USER / _PASS / _TOKEN env vars.\n"
         )
+        # The health marker says so too: without it doctor and status read the previous run's state (1.17.18 sweep).
+        _emit_fail_heartbeat(instance_id, loop_name, reason="no_ntfy_credentials")
         return 2
 
     err_stream.write(f"listener: subscribing to {url} as {ntfy.get('user')}\n")

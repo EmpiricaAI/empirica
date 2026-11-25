@@ -508,12 +508,17 @@ class PersistentListenerService:
                 if _launchctl("bootstrap", f"gui/{os.getuid()}", str(path), check=False).returncode != 0:
                     _launchctl("load", "-w", str(path), check=False)
 
-    def restart_if_running(self, ai_id: str) -> None:
-        """Restart the service only if it is running, so it re-reads its credentials; a stopped one stays stopped."""
+    def restart_if_running(self, ai_id: str) -> bool:
+        """Restart the service only if it is running, so it re-reads its credentials; a stopped one stays stopped.
+        True only when a running service was restarted (the 1.17.18 sweep: every unit on disk was reported)."""
         if self.backend == "systemd":
-            _systemctl("try-restart", f"{_unit_name(ai_id)}.service", check=False)
-        elif self.backend == "launchd":
-            _launchctl("kickstart", "-k", self._launchd_target(ai_id), check=False)
+            unit = f"{_unit_name(ai_id)}.service"
+            if _systemctl("is-active", "--quiet", unit, check=False).returncode != 0:
+                return False
+            return _systemctl("try-restart", unit, check=False).returncode == 0
+        if self.backend == "launchd":
+            return _launchctl("kickstart", "-k", self._launchd_target(ai_id), check=False).returncode == 0
+        return False
 
     # ── Status ──────────────────────────────────────────────────────────
 
@@ -647,8 +652,8 @@ def restart_after_signin(service=None, home: Path | None = None) -> dict:
         service = service or PersistentListenerService()
         for ai_id in ids:
             try:
-                service.restart_if_running(ai_id)
-                restarted.append(ai_id)
+                if service.restart_if_running(ai_id):
+                    restarted.append(ai_id)
             except Exception as e:
                 logger.warning("listener %s not restarted after sign-in: %s", ai_id, e)
     except Exception as e:

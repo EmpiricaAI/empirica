@@ -39,10 +39,24 @@ def _files():
 FILES = list(_files())
 
 
+def _mentions(text: str, name: str) -> bool:
+    """The name as a whole token: agent-spawn is not inside subagent-spawn, nor a variable inside a longer one."""
+    import re
+
+    tail = r"(?![A-Za-z0-9_-])" if name[-1].isalnum() else ""  # a name ending in _ or - is a prefix (mcp__empirica__)
+    return re.search(rf"(?<![A-Za-z0-9_-]){re.escape(name)}{tail}", text) is not None
+
+
+def test_the_scan_covers_files():
+    assert len(FILES) > 100, "git ls-files returned almost nothing: the guard would pass vacuously"
+
+
 @pytest.mark.parametrize("entry", REGISTRY, ids=lambda e: e["name"])
 def test_a_removed_name_appears_only_where_allowed(entry):
     allowed = tuple(entry.get("allowed_in") or ())
     hits = [
-        rel for rel, path in FILES if entry["name"] in path.read_text(errors="ignore") and not rel.startswith(allowed)
+        rel
+        for rel, path in FILES
+        if _mentions(path.read_text(errors="ignore"), entry["name"]) and not rel.startswith(allowed)
     ]
     assert not hits, f"{entry['name']} (removed {entry['removed_in']}; use {entry['replaced_by']}) reappears in: {hits}"

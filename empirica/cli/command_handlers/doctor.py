@@ -2231,7 +2231,12 @@ def _listener_degraded_reason(ai_id: str, max_age_sec: float = 3600) -> str | No
         age = (datetime.now(timezone.utc) - datetime.fromisoformat(data["ts"])).total_seconds()
     except (OSError, ValueError, KeyError, TypeError):
         return None
-    return str(data.get("reason") or "degraded") if age <= max_age_sec else None
+    reason = str(data.get("reason") or "")
+    # Only the listener's refusals to subscribe: a stale liveness probe or an unreachable Cortex is written while it is
+    # subscribed, and saying "refusing to subscribe" for those was wrong (1.17.18 sweep).
+    if not reason.startswith(("canonical_tag_unresolved", "topic_unresolved", "no_ntfy_credentials")):
+        return None
+    return reason if age <= max_age_sec else None
 
 
 def check_listener_service(cwd: Path | None = None) -> Check:
@@ -2264,10 +2269,12 @@ def check_listener_service(cwd: Path | None = None) -> Check:
 
     degraded = _listener_degraded_reason(ai_id)
     if degraded:  # the cause, before the service state: a crash-looping unit reads as 'inactive' (goal 20e5ff77)
+        from empirica.core.loop_scheduler.listener import is_signin_expired
+
         hint = (
             "run `empirica auth login`; the listener recovers on its next restart"
-            if "expired" in degraded
-            else "see `journalctl --user -u empirica-listener-" + ai_id + "` for the full message"
+            if is_signin_expired(degraded)
+            else "the listener's log has the full message (`empirica listener status`)"
         )
         return Check("listener service installed", WARN, f"listener refusing to subscribe: {degraded}", hint)
 

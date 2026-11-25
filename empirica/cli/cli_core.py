@@ -901,7 +901,17 @@ def _reconfigure_win32_streams() -> None:
             pass
 
 
-def _print_deprecation_notice(command, argv: list[str] | None = None) -> None:
+def _canonical_command(parser, command) -> tuple[str | None, set[str] | None]:
+    """The command an alias names (argparse records the alias typed) and its option strings, or (command, None)."""
+    try:
+        sub = next(a for a in parser._actions if a.__class__.__name__ == "_SubParsersAction")
+        chosen = sub.choices[command]
+        return chosen.prog.split()[-1], {o for a in chosen._actions for o in a.option_strings}
+    except Exception:
+        return command, None
+
+
+def _print_deprecation_notice(command, argv: list[str] | None = None, parser=None) -> None:
     """A deprecated command or flag still runs, after one line on stderr naming its replacement and removal release
     (goals cfc94d52, 95c3ee16)."""
     try:
@@ -910,7 +920,8 @@ def _print_deprecation_notice(command, argv: list[str] | None = None) -> None:
         line = notice(command)
         if line:
             print(line, file=sys.stderr)
-        for flag_line in flag_notices(command, list(argv or [])):
+        canonical, options = _canonical_command(parser, command) if parser is not None else (command, None)
+        for flag_line in flag_notices(canonical, list(argv or []), options):
             print(flag_line, file=sys.stderr)
     except Exception:  # a notice is never a reason for a command to fail
         pass
@@ -962,7 +973,7 @@ def main(args=None):
     # `pip -U`), bootstrapping boxes whose plugin predates the session-init
     # auto-heal. Fail-safe + debounced + re-entrancy-guarded (see helper).
     _maybe_autosync_plugin(parsed_args.command)
-    _print_deprecation_notice(parsed_args.command, raw_args)
+    _print_deprecation_notice(parsed_args.command, raw_args, parser)
 
     # Normalize --project-id: resolve names to UUIDs via workspace.db
     if hasattr(parsed_args, "project_id") and parsed_args.project_id:
