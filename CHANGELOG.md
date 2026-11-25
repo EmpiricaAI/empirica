@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cockpit: an FYI leaves the mail count once its practice has read it** with `empirica mailbox show`. Other messages count until answered or archived.
 - **`auth login` and `mesh connect` restart the running listener services** so they pick up the new sign-in, URL, token and topic. A stopped service stays stopped; with none installed, both say to run `empirica listener on`.
 - **The epistemic-gardening skill surveys every artifact type by subject**, never by keyword match or impact ranking.
+- **With visibility notes off (the default), `sync-pull --rebuild` and a profile import leave every restored row local.** Both used to apply other machines' visibility notes even without the opt-in, so a row withdrawn on this machine could come back shared. Turn notes on with `EMPIRICA_VISIBILITY_NOTES=1` to have them applied.
 
 ### Deprecated
 
