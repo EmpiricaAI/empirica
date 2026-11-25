@@ -42,6 +42,8 @@ def _mock_notification_channels(monkeypatch):
         "empirica.core.cockpit.notification_channels.resolve_orchestration_events_topic",
         lambda ai_id: f"ntfy:empirica-orchestration-events?tags={ai_id}",
     )
+    # listener on asks which mesh this machine uses when the topic cannot resolve; never probe the real local server.
+    monkeypatch.setattr("empirica.core.mesh_endpoint.mesh_bearer", lambda *a, **k: {"edition": None})
 
 
 def _make_args(**overrides):
@@ -572,3 +574,28 @@ def test_on_arm_off_full_cycle(tmp_path, monkeypatch, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["next_step"]["tool"] == "TaskStop"
     assert out["next_step"]["args"]["task_id"] == "tk_777"
+
+
+def test_on_with_no_cortex_offers_the_local_server_tail(monkeypatch, capsys):
+    """`listener on` errored on a local-only machine (prop_z2qcr27 #9, goal 489c7fa0); it now returns the local tail."""
+
+    def unreachable(_ai_id):
+        raise RuntimeError("Cannot resolve the per-org orchestration-events topic")
+
+    monkeypatch.setattr("empirica.core.cockpit.notification_channels.resolve_orchestration_events_topic", unreachable)
+    monkeypatch.setattr("empirica.core.mesh_endpoint.mesh_bearer", lambda *a, **k: {"edition": "local"})
+    rc = handle_listener_on_command(_make_args(ai_id="myai", output="json"))
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0 and out["mode"] == "local_server_tail"
+    assert out["next_step"]["tool"] == "Monitor" and "loop_fires.log" in out["next_step"]["args"]["command"]
+    assert '"instance_id": "myai"' in out["next_step"]["args"]["command"]
+
+
+def test_on_with_an_unreachable_cortex_still_errors(monkeypatch, capsys):
+    def unreachable(_ai_id):
+        raise RuntimeError("cortex unreachable")
+
+    monkeypatch.setattr("empirica.core.cockpit.notification_channels.resolve_orchestration_events_topic", unreachable)
+    monkeypatch.setattr("empirica.core.mesh_endpoint.mesh_bearer", lambda *a, **k: {"edition": "cortex"})
+    rc = handle_listener_on_command(_make_args(ai_id="myai", output="json"))
+    assert rc == 1 and "cortex unreachable" in json.loads(capsys.readouterr().out)["error"]

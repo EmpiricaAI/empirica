@@ -2004,6 +2004,31 @@ def _resolve_canonical_ai_id(args) -> str | None:
     return None
 
 
+def _local_server_tail(args, ai_id: str) -> int | None:
+    """On a machine whose mesh is the local server (no Cortex): emit the Monitor that tails its wake lines, else None."""
+    try:
+        from empirica.core.mesh_endpoint import mesh_bearer
+
+        if (mesh_bearer() or {}).get("edition") != "local":
+            return None
+    except Exception:
+        return None
+    command = (
+        f'tail -F -n 0 ~/.empirica/loop_fires.log 2>/dev/null | grep -E --line-buffered \'"instance_id": "{ai_id}"\''
+    )
+    payload = {
+        "ok": True,
+        "mode": "local_server_tail",
+        "ai_id": ai_id,
+        "note": "no Cortex on this machine: the local server writes wake lines to ~/.empirica/loop_fires.log",
+        "next_step": {
+            "tool": "Monitor",
+            "args": {"description": f"Local server wake tail for {ai_id}", "command": command, "timeout_ms": 1800000},
+        },
+    }
+    return _emit(args, payload, f"no Cortex here; arm a Monitor on the local server's wake lines:\n  {command}")
+
+
 def handle_listener_on_command(args) -> int:
     """`empirica listener on` — arm the canonical mesh listener for ai_id.
 
@@ -2053,6 +2078,11 @@ def handle_listener_on_command(args) -> int:
         try:
             topic = resolve_orchestration_events_topic(ai_id)
         except RuntimeError as e:
+            # No Cortex here at all: the local server writes wake lines to the same log, so offer its tail (the session
+            # hook's local payload) instead of an error (prop_z2qcr27 #9, goal 489c7fa0).
+            local = _local_server_tail(args, ai_id)
+            if local is not None:
+                return local
             # Resolver refuses to fall back to the dead bare topic when
             # cortex is unreachable — surface a clean error rather than
             # registering a listener that will 403 on every poll.
