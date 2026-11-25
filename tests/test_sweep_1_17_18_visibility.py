@@ -115,3 +115,10 @@ def test_doctor_with_notes_off_still_mentions_a_leftover_marker(monkeypatch, tmp
     (tmp_path / ".empirica" / gx.REBUILD_MARKER).write_text("{}")
     check = doctor.check_visibility_notes(tmp_path)
     assert check.status == doctor.SKIP and "marker" in check.detail
+
+
+def test_a_malformed_writer_file_does_not_crash_push_writers(tmp_path):
+    """Sixth pass: a hand-edited writer file with a non-list `previous` raised TypeError and crashed doctor."""
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / gx.WRITER_FILE).write_text('{"previous": 5, "writer": "w-1"}')
+    assert isinstance(gx.push_writers(str(tmp_path)), list)

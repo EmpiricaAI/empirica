@@ -398,7 +398,9 @@ def push_writers(root: str) -> list[str]:
     file got a new inode (restored from a backup, moved across filesystems), so notes it wrote under an earlier id and
     never pushed still leave the machine; git pushes them only as fast-forwards (goal 38510fdd, third review)."""
     data = _writer_file(root)
-    ids = [current_writer(root)] + [w for w in data.get("previous") or [] if isinstance(w, str)]
+    previous = data.get("previous")
+    # A hand-edited file with a non-list here crashed doctor's visibility check (1.17.18 sixth pass).
+    ids = [current_writer(root)] + [w for w in (previous if isinstance(previous, list) else []) if isinstance(w, str)]
     return [w for w in dict.fromkeys(ids) if w and _WRITER_RE.fullmatch(w)]
 
 
@@ -528,9 +530,9 @@ def writer_id(root: str) -> str:
     if existing:
         return existing
     old = _writer_file(root)  # made for another inode: keep its id among the ones this checkout pushes
-    previous = [
-        w for w in (old.get("previous") or []) + [old.get("writer")] if isinstance(w, str) and _WRITER_RE.fullmatch(w)
-    ]
+    earlier = old.get("previous")
+    earlier = earlier if isinstance(earlier, list) else []  # hand-edited: not a list
+    previous = [w for w in [*earlier, old.get("writer")] if isinstance(w, str) and _WRITER_RE.fullmatch(w)]
     host = re.sub(r"[^a-z0-9-]+", "-", socket.gethostname().lower()).strip("-")[:40] or "host"
     writer = f"{host}-{secrets.token_hex(4)}"
     path = Path(root) / ".empirica" / WRITER_FILE
