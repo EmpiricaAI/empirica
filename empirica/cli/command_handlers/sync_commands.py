@@ -1944,9 +1944,11 @@ def _rebuild_visibility(db, rebuilt, root: str | None = None, held_before: set[s
     """Shared and public tags from the visibility shard notes (goal ecea0fd4), applied after every row is restored; a row
     with no tag in them stays local. Ids are unique across the artifact tables, so each is tried until one row matches."""
 
-    from empirica.core.canonical.empirica_git.graph_note_export import apply_visibility_notes
+    from empirica.core.canonical.empirica_git.graph_note_export import apply_visibility_notes, visibility_notes_enabled
 
     rebuilt.setdefault("visibility_restored", 0)
+    if not visibility_notes_enabled():  # opt-in: with it unset, rebuilt rows stay local (1.17.18 second pass)
+        return
     rebuilt["visibility_restored"] += apply_visibility_notes(
         db.adapter.conn, root or _get_workspace_root(), held_before=held_before
     )
@@ -2026,10 +2028,15 @@ def _rebuild_from_notes() -> dict[str, Any]:
         from empirica.data.session_database import SessionDatabase
 
         db = SessionDatabase()
-        from empirica.core.canonical.empirica_git.graph_note_export import prepare_visibility_rebuild
+        from empirica.core.canonical.empirica_git.graph_note_export import (
+            prepare_visibility_rebuild,
+            visibility_notes_enabled,
+        )
 
-        # Export this checkout's tags first, then mark the rebuild under way (goal 38510fdd).
-        held_before = prepare_visibility_rebuild(db.adapter.conn, _get_workspace_root())
+        # Export this checkout's tags first, then mark the rebuild under way (goal 38510fdd); only with the opt-in.
+        held_before = (
+            prepare_visibility_rebuild(db.adapter.conn, _get_workspace_root()) if visibility_notes_enabled() else None
+        )
 
         finding_store = GitFindingStore()
         unknown_store = GitUnknownStore()

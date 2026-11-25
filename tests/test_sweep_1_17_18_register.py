@@ -28,10 +28,6 @@ def test_a_module_yaml_without_domains_declares_nothing(tmp_path):
     assert pc._declared_provides_domains(_root(tmp_path, module_yaml=MODULE + "  provides:\n    skills: {}\n")) is None
 
 
-def test_an_explicit_empty_module_list_is_a_declaration(tmp_path):
-    assert pc._declared_provides_domains(_root(tmp_path, module_yaml=MODULE + "  provides:\n    domains: []\n")) == []
-
-
 def test_a_scalar_declaration_is_one_domain(tmp_path):
     assert pc._declared_provides_domains(_root(tmp_path, "provides_domains: client-documents\n")) == [
         "client-documents"
@@ -65,3 +61,18 @@ def test_provisioning_uses_the_stored_type_not_the_flags(tmp_path):
     p.write_text("ai_id: x\ntype: service\n")
     step = ppc._provides_step(SimpleNamespace(type="content", domain="marketing"), p, dry_run=False)
     assert step["changed"] is False and "provides_domains" not in yaml.safe_load(p.read_text())
+
+
+@pytest.mark.parametrize(
+    "project_yaml, module_yaml",
+    [
+        ("provides_domains: []\n", None),
+        ("provides_domains: {}\n", None),
+        ("provides_domains: 3\n", None),
+        ("ai_id: x\n", MODULE + "  provides:\n    domains:\n"),
+        ("ai_id: x\n", MODULE + "  provides:\n    domains: []\n"),
+    ],
+)
+def test_core_never_sends_an_empty_list(tmp_path, project_yaml, module_yaml):
+    """Second pass: null, empty or malformed declarations still sent [], which wipes Cortex's stored roles."""
+    assert pc._declared_provides_domains(_root(tmp_path, project_yaml, module_yaml)) is None

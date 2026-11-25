@@ -33,6 +33,7 @@ ALLOWED = (
     "tests/test_claude_code_uninstall.py",
     "empirica/config/removed_names.yaml",  # the registry of removed names (goal 95c3ee16)
     "tests/test_removed_names_stay_removed.py",
+    "tests/test_sweep_1_17_18_deprecations.py",  # tests the removed-names guard's matching
 )
 
 SKIP_DIRS = {

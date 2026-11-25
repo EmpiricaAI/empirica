@@ -45,7 +45,9 @@ def test_restart_if_running_uses_try_restart(monkeypatch):
     calls = []
     import subprocess
 
-    monkeypatch.setattr(pl, "_systemctl", lambda *a, **k: calls.append(a) or subprocess.CompletedProcess(a, 0, "", ""))
+    monkeypatch.setattr(
+        pl, "_systemctl", lambda *a, **k: calls.append(a) or subprocess.CompletedProcess(a, 0, "active\n", "")
+    )
     svc = pl.PersistentListenerService.__new__(pl.PersistentListenerService)
     svc.backend = "systemd"
     svc.restart_if_running("empirica")

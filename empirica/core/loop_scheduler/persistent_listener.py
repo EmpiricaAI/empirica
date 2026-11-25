@@ -513,7 +513,10 @@ class PersistentListenerService:
         True only when a running service was restarted (the 1.17.18 sweep: every unit on disk was reported)."""
         if self.backend == "systemd":
             unit = f"{_unit_name(ai_id)}.service"
-            if _systemctl("is-active", "--quiet", unit, check=False).returncode != 0:
+            # The state, not the exit code: a listener refusing on an expired sign-in sits in "activating" (auto-restart
+            # backoff), exits non-zero for is-active, and is the one that most needs the restart (1.17.18 second pass).
+            state = (_systemctl("is-active", unit, check=False).stdout or "").strip()
+            if state not in ("active", "activating", "reloading"):
                 return False
             return _systemctl("try-restart", unit, check=False).returncode == 0
         if self.backend == "launchd":

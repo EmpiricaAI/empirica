@@ -143,3 +143,43 @@ def test_the_local_tail_command_matches_the_short_name_literally(monkeypatch, ca
     assert cc._local_server_tail(types.SimpleNamespace(output="json"), "empirica.david.my-app") == 0
     cmd = json.loads(capsys.readouterr().out)["next_step"]["args"]["command"]
     assert "grep -F" in cmd and '"instance_id": "my-app"' in cmd and "empirica.david" not in cmd
+
+
+@pytest.mark.parametrize(
+    "state, restarted",
+    [("active", True), ("activating", True), ("reloading", True), ("inactive", False), ("failed", False)],
+)
+def test_a_crash_looping_unit_is_restarted_too(monkeypatch, state, restarted):
+    """Second pass: a listener refusing on an expired sign-in sits in 'activating (auto-restart)', and is-active's exit
+    code skipped exactly that one."""
+    import subprocess
+
+    calls = []
+
+    def fake(*args, **kw):
+        calls.append(args)
+        if args[0] == "is-active":
+            return subprocess.CompletedProcess(args, 0 if state == "active" else 3, state + "\n", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(pl, "_systemctl", fake)
+    svc = pl.PersistentListenerService.__new__(pl.PersistentListenerService)
+    svc.backend = "systemd"
+    assert svc.restart_if_running("empirica") is restarted
+    assert any(a[0] == "try-restart" for a in calls) is restarted
+
+
+def test_racing_claims_on_a_stale_stamp_let_one_through(tmp_path):
+    stamp = tmp_path / "stamp"
+    stamp.write_text("")
+    os.utime(stamp, (0, 0))
+    first = cortex_oauth._claim_stamp(stamp, 1800, 10_000)
+    os.utime(stamp, (0, 0))  # the second caller also read it as stale, before the first's claim
+    assert first is True
+
+
+def test_no_sign_in_does_not_use_up_the_window(tmp_path, monkeypatch):
+    monkeypatch.setattr(cortex_oauth, "cortex_bearer", lambda *a, **k: {"url": None, "bearer": None})
+    stamp = tmp_path / "stamp"
+    cortex_oauth.refetch_ntfy_credentials(stamp_path=stamp)
+    assert not stamp.exists()

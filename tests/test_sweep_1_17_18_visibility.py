@@ -59,3 +59,20 @@ def test_a_profile_import_with_notes_off_leaves_visibility_alone(monkeypatch, tm
 
     importer.import_all(SimpleNamespace(conn=None))
     assert called == []
+
+
+def test_a_rebuild_with_notes_off_leaves_visibility_alone(monkeypatch):
+    """Second pass: sync-pull --rebuild applied peers' notes with the opt-in unset, as profile import did."""
+    from types import SimpleNamespace
+
+    from empirica.cli.command_handlers import sync_commands
+
+    monkeypatch.delenv("EMPIRICA_VISIBILITY_NOTES", raising=False)
+    monkeypatch.setattr(gx, "apply_visibility_notes", lambda *a, **k: pytest_fail())
+    rebuilt = {}
+    sync_commands._rebuild_visibility(SimpleNamespace(adapter=SimpleNamespace(conn=None)), rebuilt, root="/nonexistent")
+    assert rebuilt.get("visibility_restored", 0) == 0
+
+
+def pytest_fail():
+    raise AssertionError("visibility notes applied with the opt-in unset")

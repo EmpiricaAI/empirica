@@ -32,6 +32,7 @@ import secrets
 import socket
 import sys
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -767,12 +768,18 @@ def _check_seat(token: str | None, nonce: str) -> dict:
 
 
 def _claim_stamp(stamp: Path, min_interval: float, now: float) -> bool:
-    """Claim this attempt: create the stamp exclusively, replacing a stale one, so listeners starting together make one
-    call between them (1.17.18 sweep: check-then-touch let each pass). False when another attempt is recent."""
+    """Claim this attempt so listeners starting together make one call between them (1.17.18 sweep). A stale stamp is
+    moved aside by an atomic rename, which only one caller can win, and the new one is created exclusively. False when
+    another attempt is recent or another caller won the claim."""
     try:
         stamp.parent.mkdir(parents=True, exist_ok=True)
         if stamp.exists() and now - stamp.stat().st_mtime >= min_interval:
-            stamp.unlink(missing_ok=True)  # stale: whoever creates it next wins
+            aside = stamp.with_name(f"{stamp.name}.{os.getpid()}.{time.time_ns()}")
+            try:
+                os.rename(stamp, aside)
+            except FileNotFoundError:
+                return False  # another caller moved it first: theirs is the attempt
+            aside.unlink(missing_ok=True)
         os.close(os.open(stamp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
         return True
     except FileExistsError:
@@ -794,6 +801,13 @@ def refetch_ntfy_credentials(
     import time as _time
 
     stamp = stamp_path or (Path.home() / ".empirica" / "ntfy_fetch_attempt")
+    try:
+        creds = cortex_bearer(loader)
+    except Exception as e:
+        return {"written": False, "reason": f"the Cortex sign-in could not be read ({type(e).__name__})"}
+    if not (creds.get("url") and creds.get("bearer")):
+        return {"written": False, "reason": "no Cortex sign-in on this machine; run `empirica auth login`"}
+    # Claimed after the sign-in check: an attempt with no sign-in does not use up the window (1.17.18 second pass).
     if not _claim_stamp(stamp, min_interval, _time.time()):
         try:
             age = int((_time.time() - stamp.stat().st_mtime) // 60)
@@ -803,12 +817,6 @@ def refetch_ntfy_credentials(
             "written": False,
             "reason": f"throttled: last tried {age} min ago (at most every {int(min_interval // 60)} min)",
         }
-    try:
-        creds = cortex_bearer(loader)
-    except Exception as e:
-        return {"written": False, "reason": f"the Cortex sign-in could not be read ({type(e).__name__})"}
-    if not (creds.get("url") and creds.get("bearer")):
-        return {"written": False, "reason": "no Cortex sign-in on this machine; run `empirica auth login`"}
     if loader is None:
         from empirica.config.credentials_loader import get_credentials_loader
 

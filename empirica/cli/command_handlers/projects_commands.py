@@ -1235,7 +1235,7 @@ def _declared_provides_domains(path) -> list[str] | None:
     """What a practice declares it provides (roster roles, goal b15f79b9), or None when it declares nothing.
 
     ``provides_domains`` in ``.empirica/project.yaml`` first; else ``provides.domains`` of a ``module.yaml`` at the root or in
-    ``.empirica/``. None means "say nothing", so Cortex keeps what it has; an empty list is a declaration and clears it.
+    ``.empirica/``. None means "say nothing", so Cortex keeps what it has; core never sends an empty list.
     """
     if not path:
         return None
@@ -1266,10 +1266,12 @@ def _declared_provides_domains(path) -> list[str] | None:
     return None
 
 
-def _domain_list(value) -> list[str]:
-    """A declared provides list; a single string is one domain (it was dropped without a word)."""
+def _domain_list(value) -> list[str] | None:
+    """A declared provides list; a single string is one domain (it was dropped without a word). None for an empty, null
+    or malformed value: core never sends [], which would wipe the roles Cortex has stored (1.17.18 second pass)."""
     items = [value] if isinstance(value, str) else (value if isinstance(value, list) else [])
-    return [str(d).strip() for d in items if str(d).strip()]
+    domains = [str(d).strip() for d in items if str(d).strip()]
+    return domains or None
 
 
 def _provides_ack(body) -> dict[str, Any]:
