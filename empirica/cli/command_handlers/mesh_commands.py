@@ -1277,6 +1277,13 @@ def handle_mesh_connect_command(args) -> int:
         )
     finally:
         conn.close()
+    if report.get("ok") and not args.dry_run:  # running listeners re-read their credentials and topic (prop_z2qcr27 #1)
+        try:
+            from empirica.core.loop_scheduler.persistent_listener import restart_after_signin
+
+            report["listeners"] = restart_after_signin()
+        except Exception as e:
+            report["listeners"] = {"restarted": [], "note": f"not restarted: {type(e).__name__}"}
     if args.output == "json":
         print(_json.dumps(report, indent=2, default=str))
         return 0 if report.get("ok") else 1

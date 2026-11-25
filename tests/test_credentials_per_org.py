@@ -13,6 +13,15 @@ import time
 import pytest
 import yaml
 
+
+@pytest.fixture(autouse=True)
+def _no_listener_restart(monkeypatch):
+    """Login and connect restart this machine's listener services; a test must not touch the real ones."""
+    import empirica.core.loop_scheduler.persistent_listener as _pl
+
+    monkeypatch.setattr(_pl, "restart_after_signin", lambda *a, **k: {"restarted": [], "note": None})
+
+
 _AT_A, _AT_B, _RT, _NEW_B, _AT_A2 = "AT_A", "AT_B", "RT", "NEW_B", "AT_A2"  # fake fixtures, not credentials
 _VALID = "valid"
 _RT_ELSEWHERE = "RT_FROM_ELSEWHERE"  # fake fixture

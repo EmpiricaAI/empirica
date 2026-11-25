@@ -14,6 +14,15 @@ import pytest
 from empirica.core import mesh_connect as mc
 from empirica.data.session_database import SessionDatabase
 
+
+@pytest.fixture(autouse=True)
+def _no_listener_restart(monkeypatch):
+    """Login and connect restart this machine's listener services; a test must not touch the real ones."""
+    import empirica.core.loop_scheduler.persistent_listener as _pl
+
+    monkeypatch.setattr(_pl, "restart_after_signin", lambda *a, **k: {"restarted": [], "note": None})
+
+
 PROJECT = {"name": "alpha", "project_id": "11111111-2222-4333-8444-555555555555", "path": "/w/alpha"}
 
 

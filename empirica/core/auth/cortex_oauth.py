@@ -37,6 +37,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -763,6 +764,46 @@ def _check_seat(token: str | None, nonce: str) -> dict:
         "reason": None,
         "org_id": claims.get("org_id"),
     }
+
+
+def refetch_ntfy_credentials(
+    loader=None, *, stamp_path: Path | None = None, min_interval: float = 1800, http=_http_json
+) -> dict:
+    """Fetch the ntfy credentials outside a sign-in, at most once per ``min_interval`` seconds on this machine.
+
+    For the listener: auth login fetches them once, and a seat Cortex answered 404 for (no notification account yet) then
+    restarted its listeners forever until the person signed in again (prop_z2qcr27 #5, goal 489c7fa0). The endpoint allows
+    5 calls an hour and the supervisor restarts every few minutes, so the attempt is stamped machine-wide and skipped while
+    the stamp is fresh. Never raises. Returns {written, reason}.
+    """
+    import time as _time
+
+    stamp = stamp_path or (Path.home() / ".empirica" / "ntfy_fetch_attempt")
+    try:
+        age = _time.time() - stamp.stat().st_mtime
+        if age < min_interval:
+            return {
+                "written": False,
+                "reason": f"throttled: last tried {int(age // 60)} min ago (at most every {int(min_interval // 60)} min)",
+            }
+    except OSError:
+        pass  # never tried
+    try:
+        creds = cortex_bearer(loader)
+    except Exception as e:
+        return {"written": False, "reason": f"the Cortex sign-in could not be read ({type(e).__name__})"}
+    if not (creds.get("url") and creds.get("bearer")):
+        return {"written": False, "reason": "no Cortex sign-in on this machine; run `empirica auth login`"}
+    try:
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        stamp.touch()
+    except OSError:
+        pass
+    if loader is None:
+        from empirica.config.credentials_loader import get_credentials_loader
+
+        loader = get_credentials_loader()
+    return _fetch_ntfy_credentials(loader, creds["url"], creds["bearer"], http=http)
 
 
 def _fetch_ntfy_credentials(loader, base_url: str, token: str, *, http=_http_json) -> dict:

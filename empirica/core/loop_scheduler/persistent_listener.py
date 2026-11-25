@@ -508,6 +508,13 @@ class PersistentListenerService:
                 if _launchctl("bootstrap", f"gui/{os.getuid()}", str(path), check=False).returncode != 0:
                     _launchctl("load", "-w", str(path), check=False)
 
+    def restart_if_running(self, ai_id: str) -> None:
+        """Restart the service only if it is running, so it re-reads its credentials; a stopped one stays stopped."""
+        if self.backend == "systemd":
+            _systemctl("try-restart", f"{_unit_name(ai_id)}.service", check=False)
+        elif self.backend == "launchd":
+            _launchctl("kickstart", "-k", self._launchd_target(ai_id), check=False)
+
     # ── Status ──────────────────────────────────────────────────────────
 
     def status(self, ai_id: str) -> ListenerStatus:
@@ -606,3 +613,44 @@ def is_listener_running(ai_id: str) -> bool:
         return PersistentListenerService().is_running(ai_id)
     except Exception:
         return False
+
+
+def installed_listener_ids(home: Path | None = None) -> set[str]:
+    """The ai_ids with a listener service on disk (systemd-user units and launchd plists)."""
+    home = home or Path.home()
+    ids: set[str] = set()
+    for pattern, prefix, where in (
+        ("empirica-listener-*.service", "empirica-listener-", home / ".config" / "systemd" / "user"),
+        ("com.empirica.listener.*.plist", "com.empirica.listener.", home / "Library" / "LaunchAgents"),
+    ):
+        try:
+            ids.update(path.stem.removeprefix(prefix) for path in where.glob(pattern))
+        except OSError:
+            pass
+    return ids
+
+
+def restart_after_signin(service=None, home: Path | None = None) -> dict:
+    """After ``auth login`` or ``mesh connect``: restart the running listeners so they pick up the new sign-in.
+
+    A listener reads its ntfy url, token and topic once at start, so a healthy one kept the old ones for good (prop_z2qcr27
+    #1, goal 489c7fa0). Never raises. Returns {restarted, note}.
+    """
+    ids = sorted(installed_listener_ids(home))
+    if not ids:
+        return {
+            "restarted": [],
+            "note": "no listener service is installed; run `empirica listener on` in a practice to receive mesh messages",
+        }
+    restarted = []
+    try:
+        service = service or PersistentListenerService()
+        for ai_id in ids:
+            try:
+                service.restart_if_running(ai_id)
+                restarted.append(ai_id)
+            except Exception as e:
+                logger.warning("listener %s not restarted after sign-in: %s", ai_id, e)
+    except Exception as e:
+        return {"restarted": restarted, "note": f"listeners not restarted ({type(e).__name__}: {e})"}
+    return {"restarted": restarted, "note": None}

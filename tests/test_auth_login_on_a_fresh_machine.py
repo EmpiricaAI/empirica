@@ -15,6 +15,14 @@ import pytest
 from empirica.core.auth import cortex_oauth as co
 
 
+@pytest.fixture(autouse=True)
+def _no_listener_restart(monkeypatch):
+    """Login and connect restart this machine's listener services; a test must not touch the real ones."""
+    import empirica.core.loop_scheduler.persistent_listener as _pl
+
+    monkeypatch.setattr(_pl, "restart_after_signin", lambda *a, **k: {"restarted": [], "note": None})
+
+
 class Loader:
     def __init__(self, url=None):
         self.url, self.saved = url, []

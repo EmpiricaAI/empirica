@@ -191,6 +191,8 @@ def resolve_tag_filter(instance_id: str, err_stream, *, sleep=time.sleep, attemp
     subscribing blind. A missing credential is configuration, not a transient
     failure, so it refuses without retrying.
     """
+    global _last_tag_refusal
+    _last_tag_refusal = None
     try:
         from empirica.config.credentials_loader import get_credentials_loader as _gc
         from empirica.core.loop_scheduler.content_poll import _resolve_canonical_ai_id
@@ -218,8 +220,6 @@ def resolve_tag_filter(instance_id: str, err_stream, *, sleep=time.sleep, attemp
         )
         return None
 
-    global _last_tag_refusal
-    _last_tag_refusal = None
     delay = 2.0
     last_error = "the roster returned no row for this seat"
     for attempt in range(1, attempts + 1):
@@ -567,6 +567,29 @@ def _persist_last_good_topic(instance_id: str, topic: str) -> None:
         pass
 
 
+def _ntfy_after_refetch(err_stream, *, refetch=None, reload=None) -> dict | None:
+    """The ntfy config after fetching it from Cortex, or None (with the reason written) when nothing new was stored."""
+    try:
+        if refetch is None:
+            from empirica.core.auth.cortex_oauth import refetch_ntfy_credentials as refetch
+        out = refetch() or {}
+    except Exception as e:
+        err_stream.write(f"listener: ntfy credentials re-fetch errored: {e}\n")
+        return None
+    if not out.get("written"):
+        err_stream.write(f"listener: ntfy credentials not fetched: {out.get('reason')}\n")
+        return None
+    try:
+        if reload is None:
+            from empirica.config.credentials_loader import get_credentials_loader
+
+            return get_credentials_loader().get_ntfy_config()
+        return reload()
+    except Exception as e:
+        err_stream.write(f"listener: ntfy config reload failed after the fetch: {e}\n")
+        return None
+
+
 def _emit_fail_heartbeat(instance_id: str, loop_name: str, *, reason: str) -> None:
     """Surface a listener-poll failure so it shows up in `empirica status`
     + cockpit instead of silently degrading (the 10-day-deaf failure mode).
@@ -877,6 +900,8 @@ def _run_listener_body(  # noqa: C901 — held-connection loop; clarity beats de
     if _os.getenv("EMPIRICA_NTFY_TAG_FILTER", "true").lower() == "false":
         tag_filter = None
     else:
+        global _last_tag_refusal
+        _last_tag_refusal = None  # a reason left by an earlier attempt in this process is not this one's
         tag_filter = resolve_tag_filter(instance_id, err_stream, sleep=_sleep)
         if tag_filter is None:
             why = last_tag_refusal()
@@ -968,6 +993,13 @@ def _run_listener_body(  # noqa: C901 — held-connection loop; clarity beats de
         ntfy.get("password"),
         ntfy.get("token"),
     )
+    if not headers:
+        # A seat whose notification account appeared after its sign-in: fetch now rather than restart forever (#5).
+        refetched = _ntfy_after_refetch(err_stream)
+        if refetched:
+            ntfy = refetched
+            url = _build_subscribe_url(ntfy["url"], base_topic, tag_filter=tag_filter)
+            headers = _ntfy_auth_header(ntfy.get("user"), ntfy.get("password"), ntfy.get("token"))
     if not headers:
         # Same rule as the topic gate: name the full set. Reached alone, this is
         # the only unmet precondition; reached after an operator cleared the topic

@@ -80,6 +80,13 @@ def _choose_remote(args) -> bool:
     return True
 
 
+def _print_listeners(listeners: dict) -> None:
+    if listeners.get("restarted"):
+        print(f"   listeners restarted to pick up the sign-in: {', '.join(listeners['restarted'])}")
+    elif listeners.get("note"):
+        print(f"   note: {listeners['note']}")
+
+
 def handle_auth_login_command(args) -> int:
     from empirica.core.auth import login
 
@@ -117,6 +124,12 @@ def handle_auth_login_command(args) -> int:
     identity: dict = {}
     verify = _verify_token(identity, org_id=result.get("org_id"))  # the set just stored, which may not be the default
     result["verified_against_api"] = verify
+    try:  # running listeners re-read their credentials and topic (prop_z2qcr27 #1)
+        from empirica.core.loop_scheduler.persistent_listener import restart_after_signin
+
+        result["listeners"] = restart_after_signin()
+    except Exception as e:
+        result["listeners"] = {"restarted": [], "note": f"not restarted: {type(e).__name__}"}
     if identity.get("org_id"):
         result["org"] = {"org_id": identity["org_id"], "org_name": identity.get("org_name")}
     if output == "json":
@@ -131,6 +144,7 @@ def handle_auth_login_command(args) -> int:
             print(f"   note: {result['note']}")
         _print_seat(result.get("seat") or {})
         _print_ntfy(result.get("ntfy") or {})
+        _print_listeners(result.get("listeners") or {})
         if result.get("cortex_url_saved") is True:
             hosted = " (the hosted Cortex; pass --url for another)" if result.get("url_source") == "default" else ""
             print(

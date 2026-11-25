@@ -9,7 +9,16 @@ from __future__ import annotations
 import argparse
 import logging
 
+import pytest
 import yaml
+
+
+@pytest.fixture(autouse=True)
+def _no_listener_restart(monkeypatch):
+    """Login and connect restart this machine's listener services; a test must not touch the real ones."""
+    import empirica.core.loop_scheduler.persistent_listener as _pl
+
+    monkeypatch.setattr(_pl, "restart_after_signin", lambda *a, **k: {"restarted": [], "note": None})
 
 
 def test_a_first_login_reports_the_url_it_saved(tmp_path, monkeypatch, capsys, caplog):

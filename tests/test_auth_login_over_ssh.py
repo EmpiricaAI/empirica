@@ -13,6 +13,14 @@ import pytest
 from empirica.cli.command_handlers import auth_commands as ac
 
 
+@pytest.fixture(autouse=True)
+def _no_listener_restart(monkeypatch):
+    """Login and connect restart this machine's listener services; a test must not touch the real ones."""
+    import empirica.core.loop_scheduler.persistent_listener as _pl
+
+    monkeypatch.setattr(_pl, "restart_after_signin", lambda *a, **k: {"restarted": [], "note": None})
+
+
 @pytest.fixture
 def clean_env(monkeypatch):
     for v in ("SSH_CONNECTION", "SSH_TTY", "TMUX", "DISPLAY", "WAYLAND_DISPLAY"):
