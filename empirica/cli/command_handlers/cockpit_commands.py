@@ -2008,9 +2008,9 @@ def handle_listener_on_command(args) -> int:
     """`empirica listener on` — arm the canonical mesh listener for ai_id.
 
     Auto-resolves name (default `<ai_id>-inbox`), topic (queried from
-    cortex `/v1/users/me/notification-channels` — falls back to legacy
-    `ntfy:orchestration-events?tags=<ai_id>` if cortex is unreachable
-    or the endpoint isn't shipped), and instance_id.
+    cortex `/v1/users/me/notification-channels`; when Cortex cannot answer
+    it reports an error rather than fall back to the retired bare topic,
+    which 403s on every poll), and instance_id.
 
     Two arming modes, picked automatically by detecting whether the
     persistent OS service is running for `ai_id`:

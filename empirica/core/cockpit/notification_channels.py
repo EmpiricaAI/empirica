@@ -172,7 +172,8 @@ def fetch_notification_channels(*, force: bool = False) -> dict | None:
         {"channels": [{"topic": "...", "kind": "..."}, ...],
          "system_topic": "..."}
     or None on any failure (cortex down, endpoint absent, auth fail).
-    Callers MUST handle None by falling back to the legacy bare topic.
+    Callers MUST handle None: the bare topic is retired, so never fall back to it (resolve_orchestration_events_topic
+    raises instead; the listener uses its last-resolved-good cache, then refuses).
 
     Pass force=True to bypass the cache (e.g. immediately after a config
     change).
