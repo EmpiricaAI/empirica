@@ -79,6 +79,7 @@ _DEAD = "#{W:#{P:#{?pane_dead,x,}}}"
 _DEAD_IN_WINDOW = "#{P:#{?pane_dead,x,}}"
 #: Non-empty when a pane in the window waits on its person (a permission dialog or a question); hooks set and clear the pane option.
 _WAITING_IN_WINDOW = "#{P:#{?@empirica_waiting,w,}}"
+_MAIL_IN_WINDOW = "@empirica_win_mail"  # set per window by refresh_state: the mail waiting on its practices
 _DEFAULT_STATUS_CLICK = "switch-client -t ="
 _PREV_BORDER_OPTION = "@empirica_prev_border_click"
 BORDER_CLICK = "MouseUp1Border"
@@ -127,15 +128,17 @@ PRACTICE_BLOCK = (
 
 
 def tabs_format() -> str:
-    """The practice tabs. A red mark on a tab means a pane in that practice has stopped; an orange ! that one waits on its person."""
+    """The practice tabs. A red mark on a tab means a pane in that practice has stopped; an orange ! that one waits on its person;
+    a number after the name is the mail waiting on the window's practices (goal acc46186)."""
     other = (
         "#[range=window|#{window_index} bg=colour238 fg=colour252] #I "
         f"#{{?{_DEAD_IN_WINDOW},#[fg=colour196]✗ #[fg=colour252],}}"
-        f"#{{?{_WAITING_IN_WINDOW},#[fg=colour208 bold]! #[fg=colour252 nobold],}}#W #[norange default] "
+        f"#{{?{_WAITING_IN_WINDOW},#[fg=colour208 bold]! #[fg=colour252 nobold],}}#W"
+        f"#{{?{_MAIL_IN_WINDOW}, #[fg=colour208]✉#{{{_MAIL_IN_WINDOW}}}#[fg=colour252],}} #[norange default] "
     )
     current = (
         "#[range=window|#{window_index} bg=colour34 fg=colour231 bold] #I > "
-        f"#{{?{_DEAD_IN_WINDOW},✗ ,}}#{{?{_WAITING_IN_WINDOW},! ,}}#W #[norange default] "
+        f"#{{?{_DEAD_IN_WINDOW},✗ ,}}#{{?{_WAITING_IN_WINDOW},! ,}}#W#{{?{_MAIL_IN_WINDOW}, ✉#{{{_MAIL_IN_WINDOW}}},}} #[norange default] "
     )
     return f"#[align=left]#{{W:{other},{current}}}"
 
@@ -504,6 +507,9 @@ def install(
         ("@empirica_config", str(config_path) if config_path else ""),
     ):
         _tmux("set-option", "-t", target, name, value)
+    # Claude panes redraw all the time, so the activity flag was on for every window and signalled nothing (prop_h4qia2qt).
+    for window_id in _tmux("list-windows", "-t", exact_session(session_name), "-F", "#{window_id}").stdout.split():
+        _tmux("set-option", "-w", "-t", window_id, "monitor-activity", "off")
     lines = layout(session_name)
     # Whether health needs a line of its own is decided again when the window is resized or a window is added, not only at
     # the next refresh (goal 8da5f220 gap check).
@@ -811,8 +817,11 @@ def refresh_state(
         # One process walk for the whole refresh, not one per practice.
         listener = partial(_listener_chip, workers=listener_worker_counts())
 
+    counts: dict[str, int | None] = {}
+
     def one(ai_id: str) -> tuple[str, tuple[str, str]]:
-        return ai_id, mail_chip(listener(ai_id), mail(ai_id, paths[ai_id]))
+        counts[ai_id] = count = mail(ai_id, paths[ai_id])
+        return ai_id, mail_chip(listener(ai_id), count)
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         chips = dict(pool.map(one, paths))
@@ -824,6 +833,11 @@ def refresh_state(
             _set_chip(window_id, chip, entry.get("state", ""), entry.get("label", ""))
         for chip in ("M", "I"):  # earlier versions kept these per window, where every pane in it inherited them
             _set_chip(window_id, chip, "", "")
+        # The tab's number: mail waiting on the window's practices, each counted once (prop_h4qia2qt, goal acc46186).
+        in_window = {ai for _p, w, ai in panes if w == window_id and ai}
+        waiting = sum(counts.get(ai) or 0 for ai in in_window)
+        _set_option("-w", window_id, _MAIL_IN_WINDOW, str(waiting) if waiting else "")
+        _set_option("-w", window_id, "monitor-activity", "off")  # also for a window opened after install
     for pane_id, _window_id, ai_id in panes:
         _set_option("-p", pane_id, "@empirica_practice", ai_id or "")
         state, label = chips.get(ai_id, ("", "")) if ai_id else ("", "")

@@ -551,6 +551,25 @@ def test_two_practices_in_one_window_each_show_their_own_mail(tmux_env, monkeypa
     assert _window_opt("=b10:wall", "@empirica_chip_M") == "", "the per-window leftover is cleared"
 
 
+def test_a_tab_shows_its_windows_waiting_mail_and_activity_monitoring_is_off(tmux_env, monkeypatch):
+    """Tabs did not change when mail waited (prop_h4qia2qt, goal acc46186): the window now carries its practices' mail."""
+    cfg, config_path = _cockpit(
+        tmux_env,
+        "b14",
+        groups=[{"name": "wall", "split": "horizontal", "panes": [{"project": "alpha"}, {"project": "beta"}]}],
+    )
+    bar.install(cfg, "b14", config_path=config_path, profile=None)
+    monkeypatch.setattr(bar, "read_ecosystem_state", dict)
+    assert _window_opt("=b14:wall", "monitor-activity") == "off", "saturated by redrawing panes, so it signals nothing"
+
+    bar.refresh_state("b14", mail=lambda ai_id, _p: {"alpha": 2, "beta": 3}[ai_id], listener=lambda _a: ("", "", True))
+    assert _window_opt("=b14:wall", "@empirica_win_mail") == "5"
+    assert "@empirica_win_mail" in bar.tabs_format()
+
+    bar.refresh_state("b14", mail=lambda ai_id, _p: 0, listener=lambda _a: ("", "", True))
+    assert _window_opt("=b14:wall", "@empirica_win_mail") == ""
+
+
 def test_health_moves_to_its_own_line_when_the_practices_do_not_fit(tmux_env):
     many = tuple(f"practice-number-{i}" for i in range(12))
     cfg, config_path = _cockpit(tmux_env, "b12", names=many)
