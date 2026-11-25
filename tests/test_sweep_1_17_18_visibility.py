@@ -76,3 +76,24 @@ def test_a_rebuild_with_notes_off_leaves_visibility_alone(monkeypatch):
 
 def pytest_fail():
     raise AssertionError("visibility notes applied with the opt-in unset")
+
+
+def test_a_rebuild_with_notes_off_prepares_nothing_and_clears_an_old_marker(monkeypatch, tmp_path):
+    """Third pass: the prepare gate had no test, and a marker from an earlier crashed rebuild was never cleared."""
+    from empirica.cli.command_handlers import sync_commands
+
+    monkeypatch.delenv("EMPIRICA_VISIBILITY_NOTES", raising=False)
+    monkeypatch.setattr(gx, "prepare_visibility_rebuild", lambda *a, **k: pytest_fail())
+    (tmp_path / ".empirica").mkdir()
+    marker = tmp_path / ".empirica" / gx.REBUILD_MARKER
+    marker.write_text("{}")
+    assert sync_commands._prepare_visibility(None, str(tmp_path)) is None
+    assert not marker.exists()
+
+
+def test_a_rebuild_with_notes_on_prepares(monkeypatch, tmp_path):
+    from empirica.cli.command_handlers import sync_commands
+
+    monkeypatch.setenv("EMPIRICA_VISIBILITY_NOTES", "1")
+    monkeypatch.setattr(gx, "prepare_visibility_rebuild", lambda conn, root: {"a"})
+    assert sync_commands._prepare_visibility(None, str(tmp_path)) == {"a"}

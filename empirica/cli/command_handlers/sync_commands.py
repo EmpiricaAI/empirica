@@ -1940,6 +1940,22 @@ def _rebuild_edges(db, rebuilt, root: str | None = None) -> None:
     db.adapter.conn.commit()
 
 
+def _prepare_visibility(conn, root: str) -> set[str] | None:
+    """Before a rebuild restores rows: export this checkout's tags, then mark the rebuild under way (goal 38510fdd). Only
+    with the opt-in; with it unset there is nothing to prepare, and a marker left by an earlier crashed rebuild is cleared,
+    since only an opted-in rebuild would otherwise remove it and doctor kept warning (1.17.18 third pass)."""
+    from empirica.core.canonical.empirica_git.graph_note_export import (
+        REBUILD_MARKER,
+        prepare_visibility_rebuild,
+        visibility_notes_enabled,
+    )
+
+    if visibility_notes_enabled():
+        return prepare_visibility_rebuild(conn, root)
+    (Path(root) / ".empirica" / REBUILD_MARKER).unlink(missing_ok=True)
+    return None
+
+
 def _rebuild_visibility(db, rebuilt, root: str | None = None, held_before: set[str] | None = None) -> None:
     """Shared and public tags from the visibility shard notes (goal ecea0fd4), applied after every row is restored; a row
     with no tag in them stays local. Ids are unique across the artifact tables, so each is tried until one row matches."""
@@ -2028,15 +2044,7 @@ def _rebuild_from_notes() -> dict[str, Any]:
         from empirica.data.session_database import SessionDatabase
 
         db = SessionDatabase()
-        from empirica.core.canonical.empirica_git.graph_note_export import (
-            prepare_visibility_rebuild,
-            visibility_notes_enabled,
-        )
-
-        # Export this checkout's tags first, then mark the rebuild under way (goal 38510fdd); only with the opt-in.
-        held_before = (
-            prepare_visibility_rebuild(db.adapter.conn, _get_workspace_root()) if visibility_notes_enabled() else None
-        )
+        held_before = _prepare_visibility(db.adapter.conn, _get_workspace_root())
 
         finding_store = GitFindingStore()
         unknown_store = GitUnknownStore()

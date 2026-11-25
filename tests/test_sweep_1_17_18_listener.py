@@ -169,13 +169,15 @@ def test_a_crash_looping_unit_is_restarted_too(monkeypatch, state, restarted):
     assert any(a[0] == "try-restart" for a in calls) is restarted
 
 
-def test_racing_claims_on_a_stale_stamp_let_one_through(tmp_path):
+def test_a_fresh_claim_blocks_the_next_one(tmp_path):
+    """The guarantee that holds: once a stale stamp is claimed, a later claim within the interval loses."""
     stamp = tmp_path / "stamp"
     stamp.write_text("")
     os.utime(stamp, (0, 0))
-    first = cortex_oauth._claim_stamp(stamp, 1800, 10_000)
-    os.utime(stamp, (0, 0))  # the second caller also read it as stale, before the first's claim
-    assert first is True
+    now = stamp.stat().st_mtime + 10_000
+    assert cortex_oauth._claim_stamp(stamp, 1800, now) is True
+    assert cortex_oauth._claim_stamp(stamp, 1800, stamp.stat().st_mtime + 1) is False
+    assert [p.name for p in tmp_path.iterdir()] == ["stamp"], "the stale stamp moved aside is removed"
 
 
 def test_no_sign_in_does_not_use_up_the_window(tmp_path, monkeypatch):

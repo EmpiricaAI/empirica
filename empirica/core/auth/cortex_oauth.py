@@ -768,9 +768,10 @@ def _check_seat(token: str | None, nonce: str) -> dict:
 
 
 def _claim_stamp(stamp: Path, min_interval: float, now: float) -> bool:
-    """Claim this attempt so listeners starting together make one call between them (1.17.18 sweep). A stale stamp is
-    moved aside by an atomic rename, which only one caller can win, and the new one is created exclusively. False when
-    another attempt is recent or another caller won the claim."""
+    """Claim this attempt so listeners starting together almost always make one call between them (1.17.18 sweep). A
+    stale stamp is moved aside by an atomic rename and the new one created exclusively; a caller whose stale read predates
+    another's claim can still win a second rename, so the bound is one extra call against the 5-an-hour limit, not zero.
+    False when another attempt is recent or another caller won the claim."""
     try:
         stamp.parent.mkdir(parents=True, exist_ok=True)
         if stamp.exists() and now - stamp.stat().st_mtime >= min_interval:
