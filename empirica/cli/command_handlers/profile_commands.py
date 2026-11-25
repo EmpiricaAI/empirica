@@ -258,7 +258,20 @@ def handle_profile_sync_command(args):
             result["ok"] = False
             result["error"] = "Import failed"
 
-        if do_push and result["ok"]:
+        public = None
+        if do_push and result["ok"] and not force:
+            from empirica.cli.command_handlers import sync_commands
+
+            public = sync_commands.public_notes_remote(remote)
+        if public:
+            # The same refusal as sync-push: notes carry findings, mistakes and mesh messages (found 2026-11-25).
+            result["push"] = {
+                "ok": False,
+                "refused": f"Refusing to push epistemic notes to a public provider ({public})",
+                "hint": "use --force to publish them anyway",
+            }
+            result["pipeline"].append("push-refused")
+        elif do_push and result["ok"]:
             push_result = _push_notes(remote)
             result["push"] = push_result
             result["pipeline"].append("push")

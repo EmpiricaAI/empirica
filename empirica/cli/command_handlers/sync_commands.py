@@ -509,6 +509,19 @@ def _public_host(remote_url: str) -> str | None:
     )
 
 
+def public_notes_remote(remote: str) -> str | None:
+    """Why ``remote`` is public (a known public host, or a remote declared public), or None. Shared by every command that
+    pushes epistemic notes: sync-push and profile-sync --push (the latter had no check; found 2026-11-25)."""
+    remote_url = _get_remote_url(remote)
+    # A remote whose URL cannot be read is one git cannot push to either: the push itself reports that failure.
+    detected = _public_host(remote_url) if remote_url else None
+    if not detected and _load_sync_config().get("visibility") == "public":
+        # A self-hosted public instance is invisible to the host list; the owner's declaration covers it. `private`
+        # loosens nothing: a public host stays refused whatever the config says.
+        detected = "a remote declared public (sync-config visibility: public)"
+    return detected
+
+
 def _refuse_public_notes_remote(remote: str, force: bool, output_format: str) -> bool:
     """True (having printed) when `remote` is a public host and `--force` was not given.
 
@@ -518,15 +531,10 @@ def _refuse_public_notes_remote(remote: str, force: bool, output_format: str) ->
     """
     if force:
         return False
-    remote_url = _get_remote_url(remote)
-    # A remote whose URL cannot be read is one git cannot push to either: the push itself reports that failure.
-    detected = _public_host(remote_url) if remote_url else None
-    if not detected and _load_sync_config().get("visibility") == "public":
-        # A self-hosted public instance is invisible to the host list; the owner's declaration covers it. `private`
-        # loosens nothing: a public host stays refused whatever the config says.
-        detected = "a remote declared public (sync-config visibility: public)"
+    detected = public_notes_remote(remote)
     if not detected:
         return False
+    remote_url = _get_remote_url(remote)
 
     configured = ", ".join(_list_remotes()) or "none"
     result = {

@@ -30,7 +30,9 @@ def add_profile_parsers(subparsers):
     sync_parser.add_argument(
         "--import-only", action="store_true", help="Skip fetch, only import existing local git notes into SQLite"
     )
-    sync_parser.add_argument("--force", action="store_true", help="Force sync even if disabled in config")
+    sync_parser.add_argument(
+        "--force", action="store_true", help="Sync even if disabled in config, and push to a public host"
+    )
     sync_parser.add_argument("--output", choices=["json", "text"], default="json", help="Output format (default: json)")
 
     # profile-prune
