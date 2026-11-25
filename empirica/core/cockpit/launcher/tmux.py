@@ -196,6 +196,39 @@ def share_socket(config, run=subprocess.run) -> dict | None:
     return out
 
 
+def manager_missing_groups(
+    run=subprocess.run, proc_root: Path = Path("/proc"), login_groups: set[int] | None = None
+) -> set[int]:
+    """Groups this login has that the systemd --user manager lacks (goal 41f000f0); empty when unknown or current.
+
+    A server started with systemd-run --user gets the manager's groups, fixed when the manager started. After a later
+    group grant the login has more, and panes opened in a group-restricted practice folder fall back to the home folder.
+    """
+    try:
+        out = run(
+            ["systemctl", "show", f"user@{os.getuid()}.service", "-p", "MainPID", "--value"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        pid = int((out.stdout or "0").strip() or 0)
+        if pid <= 0:
+            return set()
+        line = next(
+            (ln for ln in (proc_root / str(pid) / "status").read_text().splitlines() if ln.startswith("Groups:")), ""
+        )
+        manager = {int(g) for g in line.split(":", 1)[1].split()} if line else set()
+        if login_groups is None:
+            import pwd
+
+            entry = pwd.getpwuid(os.getuid())
+            login_groups = set(os.getgrouplist(entry.pw_name, entry.pw_gid))
+    except (OSError, ValueError, KeyError, subprocess.TimeoutExpired):
+        return set()
+    return set(login_groups) - manager if manager else set()
+
+
 def ensure_server(run=subprocess.run, which=shutil.which, sleep=None) -> dict:
     """Make sure a tmux server is running that does not belong to the caller's terminal. Returns {mode, unit?, detail?}.
 
@@ -221,6 +254,18 @@ def ensure_server(run=subprocess.run, which=shutil.which, sleep=None) -> dict:
     version = re.search(r"(\d+)\.(\d+)", _tmux_version())
     if version and (int(version.group(1)), int(version.group(2))) < (3, 2):
         return {"mode": "inline", "risky": True, "detail": f"tmux {version.group(0)} has no -D (needs 3.2)"}
+    missing = manager_missing_groups(run=run)
+    if missing:
+        # Inline, the server inherits this login's groups; under the stale manager it would not (goal 41f000f0).
+        return {
+            "mode": "inline",
+            "risky": True,
+            "detail": (
+                f"the systemd user manager lacks groups this login has ({', '.join(map(str, sorted(missing)))}), so a "
+                f"server under it could not open group-restricted practice folders; started inline. Restart the "
+                f"manager (`sudo systemctl restart user@{os.getuid()}`) to get the survive-logout start back"
+            ),
+        }
     env = [
         f"--setenv={k}={v}"
         for k, v in os.environ.items()

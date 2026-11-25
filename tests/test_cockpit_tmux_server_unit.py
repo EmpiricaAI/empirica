@@ -51,6 +51,8 @@ def env(monkeypatch):
     monkeypatch.setenv("EMPIRICA_INSTANCE_ID", "empirica")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "abc")
     monkeypatch.setenv("INVOCATION_ID", "unit-of-the-terminal")
+    # The real manager's groups are this box's state (goal 41f000f0); tests that need a difference set one.
+    monkeypatch.setattr(T, "manager_missing_groups", lambda **kw: set())
 
 
 def _ensure(monkeypatch, box, systemd=True, version="tmux 3.6"):
@@ -137,3 +139,12 @@ def test_an_environment_name_systemd_refuses_is_left_out(env, monkeypatch):
     box = Box(comes_up_after=1)
     _ensure(monkeypatch, box)
     assert not any("BASH_FUNC" in a for a in box.runs[0])
+
+
+def test_a_stale_manager_starts_the_server_inline_and_says_why(env, monkeypatch):
+    """Goal 41f000f0: under a manager missing the login's groups, panes could not open group-restricted practice folders."""
+    monkeypatch.setattr(T, "manager_missing_groups", lambda **kw: {978})
+    box = Box(comes_up_after=3)
+    out = _ensure(monkeypatch, box)
+    assert out["mode"] == "inline" and "978" in out["detail"] and "restart" in out["detail"].lower()
+    assert not box.runs, "nothing started under the stale manager"
