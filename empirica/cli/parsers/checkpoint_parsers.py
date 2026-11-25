@@ -2415,10 +2415,7 @@ written to git notes (breadcrumbs ref) for audit trail.
     goals_get_stale_parser = subparsers.add_parser(
         "goals-get-stale",
         help=(
-            "List goals marked stale by goals-mark-stale. Used to "
-            "decide which goals to refresh (still relevant) vs prune "
-            "(superseded by what happened). Pair: goals-refresh / "
-            "goals-prune."
+            "Deprecated, goes away in 1.18.0: the stale goal status was removed in migration 038, so this does nothing."
         ),
     )
     goals_get_stale_parser.add_argument("--session-id", help="Filter by session ID")
@@ -2491,11 +2488,7 @@ written to git notes (breadcrumbs ref) for audit trail.
     goals_refresh_parser = subparsers.add_parser(
         "goals-refresh",
         help=(
-            "Move a stale goal back to in_progress after you've regained "
-            "context (typically post-compact). Use after goals-get-stale "
-            "surfaces the goal and you've confirmed it's still relevant. "
-            "For irrelevant stale goals, prefer goals-complete (with reason) "
-            "or goals-prune."
+            "Deprecated, goes away in 1.18.0: the stale goal status was removed in migration 038, so this does nothing."
         ),
     )
     goals_refresh_parser.add_argument("--goal-id", required=True, help="Goal UUID to refresh")

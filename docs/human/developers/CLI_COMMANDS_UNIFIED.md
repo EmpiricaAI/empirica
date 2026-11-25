@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.17.17
-**Generated:** 2026-11-23 09:46:50 UTC
+**Framework version:** 1.17.18
+**Generated:** 2026-11-25 14:36:57 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -75,7 +75,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [handoff](#handoff) | 2 | `handoff-create`, `handoff-query` |
 | [issue](#issue) | 6 | `issue-list`, `issue-show`, `issue-handoff`, … |
 | [investigation](#investigation) | 5 | `investigate`, `investigate-create-branch`, `investigate-checkpoint-branch`, … |
-| [monitoring](#monitoring) | 9 | `monitor`, `assess-state`, `trajectory-project`, … |
+| [monitoring](#monitoring) | 8 | `assess-state`, `trajectory-project`, `efficiency-report`, … |
 | [cockpit](#cockpit) | 17 | `status`, `tui`, `off`, … |
 | [skills](#skills) | 3 | `skill-suggest`, `skill-fetch`, `skill-extract` |
 | [architecture](#architecture) | 3 | `assess-component`, `assess-compare`, `assess-directory` |
@@ -595,7 +595,7 @@ Take over a goal another AI started. Reassigns the goal's ai_id to you, imports 
 
 #### `empirica goals-mark-stale`
 
-Flag in_progress goals as stale so they are re-evaluated later (no hook calls this: the pre-compact hook leaves goals alone, because goals are the durable layer that survives compaction). Not for cleanup — use goals-prune for that.
+With --goal-id: ABANDON that goal (status='abandoned', not delivered; there is no 'stale' status since migration 038). Without --goal-id: annotate the session's open goals with stale_since metadata only, status untouched. No hook calls this. Not for cleanup — use goals-prune for that.
 
 **Arguments:**
 
@@ -610,9 +610,7 @@ Flag in_progress goals as stale so they are re-evaluated later (no hook calls th
 
 #### `empirica goals-get-stale`
 
-> **Deprecated:** goes away in 1.18.0. The stale goal status was removed (migration 038), so it does nothing.
-
-List goals marked stale by goals-mark-stale. Used to decide which goals to refresh (still relevant) vs prune (superseded by what happened). Pair: goals-refresh / goals-prune.
+Deprecated, goes away in 1.18.0: the stale goal status was removed in migration 038, so this does nothing.
 
 **Arguments:**
 
@@ -625,9 +623,7 @@ List goals marked stale by goals-mark-stale. Used to decide which goals to refre
 
 #### `empirica goals-refresh`
 
-> **Deprecated:** goes away in 1.18.0. The stale goal status was removed (migration 038), so it does nothing.
-
-Move a stale goal back to in_progress after you've regained context (typically post-compact). Use after goals-get-stale surfaces the goal and you've confirmed it's still relevant. For irrelevant stale goals, prefer goals-complete (with reason) or goals-prune.
+Deprecated, goes away in 1.18.0: the stale goal status was removed in migration 038, so this does nothing.
 
 **Arguments:**
 
@@ -2702,10 +2698,6 @@ Multi-persona parallel investigation with epistemic auto-merge
 ---
 
 ## monitoring
-
-### `empirica monitor`
-
-_Not currently wired through the main parser. Either a planned command or a stale entry in `_HELP_CATEGORIES`._
 
 #### `empirica assess-state`
 
@@ -5449,7 +5441,7 @@ Plugin layer: place files, register automations, grant ntfy topics, check env
 
 #### `empirica project-register`
 
-Atomic single-project register: read .empirica/project.yaml at PATH, dual-write workspace.db (global_projects + entity_registry), upsert ~/.empirica/registry.yaml, POST to cortex with the local project_id. Replaces the chained 'projects-discover --register NAME && projects-bulk-register --include NAME' with one verb for the AI-as-CLI-user / copy-prompt UX (extension's Discover/Register surface).
+Atomic single-project register: read .empirica/project.yaml at PATH, dual-write workspace.db (global_projects + entity_registry), upsert ~/.empirica/registry.yaml, POST to cortex with the local project_id. One verb for the AI-as-CLI-user / copy-prompt UX (extension's Discover/Register surface).
 
 **Arguments:**
 

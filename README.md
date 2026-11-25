@@ -439,17 +439,21 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.17.17
+## What's New in 1.17.18
 
-- A cockpit's `server_access` users are granted read-only access again on tmux 3.5 and later
-- Visibility notes are correct across machines
+- Practices declare what they provide, and registering sends it
+- Deprecated flags print a removal notice
+- Cockpit tabs show the mail waiting on a window's practices (`✉N`)
+- Cockpit: an FYI leaves the mail count once its practice has read it
+- `auth login` and `mesh connect` restart the running listener services
+- The epistemic-gardening skill surveys every artifact type by subject
 
-The full entry is in the [CHANGELOG](CHANGELOG.md).
+Plus 14 more entries in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.17.17** — A cockpit's `server_access` users are granted read-only access again on tmux 3.5 and later
 - **1.17.16** — A visibility note whose first write failed is retried at the next export,
-- **1.17.15** — The 31 deprecated command names go away in 1.18.0, not 1.17.15,
 
 ## What's Coming
 
