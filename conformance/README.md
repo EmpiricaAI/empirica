@@ -21,18 +21,15 @@ every test is skipped, so a plain `pytest` in a repo that vendors this directory
   archive of a proposal that does not exist (it acts on nothing) to check the browser-origin rule: a text/plain POST,
   a foreign or look-alike Origin and a foreign or look-alike Host are refused, a loopback Origin is not, and a control
   request first proves the refusals mean something. That probe needs no `--token`.
-- **write** (`--allow-writes`, opt-in): propose with an idempotency key (the same key twice is one proposal; a changed
-  body under a used key is refused), complete, archive, unknown ids never reported as success, the cross-tenant 501,
-  register and unregister, the artifact-import dry run (response fields and their types, the 500-node cap, `is_resolved` and edge-relation refusals; it writes nothing), auto-accept set and restored. Disposable servers only: cortex runs the whole suite against a
-  disposable cortex from `tests/test_conformance_write_cortex.py`.
+- **write**: lives in the empirica-cortex repository with the identity-crossing (group B) contract. Core ships the
+  read tier only (David, 2026-11-16: keep group A public, move group B).
 
 ## What the suite never does to a server
 
-Without `--allow-writes` it sends no write to a server whose edition is not `cortex`, except the group-B probe, which
+It sends no write to a server whose edition is not `cortex`, except the group-B probe, which
 the contract says answers 501 and acts on nothing, and the browser-origin probe on a `local` edition (a POST that acts
 on nothing). On `cortex` the read tier sends writes only without a credential,
-where the answer must be 401. With `--allow-writes` it creates and cleans up its own proposals, one project and the
-auto-accept setting: never point that at a server that is not disposable.
+where the answer must be 401.
 
 ## Rules it enforces that are easy to miss
 

@@ -14,9 +14,6 @@ def pytest_addoption(parser):
     g.addoption("--url", default=os.environ.get("CONFORMANCE_URL"), help="base URL of the server under test")
     g.addoption("--token", default=os.environ.get("CONFORMANCE_TOKEN"), help="bearer credential for the caller")
     g.addoption("--contract", default=os.environ.get("CONFORMANCE_CONTRACT"), help="path to routes.yaml")
-    g.addoption("--allow-writes", action="store_true", default=bool(os.environ.get("CONFORMANCE_ALLOW_WRITES")),
-                help="run the write tier. ONLY against a disposable server: it creates and archives proposals, "
-                     "registers and unregisters a project, and toggles auto-accept")
 
 
 def pytest_collection_modifyitems(config, items):
@@ -71,13 +68,6 @@ def server(http, contract):
     resp = http.get("/v1/health")
     assert resp.status_code == 200, f"GET /v1/health answered {resp.status_code}: the contract's capability document is missing"
     return resp.json()
-
-
-@pytest.fixture(scope="session")
-def writes(request):
-    """Gate for the write tier: nothing that changes the server runs without --allow-writes."""
-    if not request.config.getoption("--allow-writes"):
-        pytest.skip("write tier is opt-in (--allow-writes) and for disposable servers only")
 
 
 @pytest.fixture(scope="session")
