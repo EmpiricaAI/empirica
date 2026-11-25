@@ -7,8 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Practices declare what they provide, and registering sends it.** `provides_domains` in `.empirica/project.yaml` (or a `module.yaml`'s `provides.domains`) goes to Cortex at `project-register` and `mesh connect`, so the roster can route by role: client- and prospect-facing write-ups go to the practice that provides `client-documents`. A practice provisioned from the outreach template declares `client-documents`, `publishing`, `newsletter` and `prospect-research`.
+- **Deprecated flags print a removal notice**, as deprecated commands already did. The command still runs.
+
+### Changed
+
+- **Cockpit tabs show the mail waiting on a window's practices (`✉N`)**, and activity monitoring is off in cockpit windows: redrawing panes kept the activity mark lit on every window, so it signalled nothing.
+- **Cockpit: an FYI leaves the mail count once its practice has read it** with `empirica mailbox show`. Other messages count until answered or archived.
+- **`auth login` and `mesh connect` restart the running listener services** so they pick up the new sign-in, URL, token and topic. A stopped service stays stopped; with none installed, both say to run `empirica listener on`.
+- **The epistemic-gardening skill surveys every artifact type by subject**, never by keyword match or impact ranking.
+
+### Deprecated
+
+Removed in 1.18.0:
+
+- `goals-get-stale` and `goals-refresh`: the stale goal status no longer exists, so both did nothing.
+- Flags: `check --remaining-unknowns` (use `--unknowns`), `postflight-submit --changes` (use `--reasoning`), `checkpoint-load --format` (use `--output`), `delete-artifacts --dry-run` (preview is already the default).
+- The Python function `empirica.core.epistemic_trajectory.search_trajectories` (use `empirica project-search`).
+
+### Removed
+
+- **The asyncio startup patch written for the removed MCP server.** Every CLI start added global warning filters (one hid "coroutine was never awaited"), an event loop and an exit hook that nothing needed.
+- **Deprecated and never-built material in docs, prompts, hooks and code.** A guard test keeps removed names from coming back as current.
+
 ### Fixed
 
+- **An expired Cortex sign-in is named where people look.** Listeners whose token expired and could not refresh restarted every few minutes with the cause only in the service journal; the listener's health marker and `empirica doctor` now say: Cortex sign-in expired, run `empirica auth login`.
+- **`serve-service install` never runs the service from a temporary folder.** An installer's deleted temp folder stopped the service that refreshes the Cortex token.
+- **A seat whose notification account appears after its sign-in recovers without signing in again.** The listener fetches its ntfy credentials itself, at most once every 30 minutes per machine.
+- **The listener no longer derives a per-org orchestration topic** that Cortex no longer serves; it uses only a topic Cortex names.
+- **`empirica listener on` on a machine without Cortex offers the local server's wake tail** instead of an error.
+- **The docs index skips `docs/_archive`**, which exists only on the machine that archived a doc.
 - **Visibility notes (opt-in): a rebuild that never finished no longer stops the export.** Only the rows it added, whose tags are unknown, are left out until a rebuild finishes; a change made meanwhile on any other row is exported. A checkout that has synced before stamps a tag it set itself with its own time, even when another writer set the same tag earlier. `profile-sync --import-only` applies the visibility notes to the rows it restores, as a rebuild does.
 - **`release.py --prepare` stops when CI failed on the release commit.** A failed run used to fall through to a local test run, which could pass where CI had not; only a CI run that is missing or still running falls back to it now.
 
