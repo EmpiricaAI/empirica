@@ -197,6 +197,36 @@ def _backup_existing(unit_file: Path) -> Path | None:
         return None
 
 
+def _temp_roots() -> list[Path]:
+    """Folders whose contents do not outlive a reboot or an installer's cleanup."""
+    import tempfile
+
+    roots = [
+        Path(tempfile.gettempdir()),
+        Path("/tmp"),  # noqa: S108 - recognising a temp folder, not writing to one
+        Path("/var/tmp"),  # noqa: S108
+        Path("/private/tmp"),
+        Path("/private/var/folders"),
+    ]
+    return [r.resolve() if r.exists() else r for r in roots]
+
+
+def working_directory_for(project_root: str | Path) -> Path:
+    """The serve unit's WorkingDirectory: ``project_root``, or the home folder when that is a temporary folder.
+
+    An installer ran serve-service install from a temp folder; the folder was deleted, the unit failed with
+    status=200/CHDIR, the Cortex token it refreshes expired, and every listener on the machine crash-looped (field report,
+    2026-11-24, goal 20e5ff77). A temp folder binds no project anyway, so the home folder loses nothing.
+    """
+    root = Path(project_root).expanduser().resolve()
+    for tmp in _temp_roots():
+        if root == tmp or tmp in root.parents:
+            home = Path.home()
+            logger.warning("serve: %s is a temporary folder; the service runs from %s instead", root, home)
+            return home
+    return root
+
+
 # ─── Dataclasses ────────────────────────────────────────────────────────
 
 
@@ -287,7 +317,7 @@ class PersistentServeService:
                 "Linux/WSL2 needs systemd-user (systemctl --user is-system-running). "
                 "macOS needs launchctl. Windows-native is not supported in v1 — use WSL2."
             )
-        root = Path(project_root).resolve()
+        root = working_directory_for(project_root)
         log_path = self.log_path()
         if self.backend == "systemd":
             return self._install_systemd(root, port, host, log_path)

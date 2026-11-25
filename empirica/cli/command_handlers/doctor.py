@@ -2218,6 +2218,22 @@ def check_loops_registered() -> Check:
     )
 
 
+def _listener_degraded_reason(ai_id: str, max_age_sec: float = 3600) -> str | None:
+    """The reason in a recent ``degraded`` listener health marker, or None."""
+    import json as _json
+    from datetime import datetime, timezone
+
+    path = Path.home() / ".empirica" / f"listener_health_{ai_id}.json"
+    try:
+        data = _json.loads(path.read_text(encoding="utf-8"))
+        if data.get("status") != "degraded":
+            return None
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(data["ts"])).total_seconds()
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return str(data.get("reason") or "degraded") if age <= max_age_sec else None
+
+
 def check_listener_service(cwd: Path | None = None) -> Check:
     """Persistent listener service (systemd-user / launchd) status for project's ai_id.
 
@@ -2245,6 +2261,15 @@ def check_listener_service(cwd: Path | None = None) -> Check:
         )
     except ImportError:
         return Check("listener service installed", SKIP, "persistent_listener module missing")
+
+    degraded = _listener_degraded_reason(ai_id)
+    if degraded:  # the cause, before the service state: a crash-looping unit reads as 'inactive' (goal 20e5ff77)
+        hint = (
+            "run `empirica auth login`; the listener recovers on its next restart"
+            if "expired" in degraded
+            else "see `journalctl --user -u empirica-listener-" + ai_id + "` for the full message"
+        )
+        return Check("listener service installed", WARN, f"listener refusing to subscribe: {degraded}", hint)
 
     service = PersistentListenerService()
     status = service.status(ai_id)

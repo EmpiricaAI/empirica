@@ -155,6 +155,24 @@ def _is_three_form(tag) -> bool:
     return len(parts) == 3 and all(parts)
 
 
+_last_tag_refusal: str | None = None
+SIGNIN_EXPIRED_LINE = (
+    "Cortex sign-in expired: run `empirica auth login` (the listener retries and recovers on its own after it)"
+)
+
+
+def last_tag_refusal() -> str | None:
+    """Why the last ``resolve_tag_filter`` refused, so the health marker can carry the cause (goal 20e5ff77)."""
+    return _last_tag_refusal
+
+
+def _refuse(err_stream, reason: str) -> None:
+    global _last_tag_refusal
+    _last_tag_refusal = reason
+    if "expired" in reason:  # the one line a person reads first; the detail follows (prop_bgchkdc6)
+        err_stream.write(f"listener: {SIGNIN_EXPIRED_LINE}\n")
+
+
 def resolve_tag_filter(instance_id: str, err_stream, *, sleep=time.sleep, attempts: int = 8) -> str | None:
     """The canonical 3-form to subscribe with, or None to REFUSE. Never the bare basename.
 
@@ -183,6 +201,7 @@ def resolve_tag_filter(instance_id: str, err_stream, *, sleep=time.sleep, attemp
         resolved = mesh_bearer(_gc(), instance=instance_id)  # its practice's team, when signed in here
         url, key = resolved.get("url"), resolved.get("bearer")
         if not (url and key):
+            _refuse(err_stream, resolved.get("reason") or "no cortex credential configured")
             err_stream.write(
                 f"listener: no cortex credential "
                 f"({resolved.get('reason') or 'none configured'}); "
@@ -191,6 +210,7 @@ def resolve_tag_filter(instance_id: str, err_stream, *, sleep=time.sleep, attemp
             )
             return None
     except Exception as e:
+        _refuse(err_stream, f"cortex credential lookup failed ({e})")
         err_stream.write(
             f"listener: cortex credential lookup failed ({e}); "
             f"refusing to subscribe as the basename {instance_id!r} — live "
@@ -198,6 +218,8 @@ def resolve_tag_filter(instance_id: str, err_stream, *, sleep=time.sleep, attemp
         )
         return None
 
+    global _last_tag_refusal
+    _last_tag_refusal = None
     delay = 2.0
     last_error = "the roster returned no row for this seat"
     for attempt in range(1, attempts + 1):
@@ -220,6 +242,7 @@ def resolve_tag_filter(instance_id: str, err_stream, *, sleep=time.sleep, attemp
         f"listener: canonical ai_id for {instance_id!r} still unresolved after {attempts} attempts; "
         f"refusing to subscribe as the basename — live pushes would be silently dropped\n"
     )
+    _last_tag_refusal = f"the Cortex roster did not resolve this seat ({last_error})"
     return None
 
 
@@ -856,7 +879,9 @@ def _run_listener_body(  # noqa: C901 — held-connection loop; clarity beats de
     else:
         tag_filter = resolve_tag_filter(instance_id, err_stream, sleep=_sleep)
         if tag_filter is None:
-            _emit_fail_heartbeat(instance_id, loop_name, reason="canonical_tag_unresolved")
+            why = last_tag_refusal()
+            reason = f"canonical_tag_unresolved: {why}" if why else "canonical_tag_unresolved"
+            _emit_fail_heartbeat(instance_id, loop_name, reason=reason)
             return 2
     # Per-tenant wake topic. The credentials_loader default is the retired
     # bare `orchestration-events` topic, which has no ntfy ACL grant for

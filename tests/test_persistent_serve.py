@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import empirica.core.loop_scheduler.persistent_serve as ps
 from empirica.core.loop_scheduler.persistent_serve import (
     PersistentServeService,
     restart_serve_service_if_running,
@@ -50,6 +51,7 @@ def test_backend_launchd_on_darwin():
 
 
 def test_install_systemd_writes_supervised_unit(tmp_path, monkeypatch):
+    monkeypatch.setattr(ps, "_temp_roots", lambda: [Path("/nonexistent-tmp")])  # tmp_path is under /tmp
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     fake = MagicMock(return_value=_OK)
     with (
@@ -119,6 +121,7 @@ def test_install_systemd_adopts_not_clobbers_existing(tmp_path, monkeypatch):
 
 
 def test_install_launchd_sets_drift_exit_signal(tmp_path, monkeypatch):
+    monkeypatch.setattr(ps, "_temp_roots", lambda: [Path("/nonexistent-tmp")])  # tmp_path is under /tmp
     """launchd does not set INVOCATION_ID, so the supervised drift-exit signal is
     supplied via EMPIRICA_SERVE_DRIFT_EXIT=1. The systemd-only reaper is absent."""
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
