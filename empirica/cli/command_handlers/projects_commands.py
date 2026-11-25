@@ -1203,7 +1203,7 @@ def _link_user_to_project(
     """
     payload = {"project_id": project_id}
     try:
-        status, _body = _post_project(
+        status, body = _post_project(
             cortex_url,
             CORTEX_USER_PROJECTS_PATH,
             payload,
@@ -1214,7 +1214,41 @@ def _link_user_to_project(
         return {"linked": False, "status": 0, "reason": f"network: {type(e).__name__}: {e}"}
     if status in (200, 201, 204, 409):
         return {"linked": True, "status": status}
-    return {"linked": False, "status": status, "reason": f"http {status}"}
+    said = (
+        body.get("error") if isinstance(body, dict) else None
+    )  # Cortex's reason, e.g. "Project is in a different org"
+    return {"linked": False, "status": status, "reason": f"http {status}" + (f": {said}" if said else "")}
+
+
+def _join_on_owner_conflict(
+    cortex_url: str, project_id: str, api_key: str, timeout: float, conflict: dict[str, Any]
+) -> dict[str, Any]:
+    """After an owner_conflict: join the practice as a member, or say why not (goal 0869f94f).
+
+    Cortex models one project per practice in the team org, owned by whoever registered it; a member's seat joins it with
+    POST /v1/users/me/projects, and Cortex refuses a project in another org (403) or one it does not know (404), so the
+    join cannot attach a foreign project. A stray copy of someone else's practice still gets the fork hint.
+    """
+    join = _link_user_to_project(cortex_url, project_id, api_key, timeout)
+    if join.get("linked"):
+        return {
+            **{k: v for k, v in conflict.items() if k in ("name",)},
+            "ok": True,
+            "status": join.get("status"),
+            "outcome": "joined",
+            "project_id": project_id,
+            "note": "another member of your org registered this practice; this seat joined it",
+        }
+    return {
+        **conflict,
+        "join": join,
+        "hint": (
+            f"This project_id belongs to another owner and this seat could not join it (Cortex: {join.get('reason')}). "
+            "If it is a shared practice in your org, sign in to that org (`empirica auth login --org <org>`) and "
+            "register again. If it is a copy of someone else's practice, `empirica project-init --force` mints your own "
+            "project_id (this forks it)."
+        ),
+    }
 
 
 def _manifest_project_id(path) -> str | None:
@@ -1394,15 +1428,17 @@ def _register_one_project(
         if status in (404, 405) and path == CORTEX_REGISTER_PATH:
             continue  # try admin path
         if _is_owner_conflict(status, body):
-            # Foreign project_id (clone/dup). Return early — do NOT run the
-            # defensive user-link below, which would leak the foreign pid.
-            return {
+            # Another owner's project_id: a member's seat of a shared practice joins it; Cortex refuses a foreign one,
+            # so the join cannot attach it (goal 0869f94f). The defensive user-link below is not run either way.
+            conflict = {
                 "name": project["name"],
                 "outcome": "owner_conflict",
                 "status": status,
                 "reason": _owner_conflict_message(body) or "project_id already registered to a different owner",
                 "hint": _OWNER_CONFLICT_HINT,
             }
+            own_id = payload.get("project_id")
+            return _join_on_owner_conflict(cortex_url, own_id, api_key, timeout, conflict) if own_id else conflict
         return {
             "name": project["name"],
             "outcome": "failed",
@@ -2209,6 +2245,8 @@ def _project_register_cortex_step(
         }
 
     cortex_outcome = _interpret_cortex_register_response(status, body, project_id)
+    if cortex_outcome.get("outcome") == "owner_conflict" and not skip_link:
+        cortex_outcome = _join_on_owner_conflict(cortex_url, project_id, api_key, timeout, cortex_outcome)
     if signed_in:
         cortex_outcome["org"] = signed_in  # where it went, said every time
     if cortex_outcome.get("ok") and not skip_link and cortex_outcome.get("project_id"):
@@ -2358,7 +2396,10 @@ def _format_project_register_human(result: dict[str, Any]) -> None:
         reason = cortex.get("reason") or "skipped"
         print(f"\n⊙ Cortex: skipped ({reason})")
     elif cortex.get("ok"):
-        verb = "registered" if cortex.get("outcome") == "registered" else "already registered"
+        verb = {
+            "registered": "registered",
+            "joined": "joined as a member (another member of your org registered it)",
+        }.get(cortex.get("outcome"), "already registered")
         where = f" in org {cortex['org']}" if cortex.get("org") else ""
         print(f"\n✅ Cortex: {verb}{where} (status={cortex.get('status')})")
         if cortex.get("diverged"):
