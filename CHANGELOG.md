@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Breaking for any seat that still connects to Cortex with an api_key alone: run `empirica auth login` before or after upgrading.
+
 ### Added
 
+- **Cockpits say who they are for**: `audience: single | shared` in a cockpit config (defaulting to shared when `socket:` is set). A shared cockpit needs a socket and a single-user one cannot grant `server_access`; `empirica cockpit status` lists every profile in the two groups.
 - **`empirica practice-context` lists peers reachable through cross-org agreements** (role `cross_org`, with the agreement's scope). Only the caller's own org was read, so every practice shared by another tenant or org was invisible to an AI. Only active agreements count; a seat-to-seat agreement counts only from the practice it names.
 
 ### Fixed
@@ -19,8 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A new store takes the practice's name from its tracked `.empirica/project.yaml`**, not the folder, so per-person clones no longer show the person's name.
 - **The cockpit starts tmux inline when the systemd user manager lacks groups the login has**, so panes can open group-restricted practice folders; it says why and how to restore the survive-logout start.
 
+### Removed
+
+- **The Cortex api_key.** Core connects to Cortex only through the OAuth sign-in (`empirica auth login`, time-based tokens that refresh). A `cortex.api_key` in `credentials.yaml` or a `CORTEX_API_KEY` variable is ignored, `empirica doctor` warns about a leftover one, and any write of the cortex block drops it. The setup wizard no longer asks for a key; `--api-key` flags still accept a bearer token for a one-off override.
+
 ### Changed
 
+- **A practice joined as a member resolves its address**, so its listener subscribes and `empirica mesh diagnose` passes: Cortex lists a shared practice under its owner, and the member's address now comes from its joined practices.
+- **Discipline mode treats `source-add --visibility shared` or `public` as a change**, since it registers the source on Cortex at once; the plan-request check looks for a request rather than any mention of a plan or spec; a malformed prompt payload no longer crashes the prompt hook.
 - **The public contract no longer carries the identity-crossing (group B) routes' request and response detail or the write-tier conformance suite**; they live with Cortex. The local server still answers those routes with `501 {capability}`.
 
 ## [1.17.18] - 2026-11-25
