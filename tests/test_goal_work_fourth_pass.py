@@ -52,3 +52,17 @@ def test_flags_on_a_continued_line_belong_to_the_statement(command):
 )
 def test_comments_only_withhold_exemptions(command, expected):
     assert sd._goal_work(command) == expected
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo hi # don't\nempirica goals-create x\necho 'bye'",  # a quote in a real comment opens nothing (eighth pass)
+        "ls # see <<EOF\nempirica goals-create x",
+        'ls # a "quote\nempirica goals-create x\necho "z"',
+        "# it's\nempirica goals-add-task --goal-id g --description d\n# that's it",
+        "ls ; # x'\nempirica goals-create x --status active\n'",
+    ],
+)
+def test_a_quote_inside_a_comment_hides_nothing(command):
+    assert sd._goal_work(command) is not None
