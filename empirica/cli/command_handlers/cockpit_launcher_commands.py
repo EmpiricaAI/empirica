@@ -73,8 +73,11 @@ def _config_path_arg(args) -> tuple[str | None, str | None]:
     base = Path.home() / ".empirica" / "cockpit"
     path = base / f"config-{profile}.yaml"
     if not path.is_file():
-        found = sorted(p.stem.removeprefix("config-") for p in base.glob("config-*.yaml"))
-        return None, f"no cockpit profile {profile!r} ({path}); available: {', '.join(found) or 'none'}"
+        from empirica.core.cockpit.launcher.config import profiles_by_audience
+
+        groups = {a: [n for n in names if n != "(default)"] for a, names in profiles_by_audience(base).items()}
+        found = "; ".join(f"{a}: {', '.join(names)}" for a, names in groups.items() if names)
+        return None, f"no cockpit profile {profile!r} ({path}); available: {found or 'none'}"
     return str(path), None
 
 
@@ -557,6 +560,15 @@ def _launch_wake_lines(record: dict | None) -> list[str]:
     return launch_wake.summary_lines(record)
 
 
+def _profiles_by_audience() -> dict[str, list[str]]:
+    try:
+        from empirica.core.cockpit.launcher.config import profiles_by_audience
+
+        return profiles_by_audience()
+    except Exception:
+        return {}
+
+
 def handle_cockpit_status_command(args) -> int:
     """``empirica cockpit status``. Read-only state snapshot — does NOT
     attach. Reports session liveness, last clean shutdown, abnormal-exit
@@ -582,6 +594,8 @@ def handle_cockpit_status_command(args) -> int:
         "warnings": warnings,
         "config_file": file_state,
         "session_name": config.session_name,
+        "audience": getattr(config, "audience", "single"),
+        "profiles": _profiles_by_audience(),
         "session_live": session_live,
         "last_session_start": _format_iso(snap.last_session_start),
         "last_clean_shutdown": _format_iso(snap.last_clean_shutdown),
@@ -609,7 +623,7 @@ def handle_cockpit_status_command(args) -> int:
         return 1 if errors else 0
 
     # Human-readable
-    print(f"🛫 cockpit · session: {config.session_name}")
+    print(f"🛫 cockpit · session: {config.session_name} · {getattr(config, 'audience', 'single')}")
     for msg in errors:
         print(f"   ✗ {msg}")
     for msg in warnings:

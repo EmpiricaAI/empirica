@@ -316,6 +316,8 @@ remote_control: true           # optional: claude panes start with --remote-cont
 socket: /srv/cockpit/me.sock   # optional: run this cockpit's tmux server on its own socket, so another account can attach
 socket_group: cockpit-users    # optional (with socket): the group the socket is made readable by (default cockpit-users)
 server_access: [stage]         # optional (with socket): users granted read-only access (tmux server-access -r)
+audience: shared               # single (one person) or shared (a stage others watch: needs socket); defaults to shared
+                               # when socket is set. `cockpit status` lists profiles in these two groups
 
 projects:                      # everything a pane may reference
   - name: empirica             # also the default identity (see below)

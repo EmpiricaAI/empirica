@@ -119,6 +119,9 @@ class LauncherConfig:
     socket: str | None = None
     socket_group: str = "cockpit-users"
     server_access: list[str] = field(default_factory=list)  # users granted read-only access: server-access -a -r <u>
+    # Who the cockpit is for (goal 9ccdd9d4, David 2026-11-26): "single" (one person) or "shared" (a stage others watch, which
+    # needs a socket). Defaults from socket: so existing configs keep their meaning.
+    audience: str = "single"
 
     def project_names(self) -> list[str]:
         return [p.name for p in self.projects]
@@ -354,6 +357,9 @@ def load_config(path: Path | None = None) -> LauncherConfig:
             else None,
             socket_group=str(raw.get("socket_group") or "cockpit-users"),
             server_access=[str(u) for u in raw.get("server_access") or [] if isinstance(u, str) and u.strip()],
+            audience=str(raw["audience"]).strip().lower()
+            if isinstance(raw.get("audience"), str) and raw["audience"].strip()
+            else ("shared" if isinstance(raw.get("socket"), str) and raw["socket"].strip() else "single"),
         )
     )
 
@@ -517,6 +523,37 @@ def dropped_entries(raw: dict) -> list[str]:
     return out + _dropped_groups(raw)
 
 
+AUDIENCES = ("single", "shared")
+
+
+def _audience_errors(config: LauncherConfig) -> list[str]:
+    """What a cockpit's audience asks of its config (goal 9ccdd9d4): shared needs a socket, single grants no access."""
+    audience = getattr(config, "audience", "single")
+    if audience not in AUDIENCES:
+        return [f"audience {audience!r} is not one of {', '.join(AUDIENCES)}"]
+    if audience == "shared" and not config.socket:
+        return ["a shared cockpit needs socket: (the tmux server others connect to)"]
+    if audience == "single" and config.server_access:
+        return ["a single-user cockpit cannot list server_access users; set audience: shared"]
+    return []
+
+
+def profiles_by_audience(base: Path | None = None) -> dict[str, list[str]]:
+    """The cockpit profiles in ``base`` (default ~/.empirica/cockpit) grouped by audience; the default config is
+    "(default)". An unreadable profile is listed under its default audience rather than dropped."""
+    base = base or (Path.home() / ".empirica" / "cockpit")
+    groups: dict[str, list[str]] = {a: [] for a in AUDIENCES}
+    entries = [("(default)", base / "config.yaml")] if (base / "config.yaml").is_file() else []
+    entries += sorted((p.stem.removeprefix("config-"), p) for p in base.glob("config-*.yaml"))
+    for name, path in entries:
+        try:
+            audience = load_config(path).audience
+        except Exception:
+            audience = "single"
+        groups.setdefault(audience if audience in AUDIENCES else "single", []).append(name)
+    return groups
+
+
 def validate_file(path: Path | None = None) -> tuple[list[str], list[str]]:
     """``(errors, warnings)`` for the config at ``path``: what the loader dropped, then what the
     loaded config cannot do. A file that cannot be read yields no per-entry findings; the caller
@@ -546,6 +583,7 @@ def validate_config(config: LauncherConfig) -> tuple[list[str], list[str]]:
     """
     errors: list[str] = []
     warnings: list[str] = []
+    errors.extend(_audience_errors(config))
     seen: set[str] = set()
     for proj in config.projects:
         if proj.name in seen:
