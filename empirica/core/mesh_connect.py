@@ -275,7 +275,8 @@ def connect(
             register = _register_one_project
         reg = register(project, url, bearer, 30.0)
         report["register"] = reg
-        if reg.get("outcome") not in ("registered", "skipped"):
+        # joined: a member's seat of a shared practice another member registered (goal 0869f94f); it imports like the owner's.
+        if reg.get("outcome") not in ("registered", "skipped", "joined"):
             return {
                 **report,
                 "step": "register",

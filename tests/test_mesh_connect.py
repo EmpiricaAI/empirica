@@ -403,3 +403,17 @@ def test_a_local_source_stays_unless_local_is_included(store):
     ids_default = {n["id"] for n in mc.export_nodes(db.conn, PROJECT["project_id"])[0]}
     ids_all = {n["id"] for n in mc.export_nodes(db.conn, PROJECT["project_id"], include_local=True)[0]}
     assert "s-shared" in ids_default and "s-local" not in ids_default and "s-local" in ids_all
+
+
+def test_a_members_joined_practice_goes_on_to_import(store):
+    """A member's seat of a shared practice registers as joined (goal 0869f94f); it must still import (prop_letvner5)."""
+    db, _ = store
+    cortex = FakeCortex()
+
+    def joined(project, url, bearer, timeout):
+        return {"name": project["name"], "outcome": "joined", "status": 200, "project_id": project["project_id"]}
+
+    report = mc.connect(
+        project=PROJECT, conn=db.conn, credential=_signed_in, http=cortex, register=joined, confirm_team=True
+    )
+    assert report["ok"] is True and cortex.imports()
