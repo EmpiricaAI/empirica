@@ -1283,13 +1283,17 @@ def empirica_command_free_in_discipline(cmd: str) -> bool:
     artifact and workflow verbs (DISCIPLINE_FREE_VERBS and every *-log verb), unless an option makes the verb do more than
     record (DISCIPLINE_JUDGED_OPTIONS). Matched on whole verb tokens, so `empirica notebook` is not `empirica note`. Before
     goal 329c014e a workflow verb beside any other statement went to the judge as a change it could not read, and the line
-    was refused: David, 2026-11-20, "its also gating empirica commands like notes"."""
+    was refused: David, 2026-11-20, "its also gating empirica commands like notes".
+
+    Precondition: ``cmd`` is ONE statement already split from its line (decision_record does the split), so chains,
+    substitutions and pipes are judged as their own statements; called on a raw line it would free a rider. Every *-log
+    verb is free by suffix on purpose, so a new one is free without a decision: add it to the judged set if it sends."""
     if empirica_command_only_reads(cmd):
         return True
     tokens = cmd.split()
     if len(tokens) < 2 or tokens[0] != "empirica":
         return False
-    if any(_names_judged_option(t) for t in tokens[2:]):
+    if any(_names_judged_option(t) for t in tokens[2:]) or _shares_beyond_this_machine(tokens):
         return False
     return (
         tokens[1].endswith("-log") or tuple(tokens[1:3]) in DISCIPLINE_FREE_VERBS or tokens[1] in DISCIPLINE_FREE_VERBS
@@ -1303,6 +1307,21 @@ empirica_command_free_in_discipline.reads_only = empirica_command_only_reads  # 
 #: Options that make a free workflow verb do more than record: git merges and branch deletes (goals-complete), and an
 #: upload to Cortex (source-add --media). A call carrying one is judged as a change (1.17.16 sweep).
 DISCIPLINE_JUDGED_OPTIONS = {"--merge-branch", "--delete-branch", "--media"}
+
+
+def _shares_beyond_this_machine(tokens: list[str]) -> bool:
+    """source-add with --visibility shared or public registers the source on Cortex at call time (POST
+    /v1/sources/register), a network send, so it is judged (ecodex sweep, goal befb499f). A *-log verb records locally and
+    sync sends later, so it stays free; local visibility sends nothing."""
+    if len(tokens) < 2 or tokens[1] != "source-add":
+        return False
+    for i, token in enumerate(tokens[2:], start=2):
+        name, _, value = token.partition("=")
+        if name.startswith("--vis") and "--visibility".startswith(name):
+            value = value or (tokens[i + 1] if i + 1 < len(tokens) else "")
+            if value.strip("'\"").lower() in ("shared", "public"):
+                return True
+    return False
 
 
 def _names_judged_option(token: str) -> bool:

@@ -28,6 +28,13 @@ _spec.loader.exec_module(tracker)
         "close the transaction and commit",
         "fix the typo in the README",
         "this is a complex one, but just rename the flag",
+        # ecodex (1.17.18 vendored sweep): the regex's own words used as mentions, not requests
+        "explain the plan you made",
+        "the spec says X, is that right?",
+        "implementation detail question",
+        "read docs/spec.md",
+        "rename plan.md",
+        "no plan needed, just fix the typo",
     ],
 )
 def test_framework_vocabulary_is_not_a_plan_request(prompt):
@@ -44,6 +51,9 @@ def test_framework_vocabulary_is_not_a_plan_request(prompt):
         "how should I approach the migration?",
         "decompose this into tasks",
         "this is multi-step work",
+        "please plan this out",
+        "check the inbox and implement the fix",
+        "can you write a plan for the release",
     ],
 )
 def test_requests_for_planned_work_still_are(prompt):
