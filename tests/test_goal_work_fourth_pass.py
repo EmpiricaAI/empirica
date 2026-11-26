@@ -192,3 +192,16 @@ def test_a_heredoc_written_to_a_file_that_is_not_run_stays_exempt():
 )
 def test_thirteenth_pass_misses_are_detected(command):
     assert sd._goal_work(command) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat > seed <<'EOF' && chmod +x seed && ./seed\nempirica gc --objective x\nEOF",  # fourteenth pass
+        "echo 'empirica gc --objective x' > seed && chmod +x seed && ./seed",
+        '"/home/u/.local/bin/empirica" gc --objective x',
+        "cat > justfile <<'EOF'\nseed:\n\tempirica goals-create --objective x\nEOF\njust seed",
+    ],
+)
+def test_fourteenth_pass_misses_are_detected(command):
+    assert sd._goal_work(command) is not None

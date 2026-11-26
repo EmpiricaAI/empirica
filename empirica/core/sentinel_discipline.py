@@ -595,7 +595,7 @@ def _is_person_prompt(record: dict) -> bool:
 #: readings with and without comments) left a form where a misread hid a real goal; a false hit only asks for a PREFLIGHT.
 #: Sentinel is discipline, not security: an author who wants to evade it can; this only has to not miss ordinary work.
 _GOAL_VERB = re.compile(
-    r"(?<![\w.-])empirica(?:\.[\w.]+)?"  # `python -m empirica.cli goals-create`, which doctor recommends (13th pass)
+    r"(?<![\w.-])empirica(?:\.[\w.]+)?[\"']?"  # `python -m empirica.cli ...` (13th pass), `"/path/empirica" gc` (14th)
     # global options may come first, in any spelling argparse takes (`--verbose`, `-vv`, `--verb`, `--config f`)
     r"(?:(?:\s|\\\n)+(?:--config(?:=\S+|(?:\s|\\\n)+\S+)|-[\w-]+))*"
     r"(?:\s|\\\n)+(goals?-create|gc|goals?-add-task)(?![\w-])"
@@ -632,21 +632,21 @@ def _exempt_mention(command: str, start: int) -> bool:
         terminator = re.compile(rf"^[ \t]*{re.escape(m.group(2))}[ \t]*$", re.M).search(command, m.end())
         opener = command[command.rfind("\n", 0, m.start()) + 1 : m.end()]
         if terminator and opener.count("'") + opener.count('"') == 2:
-            bodies.append((m.end(), terminator.start()))
-    outside = "".join(command[i] if not any(a <= i < b for a, b in bodies) else " " for i in range(len(command)))
+            bodies.append((m.end(), terminator.start(), terminator.end()))
+    blank = [(a, end) for a, _b, end in bodies]  # body and its terminator line
+    outside = "".join(command[i] if not any(a <= i < e for a, e in blank) else " " for i in range(len(command)))
+    if re.search(r">|\btee\b", _INERT_QUOTE.sub(" _ ", outside)) and re.search(
+        r"&&|\|\||;|\||\n[ \t]*\S", outside.strip()
+    ):
+        return False  # it writes a file AND does something else: the file may be run (`cat > seed <<'EOF' && ./seed`,
+        # `echo '...' > seed && ./seed`: fourteenth pass), so no mention in it is exempt
     if any(c in outside for c in "$`\\") or re.search(r"(?:^|[\s;&|(])#", outside):
         return False  # substitution, an escape or a comment: the quoting cannot be trusted (eleventh pass: a heredoc
         # opener inside a comment, a multi-line message or after a continuation exempted a verb bash runs)
     if "'" in _INERT_QUOTE.sub("", outside) or '"' in _INERT_QUOTE.sub("", outside):
         return False  # a quote that is not an inert same-line pair: the pairing cannot be trusted
-    for a, b in bodies:
-        if a <= start < b:
-            # a body written to a file is exempt only when nothing runs after the heredoc: a runner may read the file
-            # without naming it (`cat > justfile <<'EOF' ... just seed`, thirteenth pass)
-            opener = command[command.rfind("\n", 0, a - 1) + 1 : a]
-            writes = re.search(r"(?:>>?|\btee\b)", opener)
-            after = command[b:].split("\n", 1)[1] if "\n" in command[b:] else ""
-            return not (writes and after.strip())
+    if any(a <= start < b for a, b, _end in bodies):
+        return True
     return any(q.start() < start < q.end() for q in _INERT_QUOTE.finditer(outside))
 
 
@@ -703,7 +703,9 @@ def _goal_work(command: object) -> str | None:
         return None
     for m in _GOAL_VERB.finditer(command):
         is_goal = m.group(1) in ("goals-create", "goal-create", "gc")
-        if _exempt_mention(command, m.start()) or _exempt_statement(command, m.end(), is_goal):
+        if _exempt_mention(command, m.start(1)) or _exempt_statement(
+            command, m.end(), is_goal
+        ):  # the verb's own position
             continue
         return "an empirica goal" if is_goal else "an empirica task"
     return None
