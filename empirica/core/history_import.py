@@ -28,6 +28,7 @@ the practice model already states: **artifacts accrue to the practice, calibrati
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import time
 from pathlib import Path
@@ -244,13 +245,22 @@ def _plan(
         if chosen and any(c not in dst[name] for c in cols):
             dropped_columns[name] = [c for c in cols if c not in dst[name]]
         col_list = ", ".join(_quote(c) for c in common)
+        prepare: list[str] = []
         if renumbered:
             # Row by row, not EXCEPT: without the id, two genuinely repeated records would collapse into one. A re-run
-            # still adds nothing, because each row it would add is already there.
+            # still adds nothing, because each row it would add is already there. Compared against an indexed TEMP copy
+            # of the target's rows (a TEMP table: its name resolves before main's, and its index lands in temp too):
+            # unindexed, it was quadratic (20 s at 10k x 10k, 1.17.20 third pass).
+            snap = _quote(f"_hi_snapshot_{len(statements)}")
+            prepare = [
+                f"DROP TABLE IF EXISTS {snap}",
+                f"CREATE TEMP TABLE {snap} AS SELECT {col_list} FROM main.{table}",
+                f"CREATE INDEX {_quote(f'_hi_ix_{len(statements)}')} ON {snap} ({col_list})",
+            ]
             same = " AND ".join(f"m.{_quote(c)} IS {_expr(c, 's.')}" for c in common) or "1"
             new_rows = (
                 f"SELECT {_select_exprs(common, 's.')} FROM src.{table} AS s WHERE ({cond}) "
-                f"AND NOT EXISTS (SELECT 1 FROM main.{table} AS m WHERE {same})"
+                f"AND NOT EXISTS (SELECT 1 FROM {snap} AS m WHERE {same})"
             )
         else:
             new_rows = f"SELECT {_select_exprs(common)} FROM src.{table} WHERE {cond} EXCEPT SELECT {col_list} FROM main.{table}"
@@ -263,6 +273,7 @@ def _plan(
             else ""
         )
         statements[name] = {
+            "prepare": prepare,
             "insert": f"INSERT OR IGNORE INTO main.{table} ({col_list}) {new_rows}",
             "count": f"SELECT COUNT(*) FROM ({new_rows})",
             "present": present,
@@ -280,7 +291,8 @@ def _backup(target_db: Path) -> Path:
     """A consistent copy of the target, WAL included (a file copy of sessions.db alone misses recent commits). Called while
     the copy holds the target's write lock, so nothing can change between the backup and the inserts, and no other writer
     can hold the lock the backup would wait on."""
-    backup = target_db.with_name(f"{target_db.name}.bak-history-{time.strftime('%Y%m%d-%H%M%S')}")
+    stamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}-{time.time_ns() % 1_000_000:06d}"  # two runs never collide
+    backup = target_db.with_name(f"{target_db.name}.bak-history-{stamp}")
     live = sqlite3.connect(str(target_db), timeout=10)
     try:
         copy = sqlite3.connect(str(backup))
@@ -331,6 +343,8 @@ def copy_history(
             if apply:  # under the write lock: current, and only made when the copy can actually run
                 backup = _backup(target_db)
             for name, sql in plan["statements"].items():
+                for step in sql["prepare"]:
+                    conn.execute(step)
                 candidates = conn.execute(sql["count"], params).fetchone()[0]
                 already = conn.execute(sql["present"], params).fetchone()[0] if sql["present"] and candidates else 0
                 counts[name] = conn.execute(sql["insert"], params).rowcount

@@ -1068,10 +1068,25 @@ def test_a_string_message_record_does_not_break_the_scan(tmp_path):
     assert sd.planning_in_transcript(_transcript(tmp_path, *records)) is not None
 
 
-def test_a_line_with_a_recording_verb_still_meets_the_plan_check(home, monkeypatch):
-    """Only a pure read (classes none) is answered before the plan check (1.17.20 second pass: mailbox reply sends)."""
+def test_a_remote_read_still_runs_after_a_goal_is_created(home, monkeypatch):
+    """Every read is answered before the plan check, remote reads included (1.17.20 third pass)."""
     monkeypatch.setattr(sd, "plan_shaped", lambda *a, **k: "the session created an empirica goal")
     monkeypatch.setattr(
-        sd, "judge", lambda *a, **k: {"trivial": True, "read": True, "classes": ["empirica_state"], "why": ""}
+        sd, "judge", lambda *a, **k: {"trivial": True, "read": True, "classes": ["remote_read"], "why": ""}
     )
-    assert _decide(home, "empirica mailbox reply --parent-id p && empirica finding-log --finding x")[0] == "deny"
+    assert _decide(home, "ssh host cat /etc/hosts")[0] == "allow"
+
+
+@pytest.mark.parametrize(
+    "command, plan",
+    [
+        ('GID="$(empirica goals-create --objective x --output json | jq -r .goal_id)"', True),
+        ('echo "created `empirica goals-add-task --goal-id g --description d`"', True),
+        ("echo $'a\\'b' && empirica goals-create --objective x && echo 'done'", True),
+        ("empirica \\\ngoals-create --objective x", True),
+        ("empirica goals-create --objective '-h'", True),
+    ],
+)
+def test_third_pass_forms_are_detected(tmp_path, command, plan):
+    records = [_prompt("do the thing"), _call("Bash", command=command)]
+    assert (sd.planning_in_transcript(_transcript(tmp_path, *records)) is not None) is plan

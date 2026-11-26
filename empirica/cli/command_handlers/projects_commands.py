@@ -1897,9 +1897,9 @@ def _local_unregister_on_cortex(args, rows: list[dict[str, Any]]) -> tuple[Any, 
         outcomes[pid] = {"outcome": outcome, "status_code": status, **({"org_id": org_id} if org_id else {})}
         if not ok:
             failed.append(pid)
-    if not signed_in_any:
-        orgs = sorted({o["org_id"] for o in outcomes.values() if o.get("org_id")})
-        return ("not signed in" + (f" to {', '.join(orgs)}" if orgs else "") + ": local only"), []
+    if not signed_in_any and not any(o.get("org_id") for o in outcomes.values()):
+        return "not signed in: local only", []
+    # Some practice named an org this machine is not signed in to: keep the per-id outcomes so the notes name them.
     return outcomes, failed
 
 
@@ -1920,8 +1920,8 @@ def _cortex_notes(cortex: Any) -> list[str]:
     unknown = [pid for pid, o in cortex.items() if o.get("outcome") == "not_found_for_this_sign_in"]
     if unknown:
         notes.append(
-            "Cortex knows nothing of " + ", ".join(unknown) + " under this machine's sign-in; their folder is gone, so "
-            "their own org was not asked"
+            "Cortex knows nothing of " + ", ".join(unknown) + " under this machine's sign-in; their own org is unknown "
+            "(no folder, or no org_id in its project.yaml), so it was not asked"
         )
     return notes
 

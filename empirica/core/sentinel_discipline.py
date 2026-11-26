@@ -600,15 +600,16 @@ _STDIN_PLANNED = re.compile(r'"status"\s*:\s*"planned"')
 _SHELL_C = re.compile(r"\b(?:bash|sh|zsh|dash)\s+(?:-\w+\s+)*-c\s*$")
 
 
-def _masked(command: str, start: int, end: int, spans: list[tuple[int, int]]) -> str:
-    """command[start:end] with quoted text blanked, except a quoted value that is just a word (`--status "planned"`)."""
+def _masked(command: str, start: int, end: int, spans: list[tuple[int, int]], keep_words: bool = True) -> str:
+    """command[start:end] with quoted text blanked, except (keep_words) a quoted value that is just a word
+    (`--status "planned"`)."""
     out, pos = [], start
     for a, b in spans:
         if b <= start or a >= end:
             continue
         out.append(command[pos:a])
         inner = command[a + 1 : b - 1] if command[a] in "'\"" else ""
-        out.append(inner if re.fullmatch(r"[\w-]+", inner or "") else " _ ")
+        out.append(inner if keep_words and re.fullmatch(r"[\w-]+", inner or "") else " _ ")
         pos = b
     out.append(command[pos:end])
     return "".join(out)
@@ -625,12 +626,14 @@ def _data_spans(command: str) -> list[tuple[int, int]]:
             i += 2
             continue
         if ch in "'\"":
+            ansi = ch == "'" and i > 0 and command[i - 1] == "$"  # $'...' takes backslash escapes
             j = i + 1
             while j < n and command[j] != ch:
-                j += 2 if (ch == '"' and command[j] == "\\") else 1
+                j += 2 if ((ch == '"' or ansi) and command[j] == "\\") else 1
             if j >= n:
                 return spans  # unbalanced: stop treating anything as data
-            if not _SHELL_C.search(command, 0, i):  # `bash -c '...'` is commands, not data
+            runs = ch == '"' and ("$(" in command[i:j] or "`" in command[i:j])  # "$(empirica goals-create ...)" runs
+            if not runs and not _SHELL_C.search(command, 0, i):  # `bash -c '...'` is commands, not data
                 spans.append((i, j + 1))
             i = j + 1
             continue
@@ -662,6 +665,7 @@ def _goal_work(command: object) -> str | None:
     heredoc that statement feeds), start nothing."""
     if not isinstance(command, str) or "empirica" not in command:
         return None
+    command = command.replace("\\\n", " ")  # a line continuation joins the words it splits
     matches = list(_GOAL_VERB.finditer(command))
     if not matches:
         return None
@@ -671,7 +675,7 @@ def _goal_work(command: object) -> str | None:
             continue  # quoted or a heredoc body
         end = _statement_end(command, m.end(), spans)
         statement = _masked(command, m.end(), end, spans)
-        if re.search(r"(?:^|\s)(?:--help|-h)(?=\s|$)", statement):
+        if re.search(r"(?:^|\s)(?:--help|-h)(?=\s|$)", _masked(command, m.end(), end, spans, keep_words=False)):
             continue
         is_goal = m.group(1) in ("goals-create", "goal-create", "gc")
         if is_goal and _PLANNED.search(statement):
@@ -856,15 +860,11 @@ def decide(
     if mode == "off":
         return ("allow", f"Sentinel mode off ({settings['mode_source']}): allowed outside a transaction, not counted.")
     verdict = judge(tool_name, tool_input, cwd=cwd, project_root=project_root, empirica_is_read=empirica_is_read)
-    pure_read = verdict.get("read") and verdict.get("classes") in (["none"], [])
-    if pure_read:  # before the plan check: planned work still reads (1.17.20 sweep); a line with a verb that records or
-        # sends (mailbox reply, lesson-create) is not a pure read and still meets the plan check, as before
+    if verdict.get("read"):  # before the plan check: planned work still reads, remote reads included (1.17.20 sweep)
         return ("allow", "A read outside a transaction (discipline mode): it changes nothing, so it is not counted.")
     planning = plan_shaped(suffix, transcript_path)
     if planning:
         return ("deny", f"Outside a transaction, and this is planned work: {planning}. Open one with PREFLIGHT.")
-    if verdict.get("read"):
-        return ("allow", "A read outside a transaction (discipline mode): it changes nothing, so it is not counted.")
     if not verdict["trivial"]:
         return (
             "deny",

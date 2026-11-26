@@ -427,3 +427,22 @@ def test_the_backup_is_made_under_the_write_lock_and_not_when_the_copy_cannot_ru
         holder.execute("ROLLBACK")
         holder.close()
     assert not list(dst.parent.glob("new.db.bak-history-*"))  # no backup for a copy that never ran
+
+
+def test_the_row_by_row_check_is_not_quadratic(tmp_path):
+    """10k x 10k auto-numbered rows took 20 s unindexed (1.17.20 third pass)."""
+    import time as _t
+
+    src = _db(tmp_path / "big_old.db", [("sessions", ("s1", OLD_AI, OLD_PID))])
+    dst = _db(tmp_path / "big_new.db", [])
+    for path, sid, pid in ((src, "s1", OLD_PID), (dst, "s-new", NEW_PID)):
+        conn = sqlite3.connect(str(path))
+        conn.executemany(
+            "INSERT INTO reflexes (session_id, project_id, phase) VALUES (?, ?, ?)",
+            [(sid, pid, f"p{i}") for i in range(10_000)],
+        )
+        conn.commit()
+        conn.close()
+    t0 = _t.time()
+    plan = _copy(src, dst, apply=True)
+    assert plan["tables"]["reflexes"] == 10_000 and _t.time() - t0 < 10

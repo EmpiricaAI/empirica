@@ -172,7 +172,7 @@ def test_a_project_cortex_never_had_is_reported_not_failed(ws, regfile, cortex, 
     cortex["status"] = 404
     code, out = _run(capsys, [orphan], apply=True)
     assert code == 0 and out["cortex"][orphan]["outcome"] == "not_found_for_this_sign_in"  # its folder is gone
-    assert any("own org was not asked" in n for n in out["notes"])
+    assert any("own org is unknown" in n for n in out["notes"])
 
 
 def test_not_signed_in_stays_local_and_says_so(ws, regfile, cortex, capsys):
@@ -344,3 +344,12 @@ def test_ids_no_sign_in_could_archive_are_named(ws, regfile, cortex, monkeypatch
     code, out = _run(capsys, [a, b], apply=True)
     assert code == 0 and out["cortex"][b]["outcome"] == "not signed in"
     assert any(b in n and "no sign-in for their org" in n for n in out["notes"])
+
+
+def test_when_no_row_could_be_archived_the_ids_are_still_named(ws, regfile, monkeypatch, capsys):
+    a = str(uuid.uuid4())
+    _registry(regfile, (a, "a"))
+    monkeypatch.setattr(pc, "_practice_org_id", lambda path: "org-other")
+    monkeypatch.setattr(pc, "_resolve_cortex_config", lambda args, org_id=None: (None, None))
+    code, out = _run(capsys, [a], apply=True)
+    assert code == 0 and any(a in n for n in out["notes"])
