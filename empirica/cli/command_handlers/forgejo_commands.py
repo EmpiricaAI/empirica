@@ -254,7 +254,7 @@ def handle_forgejo_publish_command(args) -> int:
 
     cortex_url, api_key = _resolve_cortex_config()
     if not (cortex_url and api_key):
-        return _emit({"ok": False, "reason": "no cortex url/api_key (configure ~/.empirica/credentials.yaml)"}, 1)
+        return _emit({"ok": False, "reason": "no Cortex url or sign-in (run `empirica auth login`)"}, 1)
 
     # PREVIEW, and it returns before the POST — the POST is the mint.
     #

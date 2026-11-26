@@ -199,7 +199,7 @@ def share_socket(config, run=subprocess.run) -> dict | None:
 def manager_missing_groups(
     run=subprocess.run, proc_root: Path = Path("/proc"), login_groups: set[int] | None = None
 ) -> set[int]:
-    """Groups this login has that the systemd --user manager lacks (goal 41f000f0); empty when unknown or current.
+    """Groups this process holds that the systemd --user manager lacks (goal 41f000f0); empty when unknown or current.
 
     A server started with systemd-run --user gets the manager's groups, fixed when the manager started. After a later
     group grant the login has more, and panes opened in a group-restricted practice folder fall back to the home folder.
@@ -220,10 +220,9 @@ def manager_missing_groups(
         )
         manager = {int(g) for g in line.split(":", 1)[1].split()} if line else set()
         if login_groups is None:
-            import pwd
-
-            entry = pwd.getpwuid(os.getuid())
-            login_groups = set(os.getgrouplist(entry.pw_name, entry.pw_gid))
+            # The groups this process HOLDS, which an inline server inherits; not the group database (getgrouplist),
+            # whose new grants no running process has until the next login (1.17.19 sweep).
+            login_groups = set(os.getgroups())
     except (OSError, ValueError, KeyError, subprocess.TimeoutExpired):
         return set()
     return set(login_groups) - manager if manager else set()

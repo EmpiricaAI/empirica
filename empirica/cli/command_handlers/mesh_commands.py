@@ -734,7 +734,7 @@ def _run_cortex_panel(ai_id: str, peer: str | None):
     api_key = cortex_block.get("api_key")
     if not (cortex_url and api_key):
         sys.stderr.write(
-            "--cortex requested but credentials.yaml cortex block missing url/api_key; skipping cortex-side panel.\n"
+            "--cortex requested but no Cortex url or sign-in (run `empirica auth login`); skipping cortex-side panel.\n"
         )
         return None
     # ntfy block lives at top level of credentials.yaml; reload to pick it up.

@@ -137,7 +137,7 @@ def check_identity(ai_id: str, cortex_url: str, api_key: str) -> CheckResult:
         return _fail(
             name,
             f"roster fetch failed: {type(e).__name__}: {e}",
-            fix="check cortex_url + api_key in ~/.empirica/credentials.yaml",
+            fix="check cortex.url in ~/.empirica/credentials.yaml and run `empirica auth login`",
         )
     self_meta = body.get("self") or {}
     self_tenant = self_meta.get("tenant_slug") or "unknown"
@@ -382,7 +382,7 @@ def check_mesh_agreement(
         return _fail(
             name,
             f"agreements fetch failed: {type(e).__name__}: {e}",
-            fix="check cortex_url + api_key in credentials.yaml",
+            fix="check cortex.url in credentials.yaml and run `empirica auth login`",
             peer=peer_canonical,
         )
     agreements = body.get("agreements") or body.get("rows") or []

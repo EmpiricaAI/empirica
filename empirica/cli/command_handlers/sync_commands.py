@@ -11,6 +11,7 @@ Commands:
 
 import json
 import logging
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -513,7 +514,8 @@ def public_notes_remote(remote: str) -> str | None:
     """Why ``remote`` is public (a known public host, or a remote declared public), or None. Shared by every command that
     pushes epistemic notes: sync-push and profile-sync --push (the latter had no check; found 2026-11-25)."""
     remote_url = _get_remote_url(remote)
-    # A remote whose URL cannot be read is one git cannot push to either: the push itself reports that failure.
+    if not remote_url and re.match(r"^(?:[a-z+]+://|[\w.-]+@[\w.-]+:)", remote or ""):
+        remote_url = remote  # a URL given as the remote: git pushes to it directly (1.17.19 sweep)
     detected = _public_host(remote_url) if remote_url else None
     if not detected and _load_sync_config().get("visibility") == "public":
         # A self-hosted public instance is invisible to the host list; the owner's declaration covers it. `private`

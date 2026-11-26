@@ -1514,7 +1514,9 @@ def add_checkpoint_parsers(subparsers):
     )
     source_add_parser.add_argument("--url", help="URL (for web sources)")
     source_add_parser.add_argument("--cortex-url", help="Cortex URL override (default: credentials.yaml)")
-    source_add_parser.add_argument("--api-key", help="Cortex API key override (default: credentials.yaml)")
+    source_add_parser.add_argument(
+        "--api-key", help="Cortex bearer override (default: the OAuth sign-in from `empirica auth login`)"
+    )
     direction_group = source_add_parser.add_mutually_exclusive_group(required=True)
     direction_group.add_argument(
         "--noetic", action="store_true", help="Source used — evidence that informed knowledge (source IN)"
@@ -1582,7 +1584,9 @@ def add_checkpoint_parsers(subparsers):
     source_get_parser.add_argument("--id", required=True, help="Source UUID to fetch")
     source_get_parser.add_argument("--out", required=True, help="Local path to write the fetched bytes to")
     source_get_parser.add_argument("--cortex-url", help="Cortex URL override (default: credentials.yaml)")
-    source_get_parser.add_argument("--api-key", help="Cortex API key override (default: credentials.yaml)")
+    source_get_parser.add_argument(
+        "--api-key", help="Cortex bearer override (default: the OAuth sign-in from `empirica auth login`)"
+    )
     source_get_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     source_get_parser.add_argument("--verbose", action="store_true", help="Verbose output")
 

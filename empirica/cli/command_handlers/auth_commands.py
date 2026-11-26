@@ -161,7 +161,7 @@ def handle_auth_login_command(args) -> int:
                 name = f"{org['org_name']} ({org['org_id']})" if org.get("org_name") else org["org_id"]
                 print(f"   {'joined by invite' if result.get('invite') else 'signed in to'}: org {name}")
         elif verify is False:
-            print("❌ token stored but an authenticated call FAILED — do not retire this seat's api_key")
+            print("❌ token stored but an authenticated call FAILED — run `empirica auth login` again")
     return 0
 
 
@@ -355,6 +355,7 @@ def _drop_oauth_block(loader, slot: str | None = None) -> Path | None:
             cortex_block.pop("orgs")
     else:
         return None
+    cortex_block.pop("api_key", None)  # retired (goal 739e47b2): every write of the block drops it
     existing["cortex"] = cortex_block
     return loader._write_credentials(target, existing)
 

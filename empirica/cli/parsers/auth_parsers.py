@@ -26,7 +26,7 @@ def add_auth_parsers(subparsers) -> None:
 
     login = actions.add_parser(
         "login",
-        help="Authorization_code + PKCE browser flow; stores the token set under cortex.oauth and verifies it with a real authenticated call. Never touches the api_key.",
+        help="Authorization_code + PKCE browser flow; stores the token set under cortex.oauth and verifies it with a real authenticated call. Drops a leftover api_key (retired).",
     )
     login.add_argument(
         "--timeout",
@@ -109,7 +109,7 @@ def add_auth_parsers(subparsers) -> None:
 
     logout = actions.add_parser(
         "logout",
-        help="Revoke this seat's refresh token at cortex and drop cortex.oauth. The api_key is untouched — logout is never a lockout.",
+        help="Revoke this seat's refresh token at cortex and drop cortex.oauth. After logout this seat has no Cortex credential until the next `empirica auth login`.",
     )
     logout.add_argument(
         "--org",

@@ -2391,7 +2391,7 @@ def _check_credentials_state() -> dict:
         if not cortex.get("url"):
             missing.append("url")
         if not cortex.get("api_key"):
-            missing.append("api_key or an `empirica auth login` session")
+            missing.append("an `empirica auth login` session")
         issues.append(f"cortex: missing {', '.join(missing)}")
 
     ntfy_url_ok = bool(ntfy.get("url"))

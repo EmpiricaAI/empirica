@@ -560,6 +560,12 @@ def _launch_wake_lines(record: dict | None) -> list[str]:
     return launch_wake.summary_lines(record)
 
 
+def _print_profiles(groups: dict[str, list[str]]) -> None:
+    """The profiles in their two groups, as the guide says (1.17.19 sweep)."""
+    for audience, names in groups.items():
+        print(f"   {audience} profiles: {', '.join(names) or 'none'}")
+
+
 def _profiles_by_audience() -> dict[str, list[str]]:
     try:
         from empirica.core.cockpit.launcher.config import profiles_by_audience
@@ -629,6 +635,7 @@ def handle_cockpit_status_command(args) -> int:
     for msg in warnings:
         print(f"   ⚠ {msg}")
     print(f"   live: {'yes' if session_live else 'no'}")
+    _print_profiles(payload.get("profiles") or {})
     print(
         f"   last start:  {_format_iso(snap.last_session_start)} ({_format_age(_age_seconds(snap.last_session_start))})"
     )

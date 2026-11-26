@@ -236,12 +236,14 @@ def joined_practice_canonical(cortex_url: str, api_key: str, basename: str, *, t
     except Exception as e:
         logger.debug("content_poll: joined-practice lookup failed for %s: %s", basename, e)
         return None
-    for proj in (body.get("projects") or []) if isinstance(body, dict) else []:
-        if isinstance(proj, dict) and proj.get("slug") == basename:
-            canonical = proj.get("ai_id_canonical")
-            if isinstance(canonical, str) and canonical.count(".") >= 2:
-                return canonical
-    return None
+    found = {
+        proj.get("ai_id_canonical")
+        for proj in ((body.get("projects") or []) if isinstance(body, dict) else [])
+        if isinstance(proj, dict) and proj.get("slug") == basename
+    }
+    found = {c for c in found if isinstance(c, str) and len(c.split(".")) == 3 and all(c.split("."))}
+    # Two practices with this slug (two tenants' joined practices) is not an answer: a slug alone cannot pick one.
+    return found.pop() if len(found) == 1 else None
 
 
 def _resolve_canonical_ai_id(
@@ -293,6 +295,7 @@ def _resolve_canonical_ai_id(
         with open_url(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8")
             body = json.loads(raw) if raw else {}
+        own_unsynced = False
         self_meta = body.get("self") or {}
         self_tenant = self_meta.get("tenant_slug")
         # Strict-canonical: the listener is invoked with `--instance <basename>`
@@ -309,13 +312,15 @@ def _resolve_canonical_ai_id(
                     canonical = proj.get("ai_id_mesh")
                     if not canonical:
                         # The row exists but carries no mesh id (not synced yet). That is not a resolution: caching the
-                        # basename here made it permanent, and `fresh=True` re-read the cache it had just poisoned.
+                        # basename here made it permanent, and `fresh=True` re-read the cache it had just poisoned. Nor is
+                        # it a joined practice: looking it up by slug found another team's practice (1.17.19 sweep).
+                        own_unsynced = True
                         break
                     _CANONICAL_AI_ID_CACHE[cache_key] = canonical
                     _CANONICAL_FAILED_AT.pop(cache_key, None)
                     return canonical
         # Not in the caller's tenant: a practice joined as a member is listed under its owner (cortex f578439c).
-        joined = joined_practice_canonical(cortex_url, api_key, basename, timeout=timeout)
+        joined = None if own_unsynced else joined_practice_canonical(cortex_url, api_key, basename, timeout=timeout)
         if joined:
             _CANONICAL_AI_ID_CACHE[cache_key] = joined
             _CANONICAL_FAILED_AT.pop(cache_key, None)

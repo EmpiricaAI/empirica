@@ -271,6 +271,8 @@ def handle_profile_sync_command(args):
                 "hint": "use --force to publish them anyway",
             }
             result["pipeline"].append("push-refused")
+            result["ok"] = False  # nothing was pushed: not a success, and the exit code says so (1.17.19 sweep)
+            result["error"] = result["push"]["refused"]
         elif do_push and result["ok"]:
             push_result = _push_notes(remote)
             result["push"] = push_result

@@ -929,7 +929,7 @@ def _sync_phase3_cortex_post(args, output_format: str) -> dict[str, Any] | None:
     results = [
         _register_one_project(p, cortex_url, api_key, timeout, force_metadata_update=force_metadata) for p in projects
     ]
-    registered = sum(1 for r in results if r.get("status") in (0, 200, 201))
+    registered = sum(1 for r in results if r.get("status") in (0, 200, 201) or r.get("outcome") == "joined")
     failed = len(results) - registered
     return {
         "cortex_url": cortex_url,
@@ -2216,7 +2216,7 @@ def _project_register_cortex_step(
     if not (cortex_url and api_key):
         return {
             "skipped": True,
-            "reason": "no cortex_url/api_key resolved (configure ~/.empirica/credentials.yaml)",
+            "reason": "no Cortex url or sign-in resolved (run `empirica auth login`)",
         }
     signed_in = _signed_in_org(cortex_url, api_key, timeout)
     if org_id and signed_in != "local":  # the local server is no team: nothing to compare

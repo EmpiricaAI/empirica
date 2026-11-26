@@ -92,8 +92,12 @@ def _filter_rows_by_ai_id(
 
     matches = [r for r in rows if r["ai_id"] == ai_id_filter]
     self_tenant = (roster.get("self") or {}).get("tenant_slug")
+    own_org = (roster.get("org") or {}).get("slug")
     if self_tenant:
-        own = [r for r in matches if r.get("tenant") == self_tenant]
+        # The org too: a cross-org peer in a tenant with the same slug is not this caller's own (1.17.19 sweep).
+        own = [
+            r for r in matches if r.get("tenant") == self_tenant and (not own_org or r.get("org") in (own_org, None))
+        ]
         if own:
             return own
     return matches
@@ -224,7 +228,12 @@ def _cross_org_rows(roster: dict[str, Any], self_ai_id: str | None, seen: set) -
         party = agreement.get("other_party") or {}
         if scope == "seat_seat":
             reachable = party.get("reachable_from") or agreement.get("reachable_from")
-            if not (reachable and self_ai_id and (reachable == self_ai_id or reachable.split(".")[-1] == self_ai_id)):
+            own = (
+                f"{(roster.get('org') or {}).get('slug')}.{(roster.get('self') or {}).get('tenant_slug')}.{self_ai_id}"
+            )
+            if not (
+                reachable and self_ai_id and reachable in (self_ai_id, own)
+            ):  # this practice exactly, no other tenant's
                 continue
         for practice in agreement.get("practices") or []:
             mesh = practice.get("canonical_ai_id_mesh") if isinstance(practice, dict) else None

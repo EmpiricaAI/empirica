@@ -143,7 +143,7 @@ def add_release_parsers(subparsers):
         help="Pull the org mesh-sharing agreements from cortex; upsert into entity_registry",
     )
     mesh_agr_sync.add_argument("--cortex-url", default=None, help="Cortex base URL override.")
-    mesh_agr_sync.add_argument("--api-key", default=None, help="Cortex API key override.")
+    mesh_agr_sync.add_argument("--api-key", default=None, help="Cortex bearer override (default: the OAuth sign-in).")
     mesh_agr_sync.add_argument("--output", choices=["human", "json"], default="human")
 
     mesh_agr_list = mesh_agr_sub.add_parser(

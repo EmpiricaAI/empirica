@@ -166,11 +166,16 @@ _COMPLEX_WORK = re.compile(
 # ask to write one, or the decomposition phrasings. Mentions ("explain the plan you made", "read docs/spec.md", "no plan
 # needed") over-fired and removed the budget (ecodex sweep, goal befb499f).
 _PLAN_REQUEST = re.compile(
-    r"(?:^|[.;!?]\s*|\b(?:and|then|please|now|can you|could you|let'?s)\s+)"
-    r"(?:plan|implement|decompose|design|specify)\s+(?!needed\b)\w"
-    r"|\b(?:write|draft|create|make|produce|prepare)\s+(?:a|an|the|me a)\s+(?:plan|spec|specification)\b"
-    r"|\bplan\s+(?:this|it)\s+out\b|break (?:this|it) down|how should i approach|\bmulti-step\s+(?:work|task|change)",
-    re.IGNORECASE,
+    # an imperative at a line or sentence start, or after a joining or approving word, taking an object
+    r"(?:^|[.;:!?]\s*|\b(?:and|then|please|now|ok|okay|yes|sure|can you|could you|let'?s|let us|help me|need to|want you to|"
+    r"going to)[,!]?\s+)(?:plan|implement|decompose)\s+"
+    r"(?:the|a|an|this|that|these|those|it|them|our|my|your|out|for|how|what|next|\w+\s+and\s)\b"
+    # an ask to write one
+    r"|\b(?:write|draft|create|make|produce|prepare)(?:\s+up)?\s+(?:a|an|the|me a)\s+(?:[\w-]+\s+){0,2}"
+    r"(?:plan|spec|specification)\b"
+    # a heading-style request and the decomposition phrasings
+    r"|^\s*(?:implement|decompose)\s+\w|^\s*plan:\s*\w|break (?:this|it|down|the \w+ down)|how should i approach|\bmulti-step\s+\w+",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 

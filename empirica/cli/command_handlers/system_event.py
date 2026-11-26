@@ -124,7 +124,7 @@ def emit_system_event(
         cortex_url = cortex_url or url2
         api_key = api_key or key2
     if not (cortex_url and api_key):
-        return -1, {"error": "no cortex url/api_key (configure ~/.empirica/credentials.yaml)"}
+        return -1, {"error": "no Cortex url or sign-in (run `empirica auth login`)"}
     url = cortex_url.rstrip("/") + SYSTEM_EVENT_PATH
     req = urllib.request.Request(
         url,
