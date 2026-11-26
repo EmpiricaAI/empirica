@@ -42,9 +42,11 @@ MODES = ("strict", "discipline", "off")
 #: and a seat that exported `controller` meant blocking (1.15.0 sweep, S2).
 DEFAULT_MODE = "discipline"
 FAIL_CLOSED_MODE = "strict"
-#: Three small edits before a PREFLIGHT is required. Autonomous seats are meant to run at 0; that is set per seat, not
-#: detected.
-DEFAULT_BUDGET = 3
+#: Six small acts per prompt before a PREFLIGHT is required (3 until goal e714a420: David, 2026-11-26, "too aggressive on
+#: gating everything", so a simple untracked task can be done without a transaction). Work on an empirica goal or task
+#: needs a transaction whatever the count (planning_in_transcript). Autonomous seats are meant to run at 0; that is set
+#: per seat, not detected.
+DEFAULT_BUDGET = 6
 ENV_MODE = "EMPIRICA_SENTINEL_MODE"
 ENV_BUDGET = "EMPIRICA_MAX_ACT_WITHOUT_GATE"
 BUDGET_MAX = 1000
@@ -584,6 +586,24 @@ def _is_person_prompt(record: dict) -> bool:
     return False
 
 
+#: An empirica goal or task created as a command of its own (not a search that mentions one). Goal work belongs in a
+#: transaction with its knowledge logged (David, 2026-11-26), so it never runs on the small-act budget.
+_GOAL_WORK = re.compile(r"(?:^|[;&|(\s])empirica\s+goals-(create|add-task)\b")
+_PLANNED = re.compile(r"--status[\s=]+planned\b")
+
+
+def _goal_work(command: object) -> str | None:
+    """'an empirica goal' / 'an empirica task' when this Bash command starts goal work now, else None."""
+    if not isinstance(command, str):
+        return None
+    match = _GOAL_WORK.search(command)
+    if not match:
+        return None
+    if match.group(1) == "create" and _PLANNED.search(command[match.end() :]):
+        return None  # queued for later: nothing is being worked yet
+    return "an empirica goal" if match.group(1) == "create" else "an empirica task"
+
+
 def planning_in_transcript(transcript_path: str | None) -> str | None:
     """What in the transcript since the person's latest prompt makes this plan-shaped, or None."""
     if not transcript_path:
@@ -614,6 +634,10 @@ def planning_in_transcript(transcript_path: str | None) -> str | None:
                 return "the session entered plan mode"
             if name == "TaskCreate":
                 task_creates += 1
+            if name == "Bash":
+                started = _goal_work((item.get("input") or {}).get("command"))
+                if started:
+                    return f"the session created {started}"
             todos = (item.get("input") or {}).get("todos") if name == "TodoWrite" else None
             if isinstance(todos, list) and len(todos) >= 2:
                 return f"the session laid out {len(todos)} todos"

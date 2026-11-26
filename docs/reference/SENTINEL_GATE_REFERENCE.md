@@ -232,13 +232,13 @@ file, and only then clears it. When the call's
 practice cannot be found, every write counts as outside it. Planned work gets no budget at all: when the latest prompt
 asks for planned work (plan, planning, implement, implementation, spec, specification, decompose, multi-step, "break
 this down", "how should I approach"; matched as whole words; Empirica's own vocabulary such as transaction, preflight,
-artifact or epistemic does not count), or since that prompt the session entered plan mode, created two or more tasks (TaskCreate) or wrote a TodoWrite
-of two or more items, a change outside a transaction is refused.
+artifact or epistemic does not count), or since that prompt the session entered plan mode, created two or more tasks (TaskCreate), wrote a TodoWrite
+of two or more items, or created an empirica goal or task (`empirica goals-create` without `--status planned`, or `goals-add-task`), a change outside a transaction is refused: work on a goal is done inside a transaction with its knowledge logged.
 
 | Setting | Values | Default |
 |---|---|---|
 | mode | `strict`, `discipline`, `off` | `discipline` (since 1.15.0) |
-| `max-act-without-gate` | 0 to 1000 | 3 |
+| `max-act-without-gate` | 0 to 1000 | 6 |
 
 Each setting resolves on its own, highest first: `EMPIRICA_SENTINEL_MODE` / `EMPIRICA_MAX_ACT_WITHOUT_GATE`, the practice's
 `.empirica/config.yaml`, the seat's `~/.empirica/config.yaml` (both under `sentinel:` with `mode` and
@@ -314,7 +314,7 @@ Bash and failed calls, so an approved WebFetch or MCP call is read as `denied_or
 | `EMPIRICA_HARNESS` | `claude-code` | Selects the repair text when the hook cannot import `empirica` |
 | `EMPIRICA_DECISION_RECORD` | on | `0`/`false`/`no`/`off`: stop writing the decision record |
 | `EMPIRICA_SENTINEL_MODE` | `discipline` | `strict`, `discipline` or `off` (see [Modes](#modes-strict-discipline-off)); overrides the config files. A value it does not know (empirica-autonomy's `controller` or `observer`, say) resolves to `strict` |
-| `EMPIRICA_MAX_ACT_WITHOUT_GATE` | `3` | Changes allowed outside a transaction in `discipline` mode before PREFLIGHT is required |
+| `EMPIRICA_MAX_ACT_WITHOUT_GATE` | `6` | Changes allowed outside a transaction in `discipline` mode before PREFLIGHT is required |
 
 The full list is in [Environment Variables](ENVIRONMENT_VARIABLES.md).
 

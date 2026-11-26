@@ -949,3 +949,31 @@ def test_without_an_instance_id_a_prompt_starts_only_its_own_practices_budget_ag
     assert sd.prompt_mark_path("", a) != sd.prompt_mark_path("", b)
     assert sd.prompt_mark_path("_t1", a) == sd.prompt_mark_path("_t1", b)  # an instance id keys it as before
     assert sd.prompt_mark_path("_t1").name == "last_prompt_t1.json"
+
+
+# ── goal e714a420 (David 2026-11-26): six small acts, and goal work always inside a transaction ──────────────────────────
+
+
+def test_the_built_in_budget_is_six():
+    assert sd.DEFAULT_BUDGET == 6
+
+
+@pytest.mark.parametrize(
+    "command, plan",
+    [
+        ('empirica goals-create --objective "Fix X" --description "..."', True),
+        ("cd /repo && empirica goals-add-task --goal-id abc --description step", True),
+        ('empirica goals-create --objective "Later" --status planned', False),  # queued for later, not started now
+        ("empirica goals-complete-task --task-id abc --evidence sha", False),  # closing is bookkeeping
+        ('rg -n "empirica goals-create" docs', False),  # a search that mentions it
+        ("empirica goals-list", False),
+    ],
+)
+def test_an_empirica_goal_or_task_created_since_the_prompt_makes_the_turn_plan_shaped(tmp_path, command, plan):
+    records = [_prompt("do the thing"), _call("Bash", command=command)]
+    assert (sd.planning_in_transcript(_transcript(tmp_path, *records)) is not None) is plan
+
+
+def test_a_goal_created_before_the_prompt_does_not_carry_over(tmp_path):
+    records = [_call("Bash", command="empirica goals-create --objective x"), _prompt("now fix the typo"), _call("Edit")]
+    assert sd.planning_in_transcript(_transcript(tmp_path, *records)) is None
