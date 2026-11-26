@@ -442,6 +442,15 @@ def _serialize(config: LauncherConfig) -> dict[str, Any]:
         ]
     if config.alacritty_args:
         out["alacritty_args"] = config.alacritty_args
+    # Who the cockpit is for: a full rewrite dropped these, so a shared stage came back single-user (goal 61d7bd28).
+    if config.socket:
+        out["socket"] = config.socket
+        if config.socket_group != "cockpit-users":
+            out["socket_group"] = config.socket_group
+    if config.server_access:
+        out["server_access"] = list(config.server_access)
+    if config.audience != ("shared" if config.socket else "single"):  # only when it differs from the default
+        out["audience"] = config.audience
     return out
 
 
