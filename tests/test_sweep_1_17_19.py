@@ -30,7 +30,7 @@ def test_requests_and_approvals_fire_with_the_word_match():
 
 
 def test_file_names_and_no_plan_needed_do_not_fire():
-    for prompt in ("read docs/spec.md", "rename plan.md", "no plan needed, just fix the typo"):
+    for prompt in ("read docs/spec.md", "rename plan.md"):
         assert not _tracker()._PLAN_REQUEST.search(prompt), prompt
 
 
@@ -184,3 +184,51 @@ def test_a_bare_reachable_from_never_counts():
         {"scope": "seat_seat", "state": "active", "other_party": {"org_slug": "s", "reachable_from": "research"},
          "practices": [{"canonical_ai_id_mesh": "s.t.x", "slug": "x"}]}]}  # fmt: skip
     assert _cross_org_rows(roster, "research", set()) == []
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    ["plan the md migration", "no plans yet", "there is no plan yet, can you make one?", "implement spec.yaml support"],
+)
+def test_the_file_name_exclusion_leaves_requests_alone(prompt):
+    assert _tracker()._PLAN_REQUEST.search(prompt)
+
+
+@pytest.mark.parametrize("remote", ["origin", "forgejo", "./notes", "../notes.git"])
+def test_a_remote_name_or_local_path_is_not_read_as_a_public_url(monkeypatch, remote):
+    from empirica.cli.command_handlers import sync_commands as sc
+
+    monkeypatch.setattr(sc, "_get_remote_url", lambda r: None)
+    monkeypatch.setattr(sc, "_load_sync_config", lambda: {})
+    assert sc.public_notes_remote(remote) is None
+
+
+def test_logout_with_no_sign_in_still_drops_a_leftover_key(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    import yaml
+
+    from empirica.cli.command_handlers import auth_commands
+
+    target = tmp_path / "credentials.yaml"
+    target.write_text("cortex:\n  url: https://c\n  api_key: ctx_old\n")
+
+    class L:
+        def _find_config_file(self, *a):
+            return target
+
+        def _read_existing(self, t):
+            return yaml.safe_load(t.read_text())
+
+        def _write_credentials(self, t, data):
+            t.write_text(yaml.safe_dump(data))
+            return t
+
+        def multi_team_allowed(self):
+            return False
+
+    monkeypatch.setattr(auth_commands, "_loader", lambda: L())
+    monkeypatch.setattr(auth_commands, "_block_for", lambda loader, org: {})
+    assert auth_commands.handle_auth_logout_command(SimpleNamespace(output="json", org=None)) == 0
+    assert "api_key" not in yaml.safe_load(target.read_text())["cortex"]
+    assert "removed a leftover api_key" in capsys.readouterr().out

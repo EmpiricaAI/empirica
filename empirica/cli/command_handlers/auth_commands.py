@@ -264,10 +264,15 @@ def handle_auth_logout_command(args) -> int:
     org = getattr(args, "org", None)
     oauth = _block_for(loader, org)
     if not oauth:
+        # A leftover api_key is dropped even with no sign-in (retired, goal 739e47b2; third 1.17.19 pass).
+        cleared = None if org else _drop_oauth_block(loader, None)
+        note = f"no sign-in present{f' for org {org}' if org else ''}" + (
+            "; removed a leftover api_key" if cleared else ""
+        )
         if output == "json":
-            print(json.dumps({"ok": True, "note": f"no sign-in present{f' for org {org}' if org else ''}"}))
+            print(json.dumps({"ok": True, "note": note}))
         else:
-            print(f"nothing to log out — no sign-in{f' for org {org}' if org else ''}")
+            print(f"nothing to log out — {note}")
         return 0
 
     revoked = _revoke_remote(loader, oauth)

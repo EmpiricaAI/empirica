@@ -164,10 +164,10 @@ _COMPLEX_WORK = re.compile(
 #: plan. _COMPLEX_WORK keeps the wide list for the /epistemic-transaction nudge, which only suggests.
 # The 1.17.18 word-match: it over-fires on mentions, which only removes the discipline budget (the safe side). Two
 # request-shape rewrites in the 1.17.19 sweep each opened new misses and false positives, so it stays until a matcher is
-# measured on real prompts (goal 5d950388). Two narrow exclusions: a file name (plan.md, docs/spec.md) and "no plan needed".
+# measured on real prompts (goal 5d950388). One narrow exclusion: a file name (plan.md, docs/spec.md); bounded, so linear.
 _PLAN_REQUEST = re.compile(
     r"\b(?:plan|plans|planning|implement|implementation|implementing|spec|specs|specification|decompose|multi-step)\b"
-    r"(?![.\w]*\.(?:md|txt|ya?ml|json)\b)(?<!\bno plan)"
+    r"(?![.\w]{0,40}\.(?:md|txt|ya?ml|json)\b)"
     r"|break this down|how should i approach",
     re.IGNORECASE,
 )
