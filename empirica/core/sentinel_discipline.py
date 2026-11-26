@@ -586,22 +586,69 @@ def _is_person_prompt(record: dict) -> bool:
     return False
 
 
-#: An empirica goal or task created as a command of its own (not a search that mentions one). Goal work belongs in a
-#: transaction with its knowledge logged (David, 2026-11-26), so it never runs on the small-act budget.
-_GOAL_WORK = re.compile(r"(?:^|[;&|(\s])empirica\s+goals-(create|add-task)\b")
-_PLANNED = re.compile(r"--status[\s=]+planned\b")
+#: The verbs (and their aliases) that start goal work now. Goal work belongs in a transaction with its knowledge logged
+#: (David, 2026-11-26), so it never runs on the small-act budget.
+_GOAL_VERBS = {
+    "goals-create": "an empirica goal",
+    "goal-create": "an empirica goal",
+    "gc": "an empirica goal",
+    "goals-add-task": "an empirica task",
+    "goal-add-task": "an empirica task",
+}
+_STDIN_PLANNED = re.compile(r'"status"\s*:\s*"planned"')
+#: A cheap screen before the shell split, which costs ~10x a regex per record (1.17.20 hot-path timing): only a command that
+#: names a goal verb is split and judged.
+_MAYBE_GOAL_VERB = re.compile(r"\b(?:goals?-create|gc|goals?-add-task)\b")
+_DR_CACHE: list = []
+
+
+def _dr():
+    """decision_record, loaded once per process (this runs for every Bash record in the transcript tail)."""
+    if not _DR_CACHE:
+        _DR_CACHE.append(_decision_record())
+    return _DR_CACHE[0]
+
+
+def _is_planned(args: list[str], command: str) -> bool:
+    """`--status planned` in this statement's own words (quotes already removed), or a planned goal on stdin."""
+    for i, word in enumerate(args):
+        if word == "--status=planned" or (word == "--status" and i + 1 < len(args) and args[i + 1] == "planned"):
+            return True
+    return "-" in args[1:] and bool(_STDIN_PLANNED.search(command))
 
 
 def _goal_work(command: object) -> str | None:
-    """'an empirica goal' / 'an empirica task' when this Bash command starts goal work now, else None."""
-    if not isinstance(command, str):
+    """'an empirica goal' / 'an empirica task' when this Bash command runs a goal verb as a statement of its own, else None.
+
+    Judged per statement, on the shell's own words (decision_record splits and unquotes), so a mention inside quotes, a
+    commit message, a search pattern or a heredoc body does not count, `--status planned` exempts only the statement it is
+    in, and `--help` starts nothing (1.17.20 sweep: the first regex fired on all of these).
+    """
+    if not isinstance(command, str) or "empirica" not in command or not _MAYBE_GOAL_VERB.search(command):
         return None
-    match = _GOAL_WORK.search(command)
-    if not match:
+    try:
+        dr = _dr()
+        statements = dr._statements(command)
+    except Exception:
         return None
-    if match.group(1) == "create" and _PLANNED.search(command[match.end() :]):
-        return None  # queued for later: nothing is being worked yet
-    return "an empirica goal" if match.group(1) == "create" else "an empirica task"
+    heredoc_end: str | None = None
+    for words in statements or []:
+        if heredoc_end is not None:  # a heredoc body: data, not commands
+            if words == [heredoc_end]:
+                heredoc_end = None
+            continue
+        if "<<" in words or "<<-" in words:
+            marker = words.index("<<" if "<<" in words else "<<-")
+            heredoc_end = words[marker + 1] if marker + 1 < len(words) else None
+        program, args = dr._program_and_args(words)
+        if Path(program).name != "empirica" or not args or args[0] not in _GOAL_VERBS:
+            continue
+        if "--help" in args or "-h" in args:
+            continue
+        if _GOAL_VERBS[args[0]] == "an empirica goal" and _is_planned(args, command):
+            continue  # queued for later: nothing is being worked yet
+        return _GOAL_VERBS[args[0]]
+    return None
 
 
 def planning_in_transcript(transcript_path: str | None) -> str | None:
@@ -634,11 +681,13 @@ def planning_in_transcript(transcript_path: str | None) -> str | None:
                 return "the session entered plan mode"
             if name == "TaskCreate":
                 task_creates += 1
+            raw_input = item.get("input")
+            inp = raw_input if isinstance(raw_input, dict) else {}  # a malformed record is skipped, not a refusal
             if name == "Bash":
-                started = _goal_work((item.get("input") or {}).get("command"))
+                started = _goal_work(inp.get("command"))
                 if started:
                     return f"the session created {started}"
-            todos = (item.get("input") or {}).get("todos") if name == "TodoWrite" else None
+            todos = inp.get("todos") if name == "TodoWrite" else None
             if isinstance(todos, list) and len(todos) >= 2:
                 return f"the session laid out {len(todos)} todos"
     if task_creates >= 2:
@@ -772,12 +821,12 @@ def decide(
         return None
     if mode == "off":
         return ("allow", f"Sentinel mode off ({settings['mode_source']}): allowed outside a transaction, not counted.")
+    verdict = judge(tool_name, tool_input, cwd=cwd, project_root=project_root, empirica_is_read=empirica_is_read)
+    if verdict.get("read"):  # before the plan check: planned work still reads, and still logs (1.17.20 sweep)
+        return ("allow", "A read outside a transaction (discipline mode): it changes nothing, so it is not counted.")
     planning = plan_shaped(suffix, transcript_path)
     if planning:
         return ("deny", f"Outside a transaction, and this is planned work: {planning}. Open one with PREFLIGHT.")
-    verdict = judge(tool_name, tool_input, cwd=cwd, project_root=project_root, empirica_is_read=empirica_is_read)
-    if verdict.get("read"):
-        return ("allow", "A read outside a transaction (discipline mode): it changes nothing, so it is not counted.")
     if not verdict["trivial"]:
         return (
             "deny",

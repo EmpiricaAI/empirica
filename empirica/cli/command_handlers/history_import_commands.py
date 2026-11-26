@@ -8,6 +8,7 @@ not copied).
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Any
@@ -54,7 +55,7 @@ def handle_history_import_command(args) -> int:
             types=({t.strip() for t in args.types.split(",") if t.strip()} if getattr(args, "types", None) else None),
             include_calibration=not getattr(args, "no_calibration", False),
         )
-    except (ValueError, FileNotFoundError) as e:
+    except (ValueError, FileNotFoundError, sqlite3.Error) as e:  # a locked store or a schema the copy cannot read
         if output == "json":
             print(json.dumps({"ok": False, "error": str(e)}))
         else:
@@ -93,6 +94,12 @@ def handle_history_import_command(args) -> int:
         print("   left behind (other projects, other practitioners, types not chosen, derived models):")
         for name, n in sorted(result["left_behind"].items(), key=lambda kv: -kv[1]):
             print(f"      {name}: {n}")
+    if result["not_copied"]:
+        print(f"   ⚠️  not copied, refused by this practice's schema (constraint or clash): {result['not_copied']}")
+    if result["columns_not_in_target"]:
+        print(
+            f"   ⚠️  columns this practice's store lacks (their values are not copied): {result['columns_not_in_target']}"
+        )
     if result["missing_in_target"]:
         print(f"   ⚠️  not copied, this practice has no such table: {result['missing_in_target']}")
     if result.get("backup"):

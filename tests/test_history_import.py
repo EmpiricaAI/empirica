@@ -260,10 +260,11 @@ def test_artifacts_go_by_project_whoever_wrote_them(mixed):
 def test_another_practitioners_calibration_stays_behind(mixed):
     src, dst = mixed
     plan = _copy(src, dst, apply=True)
-    assert _rows(dst, "SELECT COUNT(*) FROM sessions WHERE session_id = 's-gui'") == [(0,)]
+    # gui-dev's session row comes as the anchor of the finding written in it, under its own ai_id; nothing of its calibration
+    assert _rows(dst, "SELECT ai_id, project_id FROM sessions WHERE session_id = 's-gui'") == [("gui-dev", NEW_PID)]
     assert _rows(dst, "SELECT COUNT(*) FROM grounded_beliefs WHERE ai_id = 'gui-dev'") == [(0,)]
     assert _rows(dst, "SELECT COUNT(*) FROM reflexes WHERE session_id = 's-gui'") == [(0,)]
-    assert plan["left_behind"]["grounded_beliefs"] == 1 and plan["left_behind"]["sessions"] == 2  # s-gui and s-other
+    assert plan["left_behind"]["grounded_beliefs"] == 1 and plan["left_behind"]["sessions"] == 1  # s-other
 
 
 def test_his_own_sessions_without_a_project_come_along(mixed):
@@ -300,7 +301,11 @@ def test_artifacts_only_leaves_every_practitioner_row(mixed):
     src, dst = mixed
     plan = _copy(src, dst, apply=True, include_calibration=False)
     assert _rows(dst, "SELECT COUNT(*) FROM grounded_beliefs") == [(0,)]
-    assert _rows(dst, "SELECT session_id FROM sessions") == [("s-new",)]
+    assert _rows(dst, "SELECT session_id FROM sessions ORDER BY session_id") == [
+        ("s-gui",),
+        ("s-new",),
+        ("s1",),
+    ]  # anchors
     assert plan["tables"]["project_findings"] == 2
 
 
@@ -308,3 +313,73 @@ def test_an_unknown_type_is_refused(stores):
     src, dst = stores
     with pytest.raises(ValueError, match="unknown artifact type"):
         _copy(src, dst, apply=False, types={"findings"})
+
+
+# ── 1.17.20 sweep ───────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+def test_the_backup_holds_writes_still_in_the_wal(stores):
+    src, dst = stores
+    live = sqlite3.connect(str(dst))
+    live.execute("PRAGMA journal_mode=WAL")
+    live.execute("PRAGMA wal_autocheckpoint=0")
+    live.execute("INSERT INTO project_findings VALUES ('f-wal', ?, 's-new', 'only in the WAL')", (NEW_PID,))
+    live.commit()  # committed, not checkpointed: the main file alone does not have it
+    try:
+        result = _copy(src, dst, apply=True)
+        assert _rows(result["backup"], "SELECT id FROM project_findings WHERE id = 'f-wal'") == [("f-wal",)]
+    finally:
+        live.close()
+
+
+def test_a_row_the_target_refuses_is_not_copied_not_kept(stores, tmp_path):
+    src, _ = stores
+    strict = tmp_path / "strict.db"
+    conn = sqlite3.connect(str(strict))
+    conn.executescript(SCHEMA.replace("finding TEXT);", "finding TEXT, finding_data TEXT NOT NULL);"))
+    conn.close()
+    plan = _copy(src, strict, apply=False)
+    assert plan["tables"]["project_findings"] == 0 and plan["not_copied"] == {"project_findings": 1}
+    assert "project_findings" not in plan["kept_in_target"]
+
+
+def test_source_columns_the_target_lacks_are_named(stores, tmp_path):
+    src, _ = stores
+    narrow = tmp_path / "narrow.db"
+    conn = sqlite3.connect(str(narrow))
+    conn.executescript(
+        SCHEMA.replace(
+            "CREATE TABLE project_findings (id TEXT PRIMARY KEY, project_id TEXT, session_id TEXT, finding TEXT);",
+            "CREATE TABLE project_findings (id TEXT PRIMARY KEY, project_id TEXT, session_id TEXT);",
+        )
+    )
+    conn.close()
+    plan = _copy(src, narrow, apply=False)
+    assert plan["columns_not_in_target"] == {"project_findings": ["finding"]}
+
+
+def test_his_own_sessions_row_tagged_with_another_project_stays(stores):
+    src, dst = stores
+    conn = sqlite3.connect(str(src))
+    conn.execute("INSERT INTO sessions VALUES ('s-np', ?, NULL)", (OLD_AI,))
+    conn.execute("INSERT INTO reflexes VALUES (9, 's-np', 'pid-elsewhere', 'PREFLIGHT')")
+    conn.commit()
+    conn.close()
+    _copy(src, dst, apply=True)
+    assert _rows(dst, "SELECT COUNT(*) FROM reflexes WHERE id = 9") == [(0,)]
+
+
+def test_an_edge_to_a_copied_lesson_is_copied(stores):
+    src, dst = stores
+    for path in (src, dst):
+        conn = sqlite3.connect(str(path))
+        conn.execute("CREATE TABLE lessons (id TEXT PRIMARY KEY, project_id TEXT, name TEXT)")
+        conn.commit()
+        conn.close()
+    conn = sqlite3.connect(str(src))
+    conn.execute("INSERT INTO lessons VALUES ('L1', ?, 'a lesson')", (OLD_PID,))
+    conn.execute("INSERT INTO artifact_edges VALUES ('f1', 'L1', 'evidence')")
+    conn.commit()
+    conn.close()
+    _copy(src, dst, apply=True)
+    assert ("f1", "L1") in _rows(dst, "SELECT from_id, to_id FROM artifact_edges")

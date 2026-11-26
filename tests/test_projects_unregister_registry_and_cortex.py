@@ -12,6 +12,7 @@ import sqlite3
 import time
 import types
 import uuid
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -127,7 +128,7 @@ def test_apply_removes_the_orphan_only_and_audits_it(ws, regfile, capsys):
     assert code == 0 and out["applied"] and out["removed"] == 1
     assert _registry_ids(regfile) == [keep]
     snap = json.loads(ws.execute("SELECT snapshot FROM registry_audit WHERE entity_id = ?", (orphan,)).fetchone()[0])
-    assert snap["registry_yaml"]["name"] == "orphan"  # recoverable from the audit row
+    assert [e["name"] for e in snap["registry_yaml"]] == ["orphan"]  # recoverable from the audit row
 
 
 def test_apply_removes_the_db_row_and_its_registry_entry_together(ws, regfile, capsys):
@@ -193,5 +194,99 @@ def test_a_cortex_failure_after_the_local_removal_exits_nonzero(ws, regfile, cor
     _registry(regfile, (orphan, "orphan"))
     cortex["raise"] = OSError("unreachable")
     code, out = _run(capsys, [orphan], apply=True)
-    assert code == 1 and out["applied"] and _registry_ids(regfile) == []  # the local part is done and says so
+    assert code == 1 and out["applied"] and not out["ok"] and _registry_ids(regfile) == []  # local done, says so
     assert out["cortex"][orphan]["outcome"] == "error" and "unreachable" in out["cortex"][orphan]["error"]
+
+
+# ── 1.17.20 sweep ───────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+def test_no_cortex_without_local_is_refused_not_ignored(ws, cortex, capsys):
+    base = {
+        "project_id": str(uuid.uuid4()),
+        "local": False,
+        "apply": False,
+        "output": "json",
+        "slug": None,
+        "purge": False,
+    }
+    with pytest.raises(SystemExit) as e:
+        pc.handle_projects_unregister_command(types.SimpleNamespace(**base, no_cortex=True))
+    assert e.value.code == 2 and cortex["posts"] == []
+
+
+def test_every_duplicate_entry_is_removed_and_kept_in_the_audit(ws, regfile, capsys):
+    dup = str(uuid.uuid4())
+    rows = [{"project_id": dup, "name": "a", "path": "/x"}, {"project_id": dup, "name": "a", "path": "/z"}]
+    regfile.write_text(yaml.safe_dump({"version": 1, "projects": rows}, sort_keys=False))
+    code, _ = _run(capsys, [dup], apply=True)
+    assert code == 0 and _registry_ids(regfile) == []
+    snap = json.loads(ws.execute("SELECT snapshot FROM registry_audit WHERE entity_id = ?", (dup,)).fetchone()[0])
+    assert sorted(e["path"] for e in snap["registry_yaml"]) == ["/x", "/z"]
+
+
+def test_an_entry_added_after_the_plan_survives_the_write(ws, regfile, monkeypatch, capsys):
+    orphan, late = str(uuid.uuid4()), str(uuid.uuid4())
+    _registry(regfile, (orphan, "orphan"))
+    real_plan = pc._local_unregister_plan
+
+    def plan_then_another_writer(*a, **k):
+        out = real_plan(*a, **k)
+        _registry(regfile, (orphan, "orphan"), (late, "late"))  # another writer between the plan and the write
+        return out
+
+    monkeypatch.setattr(pc, "_local_unregister_plan", plan_then_another_writer)
+    code, out = _run(capsys, [orphan], apply=True)
+    assert code == 0 and _registry_ids(regfile) == [late]
+    assert out["registry_backup"] and Path(out["registry_backup"]).exists()
+
+
+def test_a_failed_commit_puts_the_registry_back(ws, regfile, monkeypatch, capsys):
+    orphan, keep = str(uuid.uuid4()), str(uuid.uuid4())
+    _registry(regfile, (orphan, "orphan"), (keep, "keep"))
+
+    class _Conn:
+        def __init__(self, real):
+            self._real = real
+
+        def commit(self):
+            raise sqlite3.OperationalError("disk I/O error")
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+    real_apply = pc._local_unregister_apply
+    monkeypatch.setattr(pc, "_local_unregister_apply", lambda conn, *a, **k: real_apply(_Conn(conn), *a, **k))
+    code, out = _run(capsys, [orphan], apply=True)
+    assert code == 1 and "rolled back" in out["error"]
+    assert _registry_ids(regfile) == [orphan, keep]
+
+
+def test_a_failed_restore_says_so_and_names_the_backup(ws, regfile, monkeypatch, capsys):
+    orphan = str(uuid.uuid4())
+    _registry(regfile, (orphan, "orphan"))
+
+    class _Conn:
+        def __init__(self, real):
+            self._real = real
+
+        def commit(self):
+            raise sqlite3.OperationalError("disk I/O error")
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+    real_apply = pc._local_unregister_apply
+    real_save = reg.save_registry
+    calls = {"n": 0}
+
+    def save_then_fail(registry, path=None):
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise OSError("read-only file system")
+        return real_save(registry, path)
+
+    monkeypatch.setattr(reg, "save_registry", save_then_fail)
+    monkeypatch.setattr(pc, "_local_unregister_apply", lambda conn, *a, **k: real_apply(_Conn(conn), *a, **k))
+    code, out = _run(capsys, [orphan], apply=True)
+    assert code == 1 and "could NOT be put back" in out["error"] and ".bak-unregister-" in out["error"]

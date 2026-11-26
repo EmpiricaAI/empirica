@@ -977,3 +977,51 @@ def test_an_empirica_goal_or_task_created_since_the_prompt_makes_the_turn_plan_s
 def test_a_goal_created_before_the_prompt_does_not_carry_over(tmp_path):
     records = [_call("Bash", command="empirica goals-create --objective x"), _prompt("now fix the typo"), _call("Edit")]
     assert sd.planning_in_transcript(_transcript(tmp_path, *records)) is None
+
+
+# ── 1.17.20 sweep: the goal-work matcher's near misses, and reads after a goal ───────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "command, plan",
+    [
+        ('echo "next: empirica goals-create --objective x"', False),  # quoted mention
+        ('git commit -m "docs: mention empirica goals-create"', False),
+        ("rg 'foo|empirica goals-create' docs", False),
+        ("cat <<EOF > notes.md\nempirica goals-create --objective x\nEOF", False),  # a heredoc body is data
+        ("empirica goals-create --help", False),
+        ("empirica goals-create-foo --objective x", False),  # a longer verb name
+        ("empirica goals-create --objective A && empirica goals-create --objective B --status planned", True),
+        ('empirica goals-create --objective A --description "queue the rest with --status planned"', True),
+        (
+            "empirica goals-create --status planned --objective A; empirica goals-add-task --goal-id g --description d",
+            True,
+        ),
+        ("empirica goal-create --objective x", True),  # aliases
+        ("empirica gc --objective x", True),
+        ("empirica goal-add-task --goal-id g --description d", True),
+        ("~/.local/bin/empirica goals-create --objective x", True),  # path-qualified
+        ('empirica goals-create --objective x --status "planned"', False),  # quoted value is still planned
+        ("empirica goals-create --objective x --status=planned", False),
+        ('empirica goals-create - <<\'EOF\'\n{"objective": "x", "status": "planned"}\nEOF', False),  # stdin
+        ('empirica goals-create - <<\'EOF\'\n{"objective": "x"}\nEOF', True),
+    ],
+)
+def test_goal_work_is_a_goal_verb_run_as_its_own_statement(tmp_path, command, plan):
+    records = [_prompt("do the thing"), _call("Bash", command=command)]
+    assert (sd.planning_in_transcript(_transcript(tmp_path, *records)) is not None) is plan
+
+
+def test_a_malformed_tool_record_is_skipped_not_a_refusal(tmp_path):
+    records = [
+        _prompt("go"),
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": []}]}},
+    ]
+    assert sd.planning_in_transcript(_transcript(tmp_path, *records)) is None
+
+
+def test_reads_still_run_after_a_goal_is_created(home, monkeypatch):
+    """The plan check refuses changes, not reads (1.17.20 sweep: a loop of cat was refused after goals-create)."""
+    monkeypatch.setattr(sd, "plan_shaped", lambda *a, **k: "the session created an empirica goal")
+    assert _decide(home, "for f in a b; do cat $f; done")[0] == "allow"
+    assert _decide(home)[0] == "deny"  # an Edit still waits for the PREFLIGHT

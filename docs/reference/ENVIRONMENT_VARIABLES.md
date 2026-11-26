@@ -50,7 +50,7 @@ This document lists all environment variables that control Empirica's behavior.
 | `EMPIRICA_SERVE_PORT` | Port `empirica serve` listens on, and where the mesh paths look for the local server when no Cortex is configured | `8000` | a port number |
 | `EMPIRICA_LOCAL_USER` | The tenant of a machine with no Cortex: practices are addressed `local.<this>.<practice>`. The serve service's unit does not set it, so the service may run without it: with the local server leave it unset | your login name | a name (lowercased, other characters become `-`) |
 | `EMPIRICA_LOCAL_TOKEN` | A bearer token the local server requires (also `local_server_token` in `~/.empirica/credentials.yaml`); unset means no token, loopback only | unset | any string |
-| `EMPIRICA_MAX_ACT_WITHOUT_GATE` | Acts allowed outside a transaction per prompt in `discipline` mode before PREFLIGHT is required | `3` | `0` to `1000` |
+| `EMPIRICA_MAX_ACT_WITHOUT_GATE` | Acts allowed outside a transaction per prompt in `discipline` mode before PREFLIGHT is required | `6` | `0` to `1000` |
 | `EMPIRICA_HARNESS` | Which harness hosts the hooks, case-insensitive. Non-`claude-code` values (codex sets `codex`) change the repair hint, the tool-router hints and skip the deploy-gap block | `claude-code` | `claude-code`, `codex`, ... |
 | `EMPIRICA_KNOW_THRESHOLD` | Minimum KNOW confidence | Model-dependent | 0.0-1.0 |
 | `EMPIRICA_UNCERTAINTY_THRESHOLD` | Maximum UNCERTAINTY allowed | Model-dependent | 0.0-1.0 |

@@ -1623,15 +1623,18 @@ def _local_unregister_plan(conn, repo, ids: list[str], registry: dict[str, Any] 
 
     An entry only in registry.yaml was ``not_found`` before goal 2cef87f4, so removing one stale test entry took a hand edit.
     """
-    from empirica.api.registry import find_by_project_id
-
     rows, referenced, unknown, not_found = [], [], [], []
     for pid in ids:
         project = conn.execute("SELECT * FROM global_projects WHERE id = ?", (pid,)).fetchone()
         mirror = conn.execute(
             "SELECT * FROM entity_registry WHERE entity_type = 'project' AND entity_id = ?", (pid,)
         ).fetchone()
-        entry = find_by_project_id(registry or {}, pid)
+        entries = [
+            e for e in (registry or {}).get("projects", []) if isinstance(e, dict) and e.get("project_id") == pid
+        ]
+        entry = (
+            entries[0] if entries else None
+        )  # the name and path shown; every entry with the id is removed and kept below
         if project is None and mirror is None and entry is None:
             not_found.append(pid)
             continue
@@ -1654,7 +1657,7 @@ def _local_unregister_plan(conn, repo, ids: list[str], registry: dict[str, Any] 
                 "snapshot": {
                     "global_projects": dict(project) if project is not None else None,
                     "entity_registry": dict(mirror) if mirror is not None else None,
-                    "registry_yaml": dict(entry) if entry is not None else None,
+                    "registry_yaml": [dict(e) for e in entries] or None,
                 },
             }
         )
@@ -1673,16 +1676,19 @@ def _local_unregister_plan(conn, repo, ids: list[str], registry: dict[str, Any] 
 
 def _local_unregister_apply(
     conn, rows: list[dict[str, Any]], actor: str, registry: dict[str, Any] | None = None
-) -> None:
+) -> dict[str, Any]:
     """Delete every row's global_projects entry, its entity_registry mirror and its registry.yaml entry, with one audit row
     each. The SQL is ONE transaction; registry.yaml is written (atomically) just before the commit and put back if the commit
     fails, so the three stores move together."""
+    import shutil as _shutil
     import time as _time
 
+    from empirica.api import registry as _registry_mod
     from empirica.api.registry import save_registry
 
     drop = {r["id"] for r in rows if r.get("in_registry_yaml")}
-    original = dict(registry) if registry is not None else None
+    fresh: dict[str, Any] | None = None
+    backup: Path | None = None
     wrote_registry = False
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -1711,16 +1717,30 @@ def _local_unregister_apply(
             )
             conn.execute("DELETE FROM global_projects WHERE id = ?", (row["id"],))
             conn.execute("DELETE FROM entity_registry WHERE entity_type = 'project' AND entity_id = ?", (row["id"],))
-        if drop and registry is not None:
-            kept = [e for e in registry.get("projects", []) if e.get("project_id") not in drop]
-            save_registry({**registry, "projects": kept})
+        if drop:
+            # Re-read now, not the copy the plan loaded seconds ago (before the network reference checks): an entry another
+            # writer added in between is kept. A copy of the file is kept beside it before the write.
+            fresh = _registry_mod.load_registry(auto_dedupe=False)
+            path = Path(_registry_mod.DEFAULT_REGISTRY_PATH)
+            if path.exists():
+                backup = path.with_name(f"{path.name}.bak-unregister-{_time.strftime('%Y%m%d-%H%M%S')}")
+                _shutil.copy2(path, backup)
+            kept = [e for e in fresh.get("projects", []) if not (isinstance(e, dict) and e.get("project_id") in drop)]
+            save_registry({**fresh, "projects": kept})
             wrote_registry = True
         conn.commit()
-    except Exception:
+    except Exception as e:
         conn.rollback()
-        if wrote_registry and original is not None:
-            save_registry(original)
+        if wrote_registry and fresh is not None:
+            try:
+                save_registry(fresh)
+            except Exception as restore_error:
+                raise RuntimeError(
+                    f"{e}; the database was rolled back but registry.yaml could NOT be put back ({restore_error}); "
+                    f"its entries before this run are in {backup}"
+                ) from e
         raise
+    return {"registry_backup": str(backup) if backup else None}
 
 
 def _emit_local_unregister(result: dict[str, Any], code: int, output_format: str, apply: bool) -> int:
@@ -1791,13 +1811,20 @@ def _local_unregister(args, output_format: str) -> int:
             return emit({"ok": True, "applied": False, "rows": public_rows, "removed": 0}, 0)
         try:
             actor = os.environ.get("EMPIRICA_AI_ID") or os.environ.get("USER") or "unknown"
-            _local_unregister_apply(repo.conn, plan["rows"], actor, registry)
+            applied = _local_unregister_apply(repo.conn, plan["rows"], actor, registry)
         except Exception as e:
             return emit(
                 {"ok": False, "error": f"rolled back, nothing removed: {e}", "rows": public_rows, "applied": False}, 1
             )
-    cortex, cortex_failed = _local_unregister_on_cortex(args, [r["id"] for r in plan["rows"]])
-    result = {"ok": True, "applied": True, "rows": public_rows, "removed": len(plan["rows"]), "cortex": cortex}
+    cortex, cortex_failed = _local_unregister_on_cortex(args, plan["rows"])
+    result = {
+        "ok": not cortex_failed,  # the whole command; applied says the local part is done
+        "applied": True,
+        "rows": public_rows,
+        "removed": len(plan["rows"]),
+        "cortex": cortex,
+        "registry_backup": applied.get("registry_backup"),
+    }
     if cortex_failed:
         result["warning"] = (
             "removed locally; archiving on Cortex failed for "
@@ -1807,7 +1834,22 @@ def _local_unregister(args, output_format: str) -> int:
     return emit(result, 1 if cortex_failed else 0)
 
 
-def _local_unregister_on_cortex(args, ids: list[str]) -> tuple[Any, list[str]]:
+def _practice_org_id(trajectory_path: str | None) -> str | None:
+    """The org_id in the practice's own .empirica/project.yaml, when its folder still exists (else None: this sign-in)."""
+    if not trajectory_path:
+        return None
+    base = Path(trajectory_path)
+    for candidate in (base / "project.yaml", base / ".empirica" / "project.yaml"):
+        try:
+            data = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        org = data.get("org_id") if isinstance(data, dict) else None
+        return str(org) if org else None
+    return None
+
+
+def _local_unregister_on_cortex(args, rows: list[dict[str, Any]]) -> tuple[Any, list[str]]:
     """After a local removal, soft-archive the same projects on Cortex when this machine is signed in (David 2026-11-26).
 
     Soft only (``purge: False``): reversible on Cortex. A project Cortex never had (404) is reported, not failed. Returns
@@ -1815,13 +1857,20 @@ def _local_unregister_on_cortex(args, ids: list[str]) -> tuple[Any, list[str]]:
     """
     if getattr(args, "no_cortex", False):
         return "skipped (--no-cortex)", []
-    url, bearer = _resolve_cortex_config(args)
-    if not url or not bearer:
-        return "not signed in: local only", []
     timeout = float(getattr(args, "timeout", 10.0) or 10.0)
     outcomes: dict[str, Any] = {}
     failed: list[str] = []
-    for pid in ids:
+    signed_in_any = False
+    for row in rows:
+        pid = row["id"]
+        # The practice's own org's sign-in, as project-register uses (1.17.20 sweep): another team's project archived under
+        # this folder's sign-in could answer 404 and read as not_on_cortex while it stays live on its own team's Cortex.
+        org_id = _practice_org_id(row.get("trajectory_path"))
+        url, bearer = _resolve_cortex_config(args, org_id=org_id)
+        if not url or not bearer:
+            outcomes[pid] = {"outcome": "not signed in", "org_id": org_id}
+            continue
+        signed_in_any = True
         try:
             status, _body = _post_project(
                 url, CORTEX_UNREGISTER_PATH, {"project_id": pid, "purge": False}, bearer, timeout
@@ -1833,9 +1882,11 @@ def _local_unregister_on_cortex(args, ids: list[str]) -> tuple[Any, list[str]]:
         ok, outcome = _classify_unregister_outcome(status, False)
         if outcome == "not_found":
             ok, outcome = True, "not_on_cortex"
-        outcomes[pid] = {"outcome": outcome, "status_code": status}
+        outcomes[pid] = {"outcome": outcome, "status_code": status, **({"org_id": org_id} if org_id else {})}
         if not ok:
             failed.append(pid)
+    if not signed_in_any:
+        return "not signed in: local only", []
     return outcomes, failed
 
 
@@ -1860,13 +1911,14 @@ def handle_projects_unregister_command(args) -> int | None:
       3. .empirica/project.yaml `project_id` (when run from a project tree)
     """
     try:
-        if getattr(args, "local", False) or getattr(args, "apply", False):
+        if getattr(args, "local", False) or getattr(args, "apply", False) or getattr(args, "no_cortex", False):
             if not getattr(args, "local", False):
                 print(
                     json.dumps(
                         {
                             "ok": False,
-                            "error": "--apply belongs to --local; the cortex path archives/purges via --purge --confirm",
+                            "error": "--apply and --no-cortex belong to --local; the cortex path archives/purges via "
+                            "--purge --confirm",
                         }
                     )
                 )

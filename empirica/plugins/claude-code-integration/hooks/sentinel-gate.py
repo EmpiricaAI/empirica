@@ -1263,8 +1263,10 @@ def is_read_shaped_empirica_verb(cmd: str) -> bool:
     return verb.endswith(EMPIRICA_READ_SUFFIXES)
 
 
-# empirica commands that only read although their verb is not read-shaped, for the decision record's inference of what a
-# command changes (not for gating: the firewall lets these through on its own lists). Checked 2026-11-07 against the handlers:
+# empirica commands that only read although their verb is not read-shaped. Used by the decision record's inference of what a
+# command changes AND by discipline mode, which runs them freely outside a transaction (empirica_command_free_in_discipline),
+# so a write mode added to one of these verbs must come off this list. Checked 2026-11-07 against the handlers (visibility
+# list and show added 2026-11-26: they only read):
 # investigate is project-search, which stamps nothing; mailbox poll and show fetch and print (show also records a local
 # read mark, ~/.empirica/mailbox_seen, for the cockpit's mail count: a receipt, no shared state). project-bootstrap is NOT
 # here: it stamps retrieval telemetry.
