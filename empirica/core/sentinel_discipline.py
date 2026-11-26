@@ -594,7 +594,12 @@ def _is_person_prompt(record: dict) -> bool:
 #: and narrowly. Each attempt to read shell well enough to exempt more (a word splitter, a quote and heredoc scanner, two
 #: readings with and without comments) left a form where a misread hid a real goal; a false hit only asks for a PREFLIGHT.
 #: Sentinel is discipline, not security: an author who wants to evade it can; this only has to not miss ordinary work.
-_GOAL_VERB = re.compile(r"(?<![\w.-])empirica(?:\s|\\\n)+(goals?-create|gc|goals?-add-task)(?![\w-])")
+_GOAL_VERB = re.compile(
+    r"(?<![\w.-])empirica"
+    # global options may come first (`empirica --verbose goals-create`, `empirica --config f gc`: twelfth pass)
+    r"(?:(?:\s|\\\n)+(?:-v|--verbose|--version|-h|--help|--config(?:=\S+|(?:\s|\\\n)+\S+)))*"
+    r"(?:\s|\\\n)+(goals?-create|gc|goals?-add-task)(?![\w-])"
+)
 #: Anything on the line that can run quoted text as commands: then no quoted mention is exempt.
 _EXECUTES_TEXT = re.compile(
     r"(?<![\w-])(?:eval|sh|bash|zsh|dash|ksh|fish|ssh|xargs|parallel|watch|su|sudo|exec|source|"
@@ -634,8 +639,13 @@ def _exempt_mention(command: str, start: int) -> bool:
         # opener inside a comment, a multi-line message or after a continuation exempted a verb bash runs)
     if "'" in _INERT_QUOTE.sub("", outside) or '"' in _INERT_QUOTE.sub("", outside):
         return False  # a quote that is not an inert same-line pair: the pairing cannot be trusted
-    if any(a <= start < b for a, b in bodies):
-        return True
+    for a, b in bodies:
+        if a <= start < b:
+            # a body written to a file the command then names again may be run (`cat > mkgoals <<'EOF' ... ./mkgoals`)
+            opener = command[command.rfind("\n", 0, a - 1) + 1 : a]
+            target = re.search(r"(?:>>?|\btee(?:\s+-a)?)\s*([^\s;&|<>]+)", opener)
+            name = Path(target.group(1)).name if target else None
+            return not (name and name in command[b:])
     return any(q.start() < start < q.end() for q in _INERT_QUOTE.finditer(outside))
 
 
@@ -661,12 +671,19 @@ def _exempt_statement(command: str, verb_end: int, is_goal: bool) -> bool:
     return bool(_STATUS_PLANNED.search(bare)) and len(_ANY_STATUS.findall(bare)) == 1
 
 
+#: goals-create's flags that take no value (from its parser, 2026-11-26).
+_BOOLEAN_FLAGS = frozenset({"--force", "--use-beads", "--verbose", "--help", "-h"})
+
+
 def _has_positional(statement: str) -> bool:
     """Does the statement pass goals-create a positional (a config path or `-`)? Every word must be a flag or the value
     right after a flag; a word that is neither is a positional. A boolean flag before a path reads as a value: rare."""
     words = statement.split()
     expect_value = False
     for word in words:
+        if word in _BOOLEAN_FLAGS:
+            expect_value = False  # takes no value: what follows is a positional (twelfth pass: --force g.json)
+            continue
         if word.startswith("--") and "=" not in word:
             expect_value = True
             continue

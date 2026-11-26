@@ -156,3 +156,24 @@ def test_tenth_pass_misses_are_detected(command):
 )
 def test_eleventh_pass_misses_are_detected(command):
     assert sd._goal_work(command) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'empirica --verbose goals-create --objective "Fix X" --description "body"',  # twelfth pass: global options
+        'empirica -v goals-add-task --goal-id abc --description "step 1"',
+        "empirica -v gc --objective x",
+        'empirica --config cfg.yaml gc --objective "x"',
+        "cat > mkgoals <<'EOF'\nempirica goals-create --objective x\nEOF\nchmod +x mkgoals && ./mkgoals",
+        "tee plan.txt <<'EOF'\nempirica goals-create --objective x\nEOF\nsh plan.txt",
+        "empirica goals-create --force g.json --status planned",
+        "empirica goals-create --use-beads g.json --status planned",
+    ],
+)
+def test_twelfth_pass_misses_are_detected(command):
+    assert sd._goal_work(command) is not None
+
+
+def test_a_heredoc_written_to_a_file_that_is_not_run_stays_exempt():
+    assert sd._goal_work("cat > notes.md <<'EOF'\nempirica goals-create --objective x\nEOF") is None
