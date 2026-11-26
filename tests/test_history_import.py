@@ -383,3 +383,47 @@ def test_an_edge_to_a_copied_lesson_is_copied(stores):
     conn.close()
     _copy(src, dst, apply=True)
     assert ("f1", "L1") in _rows(dst, "SELECT from_id, to_id FROM artifact_edges")
+
+
+# ── 1.17.20 second pass ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+def test_auto_numbered_rows_take_new_numbers_instead_of_clashing(stores):
+    src, dst = stores
+    conn = sqlite3.connect(str(src))
+    for i in range(2, 6):
+        conn.execute("INSERT INTO reflexes VALUES (?, 's1', ?, 'CHECK')", (i, OLD_PID))
+    conn.commit()
+    conn.close()
+    conn = sqlite3.connect(str(dst))
+    for i in range(1, 4):
+        conn.execute("INSERT INTO reflexes VALUES (?, 's-new', ?, 'TARGET')", (i, NEW_PID))
+    conn.commit()
+    conn.close()
+    plan = _copy(src, dst, apply=True)
+    assert plan["tables"]["reflexes"] == 5 and "reflexes" not in plan["kept_in_target"]
+    assert _rows(dst, "SELECT COUNT(*) FROM reflexes WHERE session_id = 's1'") == [(5,)]
+    assert _rows(dst, "SELECT COUNT(*) FROM reflexes WHERE phase = 'TARGET'") == [
+        (3,)
+    ]  # the target's own rows untouched
+    again = _copy(src, dst, apply=True)
+    assert again["tables"]["reflexes"] == 0  # identical rows are not added twice
+
+
+def test_the_backup_is_made_under_the_write_lock_and_not_when_the_copy_cannot_run(stores):
+    src, dst = stores
+    holder = sqlite3.connect(str(dst), isolation_level=None)
+    holder.execute("BEGIN IMMEDIATE")  # another writer holds the lock
+    try:
+        import time as _t
+
+        t0 = _t.time()
+        with pytest.raises(sqlite3.OperationalError):
+            hi.copy_history(
+                src, dst, old_project_id=OLD_PID, new_project_id=NEW_PID, old_ai_id=OLD_AI, new_ai_id=NEW_AI, apply=True
+            )
+        assert _t.time() - t0 < 30
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
+    assert not list(dst.parent.glob("new.db.bak-history-*"))  # no backup for a copy that never ran

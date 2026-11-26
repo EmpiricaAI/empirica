@@ -1721,9 +1721,13 @@ def _local_unregister_apply(
             # Re-read now, not the copy the plan loaded seconds ago (before the network reference checks): an entry another
             # writer added in between is kept. A copy of the file is kept beside it before the write.
             fresh = _registry_mod.load_registry(auto_dedupe=False)
+            if registry and registry.get("projects") and not fresh.get("projects"):
+                # load_registry answers an unreadable file with an empty one; writing that back would erase every entry
+                raise RuntimeError("registry.yaml could not be re-read just before the write; nothing removed")
             path = Path(_registry_mod.DEFAULT_REGISTRY_PATH)
             if path.exists():
-                backup = path.with_name(f"{path.name}.bak-unregister-{_time.strftime('%Y%m%d-%H%M%S')}")
+                stamp = f"{_time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"  # two runs in one second keep both copies
+                backup = path.with_name(f"{path.name}.bak-unregister-{stamp}")
                 _shutil.copy2(path, backup)
             kept = [e for e in fresh.get("projects", []) if not (isinstance(e, dict) and e.get("project_id") in drop)]
             save_registry({**fresh, "projects": kept})
@@ -1747,7 +1751,7 @@ def _emit_local_unregister(result: dict[str, Any], code: int, output_format: str
     """Print one --local result (json or human) and return its exit code."""
     if output_format == "json":
         print(json.dumps(result, indent=2, default=str))
-    elif result.get("ok"):
+    elif result.get("ok") or result.get("applied"):  # applied: the local part is done, whatever Cortex answered
         verb = "Removed" if result.get("applied") else "Would remove"
         print(f"{verb} {len(result['rows'])} local project row(s)" + ("" if apply else " (preview; --apply to remove)"))
         for r in result["rows"]:
@@ -1757,6 +1761,8 @@ def _emit_local_unregister(result: dict[str, Any], code: int, output_format: str
             )
         if "cortex" in result:
             print(f"   cortex: {result['cortex']}")
+        for note in result.get("notes") or []:
+            print(f"⚠️  {note}", file=sys.stderr)
         if result.get("warning"):
             print(f"⚠️  {result['warning']}", file=sys.stderr)
     else:
@@ -1825,6 +1831,9 @@ def _local_unregister(args, output_format: str) -> int:
         "cortex": cortex,
         "registry_backup": applied.get("registry_backup"),
     }
+    notes = _cortex_notes(cortex)
+    if notes:
+        result["notes"] = notes
     if cortex_failed:
         result["warning"] = (
             "removed locally; archiving on Cortex failed for "
@@ -1839,7 +1848,8 @@ def _practice_org_id(trajectory_path: str | None) -> str | None:
     if not trajectory_path:
         return None
     base = Path(trajectory_path)
-    for candidate in (base / "project.yaml", base / ".empirica" / "project.yaml"):
+    candidates = [base / "project.yaml"] if base.name == ".empirica" else [base / ".empirica" / "project.yaml"]
+    for candidate in candidates:
         try:
             data = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
         except (OSError, yaml.YAMLError):
@@ -1881,13 +1891,39 @@ def _local_unregister_on_cortex(args, rows: list[dict[str, Any]]) -> tuple[Any, 
             continue
         ok, outcome = _classify_unregister_outcome(status, False)
         if outcome == "not_found":
-            ok, outcome = True, "not_on_cortex"
+            # Only a known org's sign-in can say Cortex never had it; with the folder gone this machine's sign-in was asked,
+            # and another team's project answers 404 too (1.17.20 second pass).
+            ok, outcome = True, ("not_on_cortex" if org_id else "not_found_for_this_sign_in")
         outcomes[pid] = {"outcome": outcome, "status_code": status, **({"org_id": org_id} if org_id else {})}
         if not ok:
             failed.append(pid)
     if not signed_in_any:
-        return "not signed in: local only", []
+        orgs = sorted({o["org_id"] for o in outcomes.values() if o.get("org_id")})
+        return ("not signed in" + (f" to {', '.join(orgs)}" if orgs else "") + ": local only"), []
     return outcomes, failed
+
+
+def _cortex_notes(cortex: Any) -> list[str]:
+    """What a person must still do on Cortex after a local removal that did not fail: ids no sign-in could archive, and ids
+    only this machine's sign-in was asked about."""
+    if not isinstance(cortex, dict):
+        return []
+    notes = []
+    unsigned = [pid for pid, o in cortex.items() if o.get("outcome") == "not signed in"]
+    if unsigned:
+        notes.append(
+            "not archived on Cortex (no sign-in for their org): "
+            + ", ".join(unsigned)
+            + "; sign in to that org and run "
+            "`empirica projects-unregister --project-id <id>`"
+        )
+    unknown = [pid for pid, o in cortex.items() if o.get("outcome") == "not_found_for_this_sign_in"]
+    if unknown:
+        notes.append(
+            "Cortex knows nothing of " + ", ".join(unknown) + " under this machine's sign-in; their folder is gone, so "
+            "their own org was not asked"
+        )
+    return notes
 
 
 def handle_projects_unregister_command(args) -> int | None:

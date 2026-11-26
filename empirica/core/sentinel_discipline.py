@@ -577,7 +577,8 @@ def _is_person_prompt(record: dict) -> bool:
     """A user record that is the person's prompt, not a tool result Claude Code also files under `user`."""
     if record.get("type") != "user":
         return False
-    content = (record.get("message") or {}).get("content")
+    message = record.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
     if isinstance(content, str):
         return bool(content.strip())
     if isinstance(content, list):
@@ -586,68 +587,100 @@ def _is_person_prompt(record: dict) -> bool:
     return False
 
 
-#: The verbs (and their aliases) that start goal work now. Goal work belongs in a transaction with its knowledge logged
-#: (David, 2026-11-26), so it never runs on the small-act budget.
-_GOAL_VERBS = {
-    "goals-create": "an empirica goal",
-    "goal-create": "an empirica goal",
-    "gc": "an empirica goal",
-    "goals-add-task": "an empirica task",
-    "goal-add-task": "an empirica task",
-}
+#: An empirica goal verb (or alias) run as a command: after start, a separator, whitespace, `(`, `{`, `$(`, `!` or a path,
+#: and followed by the end of a word. Goal work belongs in a transaction with its knowledge logged (David, 2026-11-26), so
+#: it never runs on the small-act budget. Detection is BROAD on purpose and fails toward detecting: a miss lets goal work run
+#: on the budget, a false hit only asks for a PREFLIGHT (1.17.20 second pass: a shell-word splitter missed `$(...)`,
+#: subshells, if/for bodies, `<<-` heredocs and any line with an unbalanced quote).
+_GOAL_VERB = re.compile(r"(?<![\w.-])(?:[\w./~-]*/)?empirica\s+(goals?-create|gc|goals?-add-task)(?=[\s;|&)]|$)")
+_SEPARATOR = re.compile(r";|&&|\|\||\||\n")
+_HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][\w]*)\1")
+_PLANNED = re.compile(r"--stat(?:u|us)?(?:\s+|=)(['\"]?)planned\1(?=[\s;|&)]|$)")
 _STDIN_PLANNED = re.compile(r'"status"\s*:\s*"planned"')
-#: A cheap screen before the shell split, which costs ~10x a regex per record (1.17.20 hot-path timing): only a command that
-#: names a goal verb is split and judged.
-_MAYBE_GOAL_VERB = re.compile(r"\b(?:goals?-create|gc|goals?-add-task)\b")
-_DR_CACHE: list = []
+_SHELL_C = re.compile(r"\b(?:bash|sh|zsh|dash)\s+(?:-\w+\s+)*-c\s*$")
 
 
-def _dr():
-    """decision_record, loaded once per process (this runs for every Bash record in the transcript tail)."""
-    if not _DR_CACHE:
-        _DR_CACHE.append(_decision_record())
-    return _DR_CACHE[0]
+def _masked(command: str, start: int, end: int, spans: list[tuple[int, int]]) -> str:
+    """command[start:end] with quoted text blanked, except a quoted value that is just a word (`--status "planned"`)."""
+    out, pos = [], start
+    for a, b in spans:
+        if b <= start or a >= end:
+            continue
+        out.append(command[pos:a])
+        inner = command[a + 1 : b - 1] if command[a] in "'\"" else ""
+        out.append(inner if re.fullmatch(r"[\w-]+", inner or "") else " _ ")
+        pos = b
+    out.append(command[pos:end])
+    return "".join(out)
 
 
-def _is_planned(args: list[str], command: str) -> bool:
-    """`--status planned` in this statement's own words (quotes already removed), or a planned goal on stdin."""
-    for i, word in enumerate(args):
-        if word == "--status=planned" or (word == "--status" and i + 1 < len(args) and args[i + 1] == "planned"):
-            return True
-    return "-" in args[1:] and bool(_STDIN_PLANNED.search(command))
+def _data_spans(command: str) -> list[tuple[int, int]]:
+    """Where the text is data, not commands: inside single or double quotes, and heredoc bodies. An unbalanced quote ends
+    the scan (what follows counts as commands), so a parse problem can only make detection broader, never narrower."""
+    spans: list[tuple[int, int]] = []
+    i, n = 0, len(command)
+    while i < n:
+        ch = command[i]
+        if ch == "\\" and i + 1 < n:
+            i += 2
+            continue
+        if ch in "'\"":
+            j = i + 1
+            while j < n and command[j] != ch:
+                j += 2 if (ch == '"' and command[j] == "\\") else 1
+            if j >= n:
+                return spans  # unbalanced: stop treating anything as data
+            if not _SHELL_C.search(command, 0, i):  # `bash -c '...'` is commands, not data
+                spans.append((i, j + 1))
+            i = j + 1
+            continue
+        if ch == "<" and command.startswith("<<", i) and not command.startswith("<<<", i):
+            m = _HEREDOC.match(command, i)
+            line_end = command.find("\n", i)
+            if m and line_end != -1:
+                terminator = re.compile(rf"^[ \t]*{re.escape(m.group(2))}[ \t]*$", re.M)
+                close = terminator.search(command, line_end + 1)
+                body_end = close.start() if close else n
+                spans.append((line_end + 1, body_end))
+                i = close.end() if close else n
+                continue
+        i += 1
+    return spans
+
+
+def _statement_end(command: str, start: int, spans: list[tuple[int, int]]) -> int:
+    """The end of the statement that begins at ``start``: the next separator outside quotes."""
+    for m in _SEPARATOR.finditer(command, start):
+        if not any(a <= m.start() < b for a, b in spans):
+            return m.start()
+    return len(command)
 
 
 def _goal_work(command: object) -> str | None:
-    """'an empirica goal' / 'an empirica task' when this Bash command runs a goal verb as a statement of its own, else None.
-
-    Judged per statement, on the shell's own words (decision_record splits and unquotes), so a mention inside quotes, a
-    commit message, a search pattern or a heredoc body does not count, `--status planned` exempts only the statement it is
-    in, and `--help` starts nothing (1.17.20 sweep: the first regex fired on all of these).
-    """
-    if not isinstance(command, str) or "empirica" not in command or not _MAYBE_GOAL_VERB.search(command):
+    """'an empirica goal' / 'an empirica task' when this Bash command runs a goal verb, else None. A mention inside quotes
+    or a heredoc body is data; `--help`, and `--status planned` in the same statement (or "status": "planned" in the
+    heredoc that statement feeds), start nothing."""
+    if not isinstance(command, str) or "empirica" not in command:
         return None
-    try:
-        dr = _dr()
-        statements = dr._statements(command)
-    except Exception:
+    matches = list(_GOAL_VERB.finditer(command))
+    if not matches:
         return None
-    heredoc_end: str | None = None
-    for words in statements or []:
-        if heredoc_end is not None:  # a heredoc body: data, not commands
-            if words == [heredoc_end]:
-                heredoc_end = None
+    spans = _data_spans(command)
+    for m in matches:
+        if any(a <= m.start() < b for a, b in spans):
+            continue  # quoted or a heredoc body
+        end = _statement_end(command, m.end(), spans)
+        statement = _masked(command, m.end(), end, spans)
+        if re.search(r"(?:^|\s)(?:--help|-h)(?=\s|$)", statement):
             continue
-        if "<<" in words or "<<-" in words:
-            marker = words.index("<<" if "<<" in words else "<<-")
-            heredoc_end = words[marker + 1] if marker + 1 < len(words) else None
-        program, args = dr._program_and_args(words)
-        if Path(program).name != "empirica" or not args or args[0] not in _GOAL_VERBS:
-            continue
-        if "--help" in args or "-h" in args:
-            continue
-        if _GOAL_VERBS[args[0]] == "an empirica goal" and _is_planned(args, command):
+        is_goal = m.group(1) in ("goals-create", "goal-create", "gc")
+        if is_goal and _PLANNED.search(statement):
             continue  # queued for later: nothing is being worked yet
-        return _GOAL_VERBS[args[0]]
+        if is_goal and re.search(r"(?:^|\s)-(?=\s|$)", statement):
+            fed = next((command[a:b] for a, b in spans if a >= m.end() and command.rfind("\n", 0, a) < end + 1), "")
+            if _STDIN_PLANNED.search(fed):
+                continue
+        return "an empirica goal" if is_goal else "an empirica task"
     return None
 
 
@@ -672,7 +705,8 @@ def planning_in_transcript(transcript_path: str | None) -> str | None:
             continue
         if _is_person_prompt(record):
             break
-        content = (record.get("message") or {}).get("content") if record.get("type") == "assistant" else None
+        message = record.get("message") if record.get("type") == "assistant" else None
+        content = message.get("content") if isinstance(message, dict) else None
         for item in content if isinstance(content, list) else []:
             if not isinstance(item, dict) or item.get("type") != "tool_use":
                 continue
@@ -822,11 +856,15 @@ def decide(
     if mode == "off":
         return ("allow", f"Sentinel mode off ({settings['mode_source']}): allowed outside a transaction, not counted.")
     verdict = judge(tool_name, tool_input, cwd=cwd, project_root=project_root, empirica_is_read=empirica_is_read)
-    if verdict.get("read"):  # before the plan check: planned work still reads, and still logs (1.17.20 sweep)
+    pure_read = verdict.get("read") and verdict.get("classes") in (["none"], [])
+    if pure_read:  # before the plan check: planned work still reads (1.17.20 sweep); a line with a verb that records or
+        # sends (mailbox reply, lesson-create) is not a pure read and still meets the plan check, as before
         return ("allow", "A read outside a transaction (discipline mode): it changes nothing, so it is not counted.")
     planning = plan_shaped(suffix, transcript_path)
     if planning:
         return ("deny", f"Outside a transaction, and this is planned work: {planning}. Open one with PREFLIGHT.")
+    if verdict.get("read"):
+        return ("allow", "A read outside a transaction (discipline mode): it changes nothing, so it is not counted.")
     if not verdict["trivial"]:
         return (
             "deny",

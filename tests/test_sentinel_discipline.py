@@ -1025,3 +1025,53 @@ def test_reads_still_run_after_a_goal_is_created(home, monkeypatch):
     monkeypatch.setattr(sd, "plan_shaped", lambda *a, **k: "the session created an empirica goal")
     assert _decide(home, "for f in a b; do cat $f; done")[0] == "allow"
     assert _decide(home)[0] == "deny"  # an Edit still waits for the PREFLIGHT
+
+
+# ── 1.17.20 second pass: detection is broad and fails toward detecting ──────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "command, plan",
+    [
+        ("GID=$(empirica goals-create --objective x --output json | jq -r .goal_id)", True),
+        ("(empirica goals-create --objective x)", True),
+        ("{ empirica goals-create --objective x; }", True),
+        ("! empirica goals-create --objective x", True),
+        ("if true; then empirica goals-create --objective x; fi", True),
+        ("for t in a b; do empirica goals-add-task --goal-id g --description $t; done", True),
+        ("bash -c 'empirica goals-create --objective x'", True),
+        ("uvx empirica goals-create --objective x", True),
+        ("python -m empirica goals-create --objective x", True),
+        ("cat <<-EOF\n\tbody\n\tEOF\nempirica goals-create --objective x", True),
+        ("echo $((1<<3)); empirica goals-create --objective x", True),
+        ('git commit -m "don\'t\nstop" && empirica goals-create --objective x', True),  # quote spans lines, still found
+        ("echo don't; empirica goals-create --objective x", True),  # unbalanced quote: detection stays on
+        (
+            "empirica goals-create - <<'EOF'\n{\"objective\": \"x\"}\nEOF\nempirica log-artifacts - <<'EOF'\n"
+            '{"status": "planned"}\nEOF',
+            True,
+        ),  # a LATER heredoc's planned does not exempt
+        ("empirica goals-create --objective x --stat planned", False),  # argparse abbreviation
+    ],
+)
+def test_goal_work_detection_fails_toward_detecting(tmp_path, command, plan):
+    records = [_prompt("do the thing"), _call("Bash", command=command)]
+    assert (sd.planning_in_transcript(_transcript(tmp_path, *records)) is not None) is plan
+
+
+def test_a_string_message_record_does_not_break_the_scan(tmp_path):
+    records = [
+        {"type": "user", "message": "odd"},
+        _prompt("go"),
+        _call("Bash", command="empirica goals-create --objective x"),
+    ]
+    assert sd.planning_in_transcript(_transcript(tmp_path, *records)) is not None
+
+
+def test_a_line_with_a_recording_verb_still_meets_the_plan_check(home, monkeypatch):
+    """Only a pure read (classes none) is answered before the plan check (1.17.20 second pass: mailbox reply sends)."""
+    monkeypatch.setattr(sd, "plan_shaped", lambda *a, **k: "the session created an empirica goal")
+    monkeypatch.setattr(
+        sd, "judge", lambda *a, **k: {"trivial": True, "read": True, "classes": ["empirica_state"], "why": ""}
+    )
+    assert _decide(home, "empirica mailbox reply --parent-id p && empirica finding-log --finding x")[0] == "deny"

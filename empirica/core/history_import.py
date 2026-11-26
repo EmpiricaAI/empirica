@@ -100,15 +100,25 @@ def _quote(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def _tables(conn: sqlite3.Connection, schema: str) -> dict[str, list[tuple[str, int]]]:
-    """Each table's columns as (name, primary-key position; 0 when not part of the key)."""
+def _tables(conn: sqlite3.Connection, schema: str) -> dict[str, list[tuple[str, int, str]]]:
+    """Each table's columns as (name, primary-key position (0 when not part of the key), declared type)."""
     names = [
         r[0]
         for r in conn.execute(
             f"SELECT name FROM {schema}.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
         )
     ]
-    return {n: [(r[1], r[5]) for r in conn.execute(f"PRAGMA {schema}.table_info({_quote(n)})")] for n in names}
+    return {
+        n: [(r[1], r[5], str(r[2] or "").upper()) for r in conn.execute(f"PRAGMA {schema}.table_info({_quote(n)})")]
+        for n in names
+    }
+
+
+def _rowid_key(info: list[tuple[str, int, str]]) -> str | None:
+    """The column of an auto-numbered INTEGER PRIMARY KEY (both stores count their own rows 1..N, so the copied rows take new
+    numbers instead of clashing with unrelated rows: 1.17.20 second pass, reflexes 1-5 copied as 2 and reported 'kept')."""
+    keys = [(c, t) for c, pos, t in info if pos]
+    return keys[0][0] if len(keys) == 1 and keys[0][1] == "INTEGER" else None
 
 
 class _Selection:
@@ -181,29 +191,32 @@ class _Selection:
         return " UNION ".join(parts)
 
 
-def _select_exprs(cols: list[str]) -> str:
-    """The copied columns, with the old project and practitioner rewritten only where they hold the old values."""
-    rewrite = {
-        "project_id": ("old_pid", "new_pid"),
-        "source_project_id": ("old_pid", "new_pid"),
-        "ai_id": ("old_ai", "new_ai"),
-    }
-    out = []
-    for c in cols:
-        if c in rewrite:
-            old, new = rewrite[c]
-            out.append(f"CASE WHEN {_quote(c)} = :{old} THEN :{new} ELSE {_quote(c)} END AS {_quote(c)}")
-        else:
-            out.append(_quote(c))
-    return ", ".join(out)
+_REWRITE = {
+    "project_id": ("old_pid", "new_pid"),
+    "source_project_id": ("old_pid", "new_pid"),
+    "ai_id": ("old_ai", "new_ai"),
+}
+
+
+def _expr(c: str, prefix: str = "") -> str:
+    """One copied column's value, with the old project and practitioner rewritten only where they hold the old values."""
+    col = f"{prefix}{_quote(c)}"
+    if c in _REWRITE:
+        old, new = _REWRITE[c]
+        return f"CASE WHEN {col} = :{old} THEN :{new} ELSE {col} END"
+    return col
+
+
+def _select_exprs(cols: list[str], prefix: str = "") -> str:
+    return ", ".join(f"{_expr(c, prefix)} AS {_quote(c)}" for c in cols)
 
 
 def _plan(
     conn: sqlite3.Connection, params: dict[str, str], types: set[str] | None, calibration: bool
 ) -> dict[str, Any]:
     src_info, dst_info = _tables(conn, "src"), _tables(conn, "main")
-    src = {n: [c for c, _ in cols] for n, cols in src_info.items()}
-    dst = {n: [c for c, _ in cols] for n, cols in dst_info.items()}
+    src = {n: [c for c, _, _ in cols] for n, cols in src_info.items()}
+    dst = {n: [c for c, _, _ in cols] for n, cols in dst_info.items()}
     selection = _Selection(src, dst, types, calibration)
     statements: dict[str, dict[str, str]] = {}
     skipped: list[str] = []
@@ -226,17 +239,25 @@ def _plan(
             if chosen:
                 missing[name] = chosen
             continue
-        common = [c for c in cols if c in dst[name]]
-        if chosen and len(common) < len(cols):
+        renumbered = _rowid_key(dst_info[name])
+        common = [c for c in cols if c in dst[name] and c != renumbered]
+        if chosen and any(c not in dst[name] for c in cols):
             dropped_columns[name] = [c for c in cols if c not in dst[name]]
         col_list = ", ".join(_quote(c) for c in common)
-        new_rows = (
-            f"SELECT {_select_exprs(common)} FROM src.{table} WHERE {cond} EXCEPT SELECT {col_list} FROM main.{table}"
-        )
-        pk = [c for c, pos in sorted(dst_info[name], key=lambda cp: cp[1]) if pos and c in common]
-        present = (
+        if renumbered:
+            # Row by row, not EXCEPT: without the id, two genuinely repeated records would collapse into one. A re-run
+            # still adds nothing, because each row it would add is already there.
+            same = " AND ".join(f"m.{_quote(c)} IS {_expr(c, 's.')}" for c in common) or "1"
+            new_rows = (
+                f"SELECT {_select_exprs(common, 's.')} FROM src.{table} AS s WHERE ({cond}) "
+                f"AND NOT EXISTS (SELECT 1 FROM main.{table} AS m WHERE {same})"
+            )
+        else:
+            new_rows = f"SELECT {_select_exprs(common)} FROM src.{table} WHERE {cond} EXCEPT SELECT {col_list} FROM main.{table}"
+        pk = [c for c, pos, _ in sorted(dst_info[name], key=lambda cp: cp[1]) if pos and c in common]
+        present = (  # `=`, not IS: a NULL key matches nothing, as the insert treats it
             f"SELECT COUNT(*) FROM ({new_rows}) AS n WHERE EXISTS (SELECT 1 FROM main.{table} AS m WHERE "
-            + " AND ".join(f"m.{_quote(c)} IS n.{_quote(c)}" for c in pk)
+            + " AND ".join(f"m.{_quote(c)} = n.{_quote(c)}" for c in pk)
             + ")"
             if pk
             else ""
@@ -256,9 +277,11 @@ def _plan(
 
 
 def _backup(target_db: Path) -> Path:
-    """A consistent copy of the target, WAL included (a file copy of sessions.db alone misses recent commits)."""
+    """A consistent copy of the target, WAL included (a file copy of sessions.db alone misses recent commits). Called while
+    the copy holds the target's write lock, so nothing can change between the backup and the inserts, and no other writer
+    can hold the lock the backup would wait on."""
     backup = target_db.with_name(f"{target_db.name}.bak-history-{time.strftime('%Y%m%d-%H%M%S')}")
-    live = sqlite3.connect(str(target_db))
+    live = sqlite3.connect(str(target_db), timeout=10)
     try:
         copy = sqlite3.connect(str(backup))
         try:
@@ -294,7 +317,7 @@ def copy_history(
         if not path.exists():
             raise FileNotFoundError(f"no store at {path}")
     params = {"old_pid": old_project_id, "new_pid": new_project_id, "old_ai": old_ai_id, "new_ai": new_ai_id}
-    backup = _backup(target_db) if apply else None
+    backup = None
     conn = sqlite3.connect(str(target_db), isolation_level=None)
     try:
         conn.execute("ATTACH DATABASE ? AS src", (source_db.as_uri() + "?mode=ro",))
@@ -302,9 +325,11 @@ def copy_history(
         counts: dict[str, int] = {}
         kept: dict[str, int] = {}
         not_copied: dict[str, int] = {}
-        conn.execute("PRAGMA busy_timeout = 10000")  # this connection waits for a live writer rather than failing
+        conn.execute("PRAGMA busy_timeout = 10000")  # wait up to 10 s for a live writer, then fail loudly
         conn.execute("BEGIN IMMEDIATE")
         try:
+            if apply:  # under the write lock: current, and only made when the copy can actually run
+                backup = _backup(target_db)
             for name, sql in plan["statements"].items():
                 candidates = conn.execute(sql["count"], params).fetchone()[0]
                 already = conn.execute(sql["present"], params).fetchone()[0] if sql["present"] and candidates else 0

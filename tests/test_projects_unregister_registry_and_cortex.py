@@ -171,7 +171,8 @@ def test_a_project_cortex_never_had_is_reported_not_failed(ws, regfile, cortex, 
     _registry(regfile, (orphan, "orphan"))
     cortex["status"] = 404
     code, out = _run(capsys, [orphan], apply=True)
-    assert code == 0 and out["cortex"][orphan]["outcome"] == "not_on_cortex"
+    assert code == 0 and out["cortex"][orphan]["outcome"] == "not_found_for_this_sign_in"  # its folder is gone
+    assert any("own org was not asked" in n for n in out["notes"])
 
 
 def test_not_signed_in_stays_local_and_says_so(ws, regfile, cortex, capsys):
@@ -290,3 +291,56 @@ def test_a_failed_restore_says_so_and_names_the_backup(ws, regfile, monkeypatch,
     monkeypatch.setattr(pc, "_local_unregister_apply", lambda conn, *a, **k: real_apply(_Conn(conn), *a, **k))
     code, out = _run(capsys, [orphan], apply=True)
     assert code == 1 and "could NOT be put back" in out["error"] and ".bak-unregister-" in out["error"]
+
+
+# ── 1.17.20 second pass ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+def test_human_output_says_the_local_part_is_done_when_cortex_fails(ws, regfile, cortex, capsys):
+    orphan = str(uuid.uuid4())
+    _registry(regfile, (orphan, "orphan"))
+    cortex["raise"] = OSError("unreachable")
+    base = {"project_id": orphan, "local": True, "apply": True, "output": "human", "slug": None, "purge": False}
+    code = pc.handle_projects_unregister_command(types.SimpleNamespace(**base)) or 0
+    captured = capsys.readouterr()
+    assert code == 1 and "Removed 1" in captured.out and "archiving on Cortex failed" in captured.err
+
+
+def test_an_unreadable_registry_at_write_time_erases_nothing(ws, regfile, monkeypatch, capsys):
+    orphan, keep = str(uuid.uuid4()), str(uuid.uuid4())
+    _registry(regfile, (orphan, "orphan"), (keep, "keep"))
+    real_plan = pc._local_unregister_plan
+
+    def plan_then_corrupt(*a, **k):
+        out = real_plan(*a, **k)
+        regfile.write_text("projects: [unclosed")  # unreadable between the plan and the write
+        return out
+
+    monkeypatch.setattr(pc, "_local_unregister_plan", plan_then_corrupt)
+    code, out = _run(capsys, [orphan], apply=True)
+    assert code == 1 and "could not be re-read" in out["error"]
+    assert regfile.read_text() == "projects: [unclosed"  # untouched, not rewritten empty
+
+
+def test_the_practice_org_comes_from_its_own_empirica_folder(tmp_path):
+    root = tmp_path / "practice"
+    (root / ".empirica").mkdir(parents=True)
+    (root / "project.yaml").write_text("org_id: someone-elses-tool\n")  # a project.yaml that is not Empirica's
+    (root / ".empirica" / "project.yaml").write_text("org_id: org-real\n")
+    assert pc._practice_org_id(str(root)) == "org-real"  # registry.yaml stores the root
+    assert pc._practice_org_id(str(root / ".empirica")) == "org-real"  # global_projects stores <root>/.empirica
+    assert pc._practice_org_id(str(tmp_path / "gone")) is None
+
+
+def test_ids_no_sign_in_could_archive_are_named(ws, regfile, cortex, monkeypatch, capsys):
+    a, b = str(uuid.uuid4()), str(uuid.uuid4())
+    _registry(regfile, (a, "a"), (b, "b"))
+    monkeypatch.setattr(pc, "_practice_org_id", lambda path: "org-other" if path and path.endswith("/b") else None)
+    monkeypatch.setattr(
+        pc,
+        "_resolve_cortex_config",
+        lambda args, org_id=None: (None, None) if org_id else ("https://cortex.test", "tok"),
+    )
+    code, out = _run(capsys, [a, b], apply=True)
+    assert code == 0 and out["cortex"][b]["outcome"] == "not signed in"
+    assert any(b in n and "no sign-in for their org" in n for n in out["notes"])
