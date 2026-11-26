@@ -216,6 +216,34 @@ def reset_canonical_cache() -> None:
     _CANONICAL_FAILED_AT.clear()
 
 
+def joined_practice_canonical(cortex_url: str, api_key: str, basename: str, *, timeout: float = 10.0) -> str | None:
+    """The address of a practice the caller joined as a member, or None.
+
+    The roster lists a project only under its owner; a member who joined it (POST /v1/users/me/projects) finds its
+    address as ``ai_id_canonical`` on GET /v1/users/me/projects, the owner's 3-form (cortex f578439c). Without this a
+    joined member's listener never subscribed and `mesh diagnose` said it was not in the roster (mesh-support
+    prop_rq6jmex2). Only a 3-form value is taken.
+    """
+    req = urllib.request.Request(
+        f"{cortex_url.rstrip('/')}/v1/users/me/projects",
+        method="GET",
+        headers={"Accept": "application/json", "Authorization": f"Bearer {api_key}"},
+    )
+    try:
+        with open_url(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+            body = json.loads(raw) if raw else {}
+    except Exception as e:
+        logger.debug("content_poll: joined-practice lookup failed for %s: %s", basename, e)
+        return None
+    for proj in (body.get("projects") or []) if isinstance(body, dict) else []:
+        if isinstance(proj, dict) and proj.get("slug") == basename:
+            canonical = proj.get("ai_id_canonical")
+            if isinstance(canonical, str) and canonical.count(".") >= 2:
+                return canonical
+    return None
+
+
 def _resolve_canonical_ai_id(
     cortex_url: str,
     api_key: str,
@@ -286,6 +314,12 @@ def _resolve_canonical_ai_id(
                     _CANONICAL_AI_ID_CACHE[cache_key] = canonical
                     _CANONICAL_FAILED_AT.pop(cache_key, None)
                     return canonical
+        # Not in the caller's tenant: a practice joined as a member is listed under its owner (cortex f578439c).
+        joined = joined_practice_canonical(cortex_url, api_key, basename, timeout=timeout)
+        if joined:
+            _CANONICAL_AI_ID_CACHE[cache_key] = joined
+            _CANONICAL_FAILED_AT.pop(cache_key, None)
+            return joined
     except Exception as e:
         logger.warning(
             "content_poll: canonical ai_id resolution failed for %s: %s "

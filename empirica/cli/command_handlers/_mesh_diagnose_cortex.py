@@ -155,9 +155,17 @@ def check_identity(ai_id: str, cortex_url: str, api_key: str) -> CheckResult:
                     ai_id_short=ai_id,
                     tenant=self_tenant,
                 )
+    # A practice joined as a member is listed under its owner; its address comes from /v1/users/me/projects.
+    from empirica.core.loop_scheduler import content_poll
+
+    joined = content_poll.joined_practice_canonical(cortex_url, api_key, ai_id, timeout=8.0)
+    if joined:
+        return _pass(
+            name, f"resolves to {joined} (joined as a member)", canonical=joined, ai_id_short=ai_id, joined=True
+        )
     return _fail(
         name,
-        f"ai_id {ai_id!r} not found in roster for tenant {self_tenant!r}",
+        f"ai_id {ai_id!r} not found in roster for tenant {self_tenant!r}, nor among the practices this seat joined",
         fix=(
             "set .empirica/project.yaml `ai_id:` to the exact basename, then "
             "re-run setup-claude-code, or verify cortex registered this project"
