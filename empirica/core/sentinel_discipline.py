@@ -597,33 +597,44 @@ def _is_person_prompt(record: dict) -> bool:
 _GOAL_VERB = re.compile(r"(?<![\w.-])empirica(?:\s|\\\n)+(goals?-create|gc|goals?-add-task)(?![\w-])")
 #: Anything on the line that can run quoted text as commands: then no quoted mention is exempt.
 _EXECUTES_TEXT = re.compile(
-    r"(?<![\w-])(?:eval|sh|bash|zsh|dash|ksh|fish|ssh|xargs|parallel|watch|su|sudo|exec)(?![\w-])"
+    r"(?<![\w-])(?:eval|sh|bash|zsh|dash|ksh|fish|ssh|xargs|parallel|watch|su|sudo|exec|source|"
+    r"python\d*(?:\.\d+)?|node|deno|bun|perl|ruby|php|osascript)(?![\w-])"
+    r"|(?:^|(?<=[\s;&|(]))\.(?=[ \t])"  # `. file` runs a file
 )
 #: A quoted string that cannot run anything: single quotes, or double quotes holding no $, backtick or backslash.
 _INERT_QUOTE = re.compile(r"'[^'\n]*'|\"[^\"\n$`\\]*\"")
 _QUOTED_HEREDOC = re.compile(r"<<-?[ \t]*(['\"])([^'\"\n]+)\1[^\n]*\n")
 _STATUS_PLANNED = re.compile(r"(?<!\S)--status(?:[ \t]+|=)(?:planned|'planned'|\"planned\")(?![\w-])")
-_ANY_STATUS = re.compile(r"(?<!\S)--status(?![\w-])")
+_ANY_STATUS = re.compile(r"(?<!\S)--sta(?:t|tu|tus)?(?![\w-])")  # argparse takes any unambiguous abbreviation
 _STATEMENT_END = re.compile(r"[;&|\n)`]")
 
 
 def _exempt_mention(command: str, start: int) -> bool:
-    """Is the verb at ``start`` plainly text that nothing runs: inside an inert quote on its own line, or in the body of a
-    heredoc whose delimiter is quoted (no substitution), with nothing on the command that could execute text?"""
+    """Is the verb at ``start`` plainly text that nothing runs? Two forms only, and only when nothing on the command can
+    run text (eval, a shell, ssh, xargs, an interpreter, source):
+
+    - the body of a terminated heredoc whose delimiter is quoted (no substitution), opened on a line with no other quote;
+    - an inert quote (single quotes, or double quotes with no $ ` or backslash) on one line, when EVERY quote in the rest
+      of the command is such a pair and the command holds no $, backtick or backslash at all. Read left to right, one
+      unpaired or substituting quote shifts every later pairing (1.17.20 tenth pass: `cd "$HOME" && empirica goals-create
+      --objective "x"` read the verb as quoted), so any doubt withholds the exemption.
+    """
     if _EXECUTES_TEXT.search(command):
         return False
-    line_start = command.rfind("\n", 0, start) + 1
-    line_end = command.find("\n", start)
-    line = command[line_start : line_end if line_end != -1 else len(command)]
-    at = start - line_start
-    if "$'" not in line and "\\'" not in line and '\\"' not in line:
-        if any(m.start() < at < m.end() for m in _INERT_QUOTE.finditer(line)):
-            return True
+    bodies = []
     for m in _QUOTED_HEREDOC.finditer(command):
         terminator = re.compile(rf"^[ \t]*{re.escape(m.group(2))}[ \t]*$", re.M).search(command, m.end())
-        if terminator and m.end() <= start < terminator.start():
-            return True
-    return False
+        opener = command[command.rfind("\n", 0, m.start()) + 1 : m.end()]
+        if terminator and opener.count("'") + opener.count('"') == 2:
+            bodies.append((m.end(), terminator.start()))
+    if any(a <= start < b for a, b in bodies):
+        return True
+    outside = "".join(command[i] if not any(a <= i < b for a, b in bodies) else " " for i in range(len(command)))
+    if any(c in outside for c in "$`\\"):
+        return False
+    if "'" in _INERT_QUOTE.sub("", outside) or '"' in _INERT_QUOTE.sub("", outside):
+        return False  # a quote that is not an inert same-line pair: the pairing cannot be trusted
+    return any(q.start() < start < q.end() for q in _INERT_QUOTE.finditer(outside))
 
 
 def _exempt_statement(command: str, verb_end: int, is_goal: bool) -> bool:

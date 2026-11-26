@@ -117,3 +117,23 @@ def test_ninth_pass_misses_are_detected(command):
 )
 def test_the_narrow_exemptions_still_hold(command):
     assert sd._goal_work(command) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'cd "$HOME" && empirica goals-create --objective "Fix the parser"',  # tenth pass, the common one
+        'G="$(date)"; empirica goals-create --objective "Next"',
+        "echo \"Done in $PWD, let's plan\"; empirica goals-create --objective 'x'",
+        "echo 'fix\n\nbody' && empirica goals-create --objective 'Next'",  # a quote spanning lines
+        "echo 'a\nx 'empirica goals-create' y'",  # line 2 runs the verb in bash
+        "python3 -c 'import os; os.system(\"empirica goals-create --objective x\")'",
+        "python3 - <<'EOF'\nimport subprocess; subprocess.run('empirica goals-create --objective x', shell=True)\nEOF",
+        "cat > f <<'EOF'\nempirica goals-create --objective x\nEOF\nsource f",
+        "cat > f <<'EOF'\nempirica goals-create --objective x\nEOF\n. f",
+        "empirica goals-create --objective x --status planned --stat in_progress",
+        "echo \"<<'EOF'\"\nempirica goals-create --objective x\nEOF",
+    ],
+)
+def test_tenth_pass_misses_are_detected(command):
+    assert sd._goal_work(command) is not None
