@@ -1268,7 +1268,13 @@ def is_read_shaped_empirica_verb(cmd: str) -> bool:
 # investigate is project-search, which stamps nothing; mailbox poll and show fetch and print (show also records a local
 # read mark, ~/.empirica/mailbox_seen, for the cockpit's mail count: a receipt, no shared state). project-bootstrap is NOT
 # here: it stamps retrieval telemetry.
-EMPIRICA_READS_BY_NAME = ("empirica investigate", "empirica mailbox poll", "empirica mailbox show")
+EMPIRICA_READS_BY_NAME = (
+    "empirica investigate",
+    "empirica mailbox poll",
+    "empirica mailbox show",
+    "empirica visibility list",  # counts and recent items by tier; read-only (gated by mistake until 2026-11-26)
+    "empirica visibility show",  # one artifact's tier
+)
 
 
 def empirica_command_only_reads(cmd: str) -> bool:
