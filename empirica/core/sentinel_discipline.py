@@ -641,6 +641,11 @@ def _data_spans(command: str) -> list[tuple[int, int]]:
                 spans.append((i, j + 1))
             i = j + 1
             continue
+        if ch == "#" and (i == 0 or command[i - 1] in " \t\n;&|()"):  # a comment runs to its newline, and is data
+            line_end = command.find("\n", i)
+            spans.append((i, line_end if line_end != -1 else n))
+            i = line_end if line_end != -1 else n
+            continue
         if ch == "<" and command.startswith("<<", i) and not command.startswith("<<<", i):
             m = _HEREDOC.match(command, i)
             line_end = command.find("\n", i)
@@ -667,7 +672,10 @@ def _statement_end(command: str, start: int, spans: list[tuple[int, int]]) -> in
     """The end of the statement that begins at ``start``: the next separator outside quotes. An escaped newline is a line
     continuation, not a separator, so flags on the continued line belong to the statement."""
     for m in _SEPARATOR.finditer(command, start):
-        if m.group() == "\n" and _escaped(command, m.start()):
+        backslash_is_data = any(
+            a <= m.start() - 1 < b for a, b in spans
+        )  # a comment's trailing backslash continues nothing
+        if m.group() == "\n" and _escaped(command, m.start()) and not backslash_is_data:
             continue
         if not any(a <= m.start() < b for a, b in spans):
             return m.start()

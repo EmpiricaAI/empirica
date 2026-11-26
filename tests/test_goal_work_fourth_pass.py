@@ -35,3 +35,16 @@ def test_an_even_run_of_backslashes_leaves_the_ansi_quote_real():
 )
 def test_flags_on_a_continued_line_belong_to_the_statement(command):
     assert sd._goal_work(command) is None
+
+
+@pytest.mark.parametrize(
+    "command, expected",
+    [
+        ("empirica goals-create x # note \\\n--status planned", "an empirica goal"),  # a comment continues nothing
+        ("empirica goals-create x # --status planned", "an empirica goal"),  # planned in a comment does not count
+        ("# empirica goals-create x\nls", None),  # a commented-out command does not run
+        ("echo a#b; empirica goals-create x", "an empirica goal"),  # # inside a word is not a comment
+    ],
+)
+def test_comments_are_data(command, expected):
+    assert sd._goal_work(command) == expected
