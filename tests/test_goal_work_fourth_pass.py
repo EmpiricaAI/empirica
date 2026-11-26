@@ -42,9 +42,13 @@ def test_flags_on_a_continued_line_belong_to_the_statement(command):
     [
         ("empirica goals-create x # note \\\n--status planned", "an empirica goal"),  # a comment continues nothing
         ("empirica goals-create x # --status planned", "an empirica goal"),  # planned in a comment does not count
-        ("# empirica goals-create x\nls", None),  # a commented-out command does not run
+        ("# empirica goals-create x\nls", "an empirica goal"),  # over-detection by design: comments never hide a verb
         ("echo a#b; empirica goals-create x", "an empirica goal"),  # # inside a word is not a comment
+        ("echo a\\ #b; empirica goals-create a", "an empirica goal"),  # an escaped space before # (seventh pass)
+        ("echo a\\;#b; empirica goals-create a", "an empirica goal"),
+        ("echo ${x:- #}; empirica goals-create a", "an empirica goal"),  # # inside ${...}
+        ("echo ${x/ #/y}; empirica goals-create a", "an empirica goal"),
     ],
 )
-def test_comments_are_data(command, expected):
+def test_comments_only_withhold_exemptions(command, expected):
     assert sd._goal_work(command) == expected

@@ -641,11 +641,6 @@ def _data_spans(command: str) -> list[tuple[int, int]]:
                 spans.append((i, j + 1))
             i = j + 1
             continue
-        if ch == "#" and (i == 0 or command[i - 1] in " \t\n;&|()"):  # a comment runs to its newline, and is data
-            line_end = command.find("\n", i)
-            spans.append((i, line_end if line_end != -1 else n))
-            i = line_end if line_end != -1 else n
-            continue
         if ch == "<" and command.startswith("<<", i) and not command.startswith("<<<", i):
             m = _HEREDOC.match(command, i)
             line_end = command.find("\n", i)
@@ -658,6 +653,18 @@ def _data_spans(command: str) -> list[tuple[int, int]]:
                 continue
         i += 1
     return spans
+
+
+def _comment_spans(command: str, quoted: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Where a `#` starting a word outside quotes runs to its newline. Used only to withhold exemptions (see _goal_work)."""
+    out: list[tuple[int, int]] = []
+    for m in re.finditer(r"(?:^|(?<=[ \t\n;&|()]))#", command):
+        i = m.start()
+        if any(a <= i < b for a, b in quoted) or any(a <= i < b for a, b in out):
+            continue
+        line_end = command.find("\n", i)
+        out.append((i, line_end if line_end != -1 else len(command)))
+    return out
 
 
 def _escaped(command: str, pos: int) -> bool:
@@ -691,9 +698,13 @@ def _goal_work(command: object) -> str | None:
     matches = list(_GOAL_VERB.finditer(command))
     if not matches:
         return None
-    spans = _data_spans(command)
+    quoted = _data_spans(command)
+    # Comments only ever WITHHOLD an exemption (a `--status planned` or `--help` in one does not count, and its trailing
+    # backslash continues no line); they never hide a goal verb. A `#` misread as a comment can then only over-detect.
+    # (1.17.20 passes 6-7: comment rules that exempted verbs missed `a\ #b; empirica goals-create` and `${x:- #}`.)
+    spans = sorted(quoted + _comment_spans(command, quoted))
     for m in matches:
-        if any(a <= m.start() < b for a, b in spans):
+        if any(a <= m.start() < b for a, b in quoted):
             continue  # quoted or a heredoc body
         end = _statement_end(command, m.end(), spans)
         statement = _masked(command, m.end(), end, spans)
