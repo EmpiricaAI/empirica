@@ -598,14 +598,15 @@ _GOAL_VERB = re.compile(r"(?<![\w.-])empirica(?:\s|\\\n)+(goals?-create|gc|goals
 #: Anything on the line that can run quoted text as commands: then no quoted mention is exempt.
 _EXECUTES_TEXT = re.compile(
     r"(?<![\w-])(?:eval|sh|bash|zsh|dash|ksh|fish|ssh|xargs|parallel|watch|su|sudo|exec|source|"
-    r"python\d*(?:\.\d+)?|node|deno|bun|perl|ruby|php|osascript)(?![\w-])"
+    r"python\d*(?:\.\d+)?|node|deno|bun|perl|ruby|php|osascript|trap|awk|gawk|mawk|nawk|sed|env|flock|script|"
+    r"make)(?![\w-])"
     r"|(?:^|(?<=[\s;&|(]))\.(?=[ \t])"  # `. file` runs a file
 )
 #: A quoted string that cannot run anything: single quotes, or double quotes holding no $, backtick or backslash.
 _INERT_QUOTE = re.compile(r"'[^'\n]*'|\"[^\"\n$`\\]*\"")
-_QUOTED_HEREDOC = re.compile(r"<<-?[ \t]*(['\"])([^'\"\n]+)\1[^\n]*\n")
+_QUOTED_HEREDOC = re.compile(r"(?<![<\\])<<(?!<)-?[ \t]*(['\"])([^'\"\n]+)\1[^\n]*\n")  # not <<<, not \<<
 _STATUS_PLANNED = re.compile(r"(?<!\S)--status(?:[ \t]+|=)(?:planned|'planned'|\"planned\")(?![\w-])")
-_ANY_STATUS = re.compile(r"(?<!\S)--sta(?:t|tu|tus)?(?![\w-])")  # argparse takes any unambiguous abbreviation
+_ANY_STATUS = re.compile(r"(?<!\S)--st[\w]*(?![\w-])")  # argparse takes any unambiguous abbreviation (--st on)
 _STATEMENT_END = re.compile(r"[;&|\n)`]")
 
 
@@ -627,13 +628,14 @@ def _exempt_mention(command: str, start: int) -> bool:
         opener = command[command.rfind("\n", 0, m.start()) + 1 : m.end()]
         if terminator and opener.count("'") + opener.count('"') == 2:
             bodies.append((m.end(), terminator.start()))
-    if any(a <= start < b for a, b in bodies):
-        return True
     outside = "".join(command[i] if not any(a <= i < b for a, b in bodies) else " " for i in range(len(command)))
-    if any(c in outside for c in "$`\\"):
-        return False
+    if any(c in outside for c in "$`\\") or re.search(r"(?:^|[\s;&|(])#", outside):
+        return False  # substitution, an escape or a comment: the quoting cannot be trusted (eleventh pass: a heredoc
+        # opener inside a comment, a multi-line message or after a continuation exempted a verb bash runs)
     if "'" in _INERT_QUOTE.sub("", outside) or '"' in _INERT_QUOTE.sub("", outside):
         return False  # a quote that is not an inert same-line pair: the pairing cannot be trusted
+    if any(a <= start < b for a, b in bodies):
+        return True
     return any(q.start() < start < q.end() for q in _INERT_QUOTE.finditer(outside))
 
 
@@ -652,7 +654,29 @@ def _exempt_statement(command: str, verb_end: int, is_goal: bool) -> bool:
     bare = _INERT_QUOTE.sub(lambda q: q.group() if q.group()[1:-1] == "planned" else " _ ", statement)
     if "'" in bare.replace("'planned'", "") or '"' in bare.replace('"planned"', "") or "#" in bare:
         return False  # an unbalanced or unreadable quote, or a comment: no exemption
+    if "$" in bare or "<(" in bare:
+        return False  # a flag inside a substitution is not the verb's flag
+    if _has_positional(bare):
+        return False  # a config file or stdin (-): goals-create takes the status from it, not from --status
     return bool(_STATUS_PLANNED.search(bare)) and len(_ANY_STATUS.findall(bare)) == 1
+
+
+def _has_positional(statement: str) -> bool:
+    """Does the statement pass goals-create a positional (a config path or `-`)? Every word must be a flag or the value
+    right after a flag; a word that is neither is a positional. A boolean flag before a path reads as a value: rare."""
+    words = statement.split()
+    expect_value = False
+    for word in words:
+        if word.startswith("--") and "=" not in word:
+            expect_value = True
+            continue
+        if word.startswith("--"):
+            expect_value = False
+            continue
+        if word == "-" or not expect_value:
+            return True
+        expect_value = False
+    return False
 
 
 def _goal_work(command: object) -> str | None:

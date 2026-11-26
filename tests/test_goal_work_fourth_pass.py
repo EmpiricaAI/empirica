@@ -137,3 +137,22 @@ def test_the_narrow_exemptions_still_hold(command):
 )
 def test_tenth_pass_misses_are_detected(command):
     assert sd._goal_work(command) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'echo \'{"objective":"x"}\' | empirica goals-create - --status planned',  # eleventh pass: config status wins
+        "empirica goals-create goal.json --status planned",
+        "cat <<<'EOF'\nempirica goals-create --objective x\nEOF",  # a here-string, not a heredoc
+        "ls # <<'EOF'\nempirica goals-create --objective x\nEOF",  # opener inside a comment
+        "cat \\<<'EOF'\nempirica goals-create --objective x\nEOF",  # an escaped opener
+        "trap 'empirica goals-create --objective x' EXIT",
+        "awk 'BEGIN { system(\"empirica goals-create --objective x\") }'",
+        "env -S 'empirica goals-create --objective x'",
+        "empirica goals-create --objective x --status planned --st in_progress",
+        "empirica goals-create --objective x $(echo --status planned >/dev/null)",
+    ],
+)
+def test_eleventh_pass_misses_are_detected(command):
+    assert sd._goal_work(command) is not None
