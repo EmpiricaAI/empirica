@@ -587,158 +587,71 @@ def _is_person_prompt(record: dict) -> bool:
     return False
 
 
-#: An empirica goal verb (or alias) run as a command: after start, a separator, whitespace, `(`, `{`, `$(`, `!` or a path,
-#: and followed by the end of a word. Goal work belongs in a transaction with its knowledge logged (David, 2026-11-26), so
-#: it never runs on the small-act budget. Detection is BROAD on purpose and fails toward detecting: a miss lets goal work run
-#: on the budget, a false hit only asks for a PREFLIGHT (1.17.20 second pass: a shell-word splitter missed `$(...)`,
-#: subshells, if/for bodies, `<<-` heredocs and any line with an unbalanced quote).
-#: A line continuation between `empirica` and the verb still reads as one command; lines are not joined anywhere else.
-_GOAL_VERB = re.compile(
-    r"(?<![\w.-])(?:[\w./~-]*/)?empirica(?:\s|\\\n)+(goals?-create|gc|goals?-add-task)(?=[\s;|&)]|$)"
+#: An empirica goal verb (or alias), as a word. Goal work belongs in a transaction with its knowledge logged (David,
+#: 2026-11-26), so it never runs on the small-act budget.
+#:
+#: Design (1.17.20, after nine review passes): DETECT every occurrence and exempt only a few cases recognised positively
+#: and narrowly. Each attempt to read shell well enough to exempt more (a word splitter, a quote and heredoc scanner, two
+#: readings with and without comments) left a form where a misread hid a real goal; a false hit only asks for a PREFLIGHT.
+#: Sentinel is discipline, not security: an author who wants to evade it can; this only has to not miss ordinary work.
+_GOAL_VERB = re.compile(r"(?<![\w.-])empirica(?:\s|\\\n)+(goals?-create|gc|goals?-add-task)(?![\w-])")
+#: Anything on the line that can run quoted text as commands: then no quoted mention is exempt.
+_EXECUTES_TEXT = re.compile(
+    r"(?<![\w-])(?:eval|sh|bash|zsh|dash|ksh|fish|ssh|xargs|parallel|watch|su|sudo|exec)(?![\w-])"
 )
-_SEPARATOR = re.compile(r";|&&|\|\||\||\n")
-_HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][\w]*)\1")
-_PLANNED = re.compile(r"--stat(?:u|us)?(?:\s+|=)(['\"]?)planned\1(?=[\s;|&)]|$)")
-_STDIN_PLANNED = re.compile(r'"status"\s*:\s*"planned"')
-_SHELL_C = re.compile(r"\b(?:bash|sh|zsh|dash)\s+(?:-\w+\s+)*-c\s*$")
+#: A quoted string that cannot run anything: single quotes, or double quotes holding no $, backtick or backslash.
+_INERT_QUOTE = re.compile(r"'[^'\n]*'|\"[^\"\n$`\\]*\"")
+_QUOTED_HEREDOC = re.compile(r"<<-?[ \t]*(['\"])([^'\"\n]+)\1[^\n]*\n")
+_STATUS_PLANNED = re.compile(r"(?<!\S)--status(?:[ \t]+|=)(?:planned|'planned'|\"planned\")(?![\w-])")
+_ANY_STATUS = re.compile(r"(?<!\S)--status(?![\w-])")
+_STATEMENT_END = re.compile(r"[;&|\n)`]")
 
 
-def _data_spans(command: str, comments: bool) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
-    """(quote and heredoc-body spans, comment spans): where the text is data, not commands. ``comments`` reads a `#` that
-    starts a word as a comment to its newline, so quotes inside it open nothing; without it, `#` is ordinary text. An
-    unbalanced quote ends the scan (what follows counts as commands)."""
-    spans: list[tuple[int, int]] = []
-    notes: list[tuple[int, int]] = []
-    i, n = 0, len(command)
-    while i < n:
-        ch = command[i]
-        if ch == "\\" and i + 1 < n:
-            i += 2
-            continue
-        if comments and ch == "#" and (i == 0 or (command[i - 1] in " \t\n;&|()" and not _escaped(command, i - 1))):
-            line_end = command.find("\n", i)
-            notes.append((i, line_end if line_end != -1 else n))
-            i = line_end if line_end != -1 else n
-            continue
-        if ch in "'\"":
-            # $'...' takes backslash escapes; \$' (an odd run of backslashes before the $) is a plain $ and an ordinary quote
-            ansi = ch == "'" and i > 0 and command[i - 1] == "$" and not _escaped(command, i - 1)
-            j = i + 1
-            while j < n and command[j] != ch:
-                j += 2 if ((ch == '"' or ansi) and command[j] == "\\") else 1
-            if j >= n:
-                return spans, notes  # unbalanced: stop treating anything as data
-            runs = ch == '"' and ("$(" in command[i:j] or "`" in command[i:j])  # "$(empirica goals-create ...)" runs
-            if not runs and not _SHELL_C.search(command, 0, i):  # `bash -c '...'` is commands, not data
-                spans.append((i, j + 1))
-            i = j + 1
-            continue
-        if ch == "<" and command.startswith("<<", i) and not command.startswith("<<<", i):
-            m = _HEREDOC.match(command, i)
-            line_end = command.find("\n", i)
-            if m and line_end != -1:
-                terminator = re.compile(rf"^[ \t]*{re.escape(m.group(2))}[ \t]*$", re.M)
-                close = terminator.search(command, line_end + 1)
-                body_end = close.start() if close else n
-                spans.append((line_end + 1, body_end))
-                i = close.end() if close else n
-                continue
-        i += 1
-    return spans, notes
+def _exempt_mention(command: str, start: int) -> bool:
+    """Is the verb at ``start`` plainly text that nothing runs: inside an inert quote on its own line, or in the body of a
+    heredoc whose delimiter is quoted (no substitution), with nothing on the command that could execute text?"""
+    if _EXECUTES_TEXT.search(command):
+        return False
+    line_start = command.rfind("\n", 0, start) + 1
+    line_end = command.find("\n", start)
+    line = command[line_start : line_end if line_end != -1 else len(command)]
+    at = start - line_start
+    if "$'" not in line and "\\'" not in line and '\\"' not in line:
+        if any(m.start() < at < m.end() for m in _INERT_QUOTE.finditer(line)):
+            return True
+    for m in _QUOTED_HEREDOC.finditer(command):
+        terminator = re.compile(rf"^[ \t]*{re.escape(m.group(2))}[ \t]*$", re.M).search(command, m.end())
+        if terminator and m.end() <= start < terminator.start():
+            return True
+    return False
 
 
-def _escaped(command: str, pos: int) -> bool:
-    """Is the character at ``pos`` escaped: preceded by an odd run of backslashes?"""
-    run = 0
-    while pos - run - 1 >= 0 and command[pos - run - 1] == "\\":
-        run += 1
-    return run % 2 == 1
-
-
-def _inside(spans: list[tuple[int, int]], pos: int) -> bool:
-    return any(a <= pos < b for a, b in spans)
-
-
-class _Reading:
-    """The command read twice, with and without comments (1.17.20 passes 6-8: each single reading of `#` had a case where
-    a misread hid a real goal). Data both readings agree on can EXEMPT a goal verb; data either reading sees can only
-    WITHHOLD an exemption. So a misread can over-detect, never miss."""
-
-    def __init__(self, command: str):
-        self.command = command
-        quotes_a, self.comments = _data_spans(command, comments=True)
-        quotes_b, _ = _data_spans(command, comments=False)
-        self.code_a = quotes_a + self.comments  # data in the reading with comments
-        self.code_b = quotes_b
-        self.agreed_quotes = [s for s in quotes_a if s in quotes_b]
-
-    def quoted(self, pos: int) -> bool:  # both readings: inside a quote or heredoc body
-        return _inside(self.code_a, pos) and _inside(self.code_b, pos) and not _inside(self.comments, pos)
-
-    def data_in_both(self, pos: int) -> bool:
-        return _inside(self.code_a, pos) and _inside(self.code_b, pos)
-
-    def data_in_either(self, pos: int) -> bool:
-        return _inside(self.code_a, pos) or _inside(self.code_b, pos)
-
-    def statement_end(self, start: int) -> int:
-        """The next separator, unless both readings call it data. An escaped newline continues the line only when both
-        readings call its backslash code, so a continuation never pulls in a flag either reading would not."""
-        for m in _SEPARATOR.finditer(self.command, start):
-            if m.group() == "\n" and _escaped(self.command, m.start()) and not self.data_in_either(m.start() - 1):
-                continue
-            if not self.data_in_both(m.start()):
-                return m.start()
-        return len(self.command)
-
-    def masked(self, start: int, end: int, keep_words: bool = True) -> str:
-        """command[start:end] with anything either reading calls data blanked, except (keep_words) a quoted value that is
-        just a word (`--status "planned"`) and that both readings agree is a quote."""
-        out, pos = [], start
-        spans = sorted(set(self.code_a + self.code_b))
-        for a, b in spans:
-            if b <= pos or a >= end:
-                continue
-            a = max(a, pos)
-            out.append(self.command[pos:a])
-            inner = self.command[a + 1 : b - 1] if self.command[a] in "'\"" and (a, b) in self.agreed_quotes else ""
-            out.append(inner if keep_words and re.fullmatch(r"[\w-]+", inner or "") else " _ ")
-            pos = min(b, end)
-        out.append(self.command[pos:end])
-        return "".join(out)
+def _exempt_statement(command: str, verb_end: int, is_goal: bool) -> bool:
+    """Is this goal-verb statement plainly not work started now: `--help` as its first argument, or (for a goal) one
+    `--status planned` outside quotes, in a statement with no comment. The statement runs to the first ; & | newline ) or
+    backtick, so it can only end too early (losing an exemption), never late; a line continuation is followed."""
+    rest = command[verb_end:]
+    if re.match(r"[ \t]+(?:--help|-h)(?![\w-])", rest):
+        return True
+    if not is_goal:
+        return False
+    statement = rest.replace("\\\n", " ")
+    cut = _STATEMENT_END.search(statement)
+    statement = statement[: cut.start()] if cut else statement
+    bare = _INERT_QUOTE.sub(lambda q: q.group() if q.group()[1:-1] == "planned" else " _ ", statement)
+    if "'" in bare.replace("'planned'", "") or '"' in bare.replace('"planned"', "") or "#" in bare:
+        return False  # an unbalanced or unreadable quote, or a comment: no exemption
+    return bool(_STATUS_PLANNED.search(bare)) and len(_ANY_STATUS.findall(bare)) == 1
 
 
 def _goal_work(command: object) -> str | None:
-    """'an empirica goal' / 'an empirica task' when this Bash command runs a goal verb, else None. A mention inside quotes
-    or a heredoc body is data; `--help`, and `--status planned` in the same statement (or "status": "planned" in the
-    heredoc that statement feeds), start nothing."""
+    """'an empirica goal' / 'an empirica task' when this Bash command may start goal work now, else None."""
     if not isinstance(command, str) or "empirica" not in command:
         return None
-    matches = list(_GOAL_VERB.finditer(command))
-    if not matches:
-        return None
-    reading = _Reading(command)
-    for m in matches:
-        if reading.quoted(m.start()):
-            continue  # quoted or a heredoc body, in both readings
-        end = reading.statement_end(m.end())
-        statement = reading.masked(m.end(), end)
-        if re.search(r"(?:^|\s)(?:--help|-h)(?=\s|$)", reading.masked(m.end(), end, keep_words=False)):
-            continue
+    for m in _GOAL_VERB.finditer(command):
         is_goal = m.group(1) in ("goals-create", "goal-create", "gc")
-        if is_goal and _PLANNED.search(statement):
-            continue  # queued for later: nothing is being worked yet
-        if is_goal and re.search(r"(?:^|\s)-(?=\s|$)", statement):
-            fed = next(
-                (
-                    command[a:b]
-                    for a, b in reading.agreed_quotes
-                    if a >= m.end() and command.rfind("\n", 0, a) < end + 1 and command[a] not in "'\""
-                ),
-                "",
-            )
-            if _STDIN_PLANNED.search(fed):
-                continue
+        if _exempt_mention(command, m.start()) or _exempt_statement(command, m.end(), is_goal):
+            continue
         return "an empirica goal" if is_goal else "an empirica task"
     return None
 

@@ -29,12 +29,21 @@ def test_an_even_run_of_backslashes_leaves_the_ansi_quote_real():
     "command",
     [
         "empirica goals-create --objective x \\\n --status planned",
-        "empirica goals-create \\\n --help",
-        'empirica goals-create \\\n - <<\'EOF\'\n{"status": "planned"}\nEOF',
     ],
 )
 def test_flags_on_a_continued_line_belong_to_the_statement(command):
     assert sd._goal_work(command) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "empirica goals-create \\\n --help",  # --help is exempt only as the first argument on the verb's line
+        'empirica goals-create \\\n - <<\'EOF\'\n{"status": "planned"}\nEOF',  # stdin is not read
+    ],
+)
+def test_narrow_exemptions_over_detect_the_rest(command):
+    assert sd._goal_work(command) is not None
 
 
 @pytest.mark.parametrize(
@@ -66,3 +75,45 @@ def test_comments_only_withhold_exemptions(command, expected):
 )
 def test_a_quote_inside_a_comment_hides_nothing(command):
     assert sd._goal_work(command) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'OUT="$(cd "/tmp" && empirica goals-create --objective x)"',  # ninth pass: quotes inside "$(...)"
+        'empirica goals-create --objective x --description "Fix \\`x\\` so --help works"',
+        'empirica goals-create --objective x --description "a \\`y\\` use --status planned"',
+        "cat <<EOF\n$(empirica goals-create --objective x)\nEOF",  # an unquoted heredoc runs substitutions
+        "cat <<EOF\n`empirica goals-create --objective x`\nEOF",
+        "bash -lc 'empirica goals-create --objective x'",
+        "bash -o pipefail -c 'empirica goals-create --objective x'",
+        "eval 'empirica goals-create --objective x'",
+        "bash <<'EOF'\nempirica goals-create --objective x\nEOF",  # a heredoc fed to a shell is a script
+        'cat <<E"OF"\nx\nEOF\nempirica goals-create --objective x',
+        "echo $((1<<x)); empirica goals-create --objective x",
+        'X="$(empirica goals-create --objective x)" --status planned',
+        "empirica goals-create --objective x & echo --status planned",
+        "empirica goals-create --objective x\\ --help",
+        "empirica goals-create --objective x --status planned --status active",  # the later --status wins
+        "empirica goals-create --objective x--status planned",
+        "echo it\\'s; empirica goals-create x; echo 'y'",
+    ],
+)
+def test_ninth_pass_misses_are_detected(command):
+    assert sd._goal_work(command) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rg -n 'empirica goals-create' docs",  # inert single quotes
+        'git commit -m "docs: mention empirica goals-create"',  # inert double quotes
+        "cat <<'EOF' > n.md\nempirica goals-create --objective x\nEOF",  # quoted heredoc delimiter
+        "empirica goals-create --help",
+        "empirica goals-create --objective x --status planned",
+        'empirica goals-create --objective "x" --status "planned"',
+        "empirica goals-create --objective x --status=planned",
+    ],
+)
+def test_the_narrow_exemptions_still_hold(command):
+    assert sd._goal_work(command) is None

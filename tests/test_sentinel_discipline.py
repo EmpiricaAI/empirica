@@ -988,7 +988,8 @@ def test_a_goal_created_before_the_prompt_does_not_carry_over(tmp_path):
         ('echo "next: empirica goals-create --objective x"', False),  # quoted mention
         ('git commit -m "docs: mention empirica goals-create"', False),
         ("rg 'foo|empirica goals-create' docs", False),
-        ("cat <<EOF > notes.md\nempirica goals-create --objective x\nEOF", False),  # a heredoc body is data
+        ("cat <<EOF > notes.md\nempirica goals-create --objective x\nEOF", True),  # unquoted delimiter: over-detects
+        ("cat <<'EOF' > notes.md\nempirica goals-create --objective x\nEOF", False),  # quoted delimiter: inert text
         ("empirica goals-create --help", False),
         ("empirica goals-create-foo --objective x", False),  # a longer verb name
         ("empirica goals-create --objective A && empirica goals-create --objective B --status planned", True),
@@ -1003,7 +1004,7 @@ def test_a_goal_created_before_the_prompt_does_not_carry_over(tmp_path):
         ("~/.local/bin/empirica goals-create --objective x", True),  # path-qualified
         ('empirica goals-create --objective x --status "planned"', False),  # quoted value is still planned
         ("empirica goals-create --objective x --status=planned", False),
-        ('empirica goals-create - <<\'EOF\'\n{"objective": "x", "status": "planned"}\nEOF', False),  # stdin
+        ('empirica goals-create - <<\'EOF\'\n{"objective": "x", "status": "planned"}\nEOF', True),  # stdin not read
         ('empirica goals-create - <<\'EOF\'\n{"objective": "x"}\nEOF', True),
     ],
 )
@@ -1051,7 +1052,7 @@ def test_reads_still_run_after_a_goal_is_created(home, monkeypatch):
             '{"status": "planned"}\nEOF',
             True,
         ),  # a LATER heredoc's planned does not exempt
-        ("empirica goals-create --objective x --stat planned", False),  # argparse abbreviation
+        ("empirica goals-create --objective x --stat planned", True),  # abbreviations not read: over-detects
     ],
 )
 def test_goal_work_detection_fails_toward_detecting(tmp_path, command, plan):
