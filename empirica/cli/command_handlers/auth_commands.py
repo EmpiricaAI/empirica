@@ -257,8 +257,8 @@ def _lifecycle(block: dict, now: float) -> str:
 
 
 def handle_auth_logout_command(args) -> int:
-    """Revoke the refresh token at cortex, then drop the oauth block.
-    The api_key is untouched — logout must never be a lockout."""
+    """Revoke the refresh token at cortex, then drop the oauth block (and a leftover api_key, retired in goal 739e47b2).
+    After logout this seat has no Cortex credential until the next `empirica auth login`."""
     output = getattr(args, "output", "human")
     loader = _loader()
     org = getattr(args, "org", None)
@@ -353,9 +353,11 @@ def _drop_oauth_block(loader, slot: str | None = None) -> Path | None:
         cortex_block["orgs"].pop(slot)
         if not cortex_block["orgs"]:
             cortex_block.pop("orgs")
-    else:
+    elif "api_key" not in cortex_block:
         return None
-    cortex_block.pop("api_key", None)  # retired (goal 739e47b2): every write of the block drops it
+    cortex_block.pop(
+        "api_key", None
+    )  # retired (goal 739e47b2): every write of the block drops it, even with no sign-in
     existing["cortex"] = cortex_block
     return loader._write_credentials(target, existing)
 

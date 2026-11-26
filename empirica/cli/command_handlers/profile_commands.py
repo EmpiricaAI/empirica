@@ -203,7 +203,14 @@ def _print_sync_pretty(result, import_result, remote, import_only, do_push, do_q
             qdrant_ok = result.get("qdrant", {}).get("ok", False)
             print(f"   Qdrant: {'rebuilt' if qdrant_ok else 'failed'}")
     else:
-        print(f"❌ Profile sync failed: {result.get('error', 'Unknown error')}")
+        refused = (result.get("push") or {}).get("refused")
+        if refused and import_result.get("ok"):
+            # The import ran; only the push was refused. Say both, and how to publish anyway (1.17.19 sweep).
+            summary = result.get("summary", {})
+            print(f"   Imported: {summary.get('imported', 0)} new artifacts")
+            print(f"❌ {refused}; {result['push'].get('hint', '')}")
+        else:
+            print(f"❌ Profile sync failed: {result.get('error', 'Unknown error')}")
 
 
 def handle_profile_sync_command(args):

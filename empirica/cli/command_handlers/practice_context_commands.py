@@ -228,12 +228,12 @@ def _cross_org_rows(roster: dict[str, Any], self_ai_id: str | None, seen: set) -
         party = agreement.get("other_party") or {}
         if scope == "seat_seat":
             reachable = party.get("reachable_from") or agreement.get("reachable_from")
-            own = (
-                f"{(roster.get('org') or {}).get('slug')}.{(roster.get('self') or {}).get('tenant_slug')}.{self_ai_id}"
-            )
+            org_slug = (roster.get("org") or {}).get("slug")
+            tenant = (roster.get("self") or {}).get("tenant_slug")
+            # This practice exactly, by its canonical address: a bare slug cannot tell tenants apart (1.17.19 sweep).
             if not (
-                reachable and self_ai_id and reachable in (self_ai_id, own)
-            ):  # this practice exactly, no other tenant's
+                reachable and self_ai_id and org_slug and tenant and reachable == f"{org_slug}.{tenant}.{self_ai_id}"
+            ):
                 continue
         for practice in agreement.get("practices") or []:
             mesh = practice.get("canonical_ai_id_mesh") if isinstance(practice, dict) else None

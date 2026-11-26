@@ -514,7 +514,7 @@ def public_notes_remote(remote: str) -> str | None:
     """Why ``remote`` is public (a known public host, or a remote declared public), or None. Shared by every command that
     pushes epistemic notes: sync-push and profile-sync --push (the latter had no check; found 2026-11-25)."""
     remote_url = _get_remote_url(remote)
-    if not remote_url and re.match(r"^(?:[a-z+]+://|[\w.-]+@[\w.-]+:)", remote or ""):
+    if not remote_url and re.match(r"^(?:[a-z+]+://|[\w.@-]+:)", remote or "", re.IGNORECASE):
         remote_url = remote  # a URL given as the remote: git pushes to it directly (1.17.19 sweep)
     detected = _public_host(remote_url) if remote_url else None
     if not detected and _load_sync_config().get("visibility") == "public":

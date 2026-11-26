@@ -22,24 +22,16 @@ def _tracker():
     return mod
 
 
-@pytest.mark.parametrize(
-    "prompt",
-    ["Design doc review: is it accurate?", "design is fine", "Specify the flag name in the README", "Plan approved.",
-     "plan mode", "then plan mode was on", "Plan B is fine", "now implement nothing"],
-)  # fmt: skip
-def test_mentions_do_not_read_as_plan_requests(prompt):
-    assert not _tracker()._PLAN_REQUEST.search(prompt)
+def test_requests_and_approvals_fire_with_the_word_match():
+    """The request-shape regex was withdrawn (goal 5d950388); the word-match catches every request form the passes found."""
+    for prompt in ("ok, implement it", "please implement retries", "can you implement caching", "help me plan the release",
+                   "write a detailed plan", "Context:\nimplement X", "Plan the next steps.", "LGTM, implement it"):  # fmt: skip
+        assert _tracker()._PLAN_REQUEST.search(prompt), prompt
 
 
-@pytest.mark.parametrize(
-    "prompt",
-    ["ok, implement it", "yes implement it", "let us plan the release", "help me plan the release",
-     "we need to plan the migration", "I want you to implement the listener", "Plan: migrate db",
-     "write a detailed plan", "draft an implementation plan", "break down the work", "Context:\nimplement X",
-     "multi-step refactor", "Plan the next steps.", "implement X and Y"],
-)  # fmt: skip
-def test_approvals_and_requests_still_read_as_plan_requests(prompt):
-    assert _tracker()._PLAN_REQUEST.search(prompt)
+def test_file_names_and_no_plan_needed_do_not_fire():
+    for prompt in ("read docs/spec.md", "rename plan.md", "no plan needed, just fix the typo"):
+        assert not _tracker()._PLAN_REQUEST.search(prompt), prompt
 
 
 def test_the_group_check_compares_with_the_groups_this_process_holds(tmp_path, monkeypatch):
@@ -140,11 +132,12 @@ def test_a_refused_profile_sync_push_is_not_a_success(monkeypatch, capsys):
     monkeypatch.setattr(pc, "_import_notes_to_sqlite", lambda: {"ok": True})
     monkeypatch.setattr(pc, "_fetch_notes", lambda remote: {"ok": True})
     monkeypatch.setattr(sc, "public_notes_remote", lambda remote: "github.com")
+    monkeypatch.setattr(pc, "_load_sync_config", lambda: {"enabled": True})
     rc = pc.handle_profile_sync_command(
         SimpleNamespace(push=True, qdrant=False, import_only=False, force=False, remote="origin", output="text")
     )
     out = capsys.readouterr().out
-    assert rc == 1 and "Pushed to" not in out
+    assert rc == 1 and "Pushed to" not in out and "Refusing" in out and "--force" in out and "Imported" in out
 
 
 def test_logout_drops_a_leftover_key(tmp_path, monkeypatch):
@@ -171,3 +164,23 @@ def test_logout_drops_a_leftover_key(tmp_path, monkeypatch):
 
     auth_commands._drop_oauth_block(L(), None)
     assert "api_key" not in yaml.safe_load(target.read_text())["cortex"]
+
+
+@pytest.mark.parametrize(
+    "remote", ["github.com:me/notes.git", "github.com-work:me/notes.git", "HTTPS://github.com/me/n.git"]
+)
+def test_scp_and_upper_case_url_remotes_are_checked(monkeypatch, remote):
+    from empirica.cli.command_handlers import sync_commands as sc
+
+    monkeypatch.setattr(sc, "_get_remote_url", lambda r: None)
+    monkeypatch.setattr(sc, "_load_sync_config", lambda: {})
+    assert sc.public_notes_remote(remote)
+
+
+def test_a_bare_reachable_from_never_counts():
+    from empirica.cli.command_handlers.practice_context_commands import _cross_org_rows
+
+    roster = {"self": {"tenant_slug": "david"}, "org": {"slug": "empirica"}, "cross_org_visible": [
+        {"scope": "seat_seat", "state": "active", "other_party": {"org_slug": "s", "reachable_from": "research"},
+         "practices": [{"canonical_ai_id_mesh": "s.t.x", "slug": "x"}]}]}  # fmt: skip
+    assert _cross_org_rows(roster, "research", set()) == []

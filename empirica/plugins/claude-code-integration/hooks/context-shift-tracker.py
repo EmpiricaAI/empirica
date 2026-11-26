@@ -162,20 +162,14 @@ _COMPLEX_WORK = re.compile(
 #: with them 29% of typed prompts lost the budget, 19% for those words alone (14 days on one machine, goal b55139fd: David,
 #: "I still don't see the trivial tasks not requiring a transaction"). "complex" describes work rather than asking for a
 #: plan. _COMPLEX_WORK keeps the wide list for the /epistemic-transaction nudge, which only suggests.
-# A REQUEST for plan-shaped work, not a mention of a plan or spec: an imperative at the start or after a joining word, an
-# ask to write one, or the decomposition phrasings. Mentions ("explain the plan you made", "read docs/spec.md", "no plan
-# needed") over-fired and removed the budget (ecodex sweep, goal befb499f).
+# The 1.17.18 word-match: it over-fires on mentions, which only removes the discipline budget (the safe side). Two
+# request-shape rewrites in the 1.17.19 sweep each opened new misses and false positives, so it stays until a matcher is
+# measured on real prompts (goal 5d950388). Two narrow exclusions: a file name (plan.md, docs/spec.md) and "no plan needed".
 _PLAN_REQUEST = re.compile(
-    # an imperative at a line or sentence start, or after a joining or approving word, taking an object
-    r"(?:^|[.;:!?]\s*|\b(?:and|then|please|now|ok|okay|yes|sure|can you|could you|let'?s|let us|help me|need to|want you to|"
-    r"going to)[,!]?\s+)(?:plan|implement|decompose)\s+"
-    r"(?:the|a|an|this|that|these|those|it|them|our|my|your|out|for|how|what|next|\w+\s+and\s)\b"
-    # an ask to write one
-    r"|\b(?:write|draft|create|make|produce|prepare)(?:\s+up)?\s+(?:a|an|the|me a)\s+(?:[\w-]+\s+){0,2}"
-    r"(?:plan|spec|specification)\b"
-    # a heading-style request and the decomposition phrasings
-    r"|^\s*(?:implement|decompose)\s+\w|^\s*plan:\s*\w|break (?:this|it|down|the \w+ down)|how should i approach|\bmulti-step\s+\w+",
-    re.IGNORECASE | re.MULTILINE,
+    r"\b(?:plan|plans|planning|implement|implementation|implementing|spec|specs|specification|decompose|multi-step)\b"
+    r"(?![.\w]*\.(?:md|txt|ya?ml|json)\b)(?<!\bno plan)"
+    r"|break this down|how should i approach",
+    re.IGNORECASE,
 )
 
 

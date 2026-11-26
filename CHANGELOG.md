@@ -29,7 +29,7 @@ Breaking for any seat that still connects to Cortex with an api_key alone: run `
 ### Changed
 
 - **A practice joined as a member resolves its address**, so its listener subscribes and `empirica mesh diagnose` passes: Cortex lists a shared practice under its owner, and the member's address now comes from its joined practices.
-- **Discipline mode treats `source-add --visibility shared` or `public` as a change**, since it registers the source on Cortex at once; the plan-request check looks for a request rather than any mention of a plan or spec; a malformed prompt payload no longer crashes the prompt hook.
+- **Discipline mode treats `source-add --visibility shared` or `public` as a change**, since it registers the source on Cortex at once; the plan-request check no longer fires on a file name such as `plan.md` or on "no plan needed"; a malformed prompt payload no longer crashes the prompt hook.
 - **The public contract no longer carries the identity-crossing (group B) routes' request and response detail or the write-tier conformance suite**; they live with Cortex. The local server still answers those routes with `501 {capability}`.
 
 ## [1.17.18] - 2026-11-25
