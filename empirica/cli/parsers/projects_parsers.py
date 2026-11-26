@@ -377,8 +377,9 @@ def add_projects_parsers(subparsers) -> None:
     unreg.add_argument(
         "--local",
         action="store_true",
-        help="Remove project rows from THIS machine's workspace registry (global_projects + the entity_registry "
-        "mirror) in one transaction instead of unregistering on cortex. --project-id takes a comma-separated list. "
+        help="Remove projects from THIS machine: global_projects, the entity_registry mirror and the "
+        "~/.empirica/registry.yaml entry (an entry only in registry.yaml is found too), then, when this machine is "
+        "signed in to Cortex, soft-archive them there (--no-cortex keeps it local). --project-id takes a comma-separated list. "
         "PREVIEWS unless --apply; refuses the whole batch if any id is unknown or still referenced "
         "(entity_memberships, entity_artifacts, instance_bindings, global_sessions, engagements, or Qdrant "
         "collections; an unreachable Qdrant is unknown, not zero); --apply writes an audit row (registry_audit) "
@@ -388,6 +389,11 @@ def add_projects_parsers(subparsers) -> None:
         "--apply",
         action="store_true",
         help="With --local: actually remove the rows (default is a preview).",
+    )
+    unreg.add_argument(
+        "--no-cortex",
+        action="store_true",
+        help="With --local --apply: do not archive on Cortex even when signed in.",
     )
     unreg.add_argument(
         "--cortex-url",

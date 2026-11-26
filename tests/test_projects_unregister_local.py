@@ -53,6 +53,12 @@ def qdrant(monkeypatch):
 
 @pytest.fixture
 def ws(tmp_path, monkeypatch, qdrant):
+    # Never this box's registry.yaml or Cortex sign-in (tests must not measure the box; goal 2cef87f4 added both stores).
+    from empirica.api import registry as _reg
+    from empirica.cli.command_handlers import projects_commands as _pc
+
+    monkeypatch.setattr(_reg, "DEFAULT_REGISTRY_PATH", tmp_path / "registry.yaml")
+    monkeypatch.setattr(_pc, "_resolve_cortex_config", lambda *a, **k: (None, None))
     path = tmp_path / "workspace.db"
     monkeypatch.setenv("EMPIRICA_WORKSPACE_DB", str(path))
     conn = sqlite3.connect(str(path))
