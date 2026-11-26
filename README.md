@@ -439,21 +439,21 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.17.18
+## What's New in 1.17.19
 
-- Practices declare what they provide, and registering sends it
-- Deprecated flags print a removal notice
-- Cockpit tabs show the mail waiting on a window's practices (`✉N`)
-- Cockpit: an FYI leaves the mail count once its practice has read it
-- `auth login` and `mesh connect` restart the running listener services
-- The epistemic-gardening skill surveys every artifact type by subject
+- The Cortex api_key
+- Cockpits say who they are for
+- `empirica practice-context` lists peers reachable through cross-org agreements
+- A hand-edited visibility writer file no longer crashes `empirica doctor`
+- `empirica profile-sync --push` refuses a public host
+- `empirica project-register` joins a shared practice another member of your org registered
 
-Plus 14 more entries in the [CHANGELOG](CHANGELOG.md).
+Plus 5 more entries in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.17.18** — Practices declare what they provide, and registering sends it
 - **1.17.17** — A cockpit's `server_access` users are granted read-only access again on tmux 3.5 and later
-- **1.17.16** — A visibility note whose first write failed is retried at the next export,
 
 ## What's Coming
 

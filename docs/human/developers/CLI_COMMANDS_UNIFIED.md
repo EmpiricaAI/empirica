@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.17.18
-**Generated:** 2026-11-25 14:36:57 UTC
+**Framework version:** 1.17.19
+**Generated:** 2026-11-26 08:26:44 UTC
 **Total commands:** 239 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1078,7 +1078,7 @@ Register external material as a citable source. Use for any evidence outside the
 - `--cortex-url` — optional
   Cortex URL override (default: credentials.yaml)
 - `--api-key` — optional
-  Cortex API key override (default: credentials.yaml)
+  Cortex bearer override (default: the OAuth sign-in from `empirica auth login`)
 - `--noetic` — optional · flag
   Source used — evidence that informed knowledge (source IN)
 - `--praxic` — optional · flag
@@ -1115,7 +1115,7 @@ Download a media-bearing source's retained bytes from cortex to a local file. Fe
 - `--cortex-url` — optional
   Cortex URL override (default: credentials.yaml)
 - `--api-key` — optional
-  Cortex API key override (default: credentials.yaml)
+  Cortex bearer override (default: the OAuth sign-in from `empirica auth login`)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 - `--verbose` — optional · flag
@@ -1178,7 +1178,7 @@ Match local sources against the central catalogue by content identity and adopt 
 - `--cortex-url` — optional
   Cortex base URL (default: credentials.yaml / CORTEX_URL env)
 - `--api-key` — optional
-  Cortex API key (default: credentials.yaml / CORTEX_API_KEY env)
+  Cortex bearer (default: the OAuth sign-in from `empirica auth login`)
 - `--register-shared` — optional · flag
   One-time convergence: push existing local-only shared/public sources up to cortex's catalogue (POST /v1/sources/register) so they materialize on the shared surface. Skips already-registered rows. Runs standalone (ignores the reconcile flow).
 - `--backfill-citations` — optional · flag
@@ -1627,7 +1627,7 @@ Ambassador addressbook — project roster as per-practitioner rows with substrat
 - `--cortex-url` — optional
   Cortex base URL override (else env CORTEX_URL or ~/.empirica/credentials.yaml).
 - `--api-key` — optional
-  Cortex API key override (else env CORTEX_API_KEY or credentials.yaml).
+  Cortex bearer override (else the OAuth sign-in from `empirica auth login`).
 - `--ai-id` — optional
   Filter to a single ai_id (default: all).
 - `--timeout` — optional · type=`float` · default=`10.0`
@@ -1664,7 +1664,7 @@ One-shot: walk filesystem → upsert ~/.empirica/registry.yaml → register on C
 - `--cortex-url` — optional
   Override Cortex base URL (default: $CORTEX_REMOTE_URL).
 - `--api-key` — optional
-  Override Cortex API key (default: $CORTEX_API_KEY).
+  Override the Cortex bearer (default: the OAuth sign-in from `empirica auth login`).
 - `--timeout` — optional · type=`float` · default=`10.0`
   Per-request timeout for Cortex POSTs in seconds (default: 10).
 - `--force-metadata-update` — optional · flag
@@ -2354,7 +2354,7 @@ Sync epistemic profile: fetch notes → import to SQLite → rebuild Qdrant
 - `--import-only` — optional · flag
   Skip fetch, only import existing local git notes into SQLite
 - `--force` — optional · flag
-  Force sync even if disabled in config
+  Sync even if disabled in config, and push to a public host
 - `--output` — optional · type=`choice` · choices={json, text} · default=`json`
   Output format (default: json)
 
@@ -3816,7 +3816,7 @@ OAuth for the proprietary Cortex service (getempirica.com; requires an account):
 
 ##### `empirica auth login`
 
-Authorization_code + PKCE browser flow; stores the token set under cortex.oauth and verifies it with a real authenticated call. Never touches the api_key.
+Authorization_code + PKCE browser flow; stores the token set under cortex.oauth and verifies it with a real authenticated call. Drops a leftover api_key (retired).
 
 **Arguments:**
 
@@ -3872,7 +3872,7 @@ List MCP connectors in ~/.claude.json that store a static Authorization bearer a
 
 ##### `empirica auth logout`
 
-Revoke this seat's refresh token at cortex and drop cortex.oauth. The api_key is untouched — logout is never a lockout.
+Revoke this seat's refresh token at cortex and drop cortex.oauth. After logout this seat has no Cortex credential until the next `empirica auth login`.
 
 **Arguments:**
 
@@ -5228,7 +5228,7 @@ Pull the org mesh-sharing agreements from cortex; upsert into entity_registry
 - `--cortex-url` — optional
   Cortex base URL override.
 - `--api-key` — optional
-  Cortex API key override.
+  Cortex bearer override (default: the OAuth sign-in).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
 
 

@@ -5,9 +5,13 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.17.19] - 2026-11-26
 
 Breaking for any seat that still connects to Cortex with an api_key alone: run `empirica auth login` before or after upgrading.
+
+### Removed
+
+- **The Cortex api_key.** Core connects to Cortex only through the OAuth sign-in (`empirica auth login`, time-based tokens that refresh). A `cortex.api_key` in `credentials.yaml` or a `CORTEX_API_KEY` variable is ignored, `empirica doctor` warns about a leftover one, and any write of the cortex block drops it. The setup wizard no longer asks for a key; `--api-key` flags still accept a bearer token for a one-off override.
 
 ### Added
 
@@ -21,10 +25,6 @@ Breaking for any seat that still connects to Cortex with an api_key alone: run `
 - **`empirica project-register` joins a shared practice another member of your org registered**, instead of stopping at an owner conflict and suggesting a fork; Cortex refuses a practice in another org.
 - **A new store takes the practice's name from its tracked `.empirica/project.yaml`**, not the folder, so per-person clones no longer show the person's name.
 - **The cockpit starts tmux inline when the systemd user manager lacks groups the login has**, so panes can open group-restricted practice folders; it says why and how to restore the survive-logout start.
-
-### Removed
-
-- **The Cortex api_key.** Core connects to Cortex only through the OAuth sign-in (`empirica auth login`, time-based tokens that refresh). A `cortex.api_key` in `credentials.yaml` or a `CORTEX_API_KEY` variable is ignored, `empirica doctor` warns about a leftover one, and any write of the cortex block drops it. The setup wizard no longer asks for a key; `--api-key` flags still accept a bearer token for a one-off override.
 
 ### Changed
 
