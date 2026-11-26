@@ -252,8 +252,7 @@ def _plan(
             # of the target's rows (a TEMP table: its name resolves before main's, and its index lands in temp too):
             # unindexed, it was quadratic (20 s at 10k x 10k, 1.17.20 third pass).
             snap = _quote(f"_hi_snapshot_{len(statements)}")
-            prepare = [
-                f"DROP TABLE IF EXISTS {snap}",
+            prepare = [  # the connection is fresh per call, so no earlier snapshot exists and none is dropped
                 f"CREATE TEMP TABLE {snap} AS SELECT {col_list} FROM main.{table}",
                 f"CREATE INDEX {_quote(f'_hi_ix_{len(statements)}')} ON {snap} ({col_list})",
             ]

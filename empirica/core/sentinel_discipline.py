@@ -592,7 +592,10 @@ def _is_person_prompt(record: dict) -> bool:
 #: it never runs on the small-act budget. Detection is BROAD on purpose and fails toward detecting: a miss lets goal work run
 #: on the budget, a false hit only asks for a PREFLIGHT (1.17.20 second pass: a shell-word splitter missed `$(...)`,
 #: subshells, if/for bodies, `<<-` heredocs and any line with an unbalanced quote).
-_GOAL_VERB = re.compile(r"(?<![\w.-])(?:[\w./~-]*/)?empirica\s+(goals?-create|gc|goals?-add-task)(?=[\s;|&)]|$)")
+#: A line continuation between `empirica` and the verb still reads as one command; lines are not joined anywhere else.
+_GOAL_VERB = re.compile(
+    r"(?<![\w.-])(?:[\w./~-]*/)?empirica(?:\s|\\\n)+(goals?-create|gc|goals?-add-task)(?=[\s;|&)]|$)"
+)
 _SEPARATOR = re.compile(r";|&&|\|\||\||\n")
 _HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][\w]*)\1")
 _PLANNED = re.compile(r"--stat(?:u|us)?(?:\s+|=)(['\"]?)planned\1(?=[\s;|&)]|$)")
@@ -626,7 +629,8 @@ def _data_spans(command: str) -> list[tuple[int, int]]:
             i += 2
             continue
         if ch in "'\"":
-            ansi = ch == "'" and i > 0 and command[i - 1] == "$"  # $'...' takes backslash escapes
+            # $'...' takes backslash escapes; an escaped \$' is a plain $ followed by an ordinary quote
+            ansi = ch == "'" and i > 0 and command[i - 1] == "$" and (i < 2 or command[i - 2] != "\\")
             j = i + 1
             while j < n and command[j] != ch:
                 j += 2 if ((ch == '"' or ansi) and command[j] == "\\") else 1
@@ -665,7 +669,6 @@ def _goal_work(command: object) -> str | None:
     heredoc that statement feeds), start nothing."""
     if not isinstance(command, str) or "empirica" not in command:
         return None
-    command = command.replace("\\\n", " ")  # a line continuation joins the words it splits
     matches = list(_GOAL_VERB.finditer(command))
     if not matches:
         return None
