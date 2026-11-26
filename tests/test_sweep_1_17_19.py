@@ -29,7 +29,7 @@ def test_requests_and_approvals_fire_with_the_word_match():
         assert _tracker()._PLAN_REQUEST.search(prompt), prompt
 
 
-def test_file_names_and_no_plan_needed_do_not_fire():
+def test_file_names_do_not_fire():
     for prompt in ("read docs/spec.md", "rename plan.md"):
         assert not _tracker()._PLAN_REQUEST.search(prompt), prompt
 

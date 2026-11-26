@@ -28,7 +28,7 @@ _spec.loader.exec_module(tracker)
         "close the transaction and commit",
         "fix the typo in the README",
         "this is a complex one, but just rename the flag",
-        # ecodex: file names and 'no plan needed' are excluded; other mentions still fire (the safe side, goal 5d950388)
+        # ecodex: file names are excluded; other mentions still fire (the safe side, goal 5d950388)
         "read docs/spec.md",
         "rename plan.md",
     ],

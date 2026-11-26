@@ -265,7 +265,7 @@ def handle_auth_logout_command(args) -> int:
     oauth = _block_for(loader, org)
     if not oauth:
         # A leftover api_key is dropped even with no sign-in (retired, goal 739e47b2; third 1.17.19 pass).
-        cleared = None if org else _drop_oauth_block(loader, None)
+        cleared = None if org else _drop_leftover_api_key(loader)
         note = f"no sign-in present{f' for org {org}' if org else ''}" + (
             "; removed a leftover api_key" if cleared else ""
         )
@@ -328,6 +328,20 @@ def _block_for(loader, org: str | None) -> dict:
     if loader.cortex_oauth_slot(org) is None and block.get("org_id") != org:
         return {}
     return block
+
+
+def _drop_leftover_api_key(loader) -> Path | None:
+    """Remove only a leftover cortex.api_key (retired, goal 739e47b2); None when there is none or no file to read."""
+    target = loader._find_config_file()
+    if target is None:
+        return None
+    existing = loader._read_existing(target)
+    cortex_block = existing.get("cortex")
+    if not isinstance(cortex_block, dict) or "api_key" not in cortex_block:
+        return None
+    cortex_block.pop("api_key")
+    existing["cortex"] = cortex_block
+    return loader._write_credentials(target, existing)
 
 
 def _drop_oauth_block(loader, slot: str | None = None) -> Path | None:
