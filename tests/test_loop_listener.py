@@ -414,13 +414,10 @@ def test_emit_catchup_events_tees_to_loop_fires_log(monkeypatch, tmp_path):
             "password": "p",
         },
     )
+    # An OAuth sign-in, the only Cortex credential core carries (goal 739e47b2); the listener resolves it via mesh_bearer.
     monkeypatch.setattr(
-        loader,
-        "get_cortex_config",
-        lambda: {
-            "url": "https://cortex.test",
-            "api_key": "k",
-        },
+        "empirica.core.mesh_endpoint.mesh_bearer",
+        lambda *a, **k: {"url": "https://cortex.test", "bearer": "k", "source": "oauth"},
     )
 
     # Synthetic event from poll_and_diff
@@ -486,12 +483,8 @@ def test_tee_failure_does_not_break_stdout_stream(monkeypatch, tmp_path):
         },
     )
     monkeypatch.setattr(
-        loader,
-        "get_cortex_config",
-        lambda: {
-            "url": "x",
-            "api_key": "k",
-        },
+        "empirica.core.mesh_endpoint.mesh_bearer",
+        lambda *a, **k: {"url": "x", "bearer": "k", "source": "oauth"},
     )
 
     fake_event = content_poll.ProposalEvent(

@@ -222,7 +222,7 @@ def test_missing_cortex_config_returns_clean_error(capsys):
     err = capsys.readouterr().err
     assert "Cortex configuration missing" in err
     assert "CORTEX_REMOTE_URL" in err
-    assert "CORTEX_API_KEY" in err
+    assert "auth login" in err  # the remedy is the OAuth sign-in, not a key (goal 739e47b2)
 
 
 # ── Default (no flags) runs the full pipeline ─────────────────────────

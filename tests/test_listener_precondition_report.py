@@ -123,10 +123,10 @@ def test_the_credentials_layer_reports_why_it_returned_nothing(monkeypatch):
     monkeypatch.setattr(cl, "get_credentials_loader", lambda: _Loader())
 
     assert nc._cortex_creds() is None
-    # Message widened deliberately with the OAuth fix: a seat with neither an
-    # OAuth token nor an api_key used to be told only about the api_key, which
-    # is exactly what sent an OAuth-only seat to provision the wrong credential.
-    assert nc.last_credentials_error() == "no cortex credential configured (no OAuth token, no api_key)"
+    # The reason comes from `cortex_bearer` and names the one credential core
+    # carries (goal 739e47b2 retired the api_key): a seat with no sign-in is told
+    # to sign in, never to provision a key.
+    assert nc.last_credentials_error() == "no Cortex sign-in on this machine — run `empirica auth login`"
 
 
 def test_a_missing_url_is_distinguished_from_a_missing_key(monkeypatch):
@@ -154,8 +154,16 @@ def test_a_successful_read_clears_the_error(monkeypatch):
             return {"url": None, "api_key": None}
 
     class _Good:
+        """Signed in with OAuth, the only Cortex credential core carries (goal 739e47b2)."""
+
         def get_cortex_config(self):
-            return {"url": "https://cortex.example", "api_key": "k"}
+            return {"url": "https://cortex.example", "api_key": None}
+
+        def get_cortex_oauth(self, *a, **k):
+            return {"access_token": "k", "refresh_owner": "daemon"}
+
+        def cortex_access_token(self, refresh=None, **k):
+            return "k"
 
     monkeypatch.setattr(cl, "get_credentials_loader", lambda: _Bad())
     nc._cortex_creds()

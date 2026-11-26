@@ -36,7 +36,7 @@ FORGEJO_REMOTE_NAME = "forgejo"
 
 
 def _resolve_cortex_config() -> tuple[str | None, str | None]:
-    """(cortex_url, bearer) via cortex_bearer — OAuth-first with api_key fallback.
+    """(cortex_url, bearer) via cortex_bearer — OAuth.
 
     Previously read cortex.api_key straight from credentials.yaml, so an
     OAuth-only seat (api_key retired) resolved a None token and could not

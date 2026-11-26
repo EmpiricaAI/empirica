@@ -104,15 +104,20 @@ def test_the_other_credential_is_unaffected():
 # ── the guard that was already there now has something to read ──────────────────────────────────────────────────
 
 
-def test_after_a_terminal_401_cortex_bearer_stops_offering_the_key():
+def test_after_a_terminal_401_cortex_bearer_stops_offering_the_token():
+    """End to end: the 401 the loops hand to note_http_error suppresses the credential cortex_bearer would send. The
+    credential is an OAuth token, the only one core carries since goal 739e47b2 retired the api_key."""
     from empirica.core.auth.cortex_oauth import cortex_bearer
 
     class Loader:
         def get_cortex_config(self):
-            return {"url": "https://cortex.invalid", "api_key": SECRET}
+            return {"url": "https://cortex.invalid", "api_key": None}
 
-        def cortex_access_token(self, refresh=None):
-            return None
+        def get_cortex_oauth(self, *a, **k):
+            return {"refresh_owner": "extension"}  # not CLI-refreshed: the token is read as stored
+
+        def cortex_access_token(self, refresh=None, **k):
+            return SECRET
 
     assert cortex_bearer(Loader(), http=lambda *a, **k: {})["bearer"] == SECRET, "control: usable before the 401"
     ch.note_http_error(SECRET, _http_error(401, TERMINAL_BODY))
@@ -234,13 +239,16 @@ class _Loader:
         return self._token
 
 
-def test_an_oauth_token_recorded_dead_is_not_offered_again_and_the_key_fallback_takes_over():
+def test_an_oauth_token_recorded_dead_is_not_offered_again_and_a_leftover_key_does_not_take_over():
+    """The api_key fallback that used to take over here is gone (goal 739e47b2): a key still in the config is never
+    offered, so a dead token leaves no bearer at all, and the reason says why."""
     from empirica.core.auth.cortex_oauth import cortex_bearer
 
     assert cortex_bearer(_Loader(), http=lambda *a, **k: {})["bearer"] == OAUTH, "control: offered before the 401"
     ch.note_http_error(OAUTH, _http_error(401, {"credential_status": "invalid_token", "retry": "reauthenticate"}))
     after = cortex_bearer(_Loader(), http=lambda *a, **k: {})
-    assert after["source"] == "api_key" and after["bearer"] == SECRET
+    assert after["source"] == "none" and after["bearer"] is None
+    assert "invalid_token" in after["reason"]
 
 
 def test_with_no_key_to_fall_back_to_a_dead_oauth_token_is_suppressed_and_says_why():

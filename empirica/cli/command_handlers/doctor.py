@@ -2027,40 +2027,50 @@ def _resolve_cortex_creds() -> tuple[str | None, str | None]:
     a token that cannot be refreshed SHOULD read as a credential problem — that
     is the thing doctor exists to surface.
     """
-    url = os.environ.get("CORTEX_REMOTE_URL") or os.environ.get("CORTEX_URL")
-    api_key = os.environ.get("CORTEX_API_KEY")
-    if url and api_key:
-        return url.rstrip("/"), api_key
+    url = api_key = None
     try:
         from empirica.core.auth.cortex_oauth import cortex_bearer
 
         resolved = cortex_bearer()
-        url = url or resolved.get("url")
-        api_key = api_key or resolved.get("bearer")
+        url = resolved.get("url")
+        api_key = resolved.get("bearer")  # an OAuth bearer: core carries no stored key (goal 739e47b2)
     except Exception:
         pass
     return (url.rstrip("/") if url else None, api_key)
 
 
 def check_cortex_creds() -> Check:
-    """Cortex URL + api_key present (env vars or credentials.yaml)."""
-    url, api_key = _resolve_cortex_creds()
-    missing = []
-    if not url:
-        missing.append("url")
-    if not api_key:
-        missing.append("api_key")
+    """A Cortex url and an OAuth sign-in (core carries no api_key since goal 739e47b2; a leftover one is named)."""
+    url, bearer = _resolve_cortex_creds()
+    try:
+        from empirica.config.credentials_loader import get_credentials_loader
+
+        leftover = get_credentials_loader().stored_cortex_api_key()
+    except Exception:
+        leftover = False
+    note = (
+        "; a Cortex api_key is still in credentials.yaml or CORTEX_API_KEY and is no longer used: remove it"
+        if leftover
+        else ""
+    )
+    missing = [name for name, value in (("url", url), ("sign-in", bearer)) if not value]
     if missing:
         return Check(
             "Cortex credentials configured",
             WARN,
-            f"missing: {', '.join(missing)}",
-            "Run `empirica setup` (interactive wizard) or hand-edit ~/.empirica/credentials.yaml",
-            data={"url": url, "has_api_key": bool(api_key)},
+            f"missing: {', '.join(missing)}{note}",
+            "Run `empirica auth login`",
+            data={"url": url, "signed_in": bool(bearer), "leftover_api_key": leftover},
         )
-    return Check(
-        "Cortex credentials configured", PASS, f"url={url} (api_key present)", data={"url": url, "has_api_key": True}
-    )
+    if leftover:
+        return Check(
+            "Cortex credentials configured",
+            WARN,
+            f"url={url} (signed in){note}",
+            "delete cortex.api_key from ~/.empirica/credentials.yaml and unset CORTEX_API_KEY",
+            data={"url": url, "signed_in": True, "leftover_api_key": True},
+        )
+    return Check("Cortex credentials configured", PASS, f"url={url} (signed in)", data={"url": url, "signed_in": True})
 
 
 def check_cortex_auth() -> Check:
@@ -2084,7 +2094,7 @@ def check_cortex_auth() -> Check:
             "Cortex auth + mesh fields",
             FAIL,
             f"{me_url} → 401 Unauthorized",
-            "Rotate api_key via cortex admin, then update ~/.empirica/credentials.yaml",
+            "Sign in again: `empirica auth login`",
         )
     if status >= 400:
         return Check(

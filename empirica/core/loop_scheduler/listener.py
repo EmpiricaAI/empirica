@@ -270,7 +270,7 @@ def _unmet_preconditions(ntfy: dict, creds_error: str | None) -> list[str]:
     if creds_error:
         unmet.append(
             f"cortex: {creds_error} — this is the CAUSE of the unresolved topic above, not a separate problem. "
-            "Run `empirica auth login`, or add `cortex.api_key` to ~/.empirica/credentials.yaml."
+            "Run `empirica auth login`."
         )
     if not (ntfy.get("user") and ntfy.get("password")) and not ntfy.get("token"):
         unmet.append(
@@ -725,7 +725,7 @@ def _emit_catchup_events(
         return 0
 
     try:
-        # OAuth-first with api_key fallback (empirica auth login).
+        # OAuth (empirica auth login).
         from empirica.core.mesh_endpoint import mesh_bearer
 
         creds = mesh_bearer(instance=instance_id)  # its practice's team, when signed in here

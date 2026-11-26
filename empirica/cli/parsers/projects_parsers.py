@@ -313,7 +313,7 @@ def add_projects_parsers(subparsers) -> None:
     sync.add_argument(
         "--api-key",
         default=None,
-        help="Override Cortex API key (default: $CORTEX_API_KEY).",
+        help="Override the Cortex bearer (default: the OAuth sign-in from `empirica auth login`).",
     )
     sync.add_argument(
         "--timeout",

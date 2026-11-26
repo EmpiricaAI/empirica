@@ -257,7 +257,10 @@ def test_write_record_atomic_no_partial(grants_module, monkeypatch):
 
 
 def test_cli_daemon_grant_approves_pending(grants_module, capsys, monkeypatch):
-    """`empirica daemon-grant <user_code>` snapshots Cortex creds + approves."""
+    """`empirica daemon-grant <user_code>` snapshots the Cortex url + approves.
+
+    The snapshot carries the url only: the extension signs in with its own Cortex OAuth, and core hands over no
+    api_key (goal 739e47b2), even when the loader still reports one."""
     from types import SimpleNamespace
 
     from empirica.cli.command_handlers.projects_commands import (
@@ -287,7 +290,8 @@ def test_cli_daemon_grant_approves_pending(grants_module, capsys, monkeypatch):
     # Verify the credentials were snapshotted into the record
     polled = grants_module.poll_grant(record.device_code)
     assert polled["status"] == "approved"
-    assert polled["credentials"] == {"cortex": fake_cortex}
+    assert polled["credentials"] == {"cortex": {"url": "https://test.example"}}
+    assert "ctx_abc" not in json.dumps(polled)
 
 
 def test_cli_daemon_grant_unknown_user_code(grants_module, capsys):

@@ -453,9 +453,27 @@ def test_cortex_push_skips_when_only_key_set(monkeypatch):
     assert _push_source_archive_to_cortex("any-id", "user_deleted", None) is None
 
 
-def test_cortex_push_success_path(monkeypatch):
+def test_cortex_push_skips_when_url_and_only_a_key_set(monkeypatch):
+    """A url plus a retired api_key is still no credential: core carries no Cortex key (goal 739e47b2), so the push
+    is a no-op rather than sending the key."""
     monkeypatch.setenv("CORTEX_REMOTE_URL", "https://cortex.example.com")
     monkeypatch.setenv("CORTEX_API_KEY", "sk-test")
+    with patch("urllib.request.urlopen", side_effect=AssertionError("must not send")):
+        assert _push_source_archive_to_cortex("any-id", "user_deleted", None) is None
+
+
+_LIVE_AT = "tok-live"  # a fixture value, not a credential
+
+
+def _signed_in(monkeypatch, url="https://cortex.example.com"):
+    """An OAuth sign-in, the only Cortex credential core carries; the push resolves it via cortex_bearer."""
+    import empirica.core.auth.cortex_oauth as co
+
+    monkeypatch.setattr(co, "cortex_bearer", lambda *a, **k: {"url": url, "bearer": "tok", "source": "oauth"})
+
+
+def test_cortex_push_success_path(monkeypatch):
+    _signed_in(monkeypatch)
 
     class _FakeResponse:
         status = 200
@@ -477,8 +495,7 @@ def test_cortex_push_success_path(monkeypatch):
 def test_cortex_push_returns_failure_on_http_error(monkeypatch):
     import urllib.error
 
-    monkeypatch.setenv("CORTEX_REMOTE_URL", "https://cortex.example.com")
-    monkeypatch.setenv("CORTEX_API_KEY", "sk-test")
+    _signed_in(monkeypatch)
 
     err = urllib.error.HTTPError(
         url="x",
@@ -497,8 +514,7 @@ def test_cortex_push_returns_failure_on_http_error(monkeypatch):
 def test_cortex_push_returns_failure_on_network_error(monkeypatch):
     import urllib.error
 
-    monkeypatch.setenv("CORTEX_REMOTE_URL", "https://cortex.example.com")
-    monkeypatch.setenv("CORTEX_API_KEY", "sk-test")
+    _signed_in(monkeypatch)
 
     with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("conn refused")):
         result = _push_source_archive_to_cortex("any-id", "user_deleted", None)
@@ -508,11 +524,21 @@ def test_cortex_push_returns_failure_on_network_error(monkeypatch):
     assert "URLError" in result["error"]
 
 
-def test_cortex_push_uses_cortex_url_fallback(monkeypatch):
-    """CORTEX_URL is accepted as an alias for CORTEX_REMOTE_URL."""
+def test_cortex_push_uses_cortex_url_fallback(monkeypatch, tmp_path):
+    """CORTEX_URL is accepted as an alias for CORTEX_REMOTE_URL. Runs the real loader with a stored OAuth sign-in
+    (the only Cortex credential core carries) so the url really comes from the environment alias."""
+    import time
+
+    from empirica.config.credentials_loader import CredentialsLoader
+
     monkeypatch.delenv("CORTEX_REMOTE_URL", raising=False)
     monkeypatch.setenv("CORTEX_URL", "https://cortex.example.com")
-    monkeypatch.setenv("CORTEX_API_KEY", "sk-test")
+    cred = tmp_path / "credentials.yaml"
+    monkeypatch.setenv("EMPIRICA_CREDENTIALS_PATH", str(cred))
+    CredentialsLoader().save_cortex_oauth(
+        access_token=_LIVE_AT, expires_at=time.time() + 3600, refresh_owner="cli", config_path=cred
+    )
+    sent: dict = {}
 
     class _FakeResponse:
         status = 204
@@ -526,6 +552,12 @@ def test_cortex_push_uses_cortex_url_fallback(monkeypatch):
         def read(self):
             return b""
 
-    with patch("urllib.request.urlopen", return_value=_FakeResponse()):
+    def _urlopen(req, timeout=None):
+        sent["url"] = req.full_url
+        sent["auth"] = req.get_header("Authorization")
+        return _FakeResponse()
+
+    with patch("urllib.request.urlopen", side_effect=_urlopen):
         result = _push_source_archive_to_cortex("abc-id", "superseded", "new-id")
     assert result == {"synced": True, "status": 204}
+    assert sent == {"url": "https://cortex.example.com/v1/sources/abc-id", "auth": f"Bearer {_LIVE_AT}"}

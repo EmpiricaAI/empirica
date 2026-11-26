@@ -16,9 +16,8 @@ Design constraints, all measured (2026-08-12, OAuth thread):
   ephemeral-port loopback would be rejected at authorize time. We register a small
   fixed block of loopback URIs at DCR time and bind the first free one at login.
   If cortex later implements §7.3, this keeps working unchanged.
-- **api_key stays valid throughout.** `cortex_bearer` prefers a live token and
-  falls back to the api_key; retirement is a separate per-seat act gated on the
-  survival-matrix lesson, never a side effect of this module.
+- **No api_key.** Core carries only OAuth and time-based tokens (goal 739e47b2,
+  David 2026-11-26); `cortex_bearer` returns a live token or none, with the reason.
 """
 
 from __future__ import annotations
@@ -341,30 +340,14 @@ def custody_refresh(
 
 
 def cortex_bearer(loader=None, *, http=_http_json, org_id: str | None = None) -> dict[str, Any]:
-    """{url, bearer, source} — OAuth-first, api_key fallback, dead credentials skipped.
+    """{url, bearer, source} — the OAuth token, or none with a reason. Dead tokens are skipped.
 
     With ``org_id`` (a practice's project.yaml org_id), the sign-in for that org: a machine can hold several teams'
     (goal da0396f8). Without it, the default sign-in, as before.
 
-    source: 'oauth' | 'api_key' | 'none'. Never returns a stale token
-    (cortex_access_token's contract).
-
-    **The api_key fallback used to fire unconditionally, and that is what minted
-    unfixable 401 storms** — measured elsewhere at 25h and ~10k requests. The old
-    docstring said the fallback avoided "sending a dead credential", which was true
-    of the TOKEN and false of the KEY: `cortex_access_token` correctly returns None
-    on expiry-without-refresh, and the fallback then handed back an api_key that
-    might itself be revoked, forever, with zero `/v1/oauth/token` attempts. The
-    guard named the wrong credential.
-
-    So a key recorded as terminally dead is now skipped, and the result says WHY
-    via `reason` — a suppressed credential that looks identical to an absent one
-    would reintroduce the silence the whole 401 contract exists to remove.
-
-    The api_key fallback itself stays. David's ruling is that keys retire as a
-    DIRECTION, once clients handle credential death cleanly — not a same-day
-    revocation — and a browser closed past the token's 24h life still leaves a seat
-    with nothing else to present.
+    source: 'oauth' | 'none'. Never returns a stale token (cortex_access_token's contract). The api_key fallback that
+    stood here was removed when core retired the key (goal 739e47b2, David 2026-11-26): it once minted 401 storms by
+    handing back a revoked key forever, and a seat now signs in with `empirica auth login`.
     """
     if loader is None:
         from empirica.config.credentials_loader import get_credentials_loader
@@ -385,33 +368,15 @@ def cortex_bearer(loader=None, *, http=_http_json, org_id: str | None = None) ->
         refresh_error = getattr(loader, "last_refresh_error", None)
         if not token and isinstance(refresh_error, str) and refresh_error:
             failure = f"oauth token expired and its refresh failed ({refresh_error})"
-    except Exception as e:  # refresh machinery must never take down the api_key path
+    except Exception as e:  # refresh machinery must never raise out of the bearer
         failure = f"the sign-in could not be read or renewed ({type(e).__name__}: {e})"
-        logger.warning(f"oauth token resolution failed, falling back to api_key: {e}")
+        logger.warning(f"oauth token resolution failed: {e}")
     from empirica.core.auth.credential_health import dead_reason
 
     token_reason = dead_reason(token) if token else None
     if token and not token_reason:
         return {"url": cfg.get("url"), "bearer": token, "source": "oauth"}
-    # A token recorded as terminally dead is not offered again (it was, until it expired: the guard only looked at the key, so a revoked token
-    # was re-presented every beat). The api_key fallback may still be good, so fall through to it as for any missing token.
-
-    api_key = cfg.get("api_key")
-    if api_key:
-        from empirica.core.auth.credential_health import dead_reason
-
-        reason = dead_reason(api_key)
-        if reason:
-            # Suppressed, and SAID so. Returning a bare None here would look
-            # exactly like a seat with no api_key configured, which sends the
-            # operator to provision a credential they already have.
-            return {
-                "url": cfg.get("url"),
-                "bearer": None,
-                "source": "none",
-                "reason": f"api_key unusable ({reason}) — re-authenticate with `empirica auth login`",
-            }
-        return {"url": cfg.get("url"), "bearer": api_key, "source": "api_key"}
+    # A token recorded as terminally dead is not offered again (it was, until it expired, re-presented every beat).
 
     return {
         "url": cfg.get("url"),
@@ -452,7 +417,7 @@ def _no_token_reason(loader, owner: str, failure: str | None, org_id: str | None
     if not (oauth.get("access_token") or oauth.get("refresh_token")):
         if any_stored:  # signed in to other teams, not this practice's
             return f"no sign-in for org {org_id} on this machine — run `empirica auth login --org {org_id}`"
-        return "no cortex credential configured (no OAuth token, no api_key)"
+        return "no Cortex sign-in on this machine — run `empirica auth login`"
     if not oauth.get("refresh_token"):
         return "oauth token expired and no refresh token is stored — re-authenticate with `empirica auth login`"
     if owner and owner != "cli":

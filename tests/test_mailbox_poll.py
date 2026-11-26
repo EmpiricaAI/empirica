@@ -133,7 +133,7 @@ def test_poll_passes_since_limit_related(capsys):
 def test_poll_creds_missing_returns_1(capsys):
     rc = handle_mailbox_poll_command(_poll_args(), _resolve_cortex_creds=_CREDS_MISSING)
     assert rc == 1
-    assert "creds missing" in capsys.readouterr().err
+    assert "auth login" in capsys.readouterr().err
 
 
 def test_poll_ai_id_unresolved_returns_1(capsys):

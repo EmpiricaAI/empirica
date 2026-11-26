@@ -34,9 +34,8 @@ def handle_practice_context_command(args) -> int:
     cortex_url, api_key = _resolve_cortex_config(args)
     if not cortex_url or not api_key:
         print(
-            "Error: cortex config missing. Pass --cortex-url + --api-key, "
-            "set CORTEX_URL + CORTEX_API_KEY env, or configure "
-            "`cortex:` block in ~/.empirica/credentials.yaml.",
+            "Error: no Cortex sign-in on this machine. Run `empirica auth login` (or pass --cortex-url and --api-key "
+            "with a bearer).",
             file=sys.stderr,
         )
         return 2
@@ -107,7 +106,7 @@ def _resolve_cortex_config(args) -> tuple[str | None, str | None]:
     if arg_url and arg_key:
         return arg_url.rstrip("/"), arg_key
 
-    # Fall through to cortex_bearer (OAuth-first, api_key fallback) so an
+    # Fall through to cortex_bearer (OAuth) so an
     # OAuth-only seat with the api_key retired still authenticates here.
     try:
         from empirica.core.mesh_endpoint import mesh_bearer

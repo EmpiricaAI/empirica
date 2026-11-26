@@ -106,7 +106,7 @@ def add_release_parsers(subparsers):
     practice_context_parser.add_argument(
         "--api-key",
         default=None,
-        help="Cortex API key override (else env CORTEX_API_KEY or credentials.yaml).",
+        help="Cortex bearer override (else the OAuth sign-in from `empirica auth login`).",
     )
     practice_context_parser.add_argument(
         "--ai-id",

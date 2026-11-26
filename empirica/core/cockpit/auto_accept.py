@@ -52,7 +52,7 @@ def _cortex_creds() -> tuple[str, str] | None:
 
     Was a private `(url, api_key)` read off the loader — the same shape, with the
     same docstring, as the one that made `empirica listener on` fail on an
-    OAuth-only seat. `cortex_bearer` is OAuth-first with an api_key fallback and
+    OAuth-only seat. `cortex_bearer` is OAuth and
     skips a key recorded as terminally dead; a direct `cfg["api_key"]` read can
     see neither, so every private resolver is its own 401 contract.
     """

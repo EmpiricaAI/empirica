@@ -38,17 +38,31 @@ def _load_hook_module():
     return mod
 
 
-class _FakeLoader:
-    """Stand-in for the credentials loader — returns a fixed cortex config."""
+_TOKEN = "k"  # noqa: S105 - a fixture value, not a credential
 
-    def __init__(self, cfg: dict):
+
+class _FakeLoader:
+    """Stand-in for the credentials loader — a fixed cortex config and, when given, an OAuth sign-in (the only
+    Cortex credential core carries since goal 739e47b2)."""
+
+    def __init__(self, cfg: dict, token: str | None = None):
         self._cfg = cfg
+        self._token = token
 
     def reload(self) -> None:
         pass
 
     def get_cortex_config(self) -> dict:
         return self._cfg
+
+    def get_cortex_oauth(self, *a, **k) -> dict:
+        return {"access_token": self._token, "refresh_owner": "daemon"} if self._token else {}
+
+    def cortex_oauth_sets(self) -> list:
+        return []
+
+    def cortex_access_token(self, refresh=None, **k) -> str | None:
+        return self._token
 
 
 def _make_project_yaml(project_root: Path, fields: dict) -> Path:
@@ -58,10 +72,10 @@ def _make_project_yaml(project_root: Path, fields: dict) -> Path:
     return yaml_path
 
 
-def _patch_creds(monkeypatch, cfg: dict) -> None:
+def _patch_creds(monkeypatch, cfg: dict, token: str | None = None) -> None:
     monkeypatch.setattr(
         "empirica.config.credentials_loader.get_credentials_loader",
-        lambda: _FakeLoader(cfg),
+        lambda: _FakeLoader(cfg, token),
     )
 
 
@@ -95,7 +109,7 @@ def test_backfills_when_ai_id_only(tmp_path, monkeypatch, capsys):
     mod = _load_hook_module()
     proj = tmp_path / "empirica"
     _make_project_yaml(proj, {"version": "2.0", "name": "Empirica", "ai_id": "empirica"})
-    _patch_creds(monkeypatch, {"url": "https://cortex.test", "api_key": "k"})
+    _patch_creds(monkeypatch, {"url": "https://cortex.test"}, token=_TOKEN)
     _patch_fetch(monkeypatch, dict(_META))
 
     mod._heal_mesh_metadata_at_init(str(proj))
@@ -124,7 +138,7 @@ def test_idempotent_when_canonical_seat_present(tmp_path, monkeypatch, capsys):
             "canonical_seat": "empirica.david.empirica",
         },
     )
-    _patch_creds(monkeypatch, {"url": "https://cortex.test", "api_key": "k"})
+    _patch_creds(monkeypatch, {"url": "https://cortex.test"}, token=_TOKEN)
     calls: list = []
     _patch_fetch(monkeypatch, dict(_META), calls)
 
@@ -141,7 +155,7 @@ def test_second_call_is_noop_after_backfill(tmp_path, monkeypatch):
     mod = _load_hook_module()
     proj = tmp_path / "empirica"
     _make_project_yaml(proj, {"ai_id": "empirica"})
-    _patch_creds(monkeypatch, {"url": "https://cortex.test", "api_key": "k"})
+    _patch_creds(monkeypatch, {"url": "https://cortex.test"}, token=_TOKEN)
     calls: list = []
     _patch_fetch(monkeypatch, dict(_META), calls)
 
@@ -156,7 +170,7 @@ def test_no_op_when_no_creds(tmp_path, monkeypatch, capsys):
     mod = _load_hook_module()
     proj = tmp_path / "empirica"
     _make_project_yaml(proj, {"ai_id": "empirica"})
-    _patch_creds(monkeypatch, {})  # no url/api_key
+    _patch_creds(monkeypatch, {})  # no url, no sign-in
     calls: list = []
     _patch_fetch(monkeypatch, dict(_META), calls)
 
@@ -173,7 +187,7 @@ def test_no_op_when_no_ai_id(tmp_path, monkeypatch):
     mod = _load_hook_module()
     proj = tmp_path / "empirica"
     _make_project_yaml(proj, {"version": "2.0", "name": "no-ai"})
-    _patch_creds(monkeypatch, {"url": "https://cortex.test", "api_key": "k"})
+    _patch_creds(monkeypatch, {"url": "https://cortex.test"}, token=_TOKEN)
     calls: list = []
     _patch_fetch(monkeypatch, dict(_META), calls)
 
@@ -189,7 +203,7 @@ def test_no_op_when_fetch_lacks_prefix(tmp_path, monkeypatch):
     mod = _load_hook_module()
     proj = tmp_path / "empirica"
     _make_project_yaml(proj, {"ai_id": "empirica"})
-    _patch_creds(monkeypatch, {"url": "https://cortex.test", "api_key": "k"})
+    _patch_creds(monkeypatch, {"url": "https://cortex.test"}, token=_TOKEN)
     _patch_fetch(monkeypatch, {"org_id": "org-empirica", "tenant_slug": "david", "mesh_id_prefix": None})
 
     mod._heal_mesh_metadata_at_init(str(proj))

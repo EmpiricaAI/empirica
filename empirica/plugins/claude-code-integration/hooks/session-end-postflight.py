@@ -368,7 +368,7 @@ def _resolve_cortex_creds() -> tuple[str, str]:
             return key, url
     except Exception:
         pass
-    return os.environ.get("CORTEX_API_KEY", ""), os.environ.get("CORTEX_REMOTE_URL", "")
+    return "", ""  # OAuth only: no raw key fallback (goal 739e47b2)
 
 
 def _run_postflight_cortex_sync(vectors):

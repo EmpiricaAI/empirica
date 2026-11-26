@@ -169,35 +169,43 @@ def test_clear_forgets_everything():
 # ── the caller, where the storm actually happened ────────────────────────────
 
 
+_LIVE_TOKEN = "live-token"  # noqa: S105 - a fixture value, not a credential
+
+
 class _Loader:
-    def __init__(self, api_key="live-key", url="https://cortex.example"):
-        self._cfg = {"url": url, "api_key": api_key}
+    """An OAuth sign-in, the only Cortex credential core carries since goal 739e47b2. A leftover api_key sits in the
+    config throughout, so every test below also proves the retired key never comes back as the bearer."""
+
+    def __init__(self, token=_LIVE_TOKEN, url="https://cortex.example"):
+        self._token = token
+        self._cfg = {"url": url, "api_key": "leftover-key"}
 
     def get_cortex_config(self):
         return dict(self._cfg)
 
-    def get_cortex_oauth(self):
-        return {}
+    def get_cortex_oauth(self, *a, **k):
+        # A family the CLI does not refresh: the stored token is read as is.
+        return {"access_token": self._token, "refresh_owner": "daemon"} if self._token else {}
 
-    def cortex_access_token(self, refresh=None):
-        return None  # the measured state: expiry without a usable refresh
+    def cortex_access_token(self, refresh=None, **k):
+        return self._token
 
 
-def test_a_live_api_key_is_still_returned():
-    """POSITIVE CONTROL, and not optional: without it, a fallback that returned
+def test_a_live_token_is_returned():
+    """POSITIVE CONTROL, and not optional: without it, a resolver that returned
     None unconditionally would pass every suppression test below."""
     from empirica.core.auth import cortex_bearer
 
-    out = cortex_bearer(loader=_Loader("live-key"))
-    assert out["source"] == "api_key" and out["bearer"] == "live-key"
+    out = cortex_bearer(loader=_Loader(_LIVE_TOKEN))
+    assert out["source"] == "oauth" and out["bearer"] == _LIVE_TOKEN
 
 
-def test_a_dead_api_key_is_suppressed_rather_than_returned():
-    """The 25h storm in one assertion."""
+def test_a_dead_token_is_suppressed_rather_than_returned():
+    """The 25h storm in one assertion, on the credential core still carries (the storm was first measured on a key)."""
     from empirica.core.auth import cortex_bearer
 
-    ch.mark("dead-key", ch.parse_unauthorized(TERMINAL_BODY))
-    out = cortex_bearer(loader=_Loader("dead-key"))
+    ch.mark("dead-token", ch.parse_unauthorized(TERMINAL_BODY))
+    out = cortex_bearer(loader=_Loader("dead-token"))
     assert out["bearer"] is None
     assert out["source"] == "none"
 
@@ -209,14 +217,14 @@ def test_suppression_says_why_and_does_not_look_like_absence():
     added to remove, one layer in."""
     from empirica.core.auth import cortex_bearer
 
-    ch.mark("dead-key", ch.parse_unauthorized(TERMINAL_BODY))
-    suppressed = cortex_bearer(loader=_Loader("dead-key"))
+    ch.mark("dead-token", ch.parse_unauthorized(TERMINAL_BODY))
+    suppressed = cortex_bearer(loader=_Loader("dead-token"))
     absent = cortex_bearer(loader=_Loader(None))
 
     assert "invalid_key" in suppressed["reason"]
     assert "auth login" in suppressed["reason"]
     assert suppressed["reason"] != absent["reason"], "suppressed and absent must be distinguishable"
-    assert "no cortex credential" in absent["reason"]
+    assert "no Cortex sign-in" in absent["reason"]
 
 
 def test_an_unreadable_health_file_is_distinguishable_from_no_file(isolated_home, caplog):

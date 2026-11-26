@@ -29,9 +29,8 @@ def test_save_cortex_config_keeps_json_and_the_other_blocks(loader):
     ldr, path = loader
     ldr.save_cortex_config(url="https://cortex.example")
     data = json.loads(path.read_text())  # raised before: the file had become YAML
-    assert data["cortex"] == {"api_key": "old", "url": "https://cortex.example"} and data["providers"] == {
-        "x": {"k": "v"}
-    }
+    # the retired api_key is dropped on write (goal 739e47b2); the file stays JSON with its other blocks
+    assert data["cortex"] == {"url": "https://cortex.example"} and data["providers"] == {"x": {"k": "v"}}
 
 
 def test_no_writer_in_the_loader_dumps_yaml_on_its_own():

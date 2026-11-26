@@ -50,15 +50,11 @@ def test_sync_runs_when_creds_present(caplog):
         ) as mock_sync,
         caplog.at_level(logging.INFO, logger="empirica.cli.command_handlers.project_bootstrap"),
     ):
-        cred_loader.return_value.get_cortex_config.return_value = {
-            "url": "https://example.com",
-            "api_key": "ctx_test_key",
-        }
-        # A MagicMock would hand back a truthy token from cortex_access_token and
-        # the api_key path would never run — the mock has to model a seat with no
-        # OAuth session, not merely a seat.
-        cred_loader.return_value.get_cortex_oauth.return_value = {}
-        cred_loader.return_value.cortex_access_token.return_value = None
+        # An OAuth sign-in, the only Cortex credential core carries (goal 739e47b2). Modelled explicitly: a bare
+        # MagicMock would hand back a truthy mock from every method, not a seat.
+        cred_loader.return_value.get_cortex_config.return_value = {"url": "https://example.com", "api_key": None}
+        cred_loader.return_value.get_cortex_oauth.return_value = {"refresh_owner": "daemon"}
+        cred_loader.return_value.cortex_access_token.return_value = "oauth_test_token"
         _sync_mesh_sharing_agreements()
 
     mock_sync.assert_called_once()
@@ -66,7 +62,7 @@ def test_sync_runs_when_creds_present(caplog):
     args, _kwargs = mock_sync.call_args
     assert args[0] is fake_repo
     assert args[1] == "https://example.com"
-    assert args[2] == "ctx_test_key"
+    assert args[2] == "oauth_test_token"
     # Result counts logged
     assert any("2 added" in r.message and "1 updated" in r.message for r in caplog.records)
 

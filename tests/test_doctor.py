@@ -249,16 +249,41 @@ def test_check_cortex_creds_warns_when_missing(monkeypatch):
     assert "missing" in result.detail
 
 
-def test_check_cortex_creds_passes_from_env(monkeypatch):
-    monkeypatch.setenv("CORTEX_REMOTE_URL", "https://example.com")
-    monkeypatch.setenv("CORTEX_API_KEY", "ctx_test")
-    result = check_cortex_creds()
+def _signed_in(monkeypatch, url="https://example.com", bearer="tok"):
+    """An OAuth sign-in, the only Cortex credential core carries (goal 739e47b2): doctor resolves it via cortex_bearer."""
+    import empirica.core.auth.cortex_oauth as co
+
+    monkeypatch.setattr(co, "cortex_bearer", lambda *a, **k: {"url": url, "bearer": bearer, "source": "oauth"})
+
+
+class _LeftoverKeyLoader:
+    def __init__(self, leftover):
+        self._leftover = leftover
+
+    def stored_cortex_api_key(self):
+        return self._leftover
+
+
+def test_check_cortex_creds_passes_when_signed_in(monkeypatch):
+    _signed_in(monkeypatch)
+    with patch("empirica.config.credentials_loader.get_credentials_loader", return_value=_LeftoverKeyLoader(False)):
+        result = check_cortex_creds()
     assert result.status == PASS
+    assert "signed in" in result.detail
+
+
+def test_check_cortex_creds_names_a_leftover_api_key(monkeypatch):
+    """Signed in, but a retired api_key is still stored: WARN and say to remove it, since nothing reads it any more."""
+    _signed_in(monkeypatch)
+    with patch("empirica.config.credentials_loader.get_credentials_loader", return_value=_LeftoverKeyLoader(True)):
+        result = check_cortex_creds()
+    assert result.status == WARN
+    assert "api_key" in result.detail and "no longer used" in result.detail
+    assert result.data["leftover_api_key"] is True
 
 
 def test_check_cortex_auth_passes_with_mesh_fields(monkeypatch):
-    monkeypatch.setenv("CORTEX_REMOTE_URL", "https://example.com")
-    monkeypatch.setenv("CORTEX_API_KEY", "ctx_test")
+    _signed_in(monkeypatch)
     payload = {"user": "x", "org_id": "org-y", "tenant_slug": "y", "mesh_id_prefix": "y_y"}
     with patch("urllib.request.urlopen", return_value=_fake_response(200, payload)):
         result = check_cortex_auth()
@@ -268,8 +293,7 @@ def test_check_cortex_auth_passes_with_mesh_fields(monkeypatch):
 
 def test_check_cortex_auth_warns_when_mesh_fields_missing(monkeypatch):
     """Auth OK but server is behind Phase 1 — WARN, not FAIL."""
-    monkeypatch.setenv("CORTEX_REMOTE_URL", "https://example.com")
-    monkeypatch.setenv("CORTEX_API_KEY", "ctx_test")
+    _signed_in(monkeypatch)
     payload = {"user": "x"}  # no mesh fields
     with patch("urllib.request.urlopen", return_value=_fake_response(200, payload)):
         result = check_cortex_auth()
@@ -278,8 +302,7 @@ def test_check_cortex_auth_warns_when_mesh_fields_missing(monkeypatch):
 
 
 def test_check_cortex_auth_fails_on_401(monkeypatch):
-    monkeypatch.setenv("CORTEX_REMOTE_URL", "https://example.com")
-    monkeypatch.setenv("CORTEX_API_KEY", "bad")
+    _signed_in(monkeypatch, bearer="bad")
     err = urllib.error.HTTPError(
         url="https://example.com/v1/users/me",
         code=401,
@@ -805,8 +828,7 @@ def test_check_project_drift_passes_when_pid_in_scope_id_shape(tmp_path, monkeyp
 
     (tmp_path / ".empirica").mkdir()
     (tmp_path / ".empirica" / "project.yaml").write_text(yaml.safe_dump({"project_id": "uuid-x"}))
-    monkeypatch.setenv("CORTEX_REMOTE_URL", "https://example.com")
-    monkeypatch.setenv("CORTEX_API_KEY", "ctx_test")
+    _signed_in(monkeypatch)
     body = json.dumps({"projects": [{"id": "uuid-x"}, {"id": "uuid-y"}]})
     with patch("empirica.cli.command_handlers.doctor._http_get", return_value=(200, body)):
         result = check_project_drift(tmp_path)
@@ -820,8 +842,7 @@ def test_check_project_drift_accepts_project_id_shape_too(tmp_path, monkeypatch)
 
     (tmp_path / ".empirica").mkdir()
     (tmp_path / ".empirica" / "project.yaml").write_text(yaml.safe_dump({"project_id": "uuid-x"}))
-    monkeypatch.setenv("CORTEX_REMOTE_URL", "https://example.com")
-    monkeypatch.setenv("CORTEX_API_KEY", "ctx_test")
+    _signed_in(monkeypatch)
     body = json.dumps({"projects": [{"project_id": "uuid-x"}]})
     with patch("empirica.cli.command_handlers.doctor._http_get", return_value=(200, body)):
         result = check_project_drift(tmp_path)
@@ -833,8 +854,7 @@ def test_check_project_drift_warns_when_pid_missing(tmp_path, monkeypatch):
 
     (tmp_path / ".empirica").mkdir()
     (tmp_path / ".empirica" / "project.yaml").write_text(yaml.safe_dump({"project_id": "uuid-x"}))
-    monkeypatch.setenv("CORTEX_REMOTE_URL", "https://example.com")
-    monkeypatch.setenv("CORTEX_API_KEY", "ctx_test")
+    _signed_in(monkeypatch)
     body = json.dumps({"projects": [{"id": "uuid-y"}]})
     with patch("empirica.cli.command_handlers.doctor._http_get", return_value=(200, body)):
         result = check_project_drift(tmp_path)

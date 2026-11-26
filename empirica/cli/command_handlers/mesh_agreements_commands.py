@@ -83,8 +83,7 @@ def handle_mesh_agreements_sync_command(args) -> int:
             {
                 "ok": False,
                 "error": "cortex credentials not found",
-                "hint": "Set cortex.url + cortex.api_key in ~/.empirica/credentials.yaml "
-                "or pass --cortex-url and --api-key",
+                "hint": "Run `empirica auth login`, or pass --cortex-url and --api-key with a bearer",
             },
             output,
         )

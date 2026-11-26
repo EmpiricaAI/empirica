@@ -550,21 +550,19 @@ def _register_credentials_routes(app: FastAPI) -> None:
 
         At least one of url/api_key must be provided. Atomic write via
         tempfile + rename — never partial-corrupts the file."""
-        if not req.url and not req.api_key and not req.oauth_access_token:
+        if not req.url and not req.oauth_access_token:
+            # A key alone is refused: core carries only OAuth and time-based tokens (goal 739e47b2, David 2026-11-26).
             return CortexCredentialsResponse(
                 ok=False,
-                error="url, api_key, or oauth_access_token required",
+                error="url or oauth_access_token required (a Cortex api_key is no longer accepted: sign in with OAuth)",
             )
         try:
             from empirica.config.credentials_loader import CredentialsLoader
 
             loader = CredentialsLoader()
             path = None
-            if req.url or req.api_key:
-                path = loader.save_cortex_config(
-                    url=req.url,
-                    api_key=req.api_key,
-                )
+            if req.url:
+                path = loader.save_cortex_config(url=req.url)  # a submitted api_key is ignored, never stored
             # OAuth bridge: write the token set under cortex.oauth WITHOUT
             # touching api_key (the two sections are independent). Default the
             # custody to 'daemon' — the bridge exists so the daemon refreshes

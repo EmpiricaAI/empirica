@@ -1727,7 +1727,7 @@ def add_checkpoint_parsers(subparsers):
         "--cortex-url", help="Cortex base URL (default: credentials.yaml / CORTEX_URL env)"
     )
     sources_reconcile_parser.add_argument(
-        "--api-key", help="Cortex API key (default: credentials.yaml / CORTEX_API_KEY env)"
+        "--api-key", help="Cortex bearer (default: the OAuth sign-in from `empirica auth login`)"
     )
     sources_reconcile_parser.add_argument(
         "--register-shared",

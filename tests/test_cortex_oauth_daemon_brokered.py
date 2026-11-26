@@ -1,6 +1,6 @@
 """Daemon-brokered OAuth — the LINKED identity path (David 2026-08-12).
 
-One cortex identity, OAuth bridged through credentials.yaml, api_key retired.
+One cortex identity, OAuth bridged through credentials.yaml, api_key retired (core carries none, goal 739e47b2).
 The load-bearing invariant is refresh custody: cortex rotates on every use and
 reuse-detection revokes the whole family, so EXACTLY ONE process may refresh.
 `refresh_owner` picks it — 'daemon' (the always-on serve tick) or 'cli' (the
@@ -20,7 +20,7 @@ def loader(tmp_path, monkeypatch):
     from empirica.config.credentials_loader import CredentialsLoader
 
     creds = tmp_path / "credentials.yaml"
-    creds.write_text("version: '1.0'\ncortex:\n  url: https://cortex.example\n  api_key: ctx_test_key\n")
+    creds.write_text("version: '1.0'\ncortex:\n  url: https://cortex.example\n")
     monkeypatch.setenv("EMPIRICA_CREDENTIALS_PATH", str(creds))
     for v in ("CORTEX_API_KEY", "CORTEX_URL", "CORTEX_REMOTE_URL"):
         monkeypatch.delenv(v, raising=False)
@@ -79,7 +79,9 @@ def test_cli_does_not_refresh_a_family_it_does_not_own(loader, owner):
 
     out = cortex_bearer(loader, http=_spy_http)
     assert refreshed["called"] is False, "the CLI must never refresh a daemon-owned family"
-    assert out["source"] == "api_key", "expired daemon token with no CLI refresh → api_key fallback"
+    # No api_key fallback any more (goal 739e47b2): nothing to send, and the reason names who owns the refresh.
+    assert out["source"] == "none" and out["bearer"] is None
+    assert f"belongs to the {owner}" in out["reason"]
 
 
 def test_cli_refreshes_its_own_family(loader):
@@ -129,9 +131,9 @@ def test_absent_owner_defaults_to_cli_so_shipped_tokens_keep_working(loader):
     assert out["source"] == "oauth", "absent owner defaults to cli → refreshes"
 
 
-def test_daemon_route_bridges_oauth_without_touching_api_key(loader, monkeypatch):
+def test_daemon_route_bridges_oauth_without_touching_the_cortex_url(loader, monkeypatch):
     """The extension's OAuth bridge: POST oauth fields → cortex.oauth written,
-    refresh_owner defaults to daemon, api_key untouched."""
+    refresh_owner defaults to daemon, the rest of the cortex block (the url) untouched."""
     from empirica.api import serve_app
 
     monkeypatch.setattr("empirica.config.credentials_loader.CredentialsLoader", type(loader))
@@ -147,7 +149,7 @@ def test_daemon_route_bridges_oauth_without_touching_api_key(loader, monkeypatch
     oauth = loader.get_cortex_oauth()
     assert oauth["access_token"] == _BRIDGED_AT
     assert oauth["refresh_owner"] == "daemon"
-    assert loader.get_cortex_config()["api_key"] == "ctx_test_key", "oauth bridge must not touch api_key"
+    assert loader.get_cortex_config()["url"] == "https://cortex.example", "oauth bridge must not touch the url"
     # The request model carries the oauth fields the extension POSTs.
     req = serve_app.CortexCredentialsRequest(oauth_access_token=_X, oauth_refresh_owner="daemon")
     assert req.oauth_access_token == _X

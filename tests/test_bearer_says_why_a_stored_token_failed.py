@@ -14,6 +14,10 @@ from empirica.core.auth import cortex_oauth as co
 # A fake fixture, not a credential (named so S105/S106 stays quiet, as in test_cortex_auth_login).
 _RT = "RT"
 
+# The reason for a seat with nothing stored. It read "no cortex credential configured (no OAuth token, no api_key)" until
+# core retired the api_key (goal 739e47b2); the tests below assert a stored-but-failed set never falls through to it.
+NOTHING_STORED = "no Cortex sign-in on this machine — run `empirica auth login`"
+
 
 class Loader:
     def __init__(self, oauth=None, api_key=None, refresh_raises=None):
@@ -49,13 +53,13 @@ def _reason(loader, monkeypatch):
 def test_a_refresh_that_raised_is_named_with_its_error(monkeypatch):
     loader = Loader(_expired(refresh_token=_RT, refresh_owner="cli"), refresh_raises=TimeoutError("timed out"))
     reason = _reason(loader, monkeypatch)
-    assert "no cortex credential configured" not in reason
+    assert reason != NOTHING_STORED
     assert "refresh failed" in reason and "timed out" in reason
 
 
 def test_a_token_another_owner_refreshes_says_so(monkeypatch):
     reason = _reason(Loader(_expired(refresh_token=_RT, refresh_owner="daemon")), monkeypatch)
-    assert "no cortex credential configured" not in reason
+    assert reason != NOTHING_STORED
     assert "daemon" in reason
 
 
@@ -65,14 +69,16 @@ def test_an_expired_token_with_no_refresh_token_says_so(monkeypatch):
 
 
 def test_nothing_stored_still_reads_as_nothing_configured(monkeypatch):  # control
-    assert _reason(Loader(), monkeypatch) == "no cortex credential configured (no OAuth token, no api_key)"
+    assert _reason(Loader(), monkeypatch) == NOTHING_STORED
 
 
-def test_an_api_key_still_covers_an_expired_token(monkeypatch):  # control: the fallback is unchanged
-    monkeypatch.setattr(co, "default_refresh", lambda loader, http=None: lambda *a: {})
+def test_an_api_key_no_longer_covers_an_expired_token(monkeypatch):
+    """The api_key fallback is gone (goal 739e47b2): a leftover key does not stand in for an expired token, and the
+    reason still names why the token gave nothing rather than reading as nothing stored."""
     monkeypatch.setattr("empirica.core.auth.credential_health.dead_reason", lambda cred: None)
-    out = co.cortex_bearer(Loader(_expired(refresh_owner="daemon"), api_key="ctx_k"))
-    assert out["source"] == "api_key"
+    reason = _reason(Loader(_expired(refresh_owner="daemon"), api_key="ctx_k"), monkeypatch)
+    assert reason != NOTHING_STORED
+    assert "no refresh token" in reason
 
 
 def test_a_refresh_that_fails_inside_the_real_loader_is_named(tmp_path, monkeypatch):
@@ -112,5 +118,5 @@ def test_an_unreadable_credentials_file_is_not_reported_as_nothing_configured(mo
 
     monkeypatch.setattr(co, "default_refresh", lambda loader, http=None: lambda *a: {})
     out = co.cortex_bearer(Broken())
-    assert "no cortex credential configured" not in out["reason"]
+    assert out["reason"] != NOTHING_STORED
     assert "permission denied" in out["reason"]

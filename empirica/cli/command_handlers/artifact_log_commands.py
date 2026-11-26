@@ -3211,7 +3211,7 @@ def handle_source_get_command(args):
             msg = {
                 "ok": False,
                 "error": "Cortex not configured",
-                "hint": "Set cortex.url + cortex.api_key in ~/.empirica/credentials.yaml (or pass --cortex-url/--api-key)",
+                "hint": "Run `empirica auth login` (or pass --cortex-url/--api-key with a bearer)",
             }
             print(json.dumps(msg) if output_format == "json" else f"❌ {msg['error']} — {msg['hint']}")
             return 1
@@ -3581,7 +3581,7 @@ def handle_source_archive_command(args):
     Per SOURCES_LIFECYCLE_SPEC §8 Empirica-Core CLI parity. Empirica is the
     authoritative store; downstream Cortex projects from this state.
 
-    Phase 1.5 (v1.9.6+): when CORTEX_REMOTE_URL + CORTEX_API_KEY are set,
+    Phase 1.5 (v1.9.6+): when this seat is signed in to Cortex,
     also `DELETE /v1/sources/{id}` on Cortex so the remote authoritative
     side reflects the same archived state. Best-effort — the local archive
     succeeds regardless of remote outcome.

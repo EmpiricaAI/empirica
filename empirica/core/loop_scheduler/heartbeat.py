@@ -89,7 +89,7 @@ def _say_usable(component: str) -> None:
 def _default_resolve_creds() -> tuple[str | None, str | None]:
     """Resolve Cortex URL + api_key from credentials_loader. Defensive — returns (None, None) on any failure."""
     try:
-        # OAuth-first with api_key fallback (empirica auth login) — the
+        # OAuth (empirica auth login) — the
         # resolver never returns a stale token and never raises past here.
         from empirica.core.mesh_endpoint import mesh_bearer
 

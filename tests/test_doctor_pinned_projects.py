@@ -30,8 +30,12 @@ ARCHIVED_PINNED = "44444444-4444-4444-4444-444444444444"
 def workspace(tmp_path, monkeypatch):
     monkeypatch.setenv("EMPIRICA_WORKSPACE_DB", str(tmp_path / "workspace.db"))
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("CORTEX_REMOTE_URL", "https://cortex.example")
-    monkeypatch.setenv("CORTEX_API_KEY", "ctx_test")
+    import empirica.core.auth.cortex_oauth as co
+
+    # An OAuth sign-in, the only Cortex credential core carries (goal 739e47b2).
+    monkeypatch.setattr(
+        co, "cortex_bearer", lambda *a, **k: {"url": "https://cortex.example", "bearer": "tok", "source": "oauth"}
+    )
     with WorkspaceDBRepository.open(ensure_schema=True) as repo:
         repo.upsert_project(project_id=PINNED_HERE, name="carried", trajectory_path=str(tmp_path / "a" / ".empirica"))
     return tmp_path
@@ -97,11 +101,10 @@ def test_a_payload_without_the_pinned_flag_does_not_invent_one(workspace):
 
 
 def test_without_cortex_credentials_it_skips(workspace, monkeypatch):
-    monkeypatch.delenv("CORTEX_API_KEY", raising=False)
-    monkeypatch.delenv("CORTEX_REMOTE_URL", raising=False)
-    monkeypatch.delenv("CORTEX_URL", raising=False)
-    with patch("empirica.config.credentials_loader.get_credentials_loader", side_effect=Exception("no loader")):
-        assert doctor.check_pinned_projects().status == SKIP
+    import empirica.core.auth.cortex_oauth as co
+
+    monkeypatch.setattr(co, "cortex_bearer", lambda *a, **k: {"url": None, "bearer": None, "source": "none"})
+    assert doctor.check_pinned_projects().status == SKIP
 
 
 def test_an_unreachable_cortex_is_a_warning_not_a_pass(workspace):

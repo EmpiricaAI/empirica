@@ -13,6 +13,10 @@ name.
 
 Hard constraint from the SER: **api_keys stay valid throughout.** Nothing here may
 make a seat conclude its key is dead because a token now exists.
+
+Since goal 739e47b2 (2026-11-26) core reads and writes no Cortex api_key at all: the
+token store still leaves whatever else is in the `cortex:` block alone, and the
+writer no longer takes a key.
 """
 
 from __future__ import annotations
@@ -64,14 +68,14 @@ def _read(p: Path) -> dict:
 # ─── storage must not disturb what is already there ───────────────────────
 
 
-def test_saving_a_token_preserves_the_api_key(creds):
-    """The SER's hard constraint. Keys stay valid for the whole migration —
-    dual-accept by shape is the safety net, and revocation is a separate
-    per-identity act gated on observed Bearer traffic."""
+def test_saving_a_token_drops_the_retired_api_key(creds):
+    """Core carries only OAuth details (goal 739e47b2, David 2026-11-26): writing the token set drops a leftover key. The
+    migration's dual-accept is over; the key is retired."""
     loader, p = creds
     loader.save_cortex_oauth(access_token=_AT, refresh_token=_RT, expires_at=time.time() + 3600)
 
-    assert _read(p)["cortex"]["api_key"] == "SECRET-KEY"
+    assert "api_key" not in _read(p)["cortex"]
+    assert _read(p)["cortex"]["oauth"]["access_token"] == _AT
 
 
 def test_saving_a_token_preserves_other_providers(creds):
@@ -210,49 +214,27 @@ def test_the_oauth_block_takes_no_env_fallback(creds, monkeypatch):
     assert loader.get_cortex_oauth() == {}
 
 
-# ─── empty is not a value ─────────────────────────────────────────────────
+# ─── the writer takes no api_key ──────────────────────────────────────────
 
 
-def test_an_empty_api_key_does_not_wipe_the_stored_one(creds):
-    """Reported live during the api_key→OAuth migration.
-
-    A client whose settings form left the key field blank wrote `api_key=""` on
-    every Save. The guard was `is not None`, so the empty string passed it and
-    overwrote a working credential.
-
-    Severity is not "the CLI breaks". `authenticate_bearer` accepting JWT OR
-    api_key by shape is what makes the cutover STAGED rather than big-bang, and
-    every revoke-after-verification gate assumes the key still works while the
-    token is being proven. This let a client silently delete half of that — leaving
-    a seat that LOOKS migrated because the token works, with the fallback gone from
-    under a gate still counting on it.
-    """
+@pytest.mark.parametrize("key", ["", "   ", "ROTATED-KEY"])
+def test_the_writer_takes_no_api_key_so_it_can_neither_write_nor_wipe_one(creds, key):
+    """Core retired the Cortex api_key (goal 739e47b2, David 2026-11-26): `save_cortex_config` has no api_key
+    parameter, so a client posting a key (blank, whitespace or real) can neither store one nor, as the blank-form
+    bug once did, overwrite what is in the file. The call is rejected and the file is unchanged."""
     loader, p = creds
-    loader.save_cortex_config(api_key="")
+    before = p.read_text()
+    with pytest.raises(TypeError):
+        loader.save_cortex_config(url="https://new.test", api_key=key)  # type: ignore[call-arg]
 
-    assert _read(p)["cortex"]["api_key"] == "SECRET-KEY"
-
-
-def test_whitespace_is_also_not_a_value(creds):
-    loader, p = creds
-    loader.save_cortex_config(api_key="   ")
-
-    assert _read(p)["cortex"]["api_key"] == "SECRET-KEY"
+    assert p.read_text() == before
 
 
-def test_a_real_key_still_overwrites(creds):
-    """The guard must not make the field unwritable — rotation is normal."""
-    loader, p = creds
-    loader.save_cortex_config(api_key="ROTATED-KEY")
-
-    assert _read(p)["cortex"]["api_key"] == "ROTATED-KEY"
-
-
-def test_url_only_updates_leave_the_key_alone(creds):
-    """The path the extension actually takes: saving settings should never be able
-    to remove a credential as a side effect."""
+def test_url_only_updates_drop_the_retired_key_and_nothing_else(creds):
+    """The path the extension takes: saving settings rewrites the url, drops the retired api_key (goal 739e47b2), and
+    leaves every other credential alone."""
     loader, p = creds
     loader.save_cortex_config(url="https://new.test")
 
-    assert _read(p)["cortex"]["api_key"] == "SECRET-KEY"
+    assert "api_key" not in _read(p)["cortex"]
     assert _read(p)["cortex"]["url"] == "https://new.test"

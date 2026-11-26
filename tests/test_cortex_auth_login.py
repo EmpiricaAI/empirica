@@ -32,7 +32,10 @@ from empirica.core.auth.cortex_oauth import (
 
 @pytest.fixture
 def loader(tmp_path, monkeypatch):
-    """A real CredentialsLoader pinned to a tmp file carrying an api_key.
+    """A real CredentialsLoader pinned to a tmp file carrying a leftover api_key.
+
+    The key is retired (goal 739e47b2): it stays in the fixture so the bearer
+    tests prove a stored key never comes back as a credential.
 
     CredentialsLoader is a SINGLETON with a class-level cache — without the
     resets below, one test's oauth block leaks into the next test's loader
@@ -133,13 +136,18 @@ def test_bearer_prefers_valid_token(loader):
     assert out == {"url": "https://cortex.example", "bearer": _LIVE_AT, "source": "oauth"}
 
 
-def test_bearer_falls_back_to_api_key_when_no_token(loader):
+def test_bearer_ignores_a_leftover_api_key_when_no_token(loader):
+    """No token stored: the leftover key in the file is NOT offered (core carries no Cortex key, goal 739e47b2);
+    the result says to sign in instead."""
     out = cortex_bearer(loader)
-    assert out["source"] == "api_key"
-    assert out["bearer"] == "ctx_test_key"
+    assert out["source"] == "none"
+    assert out["bearer"] is None
+    assert "empirica auth login" in out["reason"]
 
 
-def test_bearer_falls_back_when_refresh_fails_and_never_sends_stale(loader):
+def test_bearer_when_refresh_fails_sends_neither_the_stale_token_nor_the_key(loader):
+    """A failed refresh never yields the stale token, and no longer falls back to the retired api_key: the bearer is
+    None and the reason names the refresh failure."""
     loader.save_cortex_oauth(
         access_token=_STALE_AT,
         refresh_token=_RT,
@@ -153,9 +161,9 @@ def test_bearer_falls_back_when_refresh_fails_and_never_sends_stale(loader):
         raise OSError("token endpoint down")
 
     out = cortex_bearer(loader, http=_dead_http)
-    assert out["source"] == "api_key"
-    assert out["bearer"] == "ctx_test_key"
-    assert out["bearer"] != _STALE_AT
+    assert out["source"] == "none"
+    assert out["bearer"] is None
+    assert "token endpoint down" in out["reason"]
 
 
 def test_loopback_rejects_state_mismatch():
@@ -213,8 +221,10 @@ def test_login_end_to_end_persists_the_full_token_set(loader):
     assert stored["refresh_token"] == _RT1
     assert stored["client_id"] == "cli_new"
     assert stored["token_endpoint"] == DISCO["token_endpoint"]
-    # And the api_key was NOT touched — keys stay valid through migration.
-    assert loader.get_cortex_config()["api_key"] == "ctx_test_key"
+    # Login writes only the token set: the cortex url is left as it was, and no api_key comes back (goal 739e47b2).
+    cfg = loader.get_cortex_config()
+    assert cfg["url"] == "https://cortex.example"
+    assert cfg["api_key"] is None
 
 
 def test_login_prints_authorize_url_to_stderr_not_stdout(loader, capsys):

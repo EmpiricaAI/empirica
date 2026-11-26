@@ -61,7 +61,7 @@ def test_a_seat_with_no_credential_says_so(monkeypatch):
     _stub_bearer(monkeypatch, {"url": "https://cortex.example", "bearer": None, "source": "none"})
 
     assert nc._cortex_creds() is None
-    assert "no cortex credential" in nc.last_credentials_error()
+    assert "no Cortex sign-in" in nc.last_credentials_error()
 
 
 def test_a_SUPPRESSED_credential_does_not_print_as_absent(monkeypatch):

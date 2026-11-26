@@ -118,7 +118,7 @@ def _run_register_shared_backfill(args, project_id, output, practice_scope: bool
 
     cortex_url, api_key = _resolve_cortex_config(args)
     if not (cortex_url and api_key):
-        _emit(output, {"ok": False, "error": "cortex not configured (set cortex.url + cortex.api_key)"})
+        _emit(output, {"ok": False, "error": "no Cortex sign-in on this machine (run `empirica auth login`)"})
         return 1
 
     db = SessionDatabase()

@@ -139,10 +139,7 @@ def _pipeline_cortex_cache_feedback(session_id, vectors, grounded_verification):
                 "sources": grounded_verification.get("sources", []),
             }
         ).encode("utf-8")
-        headers = {"Content-Type": "application/json"}
-        api_key = os.environ.get("CORTEX_API_KEY", "")
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+        headers = {"Content-Type": "application/json"}  # no key: core carries none (goal 739e47b2)
         req = urllib.request.Request(f"{cortex_url}/postflight", data=payload, headers=headers, method="POST")
         urllib.request.urlopen(req, timeout=1.0)
         logger.debug("Wrote verified predictions to Cortex cache")

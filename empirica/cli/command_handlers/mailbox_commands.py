@@ -46,7 +46,7 @@ def _default_resolve_cortex_creds() -> tuple[str | None, str | None]:
     user beside the caller's own message rather than through a new return type.
     """
     try:
-        # OAuth-first with api_key fallback (empirica auth login) — the
+        # OAuth (empirica auth login) — the
         # resolver never returns a stale token and never raises past here.
         # With no Cortex configured, the local server when `empirica serve` runs as the local edition (1.15.1).
         from empirica.core.mesh_endpoint import mesh_bearer
@@ -295,11 +295,7 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
 
     cortex_url, api_key = _resolve_cortex_creds()
     if not cortex_url or not api_key:
-        sys.stderr.write(
-            "mailbox reply: Cortex creds missing — configure cortex.url + "
-            "cortex.api_key in ~/.empirica/credentials.yaml or set "
-            "CORTEX_REMOTE_URL + CORTEX_API_KEY env vars.\n"
-        )
+        sys.stderr.write("mailbox reply: no Cortex sign-in on this machine — run `empirica auth login`.\n")
         return 1
 
     # Canonicalize like `poll` (which carries the comment "a basename query lies
@@ -945,11 +941,7 @@ def handle_mailbox_poll_command(
 
     cortex_url, api_key = _resolve_cortex_creds()
     if not cortex_url or not api_key:
-        sys.stderr.write(
-            "mailbox poll: Cortex creds missing — configure cortex.url + "
-            "cortex.api_key in ~/.empirica/credentials.yaml or set "
-            "CORTEX_REMOTE_URL + CORTEX_API_KEY env vars.\n"
-        )
+        sys.stderr.write("mailbox poll: no Cortex sign-in on this machine — run `empirica auth login`.\n")
         return 1
 
     ai_id = getattr(args, "ai_id", None) or _resolve_ai_id()
@@ -1048,10 +1040,7 @@ def handle_mailbox_show_command(
 
     cortex_url, api_key = _resolve_cortex_creds()
     if not cortex_url or not api_key:
-        sys.stderr.write(
-            "mailbox show: Cortex creds missing — configure cortex.url + "
-            "cortex.api_key in ~/.empirica/credentials.yaml.\n"
-        )
+        sys.stderr.write("mailbox show: no Cortex sign-in on this machine — run `empirica auth login`.\n")
         return 1
 
     try:
@@ -1141,10 +1130,7 @@ def handle_mailbox_archive_command(
 
     cortex_url, api_key = _resolve_cortex_creds()
     if not cortex_url or not api_key:
-        sys.stderr.write(
-            "mailbox archive: Cortex creds missing — configure cortex.url + "
-            "cortex.api_key in ~/.empirica/credentials.yaml.\n"
-        )
+        sys.stderr.write("mailbox archive: no Cortex sign-in on this machine — run `empirica auth login`.\n")
         return 1
 
     ai_id = getattr(args, "ai_id", None) or _resolve_canonical_ai_id(cortex_url, api_key, _resolve_ai_id(), _http_get)

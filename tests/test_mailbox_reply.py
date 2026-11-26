@@ -329,7 +329,7 @@ def test_missing_cortex_creds_errors(capsys):
     )
     assert rc == 1
     err = capsys.readouterr().err
-    assert "Cortex creds missing" in err
+    assert "no Cortex sign-in" in err and "auth login" in err
 
 
 def test_missing_source_claude_errors(capsys):

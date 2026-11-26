@@ -575,8 +575,7 @@ def handle_daemon_grant_command(args) -> None:
         from empirica.config.credentials_loader import CredentialsLoader
 
         # Snapshot what the extension will receive on its next poll.
-        cortex_cfg = CredentialsLoader().get_cortex_config()
-        credentials_snapshot = {"cortex": cortex_cfg}
+        credentials_snapshot = _grant_credentials_snapshot(CredentialsLoader().get_cortex_config())
         record = daemon_grants.approve_grant(
             user_code=user_code,
             credentials=credentials_snapshot,
@@ -897,7 +896,7 @@ def _sync_phase3_cortex_post(args, output_format: str) -> dict[str, Any] | None:
         if not cortex_url:
             missing.append("CORTEX_REMOTE_URL or --cortex-url")
         if not api_key:
-            missing.append("CORTEX_API_KEY or --api-key")
+            missing.append("a Cortex sign-in (`empirica auth login`) or --api-key")
         print(
             "⚠ Cortex configuration missing: " + ", ".join(missing) + "\n"
             "  Use --no-cortex to skip the POST phase explicitly, or set "
@@ -1104,10 +1103,10 @@ def _org_refusal(reason: str) -> dict[str, Any]:
 
 
 def _resolve_cortex_config(args, org_id: str | None = None) -> tuple[str | None, str | None]:
-    """Return (cortex_url, api_key) by precedence:
+    """Return (cortex_url, bearer) by precedence (the bearer is an OAuth token; core carries no api_key, goal 739e47b2):
 
-    1. CLI flags (`--cortex-url`, `--api-key`) — explicit per-invocation override
-    2. Env vars (`CORTEX_REMOTE_URL` / `CORTEX_URL`, `CORTEX_API_KEY`)
+    1. CLI flags (`--cortex-url`, `--api-key`) — explicit per-invocation override (any bearer)
+    2. Env var `CORTEX_REMOTE_URL` / `CORTEX_URL` for the url
     3. `cortex:` block in `~/.empirica/credentials.yaml` via the
        centralized CredentialsLoader (so users don't have to export
        env vars in every shell — mirrors the extension's chrome.storage
@@ -1118,7 +1117,7 @@ def _resolve_cortex_config(args, org_id: str | None = None) -> tuple[str | None,
     if arg_url and arg_key:
         return arg_url.rstrip("/"), arg_key
 
-    # Fall through to cortex_bearer (OAuth-first, api_key fallback) so an
+    # Fall through to cortex_bearer (OAuth) so an
     # OAuth-only seat with the api_key retired still authenticates here. It
     # reads the same credentials.yaml/env the loader does, plus the OAuth token.
     try:
@@ -1330,6 +1329,13 @@ def _single_register_payload(
     if provides_domains is not None:
         payload["provides_domains"] = provides_domains
     return payload
+
+
+def _grant_credentials_snapshot(cortex_cfg: dict | None) -> dict[str, Any]:
+    """What a daemon grant hands the extension: the Cortex URL only. The extension signs in with its own Cortex OAuth, and
+    core carries no api_key (goal 739e47b2, David 2026-11-26)."""
+    url = (cortex_cfg or {}).get("url")
+    return {"cortex": {"url": url} if url else {}}
 
 
 def _register_payload(project: dict[str, Any], force_metadata_update: bool) -> dict[str, Any]:
@@ -1821,9 +1827,8 @@ def handle_projects_unregister_command(args) -> int | None:
         cortex_url, api_key = _resolve_cortex_config(args)
         if not cortex_url or not api_key:
             print(
-                "Error: cortex config missing. Pass --cortex-url + --api-key, "
-                "set CORTEX_URL + CORTEX_API_KEY env, or configure cortex: "
-                "block in ~/.empirica/credentials.yaml.",
+                "Error: no Cortex sign-in on this machine. Run `empirica auth login` (or pass --cortex-url and "
+                "--api-key with a bearer).",
                 file=sys.stderr,
             )
             sys.exit(2)

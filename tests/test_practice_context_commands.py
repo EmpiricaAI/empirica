@@ -338,7 +338,7 @@ def test_command_errors_when_no_cortex_config(capsys):
         rc = handle_practice_context_command(args)
     assert rc == 2
     err = capsys.readouterr().err
-    assert "cortex config missing" in err.lower()
+    assert "no cortex sign-in" in err.lower() and "auth login" in err
 
 
 def test_command_handles_cortex_unreachable_gracefully(capsys):

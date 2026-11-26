@@ -94,7 +94,7 @@ def _cortex_creds() -> tuple[str, str] | None:
     retirement moved seats onto daemon-brokered OAuth — this module was a
     straggler on the old path.
 
-    `cortex_bearer` is OAuth-first with an api_key fallback, and it also skips a
+    `cortex_bearer` is OAuth, and it also skips a
     key recorded as terminally dead, which this function could never see. The
     previous version's own comment was about saying WHICH credential was
     missing; it named the two states it knew (`no url`, `no api_key`) and could
@@ -120,7 +120,7 @@ def _cortex_creds() -> tuple[str, str] | None:
         if not url:
             _last_creds_error = "no cortex url configured"
         else:
-            _last_creds_error = creds.get("reason") or "no cortex credential configured (no OAuth token, no api_key)"
+            _last_creds_error = creds.get("reason") or "no Cortex sign-in on this machine — run `empirica auth login`"
         logger.debug(f"notification-channels: {_last_creds_error}")
         return None
     _last_creds_error = None

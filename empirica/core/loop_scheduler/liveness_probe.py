@@ -279,7 +279,7 @@ class LivenessProbe:
 
 def _default_cortex_loader() -> dict[str, Any] | None:
     try:
-        # OAuth-first with api_key fallback (empirica auth login); shape kept
+        # OAuth (empirica auth login); shape kept
         # {url, api_key} for the existing consumer below.
         from empirica.core.auth import cortex_bearer
 

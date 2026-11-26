@@ -741,8 +741,8 @@ def test_a_json_credentials_file_stays_json(tmp_path, monkeypatch):
     CredentialsLoader._credentials_cache = None
     try:
         CredentialsLoader().save_cortex_oauth(access_token=_AT_A, refresh_token=_RT)
-        stored = _json.loads(path.read_text())  # still JSON, still holding the api_key
-        assert stored["cortex"]["api_key"] == "k" and stored["cortex"]["oauth"]["access_token"] == _AT_A
+        stored = _json.loads(path.read_text())  # still JSON; the retired api_key is dropped on write (goal 739e47b2)
+        assert "api_key" not in stored["cortex"] and stored["cortex"]["oauth"]["access_token"] == _AT_A
     finally:
         CredentialsLoader._instance = None
         CredentialsLoader._credentials_cache = None

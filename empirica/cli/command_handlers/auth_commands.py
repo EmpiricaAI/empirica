@@ -153,7 +153,7 @@ def handle_auth_login_command(args) -> int:
         if isinstance(result.get("cortex_url_saved"), str):
             print(f"⚠️  Cortex URL {result['cortex_url_saved']}: set cortex.url in ~/.empirica/credentials.yaml")
         if not result.get("has_refresh_token"):
-            print("⚠️  no refresh_token issued — token dies at expiry; api_key fallback covers")
+            print("⚠️  no refresh_token issued — token dies at expiry; run `empirica auth login` again then")
         if verify is True:
             print("✅ verified: authenticated call succeeded with the new token")
             org = result.get("org")
@@ -234,11 +234,9 @@ def handle_auth_status_command(args) -> int:
         print(json.dumps(status))
     else:
         print(f"cortex url:        {status['url'] or '(none)'}")
-        print(f"api_key:           {'present' if status['api_key_present'] else 'absent'}")
         print(f"oauth token:       {credential_lifecycle}")
         print(f"refresh token:     {'held (CLI is sole refresher)' if status['has_refresh_token'] else 'none'}")
         print(f"client:            {status['client_id'] or '(not registered)'}")
-        print(f"retirement-ready:  {'yes' if status['retirement_ready'] else 'NO — api_key still load-bearing'}")
         if len(status["orgs"]) > 1 or any(o["org_id"] for o in status["orgs"]):
             print("teams:")
             for o in status["orgs"]:

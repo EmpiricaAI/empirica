@@ -110,7 +110,7 @@ def test_no_cortex_config_exits_2(capsys):
         except SystemExit as e:
             assert e.code == 2
     err = capsys.readouterr().err
-    assert "cortex config missing" in err
+    assert "no Cortex sign-in" in err and "auth login" in err
 
 
 # ─── 404 / error paths ────────────────────────────────────────────────

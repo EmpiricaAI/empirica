@@ -49,35 +49,6 @@ def _as_epoch_seconds(value):
     return v / 1000.0 if v > 1e11 else v
 
 
-def _apply_api_key(cortex_block: dict, api_key: str | None) -> None:
-    """Set `api_key` — but treat EMPTY AS ABSENT, never as a value to write.
-
-    The guard used to be `is not None`, so `api_key=""` passed it and overwrote a
-    live credential. Reported during the api_key→OAuth migration: a client whose
-    settings form left the key field blank wrote the empty string on every Save,
-    and it hit exactly the seats mid-migration.
-
-    Severity is not "the CLI breaks". `authenticate_bearer` accepting JWT OR
-    api_key by shape is the single property making that cutover STAGED rather than
-    big-bang, and every revoke-after-verification gate assumes the key still works
-    while the token is being proven. This let a client silently delete half of that,
-    leaving a seat that LOOKS migrated because the token works — the fallback gone
-    from under a gate still counting on it.
-
-    Clearing a credential is an explicit act, not something a blank form field does
-    by omission.
-    """
-    if api_key is None:
-        return
-    if str(api_key).strip():
-        cortex_block["api_key"] = api_key
-    elif cortex_block.get("api_key"):
-        logger.warning(
-            "save_cortex_config: refusing to overwrite the stored cortex api_key with an "
-            "empty value — pass the key, or remove it from credentials.yaml deliberately."
-        )
-
-
 class _NullLock:
     def __enter__(self):
         return self
@@ -368,14 +339,12 @@ class CredentialsLoader:
         self,
         *,
         url: str | None = None,
-        api_key: str | None = None,
         config_path: Path | None = None,
     ) -> Path:
-        """Persist Cortex {url, api_key} to credentials.yaml.
+        """Persist the Cortex url to credentials.yaml (no api_key: retired, goal 739e47b2).
 
         Merges into the existing `cortex:` block — never touches
-        `providers:`, `version:`, or any other top-level keys. At least
-        one of url/api_key must be provided.
+        `providers:`, `version:`, or any other top-level keys.
 
         Resolution order for target path (same as _find_config_file):
           1. config_path argument (explicit override)
@@ -390,8 +359,8 @@ class CredentialsLoader:
 
         Returns the path written to.
         """
-        if url is None and api_key is None:
-            raise ValueError("save_cortex_config: at least one of url/api_key required")
+        if url is None:
+            raise ValueError("save_cortex_config: url required")
 
         # Target: explicit path, else the file reads come from, else EMPIRICA_CREDENTIALS_PATH (created), else home.
         target = config_path
@@ -408,8 +377,7 @@ class CredentialsLoader:
         if url is not None:
             cortex_block["url"] = url.rstrip("/") or None
 
-        _apply_api_key(cortex_block, api_key)
-
+        cortex_block.pop("api_key", None)  # retired (goal 739e47b2): a write leaves only url and OAuth in the block
         existing["cortex"] = cortex_block
         if "version" not in existing:
             existing["version"] = "1.0"
@@ -585,10 +553,8 @@ class CredentialsLoader:
         """Persist the OAuth token set under `cortex.oauth`, or under `cortex.orgs.<slot>` for another team's sign-in.
         ``org_id`` / ``org_name`` record which org the set acts in (from /v1/users/me).
 
-        Merges — never touches `cortex.api_key`. **Keys stay valid throughout the
-        migration**: dual-accept by shape is the safety net, and a seat must never
-        conclude its key is dead merely because a token now exists. Revocation is a
-        separate, per-identity act gated on observed Bearer traffic.
+        Merges, and drops a leftover `cortex.api_key`: core carries only OAuth details since the key was retired
+        (goal 739e47b2, David 2026-11-26).
 
         Reuses `save_cortex_config`'s atomic write, so the file keeps mode 0600
         (mkstemp creates at 0600; `os.replace` preserves it).
@@ -683,6 +649,7 @@ class CredentialsLoader:
         else:
             orgs_block[slot] = oauth_block
             cortex_block["orgs"] = orgs_block
+        cortex_block.pop("api_key", None)  # retired (goal 739e47b2): a write leaves only url and OAuth in the block
         existing["cortex"] = cortex_block
         return self._write_credentials(target, existing)
 
@@ -704,6 +671,7 @@ class CredentialsLoader:
         existing = self._read_existing(target)
         cortex_block = existing.get("cortex")
         if isinstance(cortex_block, dict) and cortex_block.pop("orgs", None) is not None:
+            cortex_block.pop("api_key", None)  # retired (goal 739e47b2): a write leaves only url and OAuth in the block
             existing["cortex"] = cortex_block
             self._write_credentials(target, existing)
 
@@ -887,30 +855,18 @@ class CredentialsLoader:
         return str(new_access)
 
     def get_cortex_config(self) -> dict[str, str | None]:
-        """Return Cortex {url, api_key} resolved file-first:
+        """Return Cortex {url, api_key: None}; the url resolved file-first (the api_key is retired, goal 739e47b2):
 
-        1. `cortex:` block in credentials file (~/.empirica/credentials.yaml)
-           — canonical, wins per-field
-        2. Env vars (CORTEX_REMOTE_URL / CORTEX_URL, CORTEX_API_KEY) fill
-           only fields the file does not provide
+        1. `cortex:` block in credentials file (~/.empirica/credentials.yaml) — canonical
+        2. Env vars CORTEX_REMOTE_URL / CORTEX_URL fill the url only when the file has none (a differing env url is
+           ignored with a warning: a stale exported value once silenced listeners for 10 days)
         3. None if neither
 
-        File-first precedence (2026-05-28): a stale CORTEX_API_KEY exported
-        into a systemd-user env silently shadowed the valid file key for 10
-        days (listener-deaf incident). credentials.yaml is the single
-        canonical credential store across the ecosystem, so the file now
-        wins; env only fills gaps. When env is set AND disagrees with the
-        file, the env value is ignored and a warning is logged so the
-        divergence is visible instead of silent.
+        A key in the file or CORTEX_API_KEY is ignored; `stored_cortex_api_key()` reports one so doctor can name it.
 
-        The browser extension stores its own copy in chrome.storage
-        (`cortexUrl` + `cortexApiKey`); this is the CLI-side equivalent
-        so users don't have to export env vars in every shell.
-
-        Returns: {"url": str | None, "api_key": str | None}
+        Returns: {"url": str | None, "api_key": None}
         """
         env_url = os.getenv("CORTEX_REMOTE_URL") or os.getenv("CORTEX_URL")
-        env_key = os.getenv("CORTEX_API_KEY")
 
         self._ensure_fresh()
         if not self._credentials_cache:
@@ -918,30 +874,22 @@ class CredentialsLoader:
 
         file_cfg = self._credentials_cache.get("cortex") if self._credentials_cache else None
         file_url = file_cfg.get("url") if isinstance(file_cfg, dict) else None
-        file_key = file_cfg.get("api_key") if isinstance(file_cfg, dict) else None
-
-        # File is canonical. Warn (don't silently shadow) when a set env
-        # value disagrees with the file — this is the guard the listener-deaf
-        # incident needed.
-        if env_key and file_key and env_key != file_key:
-            logger.warning(
-                "CORTEX_API_KEY env var differs from credentials.yaml key; "
-                "ignoring env, file is canonical. Unset the env var to "
-                "silence this (a stale env key caused the 2026-05-28 "
-                "listener-deaf incident).",
-            )
         if env_url and file_url and env_url.rstrip("/") != file_url.rstrip("/"):
             logger.warning(
                 "CORTEX_REMOTE_URL env var differs from credentials.yaml url; ignoring env, file is canonical.",
             )
-
-        # File wins per-field; env only fills what the file lacks.
         url = file_url or env_url
-        key = file_key or env_key
-        return {
-            "url": url.rstrip("/") if url else None,
-            "api_key": key or None,
-        }
+        # No api_key: core carries only OAuth and time-based tokens (goal 739e47b2, David 2026-11-26). A key still in the
+        # file or CORTEX_API_KEY is ignored; doctor names it. The field stays None so readers keep their dict shape.
+        return {"url": url.rstrip("/") if url else None, "api_key": None}
+
+    def stored_cortex_api_key(self) -> bool:
+        """Whether credentials.yaml or the environment still holds a Cortex api_key, which nothing reads any more."""
+        self._ensure_fresh()
+        if not self._credentials_cache:
+            self._load_credentials()
+        file_cfg = self._credentials_cache.get("cortex") if self._credentials_cache else None
+        return bool((isinstance(file_cfg, dict) and file_cfg.get("api_key")) or os.getenv("CORTEX_API_KEY"))
 
     def get_ntfy_config(self) -> dict[str, str | None]:
         """Return ntfy {url, topic, user, password, token} resolved by precedence:

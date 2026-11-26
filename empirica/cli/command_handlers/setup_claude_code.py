@@ -2463,13 +2463,10 @@ def _run_credentials_wizard(state: dict, output_format: str) -> dict:
         print("→ Cortex (orchestration API)")
         default_url = state["cortex_url"] or "https://cortex.getempirica.com"
         url_in = input(f"   URL [{default_url}]: ").strip() or default_url
-        key_in = input("   API key (starts with ctx_): ").strip()
-        if url_in or key_in:
+        # No api_key prompt: core carries only OAuth tokens (goal 739e47b2); `empirica auth login` signs this seat in.
+        if url_in:
             try:
-                loader.save_cortex_config(
-                    url=url_in or None,
-                    api_key=key_in or None,
-                )
+                loader.save_cortex_config(url=url_in)
                 cortex_changed = True
                 print("   ✓ cortex block written")
             except Exception as e:
