@@ -439,21 +439,21 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.17.19
+## What's New in 1.17.20
 
-- The Cortex api_key
-- Cockpits say who they are for
-- `empirica practice-context` lists peers reachable through cross-org agreements
-- A hand-edited visibility writer file no longer crashes `empirica doctor`
-- `empirica profile-sync --push` refuses a public host
-- `empirica project-register` joins a shared practice another member of your org registered
+- `empirica history-import --from <old practice>` copies your local history into the practice you are in
+- Discipline mode allows six small acts per prompt outside a transaction
+- `empirica projects-unregister --local` removes a project from all three local stores
+- A cockpit profile rewritten during provisioning keeps who it is for
+- `empirica mesh connect` imports a practice you joined as a member
+- `empirica visibility list` and `visibility show` run outside a transaction
 
-Plus 5 more entries in the [CHANGELOG](CHANGELOG.md).
+The full entry is in the [CHANGELOG](CHANGELOG.md).
 
 **Earlier releases**
 
+- **1.17.19** — Breaking for any seat that still connects to Cortex with an api_key alone: run `empirica auth login` before or after upgrading.
 - **1.17.18** — Practices declare what they provide, and registering sends it
-- **1.17.17** — A cockpit's `server_access` users are granted read-only access again on tmux 3.5 and later
 
 ## What's Coming
 

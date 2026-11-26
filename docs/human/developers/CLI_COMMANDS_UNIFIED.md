@@ -22,9 +22,9 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.17.19
-**Generated:** 2026-11-26 08:26:44 UTC
-**Total commands:** 239 (across 23 categories)
+**Framework version:** 1.17.20
+**Generated:** 2026-11-26 19:44:02 UTC
+**Total commands:** 240 (across 23 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -66,7 +66,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [workflow](#workflow) | 4 | `preflight-submit`, `check`, `check-submit`, … |
 | [goals](#goals) | 16 | `goals-create`, `goals-list`, `goals-search`, … |
 | [logging](#logging) | 27 | `finding-log`, `finding-resolve`, `unknown-log`, … |
-| [project](#project) | 17 | `project-init`, `project-update`, `project-list`, … |
+| [project](#project) | 18 | `project-init`, `project-update`, `project-list`, … |
 | [workspace](#workspace) | 18 | `workspace-init`, `workspace-map`, `workspace-list`, … |
 | [checkpoint](#checkpoint) | 7 | `checkpoint-create`, `checkpoint-load`, `checkpoint-list`, … |
 | [sync](#sync) | 6 | `sync-config`, `sync-push`, `sync-pull`, … |
@@ -1721,9 +1721,11 @@ Unregister a project from Cortex (soft archive by default; --purge to hard-delet
 - `--confirm` — optional · flag
   Required with --purge — acknowledge the destructive operation.
 - `--local` — optional · flag
-  Remove project rows from THIS machine's workspace registry (global_projects + the entity_registry mirror) in one transaction instead of unregistering on cortex. --project-id takes a comma-separated list. PREVIEWS unless --apply; refuses the whole batch if any id is unknown or still referenced (entity_memberships, entity_artifacts, instance_bindings, global_sessions, engagements, or Qdrant collections; an unreachable Qdrant is unknown, not zero); --apply writes an audit row (registry_audit) holding each row's snapshot.
+  Remove projects from THIS machine: global_projects, the entity_registry mirror and the ~/.empirica/registry.yaml entry (an entry only in registry.yaml is found too), then, when this machine is signed in to Cortex, soft-archive them there (--no-cortex keeps it local). --project-id takes a comma-separated list. PREVIEWS unless --apply; refuses the whole batch if any id is unknown or still referenced (entity_memberships, entity_artifacts, instance_bindings, global_sessions, engagements, or Qdrant collections; an unreachable Qdrant is unknown, not zero); --apply writes an audit row (registry_audit) holding each row's snapshot.
 - `--apply` — optional · flag
   With --local: actually remove the rows (default is a preview).
+- `--no-cortex` — optional · flag
+  With --local --apply: do not archive on Cortex even when signed in.
 - `--cortex-url` — optional
   Override Cortex base URL.
 - `--api-key` — optional
@@ -1779,6 +1781,24 @@ Create + register a new local practice/practitioner in one command
   Print planned actions (to stderr) without executing
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
+
+#### `empirica history-import`
+
+Copy your local history (artifacts, goals, calibration) from an old practice into this one
+
+**Arguments:**
+
+- `--from` — **required**
+  The old practice's directory
+- `--into` — optional
+  The practice to copy into (default: the current directory's)
+- `--apply` — optional · flag
+  Copy (default: preview only)
+- `--types` — optional
+  Comma-separated artifact types to copy: finding, unknown, dead_end, mistake, assumption, decision, source, goal (default: all, plus the practice's lessons, falsifiers and handoffs)
+- `--no-calibration` — optional · flag
+  Copy artifacts only: leave sessions, transactions and calibration behind
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
 
 ---
 

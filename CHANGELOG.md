@@ -5,6 +5,23 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.20] - 2026-11-26
+
+### Added
+
+- **`empirica history-import --from <old practice>` copies your local history into the practice you are in**, for someone who moved into a shared practice and left artifacts and calibration behind. It copies, never moves: artifacts (findings, unknowns, dead ends, mistakes, assumptions, decisions, sources, goals and their parts) go by the old project, whoever wrote them; sessions, transactions and calibration go only for the old practitioner's own sessions, so other practitioners who wrote into the same store keep theirs. Project and practitioner ids are rewritten, artifact ids are kept, a row already here is kept, and a re-run adds nothing. It previews by default with exact counts and what stays behind; `--apply` backs up this practice's store first. `--types` picks artifact types, `--no-calibration` copies artifacts only. Code and concept models and git notes are not copied; run `empirica project-embed` afterwards for search, and `empirica mesh connect` to send the artifacts to Cortex.
+
+### Changed
+
+- **Discipline mode allows six small acts per prompt outside a transaction** (it was three), so a simple task (an edit, a test run, a commit) needs no ceremony. **Work on an Empirica goal always needs a transaction**: creating a goal (`goals-create`, except `--status planned`) or a task (`goals-add-task`) since your last prompt makes the rest of that turn's changes wait for a PREFLIGHT.
+- **`empirica projects-unregister --local` removes a project from all three local stores**: the workspace database, its entity mirror and `~/.empirica/registry.yaml`. An entry that existed only in `registry.yaml` was reported as not found. Each removed entry is kept in the audit row. When this machine is signed in to Cortex, it also archives the project there (reversible, not a purge), using the sign-in of the practice's own organisation; `--no-cortex` keeps it local, and a Cortex failure exits non-zero and names what is left. A project still referenced (search collections, sessions) is still refused in every store.
+
+### Fixed
+
+- **A cockpit profile rewritten during provisioning keeps who it is for**: its socket, socket group, granted users and audience were dropped, so a shared cockpit came back single-user.
+- **`empirica mesh connect` imports a practice you joined as a member**; it stopped at the register step before importing.
+- **`empirica visibility list` and `visibility show` run outside a transaction**; they only read.
+
 ## [1.17.19] - 2026-11-26
 
 Breaking for any seat that still connects to Cortex with an api_key alone: run `empirica auth login` before or after upgrading.
