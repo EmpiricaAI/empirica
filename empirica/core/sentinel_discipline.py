@@ -629,8 +629,8 @@ def _data_spans(command: str) -> list[tuple[int, int]]:
             i += 2
             continue
         if ch in "'\"":
-            # $'...' takes backslash escapes; an escaped \$' is a plain $ followed by an ordinary quote
-            ansi = ch == "'" and i > 0 and command[i - 1] == "$" and (i < 2 or command[i - 2] != "\\")
+            # $'...' takes backslash escapes; \$' (an odd run of backslashes before the $) is a plain $ and an ordinary quote
+            ansi = ch == "'" and i > 0 and command[i - 1] == "$" and not _escaped(command, i - 1)
             j = i + 1
             while j < n and command[j] != ch:
                 j += 2 if ((ch == '"' or ansi) and command[j] == "\\") else 1
@@ -655,9 +655,20 @@ def _data_spans(command: str) -> list[tuple[int, int]]:
     return spans
 
 
+def _escaped(command: str, pos: int) -> bool:
+    """Is the character at ``pos`` escaped: preceded by an odd run of backslashes?"""
+    run = 0
+    while pos - run - 1 >= 0 and command[pos - run - 1] == "\\":
+        run += 1
+    return run % 2 == 1
+
+
 def _statement_end(command: str, start: int, spans: list[tuple[int, int]]) -> int:
-    """The end of the statement that begins at ``start``: the next separator outside quotes."""
+    """The end of the statement that begins at ``start``: the next separator outside quotes. An escaped newline is a line
+    continuation, not a separator, so flags on the continued line belong to the statement."""
     for m in _SEPARATOR.finditer(command, start):
+        if m.group() == "\n" and _escaped(command, m.start()):
+            continue
         if not any(a <= m.start() < b for a, b in spans):
             return m.start()
     return len(command)

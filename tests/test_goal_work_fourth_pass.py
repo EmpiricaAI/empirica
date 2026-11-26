@@ -18,3 +18,20 @@ from empirica.core import sentinel_discipline as sd
 )
 def test_detected(command):
     assert sd._goal_work(command) == "an empirica goal"
+
+
+def test_an_even_run_of_backslashes_leaves_the_ansi_quote_real():
+    """`\\\\$'a\\'b'`: the backslashes escape each other, so $'...' is ANSI and the goal after it runs (fifth pass)."""
+    assert sd._goal_work("echo \\\\$'a\\'b' ; empirica goals-create x ; echo 'c'") == "an empirica goal"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "empirica goals-create --objective x \\\n --status planned",
+        "empirica goals-create \\\n --help",
+        'empirica goals-create \\\n - <<\'EOF\'\n{"status": "planned"}\nEOF',
+    ],
+)
+def test_flags_on_a_continued_line_belong_to_the_statement(command):
+    assert sd._goal_work(command) is None
