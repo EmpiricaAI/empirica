@@ -177,3 +177,18 @@ def test_twelfth_pass_misses_are_detected(command):
 
 def test_a_heredoc_written_to_a_file_that_is_not_run_stays_exempt():
     assert sd._goal_work("cat > notes.md <<'EOF'\nempirica goals-create --objective x\nEOF") is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'python3 -m empirica.cli goals-create --objective "CLI via module"',  # thirteenth pass
+        "python -m empirica.cli.cli_core goals-add-task --goal-id g --description d",
+        "cat > justfile <<'EOF'\nseed:\n\tempirica goals-create --objective x\nEOF\njust seed",
+        "cat > tests/test_seed.py <<'EOF'\nimport os; os.system('empirica goals-create --objective x')\nEOF\npytest -q tests",
+        "empirica -vv goals-create --objective x",
+        "empirica --verb goals-create --objective x",
+    ],
+)
+def test_thirteenth_pass_misses_are_detected(command):
+    assert sd._goal_work(command) is not None

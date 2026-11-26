@@ -595,9 +595,9 @@ def _is_person_prompt(record: dict) -> bool:
 #: readings with and without comments) left a form where a misread hid a real goal; a false hit only asks for a PREFLIGHT.
 #: Sentinel is discipline, not security: an author who wants to evade it can; this only has to not miss ordinary work.
 _GOAL_VERB = re.compile(
-    r"(?<![\w.-])empirica"
-    # global options may come first (`empirica --verbose goals-create`, `empirica --config f gc`: twelfth pass)
-    r"(?:(?:\s|\\\n)+(?:-v|--verbose|--version|-h|--help|--config(?:=\S+|(?:\s|\\\n)+\S+)))*"
+    r"(?<![\w.-])empirica(?:\.[\w.]+)?"  # `python -m empirica.cli goals-create`, which doctor recommends (13th pass)
+    # global options may come first, in any spelling argparse takes (`--verbose`, `-vv`, `--verb`, `--config f`)
+    r"(?:(?:\s|\\\n)+(?:--config(?:=\S+|(?:\s|\\\n)+\S+)|-[\w-]+))*"
     r"(?:\s|\\\n)+(goals?-create|gc|goals?-add-task)(?![\w-])"
 )
 #: Anything on the line that can run quoted text as commands: then no quoted mention is exempt.
@@ -641,11 +641,12 @@ def _exempt_mention(command: str, start: int) -> bool:
         return False  # a quote that is not an inert same-line pair: the pairing cannot be trusted
     for a, b in bodies:
         if a <= start < b:
-            # a body written to a file the command then names again may be run (`cat > mkgoals <<'EOF' ... ./mkgoals`)
+            # a body written to a file is exempt only when nothing runs after the heredoc: a runner may read the file
+            # without naming it (`cat > justfile <<'EOF' ... just seed`, thirteenth pass)
             opener = command[command.rfind("\n", 0, a - 1) + 1 : a]
-            target = re.search(r"(?:>>?|\btee(?:\s+-a)?)\s*([^\s;&|<>]+)", opener)
-            name = Path(target.group(1)).name if target else None
-            return not (name and name in command[b:])
+            writes = re.search(r"(?:>>?|\btee\b)", opener)
+            after = command[b:].split("\n", 1)[1] if "\n" in command[b:] else ""
+            return not (writes and after.strip())
     return any(q.start() < start < q.end() for q in _INERT_QUOTE.finditer(outside))
 
 
