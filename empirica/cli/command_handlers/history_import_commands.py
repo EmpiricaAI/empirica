@@ -51,6 +51,8 @@ def handle_history_import_command(args) -> int:
             old_ai_id=source["ai_id"],
             new_ai_id=target["ai_id"],
             apply=apply,
+            types=({t.strip() for t in args.types.split(",") if t.strip()} if getattr(args, "types", None) else None),
+            include_calibration=not getattr(args, "no_calibration", False),
         )
     except (ValueError, FileNotFoundError) as e:
         if output == "json":
@@ -78,11 +80,19 @@ def handle_history_import_command(args) -> int:
     total = sum(result["tables"].values())
     verb = "Copied" if apply else "Would copy"
     print(f"{verb} {total} rows from {source['ai_id']} ({source['root']}) into {target['ai_id']} ({target['root']})")
+    print(
+        f"   artifacts of project {source['project_id']} (types: {result['types']}); "
+        + (f"calibration of {source['ai_id']}'s own sessions" if result["calibration"] else "no calibration")
+    )
     for name, n in sorted(result["tables"].items(), key=lambda kv: -kv[1]):
         if n:
             print(f"   {name}: {n}")
     if result["kept_in_target"]:
         print(f"   kept (already in this practice, not overwritten): {sum(result['kept_in_target'].values())} rows")
+    if result["left_behind"]:
+        print("   left behind (other projects, other practitioners, types not chosen, derived models):")
+        for name, n in sorted(result["left_behind"].items(), key=lambda kv: -kv[1]):
+            print(f"      {name}: {n}")
     if result["missing_in_target"]:
         print(f"   ⚠️  not copied, this practice has no such table: {result['missing_in_target']}")
     if result.get("backup"):

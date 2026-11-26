@@ -82,9 +82,9 @@ def _snapshot(path):
         conn.close()
 
 
-def _copy(src, dst, apply):
+def _copy(src, dst, apply, **kw):
     return hi.copy_history(
-        src, dst, old_project_id=OLD_PID, new_project_id=NEW_PID, old_ai_id=OLD_AI, new_ai_id=NEW_AI, apply=apply
+        src, dst, old_project_id=OLD_PID, new_project_id=NEW_PID, old_ai_id=OLD_AI, new_ai_id=NEW_AI, apply=apply, **kw
     )
 
 
@@ -203,11 +203,11 @@ def test_the_verb_previews_then_applies_from_project_yaml(tmp_path, capsys, monk
     old = _practice_dir(tmp_path / "old", OLD_PID, OLD_AI, [("project_findings", ("f1", OLD_PID, "s1", "x"))])
     new = _practice_dir(tmp_path / "new", NEW_PID, NEW_AI, [])
     monkeypatch.chdir(new)
-    args = types.SimpleNamespace(from_path=str(old), into=None, apply=False, output="json")
+    args = types.SimpleNamespace(from_path=str(old), into=None, apply=False, output="json", types="finding")
     assert handle_history_import_command(args) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["tables"]["project_findings"] == 1 and not out["applied"]
-    assert out["from"]["ai_id"] == OLD_AI and out["into"]["ai_id"] == NEW_AI
+    assert out["from"]["ai_id"] == OLD_AI and out["into"]["ai_id"] == NEW_AI and out["types"] == ["finding"]
     args.apply = True
     assert handle_history_import_command(args) == 0
     capsys.readouterr()
@@ -226,3 +226,85 @@ def test_the_verb_refuses_copying_a_practice_into_itself(tmp_path, capsys, monke
         == 1
     )
     assert "this practice" in capsys.readouterr().out
+
+
+# ── a mixed store (prop_aiaro7s5: one real store held six ai_ids and three project ids) ─────────────────────────────────
+
+
+@pytest.fixture
+def mixed(stores):
+    src, dst = stores
+    conn = sqlite3.connect(str(src))
+    for table, values in [
+        ("sessions", ("s-gui", "gui-dev", OLD_PID)),  # another practitioner wrote into this project
+        ("project_findings", ("f-gui", OLD_PID, "s-gui", "a finding of the practice, written by gui-dev")),
+        ("grounded_beliefs", ("b-gui", "s-gui", "gui-dev", "know", 0.4)),
+        ("reflexes", (2, "s-gui", OLD_PID, "PREFLIGHT")),
+        ("project_findings", ("f-stray", "pid-stray", "s1", "a stray project's finding")),
+        ("goals", ("g-none", None, "s1", OLD_AI, "a goal with no project")),
+        ("sessions", ("s-noproj", OLD_AI, None)),  # his own session with no project
+        ("grounded_beliefs", ("b-noproj", "s-noproj", OLD_AI, "do", 0.6)),
+    ]:
+        conn.execute(f"INSERT INTO {table} VALUES ({','.join('?' * len(values))})", values)
+    conn.commit()
+    conn.close()
+    return src, dst
+
+
+def test_artifacts_go_by_project_whoever_wrote_them(mixed):
+    src, dst = mixed
+    _copy(src, dst, apply=True)
+    assert _rows(dst, "SELECT id FROM project_findings ORDER BY id") == [("f-gui",), ("f1",)]
+
+
+def test_another_practitioners_calibration_stays_behind(mixed):
+    src, dst = mixed
+    plan = _copy(src, dst, apply=True)
+    assert _rows(dst, "SELECT COUNT(*) FROM sessions WHERE session_id = 's-gui'") == [(0,)]
+    assert _rows(dst, "SELECT COUNT(*) FROM grounded_beliefs WHERE ai_id = 'gui-dev'") == [(0,)]
+    assert _rows(dst, "SELECT COUNT(*) FROM reflexes WHERE session_id = 's-gui'") == [(0,)]
+    assert plan["left_behind"]["grounded_beliefs"] == 1 and plan["left_behind"]["sessions"] == 2  # s-gui and s-other
+
+
+def test_his_own_sessions_without_a_project_come_along(mixed):
+    src, dst = mixed
+    _copy(src, dst, apply=True)
+    assert _rows(dst, "SELECT ai_id FROM grounded_beliefs WHERE id = 'b-noproj'") == [(NEW_AI,)]
+
+
+def test_strays_of_other_projects_and_projectless_goals_stay_and_are_counted(mixed):
+    src, dst = mixed
+    plan = _copy(src, dst, apply=False)
+    assert plan["left_behind"]["project_findings"] == 2  # f-other, f-stray
+    assert plan["left_behind"]["goals"] == 1  # g-none
+    _copy(src, dst, apply=True)
+    assert _rows(dst, "SELECT COUNT(*) FROM goals WHERE id = 'g-none'") == [(0,)]
+
+
+def test_a_type_filter_copies_only_those_types_and_no_dangling_edge(mixed):
+    src, dst = mixed
+    plan = _copy(src, dst, apply=True, types={"finding"})
+    assert _rows(dst, "SELECT COUNT(*) FROM goals") == [(0,)] and _rows(dst, "SELECT COUNT(*) FROM subtasks") == [(0,)]
+    assert _rows(dst, "SELECT COUNT(*) FROM artifact_edges") == [(0,)]  # f1 -> g1: g1 was not copied
+    assert plan["types"] == ["finding"]
+
+
+def test_an_edge_to_an_artifact_already_in_the_target_is_copied(mixed):
+    src, dst = mixed
+    _copy(src, dst, apply=True, types={"goal"})  # g1 first
+    _copy(src, dst, apply=True, types={"finding"})  # then f1: its edge to g1 now has both ends
+    assert _rows(dst, "SELECT from_id, to_id FROM artifact_edges") == [("f1", "g1")]
+
+
+def test_artifacts_only_leaves_every_practitioner_row(mixed):
+    src, dst = mixed
+    plan = _copy(src, dst, apply=True, include_calibration=False)
+    assert _rows(dst, "SELECT COUNT(*) FROM grounded_beliefs") == [(0,)]
+    assert _rows(dst, "SELECT session_id FROM sessions") == [("s-new",)]
+    assert plan["tables"]["project_findings"] == 2
+
+
+def test_an_unknown_type_is_refused(stores):
+    src, dst = stores
+    with pytest.raises(ValueError, match="unknown artifact type"):
+        _copy(src, dst, apply=False, types={"findings"})

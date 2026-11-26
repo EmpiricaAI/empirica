@@ -425,8 +425,9 @@ def _add_history_import_parser(subparsers) -> None:
         "history-import",
         help="Copy your local history (artifacts, goals, calibration) from an old practice into this one",
         description=(
-            "Copies, never moves: the old practice's rows for its project and practitioner, their sessions and what hangs "
-            "off them, with project_id and ai_id rewritten to this practice's. Ids are kept; a row already here is kept, "
+            "Copies, never moves. Artifacts go by the old project, whoever wrote them; sessions and calibration only "
+            "for the old practitioner's own sessions, so other practitioners who wrote into the same store keep "
+            "theirs. project_id and ai_id are rewritten to this practice's. Ids are kept; a row already here is kept, "
             "not overwritten; a re-run adds nothing. The old store is opened read-only. Previews unless --apply, which "
             "backs up this practice's store first. Derived models (code, concept graph) and git notes are not copied."
         ),
@@ -434,4 +435,15 @@ def _add_history_import_parser(subparsers) -> None:
     hist.add_argument("--from", dest="from_path", required=True, help="The old practice's directory")
     hist.add_argument("--into", default=None, help="The practice to copy into (default: the current directory's)")
     hist.add_argument("--apply", action="store_true", help="Copy (default: preview only)")
+    hist.add_argument(
+        "--types",
+        default=None,
+        help="Comma-separated artifact types to copy: finding, unknown, dead_end, mistake, assumption, decision, source, "
+        "goal (default: all, plus the practice's lessons, falsifiers and handoffs)",
+    )
+    hist.add_argument(
+        "--no-calibration",
+        action="store_true",
+        help="Copy artifacts only: leave sessions, transactions and calibration behind",
+    )
     hist.add_argument("--output", choices=["human", "json"], default="human")

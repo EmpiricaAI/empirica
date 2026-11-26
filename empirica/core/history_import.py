@@ -1,17 +1,23 @@
-"""Copy one practitioner's local history from an old practice's store into another (goal f357ecf4, David 2026-11-26).
+"""Copy a practice's local history from an old store into another practice (goal f357ecf4, David 2026-11-26).
 
 A practitioner who moves into a shared practice (Francisco: empirica-ai-consulting into empirica-consult) leaves artifacts and
 calibration behind, because ``project-register --reconcile`` re-keys ONE store's ``project_id`` in place and never touches
-``ai_id``, and calibration keys on ``ai_id``. This is the missing path, and it COPIES, never moves:
+``ai_id``, and calibration keys on ``ai_id``. This is the missing path. It COPIES, never moves, and it selects by the rule
+the practice model already states: **artifacts accrue to the practice, calibration accrues to the practitioner**.
 
-- rows of the old project (every table with ``project_id``), of the old practitioner (tables with ``ai_id``), of their sessions
-  (tables keyed by ``session_id``), and of what hangs off those rows (tasks, success criteria, dependencies, edges, lesson
-  parts, cascades' beliefs);
-- ``project_id`` and ``ai_id`` are rewritten only where they equal the old values, so a subagent's or a peer's id stays;
-- ids are kept, so an edge still joins its two ends and Cortex's own re-key names the same rows;
-- ``INSERT OR IGNORE ... EXCEPT``: a row already in the target is never overwritten, and a re-run adds nothing;
-- preview by default; ``apply`` backs up the target file first and writes in one transaction; the old store is opened
-  read-only and never written. Git notes are not touched: pushing them into a shared repo needs its own ruling.
+- **Artifacts** (findings, unknowns, dead ends, mistakes, assumptions, decisions, sources, goals, and the parts that hang off
+  them) are copied when they belong to the old project, whoever wrote them. ``--types`` narrows them to some types.
+- **Practitioner rows** (sessions, PREFLIGHT/CHECK/POSTFLIGHT, calibration, events, claims, snapshots) are copied only for the
+  old practitioner's own sessions in that project (or with no project). A store other practitioners also wrote into (one real
+  store held six ai_ids) keeps their rows behind, so their calibration is never attributed to the new practice.
+  ``include_calibration=False`` copies artifacts only.
+- Rows of other projects in the same store are left behind, and the preview counts them per table (``left_behind``).
+- ``project_id`` and ``ai_id`` are rewritten only where they hold the old values. Ids are kept.
+- An edge is copied only when both of its ends are copied or already in the target, so a type filter leaves no dangling edge.
+- ``INSERT OR IGNORE ... EXCEPT``: a row already in the target is kept, never overwritten, and a re-run adds nothing. The
+  preview runs the same inserts and rolls them back, so its counts are exact.
+- ``apply`` backs up the target first and writes in one transaction. The old store is attached read-only. Derived models
+  (code, concept graph) and git notes are not copied.
 """
 
 from __future__ import annotations
@@ -22,9 +28,45 @@ import time
 from pathlib import Path
 from typing import Any
 
-#: Tables never copied: the project's own row and catalogue tables belong to the target; learned patterns are not one
-#: practitioner's history; and the code model and concept graph are DERIVED from the code and artifacts (rebuilt by the
-#: target), so copying them would graft the old repo's model onto the new one (418k concept edges in a real preview).
+#: The artifact types and their tables. ``--types`` takes these names.
+ARTIFACT_TABLES: dict[str, str] = {
+    "finding": "project_findings",
+    "unknown": "project_unknowns",
+    "dead_end": "project_dead_ends",
+    "mistake": "mistakes_made",
+    "assumption": "assumptions",
+    "decision": "decisions",
+    "source": "epistemic_sources",
+    "goal": "goals",
+}
+
+#: Other tables of the practice (not of one practitioner), copied by project with the artifacts when no type filter is given.
+PRACTICE_TABLES = frozenset({"falsifiers", "lessons", "beads", "project_handoffs", "engagements", "client_projects"})
+
+#: Rows that hang off a copied row: (column, parent table, parent column).
+DEPENDENTS: dict[str, list[tuple[str, str, str]]] = {
+    "subtasks": [("goal_id", "goals", "id")],
+    "success_criteria": [("goal_id", "goals", "id")],
+    "goal_dependencies": [("goal_id", "goals", "id")],
+    "task_decompositions": [("goal_id", "goals", "id")],
+    "subtask_dependencies": [("subtask_id", "subtasks", "id")],
+    "lesson_steps": [("lesson_id", "lessons", "id")],
+    "lesson_corrections": [("lesson_id", "lessons", "id")],
+    "lesson_prerequisites": [("lesson_id", "lessons", "id")],
+    "lesson_epistemic_deltas": [("lesson_id", "lessons", "id")],
+    "bayesian_beliefs": [("cascade_id", "cascades", "cascade_id")],
+    "cross_project_finding_links": [("finding_id", "project_findings", "id")],
+}
+
+#: Tables joining two artifacts by id: copied when BOTH ends are copied or already in the target.
+EDGE_TABLES: dict[str, tuple[str, str]] = {
+    "artifact_edges": ("from_id", "to_id"),
+    "knowledge_graph": ("source_id", "target_id"),
+}
+
+#: Never copied: the target's own project and catalogue rows, learned patterns, and models DERIVED from the code and
+#: artifacts, which the target rebuilds (copying them would graft the old repo's model onto the new one: 418k concept edges
+#: in a real preview).
 SKIP_TABLES = frozenset(
     {
         "projects",
@@ -40,26 +82,10 @@ SKIP_TABLES = frozenset(
     }
 )
 
-#: Keyless tables, copied when the row they hang off is copied: (column, source table, source column).
-DEPENDENTS: dict[str, list[tuple[str, str, str]]] = {
-    "subtasks": [("goal_id", "goals", "id")],
-    "success_criteria": [("goal_id", "goals", "id")],
-    "goal_dependencies": [("goal_id", "goals", "id")],
-    "task_decompositions": [("goal_id", "goals", "id")],
-    "subtask_dependencies": [("subtask_id", "subtasks", "id")],
-    "lesson_steps": [("lesson_id", "lessons", "id")],
-    "lesson_corrections": [("lesson_id", "lessons", "id")],
-    "lesson_prerequisites": [("lesson_id", "lessons", "id")],
-    "lesson_epistemic_deltas": [("lesson_id", "lessons", "id")],
-    "bayesian_beliefs": [("cascade_id", "cascades", "cascade_id")],
-    "cross_project_finding_links": [("finding_id", "project_findings", "id")],
-}
-
-#: Keyless tables that join two artifacts by id: copied when either end is a copied row.
-EDGE_TABLES: dict[str, tuple[str, str]] = {
-    "artifact_edges": ("from_id", "to_id"),
-    "knowledge_graph": ("source_id", "target_id"),
-}
+#: The old practitioner's own sessions in the old project (or with none): the only sessions whose rows are copied.
+_SESSIONS = (
+    "(SELECT session_id FROM src.sessions WHERE ai_id = :old_ai AND (project_id = :old_pid OR project_id IS NULL))"
+)
 
 
 def _tables(conn: sqlite3.Connection, schema: str) -> dict[str, list[str]]:
@@ -76,87 +102,101 @@ def _quote(col: str) -> str:
     return '"' + col.replace('"', '""') + '"'
 
 
-def _session_set() -> str:
-    return "(SELECT session_id FROM src.sessions WHERE ai_id = :old_ai OR project_id = :old_pid)"
+class _Selection:
+    """Which rows of each source table are copied, as SQL conditions over ``src``."""
 
+    def __init__(self, src: dict[str, list[str]], dst: dict[str, list[str]], types: set[str] | None, calibration: bool):
+        self.src, self.dst, self.calibration = src, dst, calibration
+        self.artifacts = {ARTIFACT_TABLES[t] for t in (types if types is not None else ARTIFACT_TABLES)}
+        self.practice = PRACTICE_TABLES if types is None else frozenset()
 
-def _condition(name: str, cols: list[str]) -> str:
-    """Which rows of a keyed table belong to the old practice and practitioner ('' when the table carries no key)."""
-    if name == "sessions":
-        return "ai_id = :old_ai OR project_id = :old_pid"
-    if "project_id" in cols:
-        return "project_id = :old_pid"
-    if "ai_id" in cols:
-        return f"ai_id = :old_ai OR session_id IN {_session_set()}" if "session_id" in cols else "ai_id = :old_ai"
-    if "session_id" in cols:
-        return f"session_id IN {_session_set()}"
-    return ""
-
-
-def _rows_of(name: str, src_tables: dict[str, list[str]], keyed: list[str], depth: int = 0) -> str:
-    """The SQL condition for the rows of ``name`` that are copied, or '' when none are: keyed tables by their key, a
-    dependent by its parent's copied rows (recursively: subtask_dependencies -> subtasks -> goals), an edge table by
-    either end being a copied row."""
-    if name not in src_tables or depth > 4:
-        return ""
-    cols = src_tables[name]
-    if name in DEPENDENTS:
-        parts = []
-        for col, parent, pcol in DEPENDENTS[name]:
-            parent_cond = _rows_of(parent, src_tables, keyed, depth + 1)
-            if col in cols and parent_cond:
-                parts.append(f'{_quote(col)} IN (SELECT {_quote(pcol)} FROM src."{parent}" WHERE {parent_cond})')
-        return " OR ".join(parts)
-    if name in EDGE_TABLES:
-        a, b = EDGE_TABLES[name]
-        ids = " UNION ".join(
-            f'SELECT CAST(id AS TEXT) FROM src."{t}" WHERE {_condition(t, src_tables[t])}'
-            for t in keyed
-            if "id" in src_tables[t]
-        )
-        if not ids or a not in cols or b not in cols:
+    def condition(self, name: str, depth: int = 0) -> str:
+        """The rows of ``name`` that are copied, or '' when none are."""
+        cols = self.src.get(name)
+        if cols is None or name in SKIP_TABLES or depth > 4:
             return ""
-        return f"CAST({_quote(a)} AS TEXT) IN ({ids}) OR CAST({_quote(b)} AS TEXT) IN ({ids})"
-    return _condition(name, cols)
+        if name in self.artifacts or name in self.practice:
+            return "project_id = :old_pid" if "project_id" in cols else ""
+        if name in ARTIFACT_TABLES.values() or name in PRACTICE_TABLES:
+            return ""  # an artifact table outside the type filter
+        if name in DEPENDENTS:
+            parts = []
+            for col, parent, pcol in DEPENDENTS[name]:
+                parent_cond = self.condition(parent, depth + 1)
+                if col in cols and parent_cond:
+                    parts.append(f'{_quote(col)} IN (SELECT {_quote(pcol)} FROM src."{parent}" WHERE {parent_cond})')
+            return " OR ".join(parts)
+        if name in EDGE_TABLES:
+            a, b = EDGE_TABLES[name]
+            if a not in cols or b not in cols:
+                return ""
+            ends = self._artifact_ids()
+            return f"CAST({_quote(a)} AS TEXT) IN ({ends}) AND CAST({_quote(b)} AS TEXT) IN ({ends})" if ends else ""
+        if "project_id" in cols and "session_id" not in cols and "ai_id" not in cols:
+            return "project_id = :old_pid"  # another table of the practice, not of one practitioner
+        if not self.calibration:
+            return ""
+        if name == "sessions":
+            return "ai_id = :old_ai AND (project_id = :old_pid OR project_id IS NULL)"
+        if "session_id" in cols:
+            return f"session_id IN {_SESSIONS}"
+        if "ai_id" in cols:
+            return "ai_id = :old_ai"
+        return ""
 
-
-def _keyed(cols: list[str]) -> bool:
-    return any(c in cols for c in ("project_id", "ai_id", "session_id"))
+    def _artifact_ids(self) -> str:
+        """Every id an edge may point at: copied artifacts and artifacts already in the target."""
+        parts = []
+        for table in sorted(ARTIFACT_TABLES.values()):  # copied now (the selected types) or already there (any type)
+            if table in self.artifacts and "id" in self.src.get(table, []):
+                parts.append(f'SELECT CAST(id AS TEXT) FROM src."{table}" WHERE {self.condition(table)}')
+            if "id" in self.dst.get(table, []):
+                parts.append(f'SELECT CAST(id AS TEXT) FROM main."{table}"')
+        return " UNION ".join(parts)
 
 
 def _select_exprs(cols: list[str]) -> str:
     """The copied columns, with the old project and practitioner rewritten only where they hold the old values."""
     rewrite = {
-        "project_id": ":old_pid",
-        "source_project_id": ":old_pid",
-        "ai_id": ":old_ai",
+        "project_id": ("old_pid", "new_pid"),
+        "source_project_id": ("old_pid", "new_pid"),
+        "ai_id": ("old_ai", "new_ai"),
     }
-    new = {":old_pid": ":new_pid", ":old_ai": ":new_ai"}
     out = []
     for c in cols:
         if c in rewrite:
-            old = rewrite[c]
-            out.append(f"CASE WHEN {_quote(c)} = {old} THEN {new[old]} ELSE {_quote(c)} END")
+            old, new = rewrite[c]
+            out.append(f"CASE WHEN {_quote(c)} = :{old} THEN :{new} ELSE {_quote(c)} END")
         else:
             out.append(_quote(c))
     return ", ".join(out)
 
 
-def _plan(conn: sqlite3.Connection, params: dict[str, str]) -> dict[str, Any]:
-    src_tables, dst_tables = _tables(conn, "src"), _tables(conn, "main")
-    keyed = [n for n, cols in src_tables.items() if n not in SKIP_TABLES and _keyed(cols)]
-    statements: dict[str, tuple[str, str]] = {}  # table -> (insert sql, count sql)
+def _plan(
+    conn: sqlite3.Connection, params: dict[str, str], types: set[str] | None, calibration: bool
+) -> dict[str, Any]:
+    src, dst = _tables(conn, "src"), _tables(conn, "main")
+    selection = _Selection(src, dst, types, calibration)
+    statements: dict[str, tuple[str, str]] = {}
     skipped: list[str] = []
     missing: dict[str, int] = {}
-    for name, cols in src_tables.items():
-        cond = "" if name in SKIP_TABLES else _rows_of(name, src_tables, keyed)
+    left: dict[str, int] = {}
+    for name, cols in src.items():
+        total = conn.execute(f'SELECT COUNT(*) FROM src."{name}"').fetchone()[0]
+        cond = selection.condition(name)
         if not cond:
             skipped.append(name)
+            if total:
+                left[name] = total
             continue
-        if name not in dst_tables:  # reported, never dropped silently
-            missing[name] = conn.execute(f'SELECT COUNT(*) FROM src."{name}" WHERE {cond}', params).fetchone()[0]
+        chosen = conn.execute(f'SELECT COUNT(*) FROM src."{name}" WHERE {cond}', params).fetchone()[0]
+        if total - chosen:
+            left[name] = total - chosen
+        if name not in dst:  # reported, never dropped silently
+            if chosen:
+                missing[name] = chosen
             continue
-        common = [c for c in cols if c in dst_tables[name]]
+        common = [c for c in cols if c in dst[name]]
         col_list = ", ".join(_quote(c) for c in common)
         new_rows = (
             f'SELECT {_select_exprs(common)} FROM src."{name}" WHERE {cond} EXCEPT SELECT {col_list} FROM main."{name}"'
@@ -165,7 +205,7 @@ def _plan(conn: sqlite3.Connection, params: dict[str, str]) -> dict[str, Any]:
             f'INSERT OR IGNORE INTO main."{name}" ({col_list}) {new_rows}',
             f"SELECT COUNT(*) FROM ({new_rows})",
         )
-    return {"statements": statements, "skipped": sorted(skipped), "missing_in_target": missing}
+    return {"statements": statements, "skipped": sorted(skipped), "missing_in_target": missing, "left_behind": left}
 
 
 def copy_history(
@@ -177,17 +217,20 @@ def copy_history(
     old_ai_id: str,
     new_ai_id: str,
     apply: bool = False,
+    types: set[str] | None = None,
+    include_calibration: bool = True,
 ) -> dict[str, Any]:
     """Preview (default) or apply the copy. Returns per-table counts of rows that are (or were) new to the target."""
     source_db, target_db = Path(source_db).resolve(), Path(target_db).resolve()
     if source_db == target_db:
         raise ValueError("source and target are the same store; nothing to copy")
-    if not source_db.exists():
-        raise FileNotFoundError(f"no store at {source_db}")
-    if not target_db.exists():
-        raise FileNotFoundError(
-            f"no store at {target_db}; open the target practice once (empirica session-create) first"
-        )
+    if types is not None:
+        unknown = sorted(set(types) - set(ARTIFACT_TABLES))
+        if unknown:
+            raise ValueError(f"unknown artifact type(s) {unknown}; choose from {sorted(ARTIFACT_TABLES)}")
+    for path in (source_db, target_db):
+        if not path.exists():
+            raise FileNotFoundError(f"no store at {path}")
     params = {"old_pid": old_project_id, "new_pid": new_project_id, "old_ai": old_ai_id, "new_ai": new_ai_id}
     backup = None
     if apply:
@@ -196,12 +239,10 @@ def copy_history(
     conn = sqlite3.connect(str(target_db), isolation_level=None)
     try:
         conn.execute("ATTACH DATABASE ? AS src", (source_db.as_uri() + "?mode=ro",))
-        plan = _plan(conn, params)
+        plan = _plan(conn, params, types, include_calibration)
         counts: dict[str, int] = {}
         kept: dict[str, int] = {}
-        # The preview runs the same inserts and rolls them back, so its counts are exact: a row whose id is already in the
-        # target with different content is kept there (INSERT OR IGNORE) and reported under kept_in_target, never counted
-        # as copied. busy_timeout lets a live hook's write wait instead of failing.
+        # busy_timeout lets a live hook's write wait instead of failing; the preview rolls back the same inserts.
         conn.execute("PRAGMA busy_timeout = 10000")
         conn.execute("BEGIN IMMEDIATE")
         try:
@@ -221,9 +262,12 @@ def copy_history(
         "applied": apply,
         "source": str(source_db),
         "target": str(target_db),
+        "types": sorted(types) if types is not None else "all",
+        "calibration": include_calibration,
         "tables": counts,
+        "kept_in_target": kept,
+        "left_behind": plan["left_behind"],
         "skipped": plan["skipped"],
         "missing_in_target": plan["missing_in_target"],
-        "kept_in_target": kept,
         "backup": str(backup) if backup else None,
     }
