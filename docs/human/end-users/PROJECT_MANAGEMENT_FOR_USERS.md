@@ -76,7 +76,7 @@ empirica projects-discover
 
 # Register discovered projects on Cortex via the single-verb pipeline
 # (discover + register in one) — optional, only if you want cross-project
-# search via the cortex serving layer; requires CORTEX_API_KEY. Empirica
+# search via the cortex serving layer; requires `empirica auth login`. Empirica
 # stays fully usable per-project without this.
 empirica projects-sync
 ```

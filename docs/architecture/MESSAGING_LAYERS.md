@@ -30,7 +30,8 @@ account, no HTTP anywhere in the module. Two AIs sharing a git remote can
 message each other — including air-gapped, where delivery happens whenever
 someone pushes.
 
-Verified rather than asserted: with `CORTEX_API_KEY` and `EMPIRICA_CORTEX_URL`
+Verified rather than asserted: with the Cortex credentials of the time
+(`CORTEX_API_KEY`, which core has ignored since 1.17.19) and `EMPIRICA_CORTEX_URL`
 stripped from the environment, `message-send` succeeds and `message-inbox` reads
 the message back.
 

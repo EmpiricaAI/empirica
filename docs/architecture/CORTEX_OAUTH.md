@@ -53,9 +53,8 @@ owner = "daemon" if _serve_daemon_running() else "cli"
   failure.
 - **Daemon present** → `daemon`. The always-on `empirica serve` process is the
   sole refresher; the CLI and any other reader consume the daemon-kept token
-  read-only. This is what lets the token stay warm **without a browser** (the
-  api_key-retirement goal): the daemon carries renewal even when no interactive
-  shell is open.
+  read-only. This is what lets the token stay warm **without a browser**: the
+  daemon carries renewal even when no interactive shell is open.
 - **Headless box** → `cli`. No competing refresher, so the CLI's own shell
   process refreshes its family on demand.
 
@@ -66,23 +65,24 @@ reuse-detection would punish.
 
 ### Dead credentials are suppressed, and the result says so
 
-The api_key fallback does **not** fire for a key already known to be dead. Cortex's
-401 bodies carry `credential_status` and `retry`; a terminal status
+A token already known to be dead is not presented again. Cortex's 401 bodies
+carry `credential_status` and `retry`; a terminal status
 (`invalid_key` / `invalid_token` / `missing_credential`) is recorded by
 `empirica/core/auth/credential_health.py`, and `cortex_bearer()` then skips that
-key rather than presenting it again.
+token.
 
-This exists because the fallback used to fire unconditionally: `cortex_access_token`
-correctly returns `None` on expiry-without-refresh, and the fallback handed back an
-api_key that might itself be revoked — forever, with zero `/v1/oauth/token`
-attempts. Measured elsewhere at 25h and ~10k requests.
+> **History (removed in 1.17.19, goal 739e47b2, 2026-11-26).** `cortex_bearer()`
+> used to fall back to a static `cortex.api_key` / `CORTEX_API_KEY` when no OAuth
+> token was usable. That fallback is gone: core no longer reads a Cortex api_key
+> at all. A leftover key is ignored, `empirica doctor` warns about it and says to
+> remove it, and any write of the `cortex:` block drops it.
 
 Two things a reader debugging an unauthenticated seat needs:
 
 - **A suppressed credential is not an absent one.** The result carries `reason`
-  (`api_key unusable (invalid_key) — re-authenticate with 'empirica auth login'`),
-  distinct from `no cortex credential configured`. If you see the first, the seat
-  HAS a key and it is dead; provisioning another will not help.
+  (`oauth token unusable (invalid_token) — re-authenticate with 'empirica auth login'`),
+  distinct from the reason given when no token is configured. If you see the first,
+  the seat HAS a token and it is dead; sign in again.
 - **`auth login` is the escape path and needs no reset step.** Marks clear the
   moment `credentials.yaml` changes, so re-authenticating un-brickes the seat by
   writing the file.
@@ -164,9 +164,8 @@ block also records `org_id` and `org_name`, read from `/v1/users/me` at sign-in.
 5. **Persist** — `save_cortex_oauth(...)` writes the family (access + refresh
    token, `expires_at`, `token_endpoint`, `client_id`, `refresh_owner`).
 6. **Verify at the consumer surface** — a real `/v1/users/me` call is made with
-   the new token only (no api_key fallback). "Stored" is not "works"; a token
-   that persists but fails an authenticated call must not be trusted for
-   api_key retirement.
+   the new token only. "Stored" is not "works"; a token that persists but fails
+   an authenticated call must not be trusted.
 
 ### Browserless boxes (WSL2, headless, containers)
 
@@ -229,14 +228,16 @@ Families live in `~/.empirica/credentials.yaml` under `cortex.oauth`. The
 
 ---
 
-## `auth status` and retirement
+## `auth status` and `logout`
 
-`auth status` reports the seat's credential state: oauth token validity, refresh
-custody, api_key presence, and a **retirement-ready** verdict
-(`valid token && has refresh_token`). Retiring the `api_key` is a separate,
-per-seat act gated on a per-surface survival check — `logout` revokes the refresh
-token and drops the oauth block but **never touches the api_key**; logout is
-never a lockout.
+`auth status` reports the seat's credential state: oauth token validity and
+refresh custody. `logout` revokes the refresh token and drops the oauth block;
+`empirica auth login` signs the seat in again.
+
+> **History (removed in 1.17.19, goal 739e47b2, 2026-11-26).** `auth status` used
+> to report api_key presence and a "retirement-ready" verdict, and `logout` left
+> the api_key in place as a fallback. Core no longer uses a Cortex api_key, so
+> both lines are gone.
 
 ### Retiring a stored bearer from `~/.claude.json`
 

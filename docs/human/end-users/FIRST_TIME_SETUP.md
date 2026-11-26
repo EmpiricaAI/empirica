@@ -88,7 +88,7 @@ changes (the credentials wizard below is not part of that path). See
 
 It also runs an **interactive credentials wizard** if you don't already
 have `~/.empirica/credentials.yaml`. The wizard prompts for:
-- **Cortex** (orchestration API) — URL + `ctx_…` API key — **optional**
+- **Cortex** (orchestration API) — URL only — **optional**; you then sign the seat in with `empirica auth login` (no key is asked for)
 - **ntfy** (push wake bridge) — URL + topic + auth token — **optional**
 
 **Both creds are optional.** Empirica core (artifacts, goals,
@@ -100,11 +100,11 @@ inert; everything local still works. You can always re-run
 `empirica setup --force` later to add the creds when you
 want them.
 
-After the api_key prompt (if you supply one), the wizard fetches
+Once the seat is signed in with `empirica auth login`, setup fetches
 your tenant metadata from cortex and persists `{org_id, tenant_slug, mesh_id_prefix}` to
 your project.yaml so your AI gets fully-qualified mesh addressing on
-first run. Skip the wizard with `--skip-credentials` if you already
-have creds in env vars or files — or to stay fully local.
+first run. Skip the wizard with `--skip-credentials` if your Cortex
+URL and ntfy settings are already in env vars or files — or to stay fully local.
 
 ### 4. Diagnose
 

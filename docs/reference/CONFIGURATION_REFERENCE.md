@@ -273,7 +273,7 @@ A runner must print a JSON object with at least `passed` (bool) and `status` (`p
 
 | Block | Holds | Precedence |
 |---|---|---|
-| `cortex` | `url`, `api_key`, and `oauth` (`access_token`, `refresh_token`, `expires_at`, `token_endpoint`, `client_id`, `refresh_owner`) written by `empirica auth login` | **The file wins**, per field. `CORTEX_REMOTE_URL` (or `CORTEX_URL`) and `CORTEX_API_KEY` only fill what the file lacks, and a disagreeing environment value is ignored with a warning |
+| `cortex` | `url`, and `oauth` (`access_token`, `refresh_token`, `expires_at`, `token_endpoint`, `client_id`, `refresh_owner`) written by `empirica auth login`; sign-ins to other orgs under `orgs:` | **The file wins**, per field. `CORTEX_REMOTE_URL` (or `CORTEX_URL`) only sets the url when the file has none, and a disagreeing environment value is ignored with a warning. Since 1.17.19 a `cortex.api_key` in the file or a `CORTEX_API_KEY` variable is ignored: `empirica doctor` warns about a leftover key and says to remove it, and any write of this block drops it. Sign in with `empirica auth login` |
 | `ntfy` | `url`, `topic`, `user`, `password`, `token` | **Environment wins**: `ORCHESTRATION_NTFY_URL`, `_TOPIC`, `_USER`, `_PASS`, `_TOKEN`, then this block, then `backends.ntfy` in `~/.empirica/notify.yaml`, then the built-in server and topic |
 | `providers` | per-provider `api_key`, `base_url`, `default_model`, `available_models`, `auth_method` | |
 
@@ -353,7 +353,7 @@ uncertainty_high = loader.get("uncertainty.high", 0.70)
 
 - **Which store is this command using?** Run `debug_paths()` above. If the error says it cannot determine `sessions.db`, its message lists each source it tried; set `EMPIRICA_SESSION_DB` or run from inside the practice directory.
 - **A setting seems ignored.** Check the table at the top: `config.yaml` `paths` and `settings` are not read, `empirica config KEY VALUE` writes nothing, and the Sentinel's `EMPIRICA_SENTINEL_LOOPING` is overridden by `~/.empirica/sentinel_enabled`.
-- **Cortex calls use the wrong key.** `credentials.yaml` wins over `CORTEX_API_KEY`; unset the stale variable.
+- **Cortex calls are not authenticated.** Cortex keys are no longer used (since 1.17.19), so a `CORTEX_API_KEY` variable or a `cortex.api_key` in `credentials.yaml` has no effect. Run `empirica auth login` and check `empirica auth status`; remove the leftover key when `empirica doctor` warns about it.
 - **Validate the shipped MCO files.** `empirica config --validate`.
 
 ---

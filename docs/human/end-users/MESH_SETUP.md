@@ -84,11 +84,10 @@ If any of those are off, fix that first. Mesh setup on a broken core just compou
 1. Visit **[getempirica.com](https://getempirica.com)** and sign up for an account
 2. The sign-up flow provisions:
    - A **user identity** scoped to an organisation
-   - An **API key** (format: `ctx_...`) that the empirica CLI uses to authenticate
    - A **default tenant** within your org
-3. Save the API key — you'll paste it into the credentials wizard in Step 2
+3. Keep the account's sign-in details — in Step 2 you sign this seat in with `empirica auth login`
 
-If you're being onboarded into an existing organisation (e.g., your team already has a Cortex tenancy), the org admin issues you the user + API key. You don't sign up separately.
+If you're being onboarded into an existing organisation (e.g., your team already has a Cortex tenancy), the org admin issues you the user. You don't sign up separately.
 
 > **Trust gate context.** Every proposal a peer AI sends to one of *your* AIs lands in an ECO queue against your user. You — or the [Empirica Extension](https://getempirica.com) running on your phone, or [Empirica Autonomy](https://getempirica.com) once you've trained it as a delegated actor — accept or decline before the target AI takes action. The trust gate is what makes the mesh safe to opt into.
 
@@ -105,20 +104,18 @@ empirica setup
 
 The wizard prompts for:
 - **Cortex URL** — `https://cortex.getempirica.com` for the hosted service (or your self-hosted URL)
-- **Cortex API key** — the `ctx_...` value from Step 1
 - **ntfy URL** — `https://ntfy.getempirica.com` for the hosted bridge (or your self-hosted URL, or skip)
 - **ntfy topic + auth** — usually auto-discovered from Cortex (see Step 5)
 
-The wizard writes `~/.empirica/credentials.yaml` and persists `{org_id, tenant_slug, mesh_id_prefix}` to your project.yaml so your AI gets fully-qualified mesh addressing from first use.
+The wizard does not ask for a key. Sign the seat in with `empirica auth login`; once signed in, setup persists `{org_id, tenant_slug, mesh_id_prefix}` to your project.yaml so your AI gets fully-qualified mesh addressing from first use.
 
-**OAuth instead of a static key:** `empirica auth login` runs a browser (authorization_code + PKCE) flow and stores a refreshable token set under `cortex.oauth`, and (since 1.17.12) fetches your seat's ntfy address and token from Cortex into `credentials.yaml`, so the listeners need no ntfy step; a token already there, or ntfy set through `ORCHESTRATION_NTFY_*`, is left alone; `empirica auth status` shows the credential state and `empirica auth token --headers` prints a valid header for other tools. See [CORTEX_OAUTH.md](../../architecture/CORTEX_OAUTH.md).
+**Signing in:** `empirica auth login` is the only way a seat connects to Cortex. It runs a browser (authorization_code + PKCE) flow and stores a refreshable token set under `cortex.oauth`, and (since 1.17.12) fetches your seat's ntfy address and token from Cortex into `credentials.yaml`, so the listeners need no ntfy step; a token already there, or ntfy set through `ORCHESTRATION_NTFY_*`, is left alone; `empirica auth status` shows the credential state and `empirica auth token --headers` prints a valid header for other tools. The tokens are time-based and refresh themselves. Since 1.17.19 a Cortex API key is not used: a `cortex.api_key` left in `credentials.yaml` or a `CORTEX_API_KEY` variable is ignored, and `empirica doctor` warns about a leftover key and says to remove it. See [CORTEX_OAUTH.md](../../architecture/CORTEX_OAUTH.md).
 
-If you'd rather not interactively prompt, you can write `~/.empirica/credentials.yaml` yourself:
+If you'd rather not be prompted, you can write the URL and ntfy settings in `~/.empirica/credentials.yaml` yourself, then run `empirica auth login`, which adds the `oauth` token set under `cortex:`:
 
 ```yaml
 cortex:
   url: "https://cortex.getempirica.com"
-  api_key: "ctx_..."
 
 ntfy:
   url: "https://ntfy.getempirica.com"
@@ -127,7 +124,7 @@ ntfy:
   password: "your-ntfy-password"   # or use auth_token instead
 ```
 
-Or use env vars: `CORTEX_REMOTE_URL`, `CORTEX_API_KEY`, etc. — empirica reads either source.
+Or set the URL with `CORTEX_REMOTE_URL` (or `CORTEX_URL`), which is used when the file has none. Sign-in itself always goes through `empirica auth login`.
 
 Verify:
 ```bash
@@ -147,7 +144,7 @@ The [Empirica Extension](https://getempirica.com) provides the ECO triage UI (Ac
 
 **First-run flow:**
 1. Open the extension popup
-2. Paste your Cortex API key (same one from Step 1) — the extension auto-discovers the rest
+2. Sign in with your Cortex account (the extension holds its own sign-in) — it auto-discovers the rest
 3. Visit a Cortex-registered project page — the extension highlights when artifacts are available
 4. Scan the **QR code** on your phone to enrol it as an ECO actor — proposals route to the phone for Accept/Decline
 
@@ -332,7 +329,7 @@ empirica mailbox poll --ai-id <your-ai-id> --status eco_review
 
 ## Troubleshooting
 
-**`empirica diagnose` shows ✗ cortex** — the API key isn't set or the URL is unreachable. Check `~/.empirica/credentials.yaml` or env vars.
+**`empirica diagnose` shows ✗ cortex** — the seat isn't signed in or the URL is unreachable. Run `empirica auth login`, then check `empirica auth status` and the `cortex.url` in `~/.empirica/credentials.yaml`.
 
 **Listener seems alive but no events arrive** — the listener has an initial catch-up phase that pulls anything missed during downtime. If catch-up returns nothing, the inbox is genuinely empty. Verify by polling explicitly: `empirica mailbox poll --ai-id <your-ai-id>`.
 

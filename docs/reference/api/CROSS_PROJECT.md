@@ -3,12 +3,17 @@
 ## Configuring Cortex creds (CLI)
 
 Empirica's CLI talks to Cortex for
-`source-archive` sync, and POSTFLIGHT artifact push. Three resolution
-sources (highest precedence first):
+`source-archive` sync, and POSTFLIGHT artifact push. A seat connects only
+by signing in with `empirica auth login`, which stores time-based tokens
+that refresh themselves. Sources, highest precedence first:
 
-1. **CLI flags** — `--cortex-url`, `--api-key` (per-invocation override)
-2. **Env vars** — `CORTEX_REMOTE_URL` (or `CORTEX_URL`), `CORTEX_API_KEY`
-3. **`~/.empirica/credentials.yaml`** — `cortex:` block:
+1. **CLI flags** — `--cortex-url`, `--api-key` (a one-off override; `--api-key`
+   accepts any bearer token)
+2. **`~/.empirica/credentials.yaml`** — `cortex:` block, holding `url` and the
+   `oauth` token set written by `empirica auth login` (and `orgs:` for sign-ins
+   to other orgs)
+3. **Env vars** — `CORTEX_REMOTE_URL` (or `CORTEX_URL`) sets the url when the
+   file has none
 
 ```yaml
 # ~/.empirica/credentials.yaml
@@ -16,7 +21,9 @@ version: 1.0
 
 cortex:
   url: https://cortex.getempirica.com
-  api_key: ctx_empirica_mem_...
+  oauth:            # written by `empirica auth login`
+    access_token: ...
+    refresh_token: ...
 
 # Other AI provider creds (optional)
 providers:
@@ -24,13 +31,10 @@ providers:
     api_key: sk-...
 ```
 
-The browser extension stores the same `cortexUrl` + `cortexApiKey` in
-chrome.storage. The CLI file is the equivalent for terminal/agent
-sessions — saves having to `export CORTEX_API_KEY=...` in every shell.
-
-Resolution is per-field: setting `CORTEX_API_KEY` in env still picks
-up `url` from the credentials file. Useful for CI environments where
-the key comes from a secret store but the URL is stable.
+Since 1.17.19 a Cortex API key is not used. A `cortex.api_key` left in the
+file or a `CORTEX_API_KEY` variable is ignored; `empirica doctor` warns about
+a leftover key and says to remove it, and any write of the `cortex:` block
+drops it. The `providers:` keys are unrelated and unchanged.
 
 ---
 

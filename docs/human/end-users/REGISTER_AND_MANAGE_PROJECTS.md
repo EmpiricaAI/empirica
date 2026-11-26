@@ -196,7 +196,7 @@ If you're moving a project between Cortex tenants (rare — typically a David �
 Philipp-shaped scenario):
 
 1. Re-register on the new tenant: `empirica projects-sync --include '<your-project>'`
-   with the **new** tenant's `CORTEX_API_KEY`
+   after signing in to the **new** tenant with `empirica auth login`
 2. New entry appears on the new tenant; the **old tenant's entry stays** (no
    cross-tenant move primitive yet)
 3. Old tenant entry becomes unreachable for you once your credentials switch —
