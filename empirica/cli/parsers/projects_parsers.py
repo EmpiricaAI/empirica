@@ -13,6 +13,7 @@ from __future__ import annotations
 
 def add_projects_parsers(subparsers) -> None:
     """Register the bulk-project verbs on the top-level subparsers."""
+    _add_history_import_parser(subparsers)
 
     # ── projects-discover ──────────────────────────────────────────────
     discover = subparsers.add_parser(
@@ -417,3 +418,20 @@ def add_projects_parsers(subparsers) -> None:
         default="human",
         help="Output format (default: human).",
     )
+
+
+def _add_history_import_parser(subparsers) -> None:
+    hist = subparsers.add_parser(
+        "history-import",
+        help="Copy your local history (artifacts, goals, calibration) from an old practice into this one",
+        description=(
+            "Copies, never moves: the old practice's rows for its project and practitioner, their sessions and what hangs "
+            "off them, with project_id and ai_id rewritten to this practice's. Ids are kept; a row already here is kept, "
+            "not overwritten; a re-run adds nothing. The old store is opened read-only. Previews unless --apply, which "
+            "backs up this practice's store first. Derived models (code, concept graph) and git notes are not copied."
+        ),
+    )
+    hist.add_argument("--from", dest="from_path", required=True, help="The old practice's directory")
+    hist.add_argument("--into", default=None, help="The practice to copy into (default: the current directory's)")
+    hist.add_argument("--apply", action="store_true", help="Copy (default: preview only)")
+    hist.add_argument("--output", choices=["human", "json"], default="human")

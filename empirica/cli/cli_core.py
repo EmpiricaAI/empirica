@@ -143,6 +143,7 @@ from .command_handlers.concept_graph_commands import (
 )
 from .command_handlers.docs_commands import handle_docs_assess, handle_docs_explain
 from .command_handlers.docs_link_check_commands import handle_docs_link_check_command
+from .command_handlers.history_import_commands import handle_history_import_command
 from .command_handlers.mailbox_commands import handle_mailbox_group_command
 from .command_handlers.memory_commands import (
     handle_memory_prime_command,
@@ -555,6 +556,7 @@ _HELP_CATEGORIES = {
         "projects-list",
         "projects-unregister",
         "provision-practice",
+        "history-import",
     ],
     "workspace": [
         "workspace-init",
@@ -1147,6 +1149,7 @@ def main(args=None):
             # carries the invoked alias string, so dispatch needs its own entry.
             "project-sync": handle_projects_sync_command,
             "projects-unregister": handle_projects_unregister_command,
+            "history-import": handle_history_import_command,
             "project-register": handle_project_register_command,
             "forgejo-publish": handle_forgejo_publish_command,
             "provision-practice": handle_provision_practice_command,
