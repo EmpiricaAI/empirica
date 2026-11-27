@@ -273,7 +273,12 @@ class TestNoContradictoryState:
 
     @pytest.mark.parametrize("command", RUNNABLE_STATELESS)
     def test_ok_true_no_high_severity_auto_issues(self, command):
-        """If ok:true and auto_captured_issues exist, none may be severity:high."""
+        """If ok:true, the command must not have captured a high-severity issue while it ran. Issues already in the store
+        (captured by other commands earlier) are not this command's contradiction: counting them made the probe fail on
+        whatever this machine's practice holds (goal ea463a52)."""
+        from datetime import datetime, timedelta, timezone
+
+        started = datetime.now(timezone.utc) - timedelta(seconds=1)
         result = _run_empirica(command, "--output", "json")
 
         if result.returncode != 0 or not result.stdout.strip():
@@ -291,15 +296,30 @@ class TestNoContradictoryState:
             pytest.skip("Response is not ok:true")
 
         # Walk the entire response looking for auto_captured_issues at any depth.
-        high_severity = _find_high_severity_issues(data)
+        high_severity = _find_high_severity_issues(data, since=started)
 
         assert not high_severity, (
             f"{command} returned ok:true but contains high-severity auto-captured issue(s): {high_severity}"
         )
 
 
-def _find_high_severity_issues(obj, path=""):
-    """Recursively search for auto_captured_issues with severity 'high'."""
+def _created_since(issue: dict, since) -> bool:
+    """Was the issue created at or after ``since``? An unreadable or missing time counts as new (never hidden)."""
+    from datetime import datetime, timezone
+
+    if since is None:
+        return True
+    try:
+        created = datetime.fromisoformat(str(issue.get("created_at")).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    return created >= since
+
+
+def _find_high_severity_issues(obj, path="", since=None):
+    """Recursively search for auto_captured_issues with severity 'high' (created since ``since``, when given)."""
     found = []
 
     if isinstance(obj, dict):
@@ -308,16 +328,16 @@ def _find_high_severity_issues(obj, path=""):
             issues = obj["auto_captured_issues"]
             if isinstance(issues, list):
                 for issue in issues:
-                    if isinstance(issue, dict) and issue.get("severity") == "high":
+                    if isinstance(issue, dict) and issue.get("severity") == "high" and _created_since(issue, since):
                         found.append(f"{path}.auto_captured_issues: {issue.get('message', issue)}")
 
         # Recurse into all values
         for key, value in obj.items():
-            found.extend(_find_high_severity_issues(value, path=f"{path}.{key}"))
+            found.extend(_find_high_severity_issues(value, path=f"{path}.{key}", since=since))
 
     elif isinstance(obj, list):
         for idx, item in enumerate(obj):
-            found.extend(_find_high_severity_issues(item, path=f"{path}[{idx}]"))
+            found.extend(_find_high_severity_issues(item, path=f"{path}[{idx}]", since=since))
 
     return found
 
@@ -460,3 +480,21 @@ class TestDiscovery:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
+
+
+def test_only_issues_created_during_the_probe_count():
+    """Goal ea463a52: an old high-severity issue in the store is not the probed command's contradiction; a new one is."""
+    from datetime import datetime, timezone
+
+    since = datetime(2026, 11, 27, 12, 0, tzinfo=timezone.utc)
+    data = {
+        "breadcrumbs": {
+            "auto_captured_issues": [
+                {"severity": "high", "message": "old", "created_at": "2026-11-27T11:00:00+00:00"},
+                {"severity": "high", "message": "new", "created_at": "2026-11-27T12:00:05+00:00"},
+                {"severity": "high", "message": "undated"},
+            ]
+        }
+    }
+    found = _find_high_severity_issues(data, since=since)
+    assert len(found) == 2 and not any(": old" in f for f in found)
