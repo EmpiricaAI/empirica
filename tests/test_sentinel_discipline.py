@@ -7,6 +7,8 @@ outward or irreversible acts always need one. Each check below sits beside its n
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from empirica.core import sentinel_discipline as sd
@@ -1091,3 +1093,26 @@ def test_a_remote_read_still_runs_after_a_goal_is_created(home, monkeypatch):
 def test_third_pass_forms_are_detected(tmp_path, command, plan):
     records = [_prompt("do the thing"), _call("Bash", command=command)]
     assert (sd.planning_in_transcript(_transcript(tmp_path, *records)) is not None) is plan
+
+
+# ── goal 8d201abb: a long turn keeps its goal ─────────────────────────────────────────────────────────────────────────
+
+
+def test_a_goal_created_early_in_a_turn_longer_than_the_tail_is_still_seen(tmp_path):
+    """The goal sits more than 512 KB before the end of the turn; the tail alone would not reach it or the prompt."""
+    filler = [_call("Read", file_path=f"/tmp/f{i}", note="x" * 2000) for i in range(400)]  # ~800 KB of reads
+    records = [_prompt("do the thing"), _call("Bash", command="empirica goals-create --objective x"), *filler]
+    path = _transcript(tmp_path, *records)
+    assert os.path.getsize(path) > sd._TRANSCRIPT_TAIL
+    assert sd.planning_in_transcript(path) == "the session created an empirica goal"
+
+
+def test_a_goal_before_the_latest_prompt_still_does_not_count_in_a_long_transcript(tmp_path):
+    filler = [_call("Read", file_path=f"/tmp/f{i}", note="x" * 2000) for i in range(400)]
+    records = [
+        _call("Bash", command="empirica goals-create --objective x"),
+        *filler,
+        _prompt("now just fix the typo"),
+        _call("Edit"),
+    ]
+    assert sd.planning_in_transcript(_transcript(tmp_path, *records)) is None

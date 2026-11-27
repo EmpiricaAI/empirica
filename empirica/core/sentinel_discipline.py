@@ -711,17 +711,13 @@ def _goal_work(command: object) -> str | None:
     return None
 
 
-def planning_in_transcript(transcript_path: str | None) -> str | None:
-    """What in the transcript since the person's latest prompt makes this plan-shaped, or None."""
-    if not transcript_path:
-        return None
-    try:
-        with open(transcript_path, "rb") as fh:
-            fh.seek(0, os.SEEK_END)
-            fh.seek(max(0, fh.tell() - _TRANSCRIPT_TAIL))
-            lines = fh.read().split(b"\n")
-    except OSError:
-        return None
+#: Wider reads, used only when the tail does not reach the person's latest prompt: a long turn (big tool outputs, many calls)
+#: pushed a goal created early in it out of the 512 KB tail, and the small-act budget applied again (goal 8d201abb).
+_TRANSCRIPT_WINDOWS = (_TRANSCRIPT_TAIL, 4 * 1024 * 1024, 32 * 1024 * 1024)
+
+
+def _scan_since_prompt(lines: list[bytes]) -> tuple[bool, str | None]:
+    """(the person's latest prompt was in these lines, what since it makes the turn plan-shaped or None)."""
     task_creates = 0
     for raw in reversed(lines):
         try:
@@ -731,7 +727,7 @@ def planning_in_transcript(transcript_path: str | None) -> str | None:
         if not isinstance(record, dict):
             continue
         if _is_person_prompt(record):
-            break
+            return True, (f"the session created {task_creates} tasks" if task_creates >= 2 else None)
         message = record.get("message") if record.get("type") == "assistant" else None
         content = message.get("content") if isinstance(message, dict) else None
         for item in content if isinstance(content, list) else []:
@@ -739,7 +735,7 @@ def planning_in_transcript(transcript_path: str | None) -> str | None:
                 continue
             name = item.get("name")
             if name == "EnterPlanMode":
-                return "the session entered plan mode"
+                return False, "the session entered plan mode"
             if name == "TaskCreate":
                 task_creates += 1
             raw_input = item.get("input")
@@ -747,13 +743,31 @@ def planning_in_transcript(transcript_path: str | None) -> str | None:
             if name == "Bash":
                 started = _goal_work(inp.get("command"))
                 if started:
-                    return f"the session created {started}"
+                    return False, f"the session created {started}"
             todos = inp.get("todos") if name == "TodoWrite" else None
             if isinstance(todos, list) and len(todos) >= 2:
-                return f"the session laid out {len(todos)} todos"
-    if task_creates >= 2:
-        return f"the session created {task_creates} tasks"
-    return None
+                return False, f"the session laid out {len(todos)} todos"
+    return False, (f"the session created {task_creates} tasks" if task_creates >= 2 else None)
+
+
+def planning_in_transcript(transcript_path: str | None) -> str | None:
+    """What in the transcript since the person's latest prompt makes this plan-shaped, or None. Reads the last 512 KB, and
+    further back only when that tail does not reach the prompt (so an ordinary turn costs what it did)."""
+    if not transcript_path:
+        return None
+    try:
+        with open(transcript_path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            found = None
+            for window in _TRANSCRIPT_WINDOWS:
+                fh.seek(max(0, size - window))
+                saw_prompt, found = _scan_since_prompt(fh.read().split(b"\n"))
+                if found or saw_prompt or window >= size:
+                    return found
+            return found  # a turn longer than the widest window: what it holds, read to its start
+    except OSError:
+        return None
 
 
 def plan_shaped(suffix: str, transcript_path: str | None) -> str | None:
