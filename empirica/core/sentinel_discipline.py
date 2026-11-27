@@ -597,16 +597,19 @@ def _is_person_prompt(record: dict) -> bool:
 _GOAL_VERB = re.compile(
     r"(?<![\w.-])empirica(?:\.[\w.]+)?[\"']?"  # `python -m empirica.cli ...` (13th pass), `"/path/empirica" gc` (14th)
     # global options may come first, in any spelling argparse takes (`--verbose`, `-vv`, `--verb`, `--config f`)
-    r"(?:(?:\s|\\\n)+(?:--config(?:=\S+|(?:\s|\\\n)+\S+)|-[\w-]+))*"
-    r"(?:\s|\\\n)+(goals?-create|gc|goals?-add-task)(?![\w-])"
+    r"(?:(?:\s|\\\n)+(?:--conf\w*(?:=\S+|(?:\s|\\\n)+(?:\"[^\"]*\"|'[^']*'|\S+))|-[\w-]+))*"  # --conf, quoted paths
+    r"(?:\s|\\\n)+[\"']?(goals?-create|gc|goals?-add-task)[\"']?(?![\w-])"  # a quoted verb is still the verb
 )
 #: Anything on the line that can run quoted text as commands: then no quoted mention is exempt.
 _EXECUTES_TEXT = re.compile(
     r"(?<![\w-])(?:eval|sh|bash|zsh|dash|ksh|fish|ssh|xargs|parallel|watch|su|sudo|exec|source|"
     r"python\d*(?:\.\d+)?|node|deno|bun|perl|ruby|php|osascript|trap|awk|gawk|mawk|nawk|sed|env|flock|script|"
-    r"make)(?![\w-])"
+    r"make|tmux|screen|pwsh|powershell|cmd|nix-shell|nix|direnv)(?![\w-])"
     r"|(?:^|(?<=[\s;&|(]))\.(?=[ \t])"  # `. file` runs a file
+    r"|(?<!\S)--exec(?:=|\s)"  # git rebase --exec, find --exec-style options
 )
+#: A file being written: a redirect, or a command that writes one (goal 0a608244: cp /dev/stdin, install, dd of=).
+_WRITES_FILE = r">|(?<![\w-])(?:tee|cp|mv|install|dd|ln|sponge|rsync|truncate)(?![\w-])"
 #: A quoted string that cannot run anything: single quotes, or double quotes holding no $, backtick or backslash.
 _INERT_QUOTE = re.compile(r"'[^'\n]*'|\"[^\"\n$`\\]*\"")
 _QUOTED_HEREDOC = re.compile(r"(?<![<\\])<<(?!<)-?[ \t]*(['\"])([^'\"\n]+)\1[^\n]*\n")  # not <<<, not \<<
@@ -615,7 +618,7 @@ _ANY_STATUS = re.compile(r"(?<!\S)--st[\w]*(?![\w-])")  # argparse takes any una
 _STATEMENT_END = re.compile(r"[;&|\n)`]")
 
 
-def _exempt_mention(command: str, start: int) -> bool:
+def _exempt_mention(command: str, start: int, end: int) -> bool:
     """Is the verb at ``start`` plainly text that nothing runs? Two forms only, and only when nothing on the command can
     run text (eval, a shell, ssh, xargs, an interpreter, source):
 
@@ -635,7 +638,7 @@ def _exempt_mention(command: str, start: int) -> bool:
             bodies.append((m.end(), terminator.start(), terminator.end()))
     blank = [(a, end) for a, _b, end in bodies]  # body and its terminator line
     outside = "".join(command[i] if not any(a <= i < e for a, e in blank) else " " for i in range(len(command)))
-    if re.search(r">|\btee\b", _INERT_QUOTE.sub(" _ ", outside)) and re.search(
+    if re.search(_WRITES_FILE, _INERT_QUOTE.sub(" _ ", outside)) and re.search(
         r"&&|\|\||;|\||\n[ \t]*\S", outside.strip()
     ):
         return False  # it writes a file AND does something else: the file may be run (`cat > seed <<'EOF' && ./seed`,
@@ -645,9 +648,10 @@ def _exempt_mention(command: str, start: int) -> bool:
         # opener inside a comment, a multi-line message or after a continuation exempted a verb bash runs)
     if "'" in _INERT_QUOTE.sub("", outside) or '"' in _INERT_QUOTE.sub("", outside):
         return False  # a quote that is not an inert same-line pair: the pairing cannot be trusted
-    if any(a <= start < b for a, b, _end in bodies):
+    if any(a <= start and end <= b for a, b, _end in bodies):  # the whole `empirica <verb>` in one body
         return True
-    return any(q.start() < start < q.end() for q in _INERT_QUOTE.finditer(outside))
+    # the whole `empirica <verb>` inside ONE quote: `empirica 'gc'` or `"/bin/empirica" gc` quote only a part, and run
+    return any(q.start() < start and end <= q.end() - 1 for q in _INERT_QUOTE.finditer(outside))
 
 
 def _exempt_statement(command: str, verb_end: int, is_goal: bool) -> bool:
@@ -680,9 +684,13 @@ def _has_positional(statement: str) -> bool:
     """Does the statement pass goals-create a positional (a config path or `-`)? Every word must be a flag or the value
     right after a flag; a word that is neither is a positional. A boolean flag before a path reads as a value: rare."""
     words = statement.split()
+    if "--" in words:
+        return words.index("--") < len(words) - 1  # everything after -- is positional (goal 0a608244)
     expect_value = False
     for word in words:
-        if word in _BOOLEAN_FLAGS:
+        if word in _BOOLEAN_FLAGS or (
+            word.startswith("--") and len(word) >= 4 and any(f.startswith(word) for f in _BOOLEAN_FLAGS)
+        ):  # an abbreviation of a boolean flag (--forc, --use-bead) takes no value either
             expect_value = False  # takes no value: what follows is a positional (twelfth pass: --force g.json)
             continue
         if word.startswith("--") and "=" not in word:
@@ -703,9 +711,7 @@ def _goal_work(command: object) -> str | None:
         return None
     for m in _GOAL_VERB.finditer(command):
         is_goal = m.group(1) in ("goals-create", "goal-create", "gc")
-        if _exempt_mention(command, m.start(1)) or _exempt_statement(
-            command, m.end(), is_goal
-        ):  # the verb's own position
+        if _exempt_mention(command, m.start(), m.end(1)) or _exempt_statement(command, m.end(), is_goal):
             continue
         return "an empirica goal" if is_goal else "an empirica task"
     return None

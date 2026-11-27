@@ -205,3 +205,27 @@ def test_thirteenth_pass_misses_are_detected(command):
 )
 def test_fourteenth_pass_misses_are_detected(command):
     assert sd._goal_work(command) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cp /dev/stdin seed <<'EOF'\nempirica gc --objective x\nEOF\nchmod +x seed && ./seed",  # goal 0a608244
+        "install -m 755 /dev/stdin seed <<'EOF'\nempirica gc --objective x\nEOF\n./seed",
+        "echo 'empirica gc --objective x' | dd of=seed status=none && chmod +x seed && ./seed",
+        "empirica 'goals-create' --objective x",
+        'empirica "gc" --objective x',
+        "empirica --conf cfg.yaml goals-create --objective x",
+        'empirica --config "my cfg.yaml" goals-create --objective x',
+        "empirica goals-create --status planned -- g.json",
+        "empirica goals-create --forc g.json --status planned",
+        "empirica goals-create --use-bead g.json --status planned",
+        "tmux send-keys 'empirica goals-create --objective x' Enter",
+        "pwsh -c 'empirica goals-create --objective x'",
+        "cmd.exe /c 'empirica goals-create --objective x'",
+        "nix-shell --run 'empirica goals-create --objective x'",
+        "git rebase --exec 'empirica goals-create --objective x' HEAD~1",
+    ],
+)
+def test_fifteenth_pass_low_plausibility_misses_are_detected(command):
+    assert sd._goal_work(command) is not None
