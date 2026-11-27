@@ -295,6 +295,31 @@ def _link_goal_to_beads(args, config_data, goal, objective, scope_breadth, scope
         return None
 
 
+_INITIAL_STATUSES = ("planned", "in_progress", "blocked")
+
+
+def _initial_status(args, config_data: dict | None) -> str:
+    """The goal's starting status: an explicit --status, else the config's, else in_progress. An explicit flag wins over
+    the config, as flags usually do (before goal 3043656d the flag was never read in config mode, so piping JSON with
+    --status planned made an in_progress goal). An unknown config status is refused, not ignored."""
+    flag = getattr(args, "status", None)
+    if flag:
+        return flag
+    status = (config_data or {}).get("status")
+    if status is None:
+        return "in_progress"
+    if status not in _INITIAL_STATUSES:
+        raise ValueError(f"config status {status!r} is not one of {', '.join(_INITIAL_STATUSES)}")
+    return status
+
+
+def _apply_initial_status(conn, goal_id: str, status: str) -> None:
+    """Write a starting status other than the default (only 'planned' was written before, so blocked was dropped)."""
+    if status != "in_progress":
+        conn.execute("UPDATE goals SET status = ? WHERE id = ?", (status, goal_id))
+        conn.commit()
+
+
 def _parse_goal_config(args):
     """Parse goal config from file/stdin or legacy CLI flags.
 
@@ -553,6 +578,8 @@ def _build_and_save_goal(
     for entry in success_criteria_list:
         success_criteria_objects.append(_parse_criterion_entry(entry))
 
+    initial_status = _initial_status(args, config_data)  # before saving: a bad config status writes nothing
+
     # Create Goal object
     goal = Goal.create(
         objective=objective,
@@ -574,15 +601,8 @@ def _build_and_save_goal(
 
     success = goal_repo.save_goal(goal, session_id, transaction_id=transaction_id)
 
-    # Set initial status
-    initial_status = "in_progress"
-    if config_data:
-        initial_status = config_data.get("status", "in_progress")
-    elif hasattr(args, "status") and args.status:
-        initial_status = args.status
-    if initial_status == "planned" and success:
-        goal_repo.db.conn.execute("UPDATE goals SET status = 'planned' WHERE id = ?", (goal.id,))
-        goal_repo.db.conn.commit()
+    if success:
+        _apply_initial_status(goal_repo.db.conn, goal.id, initial_status)
 
     return goal, goal_repo, success_criteria_objects, scope, success, target_project_id
 

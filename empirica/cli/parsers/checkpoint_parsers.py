@@ -2047,8 +2047,8 @@ Example:
     goals_create_parser.add_argument(
         "--status",
         choices=["planned", "in_progress", "blocked"],
-        default="in_progress",
-        help="Initial status: 'planned' (logged, not started), 'in_progress' (active, default), or 'blocked' (waiting on external dependency)",
+        default=None,  # unset, so an explicit choice is told apart from none (and wins over a config's status)
+        help="Initial status: 'planned' (logged, not started), 'in_progress' (active, default), or 'blocked' (waiting on external dependency). Wins over a status in a config file or stdin JSON.",
     )
     goals_create_parser.add_argument(
         "--engagement-id",
